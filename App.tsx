@@ -6,11 +6,17 @@ import { useAuthStore } from "./src/store/authStore";
 import LoginScreen from "./src/screens/LoginScreen";
 import SelectSubBaseScreen from "./src/screens/SelectSubBaseScreen";
 import HomeScreen from "./src/screens/HomeScreen";
+import EntregasListScreen from "./src/features/entregas/screens/EntregasListScreen";
+import EntregaDetailScreen from "./src/features/entregas/screens/EntregaDetailScreen";
+import ScanScreen from "./src/features/entregas/screens/ScanScreen";
 
 export type RootStackParamList = {
   Login: undefined;
   SelectSubBase: { identifier: string; password: string; subBases: string[] };
   Home: undefined;
+  EntregasList: undefined;
+  EntregaDetail: { idSaida: number };
+  Scan: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -31,9 +37,20 @@ export default function App() {
       <StatusBar style="auto" />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {token ? (
-          <Stack.Screen name="Home">
-            {() => <HomeScreen onLogout={logout} />}
-          </Stack.Screen>
+          <>
+            <Stack.Screen name="Home">
+              {({ navigation }) => (
+                <HomeScreen
+                  onLogout={logout}
+                  onNavigateEntregas={() => navigation.navigate("EntregasList")}
+                  onNavigateScan={() => navigation.navigate("Scan")}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="EntregasList" component={EntregasListScreen} />
+            <Stack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
+            <Stack.Screen name="Scan" component={ScanScreen} />
+          </>
         ) : (
           <>
             <Stack.Screen name="Login">
