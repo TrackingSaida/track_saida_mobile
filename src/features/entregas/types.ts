@@ -3,6 +3,7 @@ export interface EntregaListItem {
   codigo: string | null;
   status: string;
   exibicao: string;
+  servico?: string | null;
   cliente: string | null;
   bairro: string | null;
   endereco: string | null;

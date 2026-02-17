@@ -87,3 +87,7 @@ export async function scanCodigo(codigo: string): Promise<ScanSuccess | ScanConf
 export async function assumirEntrega(idSaida: number): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/assumir`);
 }
+
+export async function desatribuirEntrega(idSaida: number): Promise<void> {
+  await client.post(`/mobile/entrega/${idSaida}/desatribuir`);
+}
