@@ -9,7 +9,9 @@ import {
   Alert,
   Modal,
   ScrollView,
+  Dimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -64,7 +66,39 @@ const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
   "aztec",
 ];
 
+const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
+const CORNER_LENGTH = 40;
+const CORNER_THICKNESS = 5;
+const CORNER_COLOR = "#00bfff"; // azul claro visível sobre a câmera
+
+function ScanFrameOverlay() {
+  const cornerStyle = {
+    position: "absolute" as const,
+    width: CORNER_LENGTH,
+    height: CORNER_LENGTH,
+    borderColor: CORNER_COLOR,
+    shadowColor: CORNER_COLOR,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 8,
+  };
+  return (
+    <View style={[styles.scanFrameWrap, { width: FRAME_SIZE, height: FRAME_SIZE }]} pointerEvents="none">
+      {/* Top-left L */}
+      <View style={[cornerStyle, { top: 0, left: 0, borderTopWidth: CORNER_THICKNESS, borderLeftWidth: CORNER_THICKNESS }]} />
+      {/* Top-right L */}
+      <View style={[cornerStyle, { top: 0, right: 0, borderTopWidth: CORNER_THICKNESS, borderRightWidth: CORNER_THICKNESS }]} />
+      {/* Bottom-left L */}
+      <View style={[cornerStyle, { bottom: 0, left: 0, borderBottomWidth: CORNER_THICKNESS, borderLeftWidth: CORNER_THICKNESS }]} />
+      {/* Bottom-right L */}
+      <View style={[cornerStyle, { bottom: 0, right: 0, borderBottomWidth: CORNER_THICKNESS, borderRightWidth: CORNER_THICKNESS }]} />
+    </View>
+  );
+}
+
 export default function ScanScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const [modoManual, setModoManual] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [loading, setLoading] = useState(false);
@@ -121,27 +155,14 @@ export default function ScanScreen({ navigation }: Props) {
           });
         } else if (result.entrega) {
           addLeitura(result.entrega);
-          Alert.alert("Sucesso", "Entrega atribuída.", [
-            {
-              text: "Ver entrega",
-              onPress: () =>
-                navigation.navigate("EntregaDetail", { idSaida: result.entrega?.id_saida ?? 0 }),
-            },
-            {
-              text: "Continuar",
-              onPress: () => {
-                setCodigo("");
-                setTimeout(() => (scanLocked.current = false), SCAN_DEBOUNCE_MS);
-              },
-            },
-          ]);
+          setCodigo("");
+          setTimeout(() => (scanLocked.current = false), 400);
         }
       } catch (e: unknown) {
+        const ax = e as { response?: { data?: { detail?: string } } };
         const msg =
-          e && typeof e === "object" && "response" in e
-            ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
-            : "Código não encontrado ou erro ao processar.";
-        Alert.alert("Erro", String(msg));
+          ax?.response?.data?.detail ?? "Código não encontrado ou erro ao processar.";
+        Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
         setTimeout(() => (scanLocked.current = false), 500);
       } finally {
         setLoading(false);
@@ -179,22 +200,10 @@ export default function ScanScreen({ navigation }: Props) {
       addLeitura(entrega);
       setConflito(null);
       scanLocked.current = false;
-      Alert.alert("Sucesso", "Entrega assumida.", [
-        {
-          text: "Ver entrega",
-          onPress: () => navigation.navigate("EntregaDetail", { idSaida: conflito.id_saida }),
-        },
-        {
-          text: "Continuar",
-          onPress: () => {},
-        },
-      ]);
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : "Erro ao assumir.";
-      Alert.alert("Erro", String(msg));
+      const ax = e as { response?: { data?: { detail?: string } } };
+      const msg = ax?.response?.data?.detail ?? "Erro ao assumir.";
+      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
     } finally {
       setAssumindo(false);
     }
@@ -322,6 +331,10 @@ export default function ScanScreen({ navigation }: Props) {
         onBarcodeScanned={loading ? undefined : handleBarcodeScanned}
       />
 
+      <View style={styles.scanFrameContainer} pointerEvents="none">
+        <ScanFrameOverlay />
+      </View>
+
       {loading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator color="#fff" size="large" />
@@ -329,7 +342,7 @@ export default function ScanScreen({ navigation }: Props) {
         </View>
       )}
 
-      <View style={styles.footerOverlay}>
+      <View style={[styles.footerOverlay, { paddingBottom: Math.max(24, insets.bottom) }]}>
         {/* Contador Shopee | Flex | Avulso */}
         <View style={styles.contadorRow}>
           <View style={[styles.contadorBadge, styles.badgeShopee]}>
@@ -504,11 +517,20 @@ const styles = StyleSheet.create({
   loadingText: { color: "#fff", marginTop: 12, fontSize: 16 },
   footerOverlay: {
     position: "absolute",
-    bottom: 24,
+    bottom: 0,
     left: 16,
     right: 16,
     zIndex: 10,
     maxHeight: "50%",
+  },
+  scanFrameContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 5,
+  },
+  scanFrameWrap: {
+    position: "relative",
   },
   contadorRow: {
     flexDirection: "row",

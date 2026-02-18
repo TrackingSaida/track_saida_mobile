@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { useAuthStore } from "../store/authStore";
 import { getResumoEntregas, iniciarRota } from "../features/entregas/api";
 
@@ -36,7 +37,7 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
   const nome = claims.username || "Motoboy";
   const subBase = claims.sub_base || "";
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await getResumoEntregas();
@@ -46,11 +47,14 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    load();
   }, []);
+
+  // Atualiza o resumo sempre que a tela ganha foco (ex.: voltar de Entregas ou Scanner)
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const handleIniciarRota = async () => {
     if (!resumo?.pode_iniciar_rota) return;
