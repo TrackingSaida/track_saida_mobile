@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import * as ImagePicker from "expo-image-picker";
-import { extractTextFromImage, isSupported as ocrSupported } from "expo-text-extractor";
 import { getEntrega, getMotivosAusencia, marcarEntregue, marcarAusente } from "../api";
 import type { EntregaListItem, MotivoAusencia } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -120,7 +119,20 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
 
   const handleOcrEndereco = async () => {
     setModalEnderecoOpcoes(false);
-    if (!ocrSupported) {
+    let extractTextFromImage: (uri: string) => Promise<string[]>;
+    let isSupported: boolean;
+    try {
+      const ocrModule = await import("expo-text-extractor");
+      extractTextFromImage = ocrModule.extractTextFromImage;
+      isSupported = ocrModule.isSupported;
+    } catch {
+      Alert.alert(
+        "OCR não disponível",
+        "O leitor de texto (OCR) funciona apenas em versão de desenvolvimento (build nativo). Use 'Digitar' ou 'Voz' para preencher o endereço."
+      );
+      return;
+    }
+    if (!isSupported) {
       Alert.alert("Não disponível", "Reconhecimento de texto não é suportado neste dispositivo.");
       return;
     }
