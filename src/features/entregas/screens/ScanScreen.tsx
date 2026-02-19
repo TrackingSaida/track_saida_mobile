@@ -16,15 +16,13 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
+import { useFocusEffect } from "@react-navigation/native";
 import { scanCodigo, assumirEntrega, desatribuirEntrega, getEntrega } from "../api";
+import { useScanSessionStore } from "../../../store/scanSessionStore";
+import { useDeliveryStore } from "../../../store/deliveryStore";
+import { playSound } from "../../../utils/sound";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Scan">;
-
-export interface LeituraSession {
-  id_saida: number;
-  codigo: string;
-  servico: "Shopee" | "Flex" | "Avulso";
-}
 
 function classifyServico(serv?: string | null): "Shopee" | "Flex" | "Avulso" {
   const s = (serv || "").trim().toLowerCase();
@@ -99,36 +97,48 @@ function ScanFrameOverlay() {
 
 export default function ScanScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const leiturasSession = useScanSessionStore((s) => s.leituras);
+  const addLeituraStore = useScanSessionStore((s) => s.addLeitura);
+  const removeLeituraStore = useScanSessionStore((s) => s.removeLeitura);
+  const clearLeituras = useScanSessionStore((s) => s.clearLeituras);
+  const setRotaIniciada = useScanSessionStore((s) => s.setRotaIniciada);
+  const clearSessionIfRotaIniciada = useScanSessionStore((s) => s.clearSessionIfRotaIniciada);
+
   const [modoManual, setModoManual] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [loading, setLoading] = useState(false);
   const [conflito, setConflito] = useState<{ motoboy_atual: string; id_saida: number } | null>(null);
   const [assumindo, setAssumindo] = useState(false);
-  const [leiturasSession, setLeiturasSession] = useState<LeituraSession[]>([]);
+  const [iniciandoRota, setIniciandoRota] = useState(false);
   const [listaExpandida, setListaExpandida] = useState(false);
   const [removendoId, setRemovendoId] = useState<number | null>(null);
+  const [showPrepararRotaModal, setShowPrepararRotaModal] = useState(false);
   const scanLocked = useRef(false);
+  const startRoute = useDeliveryStore((s) => s.startRoute);
   const [permission, requestPermission] = useCameraPermissions();
+
+  useFocusEffect(
+    useCallback(() => {
+      clearSessionIfRotaIniciada();
+    }, [clearSessionIfRotaIniciada])
+  );
 
   const addLeitura = useCallback((ent: { id_saida: number; codigo?: string | null; servico?: string | null }) => {
     const serv = classifyServico(ent.servico);
-    setLeiturasSession((prev) => {
-      if (prev.some((l) => l.id_saida === ent.id_saida)) return prev;
-      return [...prev, { id_saida: ent.id_saida, codigo: ent.codigo || "", servico: serv }];
-    });
-  }, []);
+    addLeituraStore({ id_saida: ent.id_saida, codigo: ent.codigo || "", servico: serv });
+  }, [addLeituraStore]);
 
   const removerLeitura = useCallback(async (id_saida: number) => {
     setRemovendoId(id_saida);
     try {
       await desatribuirEntrega(id_saida);
-      setLeiturasSession((prev) => prev.filter((l) => l.id_saida !== id_saida));
+      removeLeituraStore(id_saida);
     } catch {
       Alert.alert("Erro", "Não foi possível remover a leitura.");
     } finally {
       setRemovendoId(null);
     }
-  }, []);
+  }, [removeLeituraStore]);
 
   const contadores = {
     Shopee: leiturasSession.filter((l) => l.servico === "Shopee").length,
@@ -156,12 +166,14 @@ export default function ScanScreen({ navigation }: Props) {
         } else if (result.entrega) {
           addLeitura(result.entrega);
           setCodigo("");
+          playSound("success");
           setTimeout(() => (scanLocked.current = false), 400);
         }
       } catch (e: unknown) {
         const ax = e as { response?: { data?: { detail?: string } } };
         const msg =
           ax?.response?.data?.detail ?? "Código não encontrado ou erro ao processar.";
+        playSound("error");
         Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
         setTimeout(() => (scanLocked.current = false), 500);
       } finally {
@@ -200,13 +212,43 @@ export default function ScanScreen({ navigation }: Props) {
       addLeitura(entrega);
       setConflito(null);
       scanLocked.current = false;
+      playSound("success");
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
       const msg = ax?.response?.data?.detail ?? "Erro ao assumir.";
+      playSound("error");
       Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
     } finally {
       setAssumindo(false);
     }
+  };
+
+  const handleComecarEntregar = async () => {
+    if (leiturasSession.length === 0) return;
+    setIniciandoRota(true);
+    try {
+      await startRoute();
+      clearLeituras();
+      setRotaIniciada(true);
+      setShowPrepararRotaModal(true);
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string } } };
+      const msg = ax?.response?.data?.detail ?? "Erro ao iniciar rota.";
+      playSound("error");
+      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+    } finally {
+      setIniciandoRota(false);
+    }
+  };
+
+  const handlePrepararRota = () => {
+    setShowPrepararRotaModal(false);
+    navigation.navigate("PrepareDeliveries");
+  };
+
+  const handleIrParaPendentes = () => {
+    setShowPrepararRotaModal(false);
+    navigation.navigate("EntregasList");
   };
 
   // Modo manual: digitação como opção secundária
@@ -314,7 +356,7 @@ export default function ScanScreen({ navigation }: Props) {
 
   return (
     <View style={styles.containerCamera}>
-      <View style={styles.headerOverlay}>
+      <View style={[styles.headerOverlay, { top: insets.top }]}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backTextWhite}>← Voltar</Text>
         </TouchableOpacity>
@@ -358,6 +400,20 @@ export default function ScanScreen({ navigation }: Props) {
             <Text style={styles.contadorLabel}>Avulso</Text>
           </View>
         </View>
+
+        {leiturasSession.length > 0 && (
+          <TouchableOpacity
+            style={[styles.btnComecarEntregar, iniciandoRota && styles.btnDisabled]}
+            onPress={handleComecarEntregar}
+            disabled={iniciandoRota}
+          >
+            {iniciandoRota ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.btnComecarEntregarText}>Começar Entrega</Text>
+            )}
+          </TouchableOpacity>
+        )}
 
         {/* Arrastar para cima = lista de leituras */}
         {leiturasSession.length > 0 && (
@@ -442,6 +498,23 @@ export default function ScanScreen({ navigation }: Props) {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={showPrepararRotaModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Preparar rota</Text>
+            <Text style={styles.modalMessage}>Você deseja preparar sua rota agora?</Text>
+            <View style={[styles.modalActions, { flexDirection: "column", gap: 10 }]}>
+              <TouchableOpacity style={styles.modalBtnOk} onPress={handlePrepararRota}>
+                <Text style={styles.modalBtnOkText}>Preparar Rota</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={handleIrParaPendentes}>
+                <Text style={styles.modalBtnCancelText}>Ir para Pendentes</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -460,7 +533,6 @@ const styles = StyleSheet.create({
   header: { marginBottom: 32 },
   headerOverlay: {
     position: "absolute",
-    top: 48,
     left: 24,
     right: 24,
     zIndex: 10,
@@ -550,6 +622,14 @@ const styles = StyleSheet.create({
   badgeAvulso: { backgroundColor: "rgba(99,102,241,0.9)" },
   contadorNum: { fontSize: 20, fontWeight: "700", color: "#fff" },
   contadorLabel: { fontSize: 12, color: "rgba(255,255,255,0.95)" },
+  btnComecarEntregar: {
+    backgroundColor: "#0d6efd",
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  btnComecarEntregarText: { color: "#fff", fontSize: 18, fontWeight: "600" },
   verListaBtn: {
     paddingVertical: 10,
     alignItems: "center",

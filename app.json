@@ -13,7 +13,8 @@
         {
           "cameraPermission": "Permitir acesso à câmera para escanear códigos de entrega"
         }
-      ]
+      ],
+      "expo-speech-recognition"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",

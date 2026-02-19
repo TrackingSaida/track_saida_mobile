@@ -41,8 +41,9 @@ export async function getEntrega(idSaida: number): Promise<EntregaListItem> {
   return data;
 }
 
-export async function iniciarRota(): Promise<{ atualizados: number }> {
-  const { data } = await client.post<{ atualizados: number }>("/mobile/iniciar-rota");
+export async function iniciarRota(deliveryIds?: number[]): Promise<{ atualizados: number }> {
+  const body = deliveryIds?.length ? { delivery_ids: deliveryIds } : {};
+  const { data } = await client.post<{ atualizados: number }>("/mobile/iniciar-rota", body);
   return data;
 }
 
@@ -56,6 +57,25 @@ export async function marcarAusente(idSaida: number, motivoId: number, observaca
 
 export async function getMotivosAusencia(): Promise<MotivoAusencia[]> {
   const { data } = await client.get<MotivoAusencia[]>("/mobile/motivos-ausencia");
+  return data;
+}
+
+export interface EnderecoBody {
+  destinatario: string;
+  rua: string;
+  numero: string;
+  complemento?: string | null;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  cep: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  origem?: "manual" | "ocr" | "voz";
+}
+
+export async function putEndereco(idSaida: number, body: EnderecoBody): Promise<EntregaListItem> {
+  const { data } = await client.put<EntregaListItem>(`/mobile/entrega/${idSaida}/endereco`, body);
   return data;
 }
 

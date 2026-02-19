@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { useAuthStore } from "../store/authStore";
 import { getResumoEntregas, iniciarRota } from "../features/entregas/api";
@@ -29,7 +30,14 @@ function decodeJwtPayload(token: string): { username?: string; sub_base?: string
 }
 
 export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateScan }: Props) {
-  const [resumo, setResumo] = useState<{ pendentes: number; finalizadas_hoje: number; pode_iniciar_rota: boolean } | null>(null);
+  const insets = useSafeAreaInsets();
+  const [resumo, setResumo] = useState<{
+    pendentes: number;
+    finalizadas_hoje: number;
+    pode_iniciar_rota: boolean;
+    ausentes?: number;
+    atraso_d1?: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [iniciando, setIniciando] = useState(false);
   const token = useAuthStore((s) => s.token);
@@ -43,7 +51,7 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
       const r = await getResumoEntregas();
       setResumo(r);
     } catch {
-      setResumo({ pendentes: 0, finalizadas_hoje: 0, pode_iniciar_rota: false });
+      setResumo({ pendentes: 0, finalizadas_hoje: 0, pode_iniciar_rota: false, ausentes: 0, atraso_d1: 0 });
     } finally {
       setLoading(false);
     }
@@ -68,7 +76,10 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingTop: Math.max(24, insets.top) }]}
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Entregas</Text>
         <Text style={styles.greeting}>Olá, {nome}</Text>
@@ -88,6 +99,17 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
           <View style={styles.cardSec}>
             <Text style={styles.cardSecLabel}>Finalizadas hoje</Text>
             <Text style={styles.cardSecValue}>{resumo?.finalizadas_hoje ?? 0}</Text>
+          </View>
+
+          <View style={styles.cardSecRow}>
+            <View style={[styles.cardSecSmall, styles.cardSecSmallLeft]}>
+              <Text style={styles.cardSecLabel}>Ausentes</Text>
+              <Text style={styles.cardSecValue}>{resumo?.ausentes ?? 0}</Text>
+            </View>
+            <View style={[styles.cardSecSmall, styles.cardSecSmallRight]}>
+              <Text style={styles.cardSecLabel}>Em atraso (D+1)</Text>
+              <Text style={styles.cardSecValue}>{resumo?.atraso_d1 ?? 0}</Text>
+            </View>
           </View>
 
           <TouchableOpacity style={styles.btnScan} onPress={onNavigateScan}>
@@ -145,6 +167,20 @@ const styles = StyleSheet.create({
   },
   cardSecLabel: { fontSize: 14, color: "#666" },
   cardSecValue: { fontSize: 24, fontWeight: "600", color: "#333" },
+  cardSecRow: { flexDirection: "row", gap: 12, marginBottom: 24 },
+  cardSecSmall: {
+    flex: 1,
+    backgroundColor: "#fff",
+    padding: 16,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardSecSmallLeft: {},
+  cardSecSmallRight: {},
   btnScan: {
     backgroundColor: "#198754",
     paddingVertical: 18,

@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuthStore } from "./src/store/authStore";
@@ -9,6 +10,7 @@ import HomeScreen from "./src/screens/HomeScreen";
 import EntregasListScreen from "./src/features/entregas/screens/EntregasListScreen";
 import EntregaDetailScreen from "./src/features/entregas/screens/EntregaDetailScreen";
 import ScanScreen from "./src/features/entregas/screens/ScanScreen";
+import PrepareDeliveriesScreen from "./src/features/entregas/screens/PrepareDeliveriesScreen";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -17,6 +19,7 @@ export type RootStackParamList = {
   EntregasList: undefined;
   EntregaDetail: { idSaida: number };
   Scan: undefined;
+  PrepareDeliveries: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -33,8 +36,9 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <StatusBar style="auto" />
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <StatusBar style="auto" />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {token ? (
           <>
@@ -50,6 +54,7 @@ export default function App() {
             <Stack.Screen name="EntregasList" component={EntregasListScreen} />
             <Stack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
             <Stack.Screen name="Scan" component={ScanScreen} />
+            <Stack.Screen name="PrepareDeliveries" component={PrepareDeliveriesScreen} />
           </>
         ) : (
           <>
@@ -81,6 +86,7 @@ export default function App() {
           </>
         )}
       </Stack.Navigator>
-    </NavigationContainer>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
