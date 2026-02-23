@@ -12,15 +12,17 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { decodeJwtPayload } from "../utils/jwt";
-import { getResumoEntregas, iniciarRota } from "../features/entregas/api";
+import { getResumoEntregas, iniciarRota, getRotasAtiva } from "../features/entregas/api";
+import { useDeliveryStore } from "../store/deliveryStore";
 
 type Props = {
   onLogout: () => void;
   onNavigateEntregas: () => void;
   onNavigateScan: () => void;
+  onNavigateRouteBuilder?: () => void;
 };
 
-export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateScan }: Props) {
+export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateScan, onNavigateRouteBuilder }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(
@@ -121,7 +123,19 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+      (async () => {
+        try {
+          const rotaAtiva = await getRotasAtiva();
+          if (rotaAtiva && onNavigateRouteBuilder) {
+            const restoreActiveRoute = useDeliveryStore.getState().restoreActiveRoute;
+            await restoreActiveRoute(rotaAtiva);
+            onNavigateRouteBuilder();
+          }
+        } catch {
+          // ignora erro ao buscar rota ativa
+        }
+      })();
+    }, [load, onNavigateRouteBuilder])
   );
 
   const handleIniciarRota = async () => {

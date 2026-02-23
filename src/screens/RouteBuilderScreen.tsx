@@ -54,8 +54,18 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const deliveriesWithoutAddress = useDeliveryStore((s) => s.deliveriesWithoutAddress);
   const setRouteDeliveries = useDeliveryStore((s) => s.setRouteDeliveries);
   const optimizeRoute = useDeliveryStore((s) => s.optimizeRoute);
+  const activeRouteId = useDeliveryStore((s) => s.activeRouteId);
+  const activeStopIndex = useDeliveryStore((s) => s.activeStopIndex);
+  const startActiveRoute = useDeliveryStore((s) => s.startActiveRoute);
+  const completeStop = useDeliveryStore((s) => s.completeStop);
+  const finishRoute = useDeliveryStore((s) => s.finishRoute);
+
+  const isRouteActive = activeRouteId != null;
 
   const [showToast, setShowToast] = useState(false);
+  const [showRotaFinalizadaModal, setShowRotaFinalizadaModal] = useState(false);
+  const [centerOnStopId, setCenterOnStopId] = useState<number | null>(null);
+  const [iniciandoRota, setIniciandoRota] = useState(false);
 
   const ordered = useMemo(
     () => getOrderedRouteDeliveries(routeDeliveries, routeOrder),
@@ -116,11 +126,22 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     try {
       await markDelivered(id, {});
       setSelectedDelivery(null);
+      if (isRouteActive && activeRouteId) {
+        await completeStop();
+        const nextIdx = useDeliveryStore.getState().activeStopIndex;
+        const order = useDeliveryStore.getState().routeOrder;
+        if (nextIdx < order.length) {
+          setCenterOnStopId(order[nextIdx]);
+        } else {
+          await finishRoute();
+          setShowRotaFinalizadaModal(true);
+        }
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erro ao marcar entregue.";
       Alert.alert("Erro", msg);
     }
-  }, [selectedDelivery, markDelivered]);
+  }, [selectedDelivery, markDelivered, isRouteActive, activeRouteId, completeStop, finishRoute]);
 
   const openAusenteModal = useCallback(() => {
     if (!selectedDelivery) return;
@@ -158,6 +179,18 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       setShowAusenteModal(false);
       setDeliveryForAusente(null);
       setSelectedDelivery(null);
+      const active = useDeliveryStore.getState().activeRouteId;
+      if (active) {
+        await completeStop();
+        const nextIdx = useDeliveryStore.getState().activeStopIndex;
+        const order = useDeliveryStore.getState().routeOrder;
+        if (nextIdx < order.length) {
+          setCenterOnStopId(order[nextIdx]);
+        } else {
+          await finishRoute();
+          setShowRotaFinalizadaModal(true);
+        }
+      }
     } catch (e: unknown) {
       const msg =
         e && typeof e === "object" && "response" in e
@@ -167,7 +200,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [deliveryForAusente, motivoId, motivos, observacao, markAbsent]);
+  }, [deliveryForAusente, motivoId, motivos, observacao, markAbsent, completeStop, finishRoute]);
 
   const openNavegarModal = useCallback(() => {
     if (!selectedDelivery) return;
@@ -180,6 +213,25 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     setShowNavegarModal(false);
     setDeliveryForNavegar(null);
   }, []);
+
+  const handleIniciarRota = useCallback(async () => {
+    if (ordered.length === 0) return;
+    setIniciandoRota(true);
+    try {
+      await startActiveRoute();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Erro ao iniciar rota.";
+      Alert.alert("Erro", msg);
+    } finally {
+      setIniciandoRota(false);
+    }
+  }, [ordered.length, startActiveRoute]);
+
+  const handleFecharRotaFinalizada = useCallback(() => {
+    setShowRotaFinalizadaModal(false);
+    setCenterOnStopId(null);
+    navigation.navigate("EntregasList");
+  }, [navigation]);
 
   const styles = useMemo(
     () =>
@@ -336,12 +388,30 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     ? (routeDeliveryStatus[selectedDelivery.id_saida] ?? "pendente")
     : "pendente";
 
+  const modalRotaFinalizada = (
+    <Modal visible={showRotaFinalizadaModal} transparent animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalBox}>
+          <Text style={styles.modalTitle}>Rota finalizada</Text>
+          <Text style={styles.modalBtnCancelText}>Parabéns! Você concluiu todas as paradas.</Text>
+          <TouchableOpacity
+            style={[styles.modalBtnOk, { marginTop: 16 }]}
+            onPress={handleFecharRotaFinalizada}
+          >
+            <Text style={styles.modalBtnOkText}>OK</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.mapFull}>
         <DeliveryMap
           onMarkerPress={handleMarkerPress}
           selectedId={selectedDelivery?.id_saida ?? null}
+          centerOnStopId={centerOnStopId}
         />
       </View>
 
@@ -355,20 +425,32 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           <Text style={styles.statText}>
             <Text style={styles.statValue}>{ordered.length}</Text> parada{ordered.length !== 1 ? "s" : ""}
           </Text>
-          <Text style={styles.statText}>
-            <Text style={styles.statValue}>{routeStats.distanceKm.toFixed(1)}</Text> km
-          </Text>
-          <Text style={styles.statText}>
-            ~<Text style={styles.statValue}>{routeStats.estimatedMinutes}</Text> min
-          </Text>
+          {isRouteActive ? (
+            <Text style={styles.statText}>
+              Parada <Text style={styles.statValue}>{activeStopIndex + 1}</Text> de <Text style={styles.statValue}>{routeOrder.length}</Text>
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.statText}>
+                <Text style={styles.statValue}>{routeStats.distanceKm.toFixed(1)}</Text> km
+              </Text>
+              <Text style={styles.statText}>
+                ~<Text style={styles.statValue}>{routeStats.estimatedMinutes}</Text> min
+              </Text>
+            </>
+          )}
         </View>
+        {!isRouteActive && (
         <View style={[styles.badgeRota, { backgroundColor: isPartialRoute ? colors.warning + "30" : colors.success + "30" }]}>
           <Text>{isPartialRoute ? "🟡" : "🟢"}</Text>
           <Text style={styles.badgeRotaText}>
             {isPartialRoute ? "Rota parcial" : "Rota completa"}
           </Text>
         </View>
+        )}
         <View style={styles.headerButtons}>
+          {!isRouteActive && (
+            <>
           <TouchableOpacity
             style={styles.headerBtn}
             onPress={handleOtimizar}
@@ -387,6 +469,19 @@ export default function RouteBuilderScreen({ navigation }: Props) {
               <Text style={styles.headerBtnSecondaryText}>Adicionar Endereços</Text>
             </TouchableOpacity>
           )}
+            </>
+          )}
+          {!isRouteActive && ordered.length > 0 && (
+            <TouchableOpacity
+              style={[styles.headerBtn, styles.headerBtnSecondary]}
+              onPress={handleIniciarRota}
+              disabled={iniciandoRota}
+            >
+              <Text style={styles.headerBtnSecondaryText}>
+                {iniciandoRota ? "Iniciando…" : "Iniciar Rota"}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -397,7 +492,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       )}
 
       <View style={styles.sheetOverlay}>
-        <RouteBottomSheet />
+        <RouteBottomSheet disableDrag={isRouteActive} />
       </View>
 
       {selectedDelivery && (
@@ -511,6 +606,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           </View>
         </TouchableOpacity>
       </Modal>
+      {modalRotaFinalizada}
     </View>
   );
 }

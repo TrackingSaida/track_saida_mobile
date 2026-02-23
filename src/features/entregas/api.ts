@@ -119,3 +119,31 @@ export async function assumirEntrega(idSaida: number): Promise<void> {
 export async function desatribuirEntrega(idSaida: number): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/desatribuir`);
 }
+
+// --- Rotas ativas persistidas ---
+
+export interface RotasAtivaResponse {
+  rota_id: string;
+  ordem: number[];
+  parada_atual: number;
+  data?: string;
+}
+
+export async function postRotasIniciar(ordem: number[]): Promise<{ rota_id: string }> {
+  const { data } = await client.post<{ rota_id: string }>("/mobile/rotas/iniciar", { ordem });
+  return data;
+}
+
+export async function getRotasAtiva(): Promise<RotasAtivaResponse | null> {
+  const { data } = await client.get<RotasAtivaResponse | null>("/mobile/rotas/ativa");
+  return data ?? null;
+}
+
+export async function postRotasAvancar(rotaId: string): Promise<{ parada_atual: number }> {
+  const { data } = await client.post<{ parada_atual: number }>(`/mobile/rotas/${rotaId}/avancar`);
+  return data;
+}
+
+export async function postRotasFinalizar(rotaId: string): Promise<void> {
+  await client.post(`/mobile/rotas/${rotaId}/finalizar`);
+}

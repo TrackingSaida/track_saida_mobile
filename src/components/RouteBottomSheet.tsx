@@ -7,6 +7,7 @@ import {
   LayoutAnimation,
   UIManager,
   Platform,
+  FlatList,
 } from "react-native";
 import DraggableFlatList, {
   type RenderItemParams,
@@ -43,9 +44,10 @@ interface RouteItemProps {
   colors: ReturnType<typeof useThemeColors>;
   status: RouteItemStatus;
   routeOrder: number[];
+  disableDrag?: boolean;
 }
 
-function RouteItemRow({ item, index, isActive, drag, colors, status, routeOrder }: RouteItemProps) {
+function RouteItemRow({ item, index, isActive, drag, colors, status, routeOrder, disableDrag }: RouteItemProps) {
   const idx = routeOrder.indexOf(item.id_saida);
   const routeNumber = idx >= 0 ? idx + 1 : 0;
   const orderDisplay = routeNumber >= 1 ? String(routeNumber) : "—";
@@ -105,8 +107,8 @@ function RouteItemRow({ item, index, isActive, drag, colors, status, routeOrder 
   return (
     <TouchableOpacity
       style={styles.row}
-      onLongPress={drag}
-      delayLongPress={200}
+      onLongPress={disableDrag ? undefined : drag}
+      delayLongPress={disableDrag ? undefined : 200}
       activeOpacity={1}
     >
       <View style={styles.orderBox}>
@@ -128,7 +130,7 @@ function RouteItemRow({ item, index, isActive, drag, colors, status, routeOrder 
   );
 }
 
-export default function RouteBottomSheet() {
+export default function RouteBottomSheet({ disableDrag = false }: { disableDrag?: boolean }) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const [collapsed, setCollapsed] = useState(false);
@@ -166,6 +168,23 @@ export default function RouteBottomSheet() {
         colors={colors}
         status={routeDeliveryStatus[item.id_saida] ?? "pendente"}
         routeOrder={routeOrder}
+        disableDrag={disableDrag}
+      />
+    ),
+    [colors, routeDeliveryStatus, routeOrder, disableDrag]
+  );
+
+  const renderRow = useCallback(
+    ({ item, index }: { item: EntregaListItem; index: number }) => (
+      <RouteItemRow
+        item={item}
+        index={index}
+        isActive={false}
+        drag={() => {}}
+        colors={colors}
+        status={routeDeliveryStatus[item.id_saida] ?? "pendente"}
+        routeOrder={routeOrder}
+        disableDrag
       />
     ),
     [colors, routeDeliveryStatus, routeOrder]
@@ -231,13 +250,15 @@ export default function RouteBottomSheet() {
         <Text style={styles.totalText}>
           {total} parada{total !== 1 ? "s" : ""}
         </Text>
-        <TouchableOpacity
-          style={styles.optimizeBtn}
-          onPress={optimizeRoute}
-          disabled={total < 2}
-        >
-          <Text style={styles.optimizeBtnText}>Otimizar Rota</Text>
-        </TouchableOpacity>
+        {!disableDrag && (
+          <TouchableOpacity
+            style={styles.optimizeBtn}
+            onPress={optimizeRoute}
+            disabled={total < 2}
+          >
+            <Text style={styles.optimizeBtnText}>Otimizar Rota</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {!collapsed && (
@@ -246,6 +267,12 @@ export default function RouteBottomSheet() {
             <View style={styles.empty}>
               <Text style={styles.emptyText}>Nenhuma entrega na rota</Text>
             </View>
+          ) : disableDrag ? (
+            <FlatList
+              data={ordered}
+              keyExtractor={(item) => String(item.id_saida)}
+              renderItem={({ item, index }) => renderRow({ item, index })}
+            />
           ) : (
             <DraggableFlatList
               data={ordered}

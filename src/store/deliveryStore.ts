@@ -6,8 +6,13 @@ import {
   iniciarRota,
   marcarEntregue,
   marcarAusente,
+  postRotasIniciar,
+  getRotasAtiva,
+  postRotasAvancar,
+  postRotasFinalizar,
   type EnderecoBody,
   type EntregueBody,
+  type RotasAtivaResponse,
 } from "../features/entregas/api";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
 
@@ -32,6 +37,11 @@ interface DeliveryState {
   /** Status por id_saida na rota: pendente | entregue | ausente (para mapa/lista). */
   routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente">;
 
+  /** ID da rota ativa persistida no backend (null quando não há rota ativa). */
+  activeRouteId: string | null;
+  /** Índice 0-based da próxima parada na rota ativa. */
+  activeStopIndex: number;
+
   loadDeliveries: () => Promise<void>;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
   startRoute: (deliveryIds?: number[]) => Promise<number>;
@@ -47,6 +57,12 @@ interface DeliveryState {
   optimizeRoute: () => void;
   reorderRoute: (order: number[]) => void;
   setRouteDeliveryStatus: (idSaida: number, status: "pendente" | "entregue" | "ausente") => void;
+
+  /** Inicia rota persistida com routeOrder atual; retorna rota_id. */
+  startActiveRoute: () => Promise<string>;
+  completeStop: () => Promise<void>;
+  finishRoute: () => Promise<void>;
+  restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
 }
 
 function withAddress(d: EntregaListItem): boolean {
@@ -72,6 +88,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   routeDeliveries: [],
   routeOrder: [],
   routeDeliveryStatus: {},
+  activeRouteId: null,
+  activeStopIndex: 0,
 
   loadDeliveries: async () => {
     set({ loading: true, error: null });
@@ -128,6 +146,66 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     set({ routeStarted: true });
     await get().loadDeliveries();
     return atualizados;
+  },
+
+  startActiveRoute: async () => {
+    const { routeOrder } = get();
+    if (routeOrder.length === 0) throw new Error("Nenhuma entrega na rota.");
+    const { rota_id } = await postRotasIniciar(routeOrder);
+    set({
+      activeRouteId: rota_id,
+      activeStopIndex: 0,
+      routeStarted: true,
+    });
+    await get().loadDeliveries();
+    return rota_id;
+  },
+
+  completeStop: async () => {
+    const { activeRouteId } = get();
+    if (!activeRouteId) return;
+    const { parada_atual } = await postRotasAvancar(activeRouteId);
+    set({ activeStopIndex: parada_atual });
+  },
+
+  finishRoute: async () => {
+    const { activeRouteId } = get();
+    if (!activeRouteId) return;
+    await postRotasFinalizar(activeRouteId);
+    set({
+      activeRouteId: null,
+      activeStopIndex: 0,
+      routeDeliveries: [],
+      routeOrder: [],
+      routeDeliveryStatus: {},
+    });
+  },
+
+  restoreActiveRoute: async (payload) => {
+    const [pendentes, finalizadas, ausentes] = await Promise.all([
+      getEntregas("pendente"),
+      getEntregas("finalizadas"),
+      getEntregas("ausentes"),
+    ]);
+    const byId = new Map<number, EntregaListItem>();
+    [...pendentes, ...finalizadas, ...ausentes].forEach((d) => byId.set(d.id_saida, d));
+    const deliveries: EntregaListItem[] = [];
+    const routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente"> = {};
+    for (const id of payload.ordem) {
+      const d = byId.get(id);
+      if (d) {
+        deliveries.push(d);
+        routeDeliveryStatus[d.id_saida] =
+          d.exibicao === "Entregue" ? "entregue" : d.exibicao === "Ausente" ? "ausente" : "pendente";
+      }
+    }
+    set({
+      activeRouteId: payload.rota_id,
+      routeOrder: payload.ordem,
+      activeStopIndex: payload.parada_atual,
+      routeDeliveries: deliveries,
+      routeDeliveryStatus,
+    });
   },
 
   suggestRoute: (fromLat?, fromLon?) => {

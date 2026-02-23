@@ -56,6 +56,7 @@ function HomeStackScreen() {
             onLogout={useAuthStore.getState().logout}
             onNavigateEntregas={() => navigation.navigate("EntregasList")}
             onNavigateScan={() => navigation.navigate("Scan")}
+            onNavigateRouteBuilder={() => navigation.navigate("RouteBuilder")}
           />
         )}
       </HomeStack.Screen>

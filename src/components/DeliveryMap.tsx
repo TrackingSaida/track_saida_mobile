@@ -21,9 +21,11 @@ const MARKER_STATUS_COLORS = {
 export interface DeliveryMapProps {
   onMarkerPress?: (delivery: EntregaListItem, index: number) => void;
   selectedId?: number | null;
+  /** Quando definido, centraliza o mapa nesta parada (id_saida). */
+  centerOnStopId?: number | null;
 }
 
-export default function DeliveryMap({ onMarkerPress, selectedId }: DeliveryMapProps) {
+export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId }: DeliveryMapProps) {
   const mapRef = useRef<MapView>(null);
   const colors = useThemeColors();
   const routeDeliveries = useDeliveryStore((s) => s.routeDeliveries);
@@ -68,6 +70,25 @@ export default function DeliveryMap({ onMarkerPress, selectedId }: DeliveryMapPr
       );
     }
   }, [withCoords]);
+
+  const prevCenterIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (centerOnStopId == null) return;
+    if (prevCenterIdRef.current === centerOnStopId) return;
+    prevCenterIdRef.current = centerOnStopId;
+    const d = ordered.find((x) => x.id_saida === centerOnStopId);
+    if (d?.latitude != null && d?.longitude != null) {
+      mapRef.current?.animateToRegion(
+        {
+          latitude: d.latitude,
+          longitude: d.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        },
+        400
+      );
+    }
+  }, [centerOnStopId, ordered]);
 
   const styles = useMemo(
     () =>
