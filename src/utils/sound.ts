@@ -1,4 +1,8 @@
-import { Audio } from "expo-av";
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  type AudioPlayer,
+} from "expo-audio";
 
 type SoundType = "success" | "error";
 
@@ -7,17 +11,17 @@ const SOUND_URIS: Record<SoundType, string> = {
   error: "https://assets.mixkit.co/active_storage/sfx/2568-error.mp3",
 };
 
-let cached: Partial<Record<SoundType, Awaited<ReturnType<typeof Audio.Sound.createAsync>>["sound"]>> = {};
+let cached: Partial<Record<SoundType, AudioPlayer>> = {};
 let modeSet = false;
 
 async function ensureMode(): Promise<void> {
   if (modeSet) return;
   try {
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: false,
+      interruptionMode: "duckOthers",
+      allowsRecording: false,
     });
     modeSet = true;
   } catch {
@@ -29,17 +33,14 @@ export async function playSound(type: SoundType): Promise<void> {
   try {
     await ensureMode();
     const uri = SOUND_URIS[type];
-    let sound = cached[type];
-    if (!sound) {
-      const { sound: s } = await Audio.Sound.createAsync(
-        { uri },
-        { shouldPlay: false }
-      );
-      sound = s;
-      cached[type] = sound;
+    let player = cached[type];
+    if (!player) {
+      // downloadFirst: false evita falha de download com URLs externas (CORS/rede) e usa streaming
+      player = createAudioPlayer(uri, { downloadFirst: false });
+      cached[type] = player;
     }
-    await sound.setPositionAsync(0);
-    await sound.playAsync();
+    await player.seekTo(0);
+    player.play();
   } catch {
     // Ignore: sem rede, asset indisponível ou permissão
   }

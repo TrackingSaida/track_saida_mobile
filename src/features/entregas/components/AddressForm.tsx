@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { useThemeColors } from "../../../theme/colors";
 
 export interface AddressFormValues {
   destinatario: string;
@@ -72,6 +73,44 @@ export default function AddressForm({
   onCancel,
   submitLabel = "Salvar",
 }: AddressFormProps) {
+  const colors = useThemeColors();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        wrap: { flex: 1 },
+        scroll: { flex: 1 },
+        field: { marginBottom: 16 },
+        label: { fontSize: 14, color: colors.text, marginBottom: 6 },
+        asterisk: { color: colors.danger },
+        input: {
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          borderRadius: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          fontSize: 16,
+          backgroundColor: colors.inputBackground,
+          color: colors.text,
+        },
+        inputError: { borderColor: colors.danger },
+        errorText: { fontSize: 12, color: colors.danger, marginTop: 4 },
+        cepLoading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+        cepLoadingText: { fontSize: 12, color: colors.textSecondary },
+        actions: { flexDirection: "row", gap: 12, marginTop: 24, marginBottom: 24 },
+        btnCancel: { paddingVertical: 12, paddingHorizontal: 20 },
+        btnCancelText: { color: colors.textSecondary, fontSize: 16 },
+        btnSave: {
+          flex: 1,
+          backgroundColor: colors.primary,
+          paddingVertical: 14,
+          borderRadius: 8,
+          alignItems: "center",
+        },
+        btnDisabled: { opacity: 0.7 },
+        btnSaveText: { color: colors.primaryContrast, fontWeight: "600", fontSize: 16 },
+      }),
+    [colors]
+  );
   const [values, setValues] = useState<AddressFormValues>(() => ({
     ...initialEmpty,
     ...initialValues,
@@ -175,6 +214,7 @@ export default function AddressForm({
                 onChangeText={(t) => set(key, t)}
                 onBlur={() => blur(key)}
                 placeholder={placeholder ?? label}
+                placeholderTextColor={colors.placeholder}
                 editable={key !== "cep" || !loadingCep}
               />
               {key === "cep" && loadingCep && (
@@ -198,43 +238,10 @@ export default function AddressForm({
             onPress={handleSubmit}
             disabled={saving}
           >
-            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnSaveText}>{submitLabel}</Text>}
+            {saving ? <ActivityIndicator color={colors.primaryContrast} size="small" /> : <Text style={styles.btnSaveText}>{submitLabel}</Text>}
           </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: { flex: 1 },
-  scroll: { flex: 1 },
-  field: { marginBottom: 16 },
-  label: { fontSize: 14, color: "#333", marginBottom: 6 },
-  asterisk: { color: "#dc3545" },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    backgroundColor: "#fff",
-  },
-  inputError: { borderColor: "#dc3545" },
-  errorText: { fontSize: 12, color: "#dc3545", marginTop: 4 },
-  cepLoading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
-  cepLoadingText: { fontSize: 12, color: "#666" },
-  actions: { flexDirection: "row", gap: 12, marginTop: 24, marginBottom: 24 },
-  btnCancel: { paddingVertical: 12, paddingHorizontal: 20 },
-  btnCancelText: { color: "#666", fontSize: 16 },
-  btnSave: {
-    flex: 1,
-    backgroundColor: "#0d6efd",
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  btnDisabled: { opacity: 0.7 },
-  btnSaveText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-});

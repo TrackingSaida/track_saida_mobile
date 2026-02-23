@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { useAuthStore } from "../store/authStore";
+import { useThemeColors } from "../theme/colors";
+import { decodeJwtPayload } from "../utils/jwt";
 import { getResumoEntregas, iniciarRota } from "../features/entregas/api";
 
 type Props = {
@@ -18,19 +20,77 @@ type Props = {
   onNavigateScan: () => void;
 };
 
-function decodeJwtPayload(token: string): { username?: string; sub_base?: string } {
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return {};
-    const payload = JSON.parse(atob(parts[1]));
-    return { username: payload.username, sub_base: payload.sub_base };
-  } catch {
-    return {};
-  }
-}
-
 export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateScan }: Props) {
   const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: { flex: 1, backgroundColor: colors.background },
+        content: { padding: 24, paddingBottom: 48 },
+        header: { marginBottom: 24 },
+        title: { fontSize: 24, fontWeight: "700", marginBottom: 4, color: colors.text },
+        greeting: { fontSize: 16, color: colors.text },
+        subBase: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
+        loader: { marginTop: 48 },
+        cardMain: {
+          backgroundColor: colors.primary,
+          padding: 24,
+          borderRadius: 12,
+          marginBottom: 16,
+        },
+        cardMainLabel: { fontSize: 14, color: "rgba(255,255,255,0.9)" },
+        cardMainValue: { fontSize: 36, fontWeight: "700", color: colors.primaryContrast, marginVertical: 8 },
+        cardMainLink: { fontSize: 14, color: colors.primaryContrast, textDecorationLine: "underline" },
+        cardSec: {
+          backgroundColor: colors.backgroundCard,
+          padding: 16,
+          borderRadius: 12,
+          marginBottom: 24,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.06,
+          shadowRadius: 4,
+          elevation: 2,
+        },
+        cardSecLabel: { fontSize: 14, color: colors.textSecondary },
+        cardSecValue: { fontSize: 24, fontWeight: "600", color: colors.text },
+        cardSecRow: { flexDirection: "row", gap: 12, marginBottom: 24 },
+        cardSecSmall: {
+          flex: 1,
+          backgroundColor: colors.backgroundCard,
+          padding: 16,
+          borderRadius: 12,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.06,
+          shadowRadius: 4,
+          elevation: 2,
+        },
+        cardSecSmallLeft: {},
+        cardSecSmallRight: {},
+        btnScan: {
+          backgroundColor: colors.success,
+          paddingVertical: 18,
+          borderRadius: 12,
+          alignItems: "center",
+          marginBottom: 12,
+        },
+        btnScanText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        btnIniciar: {
+          backgroundColor: colors.primary,
+          paddingVertical: 14,
+          borderRadius: 12,
+          alignItems: "center",
+          marginBottom: 12,
+        },
+        btnDisabled: { opacity: 0.7 },
+        btnIniciarText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnSair: { marginTop: 24, paddingVertical: 12, alignItems: "center" },
+        btnSairText: { color: colors.danger, fontSize: 16 },
+      }),
+    [colors]
+  );
   const [resumo, setResumo] = useState<{
     pendentes: number;
     finalizadas_hoje: number;
@@ -136,68 +196,3 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { padding: 24, paddingBottom: 48 },
-  header: { marginBottom: 24 },
-  title: { fontSize: 24, fontWeight: "700", marginBottom: 4 },
-  greeting: { fontSize: 16, color: "#333" },
-  subBase: { fontSize: 14, color: "#666", marginTop: 4 },
-  loader: { marginTop: 48 },
-  cardMain: {
-    backgroundColor: "#0d6efd",
-    padding: 24,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  cardMainLabel: { fontSize: 14, color: "rgba(255,255,255,0.9)" },
-  cardMainValue: { fontSize: 36, fontWeight: "700", color: "#fff", marginVertical: 8 },
-  cardMainLink: { fontSize: 14, color: "#fff", textDecorationLine: "underline" },
-  cardSec: {
-    backgroundColor: "#fff",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  cardSecLabel: { fontSize: 14, color: "#666" },
-  cardSecValue: { fontSize: 24, fontWeight: "600", color: "#333" },
-  cardSecRow: { flexDirection: "row", gap: 12, marginBottom: 24 },
-  cardSecSmall: {
-    flex: 1,
-    backgroundColor: "#fff",
-    padding: 16,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  cardSecSmallLeft: {},
-  cardSecSmallRight: {},
-  btnScan: {
-    backgroundColor: "#198754",
-    paddingVertical: 18,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  btnScanText: { color: "#fff", fontSize: 18, fontWeight: "600" },
-  btnIniciar: {
-    backgroundColor: "#0d6efd",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  btnDisabled: { opacity: 0.7 },
-  btnIniciarText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  btnSair: { marginTop: 24, paddingVertical: 12, alignItems: "center" },
-  btnSairText: { color: "#dc3545", fontSize: 16 },
-});

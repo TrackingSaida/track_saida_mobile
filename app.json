@@ -14,7 +14,14 @@
           "cameraPermission": "Permitir acesso à câmera para escanear códigos de entrega"
         }
       ],
-      "expo-speech-recognition"
+      "expo-speech-recognition",
+      "expo-audio",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Usar Face ID para entrar no app"
+        }
+      ]
     ],
     "splash": {
       "image": "./assets/splash-icon.png",

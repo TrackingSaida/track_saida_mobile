@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
+import { useThemeColors } from "../../../theme/colors";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import AddressForm, { type AddressFormValues, type AddressOrigem } from "../components/AddressForm";
 
@@ -18,6 +19,62 @@ type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
 export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: { flex: 1, backgroundColor: colors.background },
+        content: { padding: 24 },
+        center: { flex: 1, justifyContent: "center", alignItems: "center" },
+        header: { marginBottom: 24 },
+        backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
+        title: { fontSize: 22, fontWeight: "700", color: colors.text },
+        card: {
+          backgroundColor: colors.backgroundCard,
+          padding: 20,
+          borderRadius: 12,
+          marginBottom: 24,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+          elevation: 2,
+        },
+        totalLabel: { fontSize: 14, color: colors.textSecondary, marginBottom: 4 },
+        totalValue: { fontSize: 28, fontWeight: "700", color: colors.text, marginBottom: 16 },
+        row: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+        label: { fontSize: 14, color: colors.textSecondary },
+        value: { fontSize: 16, fontWeight: "600", color: colors.text },
+        btnSequencia: {
+          backgroundColor: colors.primary,
+          paddingVertical: 16,
+          borderRadius: 12,
+          alignItems: "center",
+          marginBottom: 12,
+        },
+        btnDisabled: { opacity: 0.6 },
+        btnSequenciaText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        btnLista: {
+          paddingVertical: 16,
+          borderRadius: 12,
+          alignItems: "center",
+          borderWidth: 1,
+          borderColor: colors.primary,
+        },
+        btnListaText: { color: colors.primary, fontSize: 16, fontWeight: "600" },
+        modalWrap: { flex: 1, backgroundColor: colors.backgroundCard },
+        modalHeader: {
+          paddingHorizontal: 24,
+          paddingBottom: 16,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.separator,
+        },
+        modalBackText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
+        modalTitle: { fontSize: 18, fontWeight: "700", color: colors.text },
+        modalSubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
+      }),
+    [colors]
+  );
   const {
     pendingDeliveries,
     deliveriesWithAddress,
@@ -142,50 +199,3 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { padding: 24 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  header: { marginBottom: 24 },
-  backText: { fontSize: 16, color: "#0d6efd", marginBottom: 8 },
-  title: { fontSize: 22, fontWeight: "700" },
-  card: {
-    backgroundColor: "#fff",
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  totalLabel: { fontSize: 14, color: "#666", marginBottom: 4 },
-  totalValue: { fontSize: 28, fontWeight: "700", color: "#333", marginBottom: 16 },
-  row: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
-  label: { fontSize: 14, color: "#666" },
-  value: { fontSize: 16, fontWeight: "600", color: "#333" },
-  btnSequencia: {
-    backgroundColor: "#0d6efd",
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  btnDisabled: { opacity: 0.6 },
-  btnSequenciaText: { color: "#fff", fontSize: 18, fontWeight: "600" },
-  btnLista: {
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#0d6efd",
-  },
-  btnListaText: { color: "#0d6efd", fontSize: 16, fontWeight: "600" },
-  modalWrap: { flex: 1, backgroundColor: "#fff" },
-  modalHeader: { paddingHorizontal: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: "#eee" },
-  modalBackText: { fontSize: 16, color: "#0d6efd", marginBottom: 8 },
-  modalTitle: { fontSize: 18, fontWeight: "700" },
-  modalSubtitle: { fontSize: 14, color: "#666", marginTop: 4 },
-});

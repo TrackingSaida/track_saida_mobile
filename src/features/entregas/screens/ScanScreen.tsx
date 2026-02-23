@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -10,10 +10,12 @@ import {
   Modal,
   ScrollView,
   Dimensions,
+  type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
+import { useThemeColors } from "../../../theme/colors";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect } from "@react-navigation/native";
@@ -69,7 +71,7 @@ const CORNER_LENGTH = 40;
 const CORNER_THICKNESS = 5;
 const CORNER_COLOR = "#00bfff"; // azul claro visível sobre a câmera
 
-function ScanFrameOverlay() {
+function ScanFrameOverlay({ wrapStyle }: { wrapStyle: ViewStyle }) {
   const cornerStyle = {
     position: "absolute" as const,
     width: CORNER_LENGTH,
@@ -82,7 +84,7 @@ function ScanFrameOverlay() {
     elevation: 8,
   };
   return (
-    <View style={[styles.scanFrameWrap, { width: FRAME_SIZE, height: FRAME_SIZE }]} pointerEvents="none">
+    <View style={[wrapStyle, { width: FRAME_SIZE, height: FRAME_SIZE }]} pointerEvents="none">
       {/* Top-left L */}
       <View style={[cornerStyle, { top: 0, left: 0, borderTopWidth: CORNER_THICKNESS, borderLeftWidth: CORNER_THICKNESS }]} />
       {/* Top-right L */}
@@ -97,6 +99,160 @@ function ScanFrameOverlay() {
 
 export default function ScanScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: {
+          flex: 1,
+          backgroundColor: colors.background,
+          padding: 24,
+          paddingTop: 48,
+        },
+        containerCamera: { flex: 1, backgroundColor: "#000" },
+        header: { marginBottom: 32 },
+        headerOverlay: {
+          position: "absolute",
+          left: 24,
+          right: 24,
+          zIndex: 10,
+        },
+        backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
+        backTextWhite: { fontSize: 16, color: "#fff", marginBottom: 8, fontWeight: "600" },
+        title: { fontSize: 22, fontWeight: "700", color: colors.text },
+        titleWhite: { fontSize: 22, fontWeight: "700", color: "#fff" },
+        subtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
+        subtitleWhite: { fontSize: 14, color: "rgba(255,255,255,0.9)", marginTop: 4 },
+        input: {
+          backgroundColor: colors.inputBackground,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          borderRadius: 12,
+          padding: 16,
+          fontSize: 18,
+          marginBottom: 24,
+          color: colors.text,
+        },
+        btnScan: {
+          backgroundColor: colors.success,
+          paddingVertical: 18,
+          borderRadius: 12,
+          alignItems: "center",
+        },
+        btnDisabled: { opacity: 0.7 },
+        btnScanText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        linkManual: { marginTop: 24, alignItems: "center" },
+        linkManualText: { fontSize: 15, color: colors.primary },
+        linkManualWhite: { paddingVertical: 12, alignItems: "center" },
+        linkManualTextWhite: { fontSize: 15, color: "rgba(255,255,255,0.95)" },
+        permissionText: { fontSize: 16, color: colors.text, textAlign: "center", marginBottom: 24 },
+        loadingOverlay: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: colors.overlay,
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 5,
+        },
+        loadingText: { color: "#fff", marginTop: 12, fontSize: 16 },
+        footerOverlay: {
+          position: "absolute",
+          bottom: 0,
+          left: 16,
+          right: 16,
+          zIndex: 10,
+          maxHeight: "50%",
+        },
+        scanFrameContainer: {
+          ...StyleSheet.absoluteFillObject,
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 5,
+        },
+        scanFrameWrap: { position: "relative" as const },
+        contadorRow: {
+          flexDirection: "row",
+          justifyContent: "space-around",
+          marginBottom: 8,
+          gap: 8,
+        },
+        contadorBadge: {
+          flex: 1,
+          paddingVertical: 8,
+          paddingHorizontal: 12,
+          borderRadius: 8,
+          alignItems: "center",
+        },
+        badgeShopee: { backgroundColor: "rgba(238,77,45,0.9)" },
+        badgeFlex: { backgroundColor: "rgba(255,224,102,0.9)" },
+        badgeAvulso: { backgroundColor: "rgba(99,102,241,0.9)" },
+        contadorNum: { fontSize: 20, fontWeight: "700", color: "#fff" },
+        contadorLabel: { fontSize: 12, color: "rgba(255,255,255,0.95)" },
+        btnComecarEntregar: {
+          backgroundColor: colors.primary,
+          paddingVertical: 16,
+          borderRadius: 12,
+          alignItems: "center",
+          marginBottom: 10,
+        },
+        btnComecarEntregarText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        verListaBtn: {
+          paddingVertical: 10,
+          alignItems: "center",
+          backgroundColor: "rgba(0,0,0,0.5)",
+          borderRadius: 8,
+          marginBottom: 8,
+        },
+        verListaText: { color: "#fff", fontSize: 14 },
+        listaLeituras: {
+          maxHeight: 200,
+          backgroundColor: "rgba(0,0,0,0.75)",
+          borderRadius: 8,
+          marginBottom: 8,
+          overflow: "hidden",
+        },
+        listaScroll: { maxHeight: 200 },
+        listaItem: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: "rgba(255,255,255,0.2)",
+        },
+        listaItemInfo: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
+        listaItemCodigo: { color: "#fff", fontSize: 15, fontWeight: "600" },
+        servicoBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+        servicoBadgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+        btnRemover: {
+          paddingVertical: 6,
+          paddingHorizontal: 12,
+          borderRadius: 6,
+          backgroundColor: "rgba(220,53,69,0.8)",
+        },
+        btnRemoverText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+        modalOverlay: {
+          flex: 1,
+          backgroundColor: colors.overlay,
+          justifyContent: "center",
+          padding: 24,
+        },
+        modalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 24 },
+        modalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 12, color: colors.text },
+        modalMessage: { fontSize: 16, color: colors.text, marginBottom: 24 },
+        modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12 },
+        modalBtnCancel: { paddingVertical: 12, paddingHorizontal: 24 },
+        modalBtnCancelText: { color: colors.textSecondary, fontSize: 16 },
+        modalBtnOk: {
+          backgroundColor: colors.primary,
+          paddingVertical: 12,
+          paddingHorizontal: 24,
+          borderRadius: 8,
+        },
+        modalBtnOkText: { color: colors.primaryContrast, fontWeight: "600", fontSize: 16 },
+      }),
+    [colors]
+  );
   const leiturasSession = useScanSessionStore((s) => s.leituras);
   const addLeituraStore = useScanSessionStore((s) => s.addLeitura);
   const removeLeituraStore = useScanSessionStore((s) => s.removeLeitura);
@@ -266,6 +422,7 @@ export default function ScanScreen({ navigation }: Props) {
         <TextInput
           style={styles.input}
           placeholder="Código"
+          placeholderTextColor={colors.placeholder}
           value={codigo}
           onChangeText={setCodigo}
           autoCapitalize="none"
@@ -518,175 +675,3 @@ export default function ScanScreen({ navigation }: Props) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-    padding: 24,
-    paddingTop: 48,
-  },
-  containerCamera: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
-  header: { marginBottom: 32 },
-  headerOverlay: {
-    position: "absolute",
-    left: 24,
-    right: 24,
-    zIndex: 10,
-  },
-  backText: { fontSize: 16, color: "#0d6efd", marginBottom: 8 },
-  backTextWhite: { fontSize: 16, color: "#fff", marginBottom: 8, fontWeight: "600" },
-  title: { fontSize: 22, fontWeight: "700" },
-  titleWhite: { fontSize: 22, fontWeight: "700", color: "#fff" },
-  subtitle: { fontSize: 14, color: "#666", marginTop: 4 },
-  subtitleWhite: { fontSize: 14, color: "rgba(255,255,255,0.9)", marginTop: 4 },
-  input: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 18,
-    marginBottom: 24,
-  },
-  btnScan: {
-    backgroundColor: "#198754",
-    paddingVertical: 18,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  btnDisabled: { opacity: 0.7 },
-  btnScanText: { color: "#fff", fontSize: 18, fontWeight: "600" },
-  linkManual: {
-    marginTop: 24,
-    alignItems: "center",
-  },
-  linkManualText: { fontSize: 15, color: "#0d6efd" },
-  linkManualWhite: {
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  linkManualTextWhite: {
-    fontSize: 15,
-    color: "rgba(255,255,255,0.95)",
-  },
-  permissionText: {
-    fontSize: 16,
-    color: "#333",
-    textAlign: "center",
-    marginBottom: 24,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 5,
-  },
-  loadingText: { color: "#fff", marginTop: 12, fontSize: 16 },
-  footerOverlay: {
-    position: "absolute",
-    bottom: 0,
-    left: 16,
-    right: 16,
-    zIndex: 10,
-    maxHeight: "50%",
-  },
-  scanFrameContainer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 5,
-  },
-  scanFrameWrap: {
-    position: "relative",
-  },
-  contadorRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 8,
-    gap: 8,
-  },
-  contadorBadge: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  badgeShopee: { backgroundColor: "rgba(238,77,45,0.9)" },
-  badgeFlex: { backgroundColor: "rgba(255,224,102,0.9)" },
-  badgeAvulso: { backgroundColor: "rgba(99,102,241,0.9)" },
-  contadorNum: { fontSize: 20, fontWeight: "700", color: "#fff" },
-  contadorLabel: { fontSize: 12, color: "rgba(255,255,255,0.95)" },
-  btnComecarEntregar: {
-    backgroundColor: "#0d6efd",
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  btnComecarEntregarText: { color: "#fff", fontSize: 18, fontWeight: "600" },
-  verListaBtn: {
-    paddingVertical: 10,
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  verListaText: { color: "#fff", fontSize: 14 },
-  listaLeituras: {
-    maxHeight: 200,
-    backgroundColor: "rgba(0,0,0,0.75)",
-    borderRadius: 8,
-    marginBottom: 8,
-    overflow: "hidden",
-  },
-  listaScroll: { maxHeight: 200 },
-  listaItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.2)",
-  },
-  listaItemInfo: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
-  listaItemCodigo: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  servicoBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  servicoBadgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  btnRemover: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: "rgba(220,53,69,0.8)",
-  },
-  btnRemoverText: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    padding: 24,
-  },
-  modalBox: { backgroundColor: "#fff", borderRadius: 12, padding: 24 },
-  modalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 12 },
-  modalMessage: { fontSize: 16, color: "#333", marginBottom: 24 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12 },
-  modalBtnCancel: { paddingVertical: 12, paddingHorizontal: 24 },
-  modalBtnCancelText: { color: "#666", fontSize: 16 },
-  modalBtnOk: {
-    backgroundColor: "#0d6efd",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-  },
-  modalBtnOkText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-});

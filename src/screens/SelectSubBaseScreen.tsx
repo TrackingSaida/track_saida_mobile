@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
 } from "react-native";
 import { motoboySelectSubBase } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
+import { useThemeColors } from "../theme/colors";
+import { offerBiometricAfterLogin } from "../utils/biometricOffer";
 
 type Props = {
   identifier: string;
@@ -27,6 +29,32 @@ export default function SelectSubBaseScreen({
   onBack,
 }: Props) {
   const setToken = useAuthStore((s) => s.setToken);
+  const setBiometricEnabled = useAuthStore((s) => s.setBiometricEnabled);
+  const colors = useThemeColors();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: { flex: 1, padding: 24, backgroundColor: colors.background },
+        title: { fontSize: 22, fontWeight: "700", marginBottom: 8, color: colors.text },
+        subtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 24 },
+        backBtn: { marginBottom: 16 },
+        backBtnText: { fontSize: 16, color: colors.primary },
+        loader: { marginTop: 48 },
+        item: {
+          backgroundColor: colors.backgroundCard,
+          padding: 16,
+          borderRadius: 8,
+          marginBottom: 12,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+          elevation: 2,
+        },
+        itemText: { fontSize: 16, color: colors.text },
+      }),
+    [colors]
+  );
   const [loading, setLoading] = useState(false);
 
   const handleSelect = async (subBase: string) => {
@@ -35,7 +63,7 @@ export default function SelectSubBaseScreen({
       const res = await motoboySelectSubBase(identifier, password, subBase);
       if (res.access_token) {
         await setToken(res.access_token);
-        onSuccess();
+        await offerBiometricAfterLogin(setBiometricEnabled, onSuccess);
       }
     } catch (err: unknown) {
       const msg =
@@ -79,45 +107,3 @@ export default function SelectSubBaseScreen({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 24,
-    backgroundColor: "#f5f5f5",
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 24,
-  },
-  backBtn: {
-    marginBottom: 16,
-  },
-  backBtnText: {
-    fontSize: 16,
-    color: "#0d6efd",
-  },
-  loader: {
-    marginTop: 48,
-  },
-  item: {
-    backgroundColor: "#fff",
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  itemText: {
-    fontSize: 16,
-  },
-});

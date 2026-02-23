@@ -47,8 +47,16 @@ export async function iniciarRota(deliveryIds?: number[]): Promise<{ atualizados
   return data;
 }
 
-export async function marcarEntregue(idSaida: number): Promise<void> {
-  await client.post(`/mobile/entrega/${idSaida}/entregue`);
+export interface EntregueBody {
+  tipo_recebedor?: string | null;
+  nome_recebedor?: string | null;
+  tipo_documento?: string | null;
+  numero_documento?: string | null;
+  observacao_entrega?: string | null;
+}
+
+export async function marcarEntregue(idSaida: number, body?: EntregueBody): Promise<void> {
+  await client.post(`/mobile/entrega/${idSaida}/entregue`, body ?? {});
 }
 
 export async function marcarAusente(idSaida: number, motivoId: number, observacao?: string): Promise<void> {

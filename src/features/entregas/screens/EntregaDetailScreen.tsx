@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -14,21 +14,188 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
+import { useThemeColors } from "../../../theme/colors";
 import * as ImagePicker from "expo-image-picker";
 import { getEntrega, getMotivosAusencia, marcarEntregue, marcarAusente } from "../api";
 import type { EntregaListItem, MotivoAusencia } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import AddressForm, { type AddressFormValues, type AddressOrigem } from "../components/AddressForm";
+import FormEntregaConcluida from "../components/FormEntregaConcluida";
 import { parseOcrToAddress, parseVoiceToAddress } from "../utils/ocrAddress";
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from "expo-speech-recognition";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregaDetail">;
 
+/** Só montado após import dinâmico do módulo; evita crash no Expo Go. */
+function VoiceAddressModal({
+  speechModule,
+  modalStyles,
+  onDone,
+  onCancel,
+}: {
+  speechModule: {
+    ExpoSpeechRecognitionModule: typeof import("expo-speech-recognition").ExpoSpeechRecognitionModule;
+    useSpeechRecognitionEvent: typeof import("expo-speech-recognition").useSpeechRecognitionEvent;
+  };
+  modalStyles: {
+    modalOverlay: object;
+    modalBox: object;
+    modalTitle: object;
+    modalMessage: object;
+    modalBtnCancel: object;
+    modalBtnCancelText: object;
+  };
+  onDone: (transcript: string) => void;
+  onCancel: () => void;
+}) {
+  const transcriptRef = useRef("");
+  const { ExpoSpeechRecognitionModule: SR, useSpeechRecognitionEvent } = speechModule;
+
+  useSpeechRecognitionEvent("result", (event) => {
+    const t = event.results?.[0]?.transcript;
+    if (typeof t === "string") transcriptRef.current = t;
+  });
+  useSpeechRecognitionEvent("end", () => {
+    const text = transcriptRef.current.trim();
+    transcriptRef.current = "";
+    if (text) onDone(text);
+    else onCancel();
+  });
+  useSpeechRecognitionEvent("error", () => {
+    Alert.alert("Erro", "Não foi possível reconhecer a fala.");
+    onCancel();
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await SR.requestPermissionsAsync();
+        if (!result.granted || cancelled) return onCancel();
+        if (!SR.isRecognitionAvailable()) {
+          Alert.alert("Não disponível", "Reconhecimento de voz não é suportado neste dispositivo.");
+          return onCancel();
+        }
+        if (cancelled) return;
+        await SR.start({ lang: "pt-BR", continuous: false, interimResults: false });
+      } catch {
+        if (!cancelled) Alert.alert("Erro", "Não foi possível iniciar o reconhecimento de voz.");
+        onCancel();
+      }
+    })();
+    return () => {
+      cancelled = true;
+      try {
+        SR.abort();
+      } catch {}
+    };
+  }, [SR]);
+
+  return (
+    <Modal visible transparent animationType="fade">
+      <View style={modalStyles.modalOverlay}>
+        <View style={modalStyles.modalBox}>
+          <Text style={modalStyles.modalTitle}>Voz</Text>
+          <Text style={modalStyles.modalMessage}>Ouvindo… Fale o endereço.</Text>
+          <TouchableOpacity style={modalStyles.modalBtnCancel} onPress={onCancel}>
+            <Text style={modalStyles.modalBtnCancelText}>Cancelar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function EntregaDetailScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: { flex: 1, backgroundColor: colors.background },
+        content: { padding: 16, paddingBottom: 48 },
+        center: { flex: 1, justifyContent: "center", alignItems: "center" },
+        header: { marginBottom: 16 },
+        backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
+        title: { fontSize: 22, fontWeight: "700", color: colors.text },
+        avisoRota: {
+          backgroundColor: colors.warning,
+          padding: 12,
+          borderRadius: 8,
+          marginBottom: 16,
+        },
+        avisoRotaText: { fontSize: 14, color: colors.text },
+        card: {
+          backgroundColor: colors.backgroundCard,
+          padding: 20,
+          borderRadius: 12,
+          marginBottom: 24,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+          elevation: 2,
+        },
+        label: { fontSize: 12, color: colors.textSecondary, marginTop: 12, marginBottom: 4 },
+        value: { fontSize: 16, color: colors.text },
+        valueSec: { fontSize: 14, color: colors.textSecondary, marginTop: 2 },
+        link: { fontSize: 16, color: colors.primary },
+        btnEntregue: {
+          backgroundColor: colors.success,
+          paddingVertical: 18,
+          borderRadius: 12,
+          alignItems: "center",
+          marginBottom: 12,
+        },
+        btnAusente: { backgroundColor: colors.danger, paddingVertical: 18, borderRadius: 12, alignItems: "center" },
+        btnDisabled: { opacity: 0.7 },
+        btnEntregueText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        btnAusenteText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        modalOverlay: {
+          flex: 1,
+          backgroundColor: colors.overlay,
+          justifyContent: "center",
+          padding: 24,
+        },
+        modalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 24 },
+        modalBoxForm: { flex: 1, margin: 0, justifyContent: "center" },
+        modalMessage: { fontSize: 16, color: colors.text, marginBottom: 16 },
+        modalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 16, color: colors.text },
+        btnEndereco: {
+          marginTop: 16,
+          paddingVertical: 12,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: colors.primary,
+          alignItems: "center",
+        },
+        btnEnderecoText: { color: colors.primary, fontSize: 16, fontWeight: "600" },
+        radio: {
+          paddingVertical: 12,
+          paddingHorizontal: 16,
+          borderRadius: 8,
+          marginBottom: 8,
+          backgroundColor: colors.inputBackground,
+        },
+        radioActive: { backgroundColor: colors.primary },
+        radioText: { fontSize: 16, color: colors.text },
+        input: {
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.inputBackground,
+          borderRadius: 8,
+          padding: 12,
+          marginTop: 12,
+          minHeight: 80,
+          color: colors.text,
+        },
+        modalActions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 24, gap: 12 },
+        modalBtnCancel: { paddingVertical: 10, paddingHorizontal: 20 },
+        modalBtnCancelText: { color: colors.textSecondary },
+        modalBtnOk: { backgroundColor: colors.primary, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
+        modalBtnOkText: { color: colors.primaryContrast, fontWeight: "600" },
+      }),
+    [colors]
+  );
   const { idSaida } = route.params;
   const [entrega, setEntrega] = useState<EntregaListItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,37 +206,14 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [ocrInitialValues, setOcrInitialValues] = useState<Partial<AddressFormValues> | null>(null);
   const [enderecoOrigem, setEnderecoOrigem] = useState<AddressOrigem>("manual");
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [vozListening, setVozListening] = useState(false);
-  const vozTranscriptRef = useRef("");
-  const vozPendingRef = useRef(false);
+  const [vozLoading, setVozLoading] = useState(false);
+  const [speechModule, setSpeechModule] = useState<typeof import("expo-speech-recognition") | null>(null);
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [showEntregueModal, setShowEntregueModal] = useState(false);
   const [motivos, setMotivos] = useState<MotivoAusencia[]>([]);
   const [motivoId, setMotivoId] = useState<number | null>(null);
   const [observacao, setObservacao] = useState("");
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
-
-  useSpeechRecognitionEvent("result", (event) => {
-    const t = event.results?.[0]?.transcript;
-    if (typeof t === "string" && vozPendingRef.current) vozTranscriptRef.current = t;
-  });
-  useSpeechRecognitionEvent("end", () => {
-    if (!vozPendingRef.current) return;
-    vozPendingRef.current = false;
-    setVozListening(false);
-    const text = vozTranscriptRef.current.trim();
-    vozTranscriptRef.current = "";
-    if (!text) return;
-    const parsed = parseVoiceToAddress(text);
-    setOcrInitialValues({ ...parsed, destinatario: parsed.destinatario ?? entrega?.cliente ?? "" });
-    setEnderecoOrigem("voz");
-    setModalEndereco(true);
-  });
-  useSpeechRecognitionEvent("error", () => {
-    if (vozPendingRef.current) {
-      vozPendingRef.current = false;
-      setVozListening(false);
-      Alert.alert("Erro", "Não foi possível reconhecer a fala.");
-    }
-  });
 
   const load = async () => {
     setLoading(true);
@@ -89,22 +233,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     load();
   }, [idSaida]);
 
-  const handleEntregue = async () => {
-    setSaving(true);
-    try {
-      await marcarEntregue(idSaida);
-      Alert.alert("Sucesso", "Entrega marcada como entregue.", [
-        { text: "OK", onPress: () => navigation.goBack() },
-      ]);
-    } catch (e: unknown) {
-      const msg = e && typeof e === "object" && "response" in e
-        ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
-        : "Erro ao salvar.";
-      Alert.alert("Erro", String(msg));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const handleAbrirEntregueModal = () => setShowEntregueModal(true);
 
   const handleAbrirAusente = () => setModalAusente(true);
 
@@ -184,30 +313,36 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
 
   const handleVozEndereco = async () => {
     setModalEnderecoOpcoes(false);
+    setVozLoading(true);
     try {
-      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!result.granted) {
-        Alert.alert("Permissão", "É necessário permitir o uso do microfone.");
-        return;
-      }
-      const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
-      if (!available) {
-        Alert.alert("Não disponível", "Reconhecimento de voz não é suportado neste dispositivo.");
-        return;
-      }
-      vozTranscriptRef.current = "";
-      vozPendingRef.current = true;
-      setVozListening(true);
-      await ExpoSpeechRecognitionModule.start({
-        lang: "pt-BR",
-        continuous: false,
-        interimResults: false,
-      });
+      const mod = await import("expo-speech-recognition");
+      setSpeechModule(mod);
+      setShowVoiceModal(true);
     } catch {
-      Alert.alert("Erro", "Não foi possível iniciar o reconhecimento de voz.");
-      setVozListening(false);
-      vozPendingRef.current = false;
+      Alert.alert(
+        "Voz não disponível",
+        "O reconhecimento de voz funciona apenas em versão de desenvolvimento (build nativo). Use 'Digitar' ou 'Leitor (OCR)' para preencher o endereço."
+      );
+    } finally {
+      setVozLoading(false);
     }
+  };
+
+  const handleVoiceDone = (transcript: string) => {
+    setShowVoiceModal(false);
+    setSpeechModule(null);
+    const parsed = parseVoiceToAddress(transcript);
+    setOcrInitialValues({
+      ...parsed,
+      destinatario: parsed.destinatario ?? entrega?.cliente ?? "",
+    });
+    setEnderecoOrigem("voz");
+    setModalEndereco(true);
+  };
+
+  const handleVoiceCancel = () => {
+    setShowVoiceModal(false);
+    setSpeechModule(null);
   };
 
   const handleSalvarEndereco = async (vals: AddressFormValues) => {
@@ -310,13 +445,11 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       </View>
 
       <TouchableOpacity
-        style={[styles.btnEntregue, (saving || !podeFinalizar) && styles.btnDisabled]}
-        onPress={handleEntregue}
-        disabled={saving || !podeFinalizar}
+        style={[styles.btnEntregue, !podeFinalizar && styles.btnDisabled]}
+        onPress={handleAbrirEntregueModal}
+        disabled={!podeFinalizar}
       >
-        <Text style={styles.btnEntregueText}>
-          {saving ? "Salvando…" : "Marcar como entregue"}
-        </Text>
+        <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -341,10 +474,10 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             <TouchableOpacity
               style={styles.radio}
               onPress={handleVozEndereco}
-              disabled={vozListening}
+              disabled={vozLoading}
             >
               <Text style={styles.radioText}>
-                {vozListening ? "Ouvindo… Fale o endereço." : "Voz"}
+                {vozLoading ? "Abrindo…" : "Voz"}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalEnderecoOpcoes(false)}>
@@ -353,6 +486,22 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           </View>
         </View>
       </Modal>
+
+      {showVoiceModal && speechModule && (
+        <VoiceAddressModal
+          speechModule={speechModule}
+          modalStyles={{
+            modalOverlay: styles.modalOverlay,
+            modalBox: styles.modalBox,
+            modalTitle: styles.modalTitle,
+            modalMessage: styles.modalMessage,
+            modalBtnCancel: styles.modalBtnCancel,
+            modalBtnCancelText: styles.modalBtnCancelText,
+          }}
+          onDone={handleVoiceDone}
+          onCancel={handleVoiceCancel}
+        />
+      )}
 
       <Modal visible={modalEndereco} animationType="slide">
         <View style={styles.modalOverlay}>
@@ -387,6 +536,19 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           </View>
         </View>
       </Modal>
+
+      <FormEntregaConcluida
+        visible={showEntregueModal}
+        idSaida={idSaida}
+        destinatarioPreenchido={entrega?.cliente ?? undefined}
+        onConfirm={async (body) => marcarEntregue(idSaida, body)}
+        onClose={() => setShowEntregueModal(false)}
+        onSuccess={() => {
+          Alert.alert("Sucesso", "Entrega marcada como entregue.", [
+            { text: "OK", onPress: () => navigation.goBack() },
+          ]);
+        }}
+      />
 
       <Modal visible={modalAusente} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -424,78 +586,3 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { padding: 16, paddingBottom: 48 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  header: { marginBottom: 16 },
-  backText: { fontSize: 16, color: "#0d6efd", marginBottom: 8 },
-  title: { fontSize: 22, fontWeight: "700" },
-  avisoRota: {
-    backgroundColor: "#fff3cd",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  avisoRotaText: { fontSize: 14, color: "#856404" },
-  card: {
-    backgroundColor: "#fff",
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  label: { fontSize: 12, color: "#666", marginTop: 12, marginBottom: 4 },
-  value: { fontSize: 16, color: "#333" },
-  valueSec: { fontSize: 14, color: "#666", marginTop: 2 },
-  link: { fontSize: 16, color: "#0d6efd" },
-  btnEntregue: {
-    backgroundColor: "#198754",
-    paddingVertical: 18,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  btnAusente: {
-    backgroundColor: "#dc3545",
-    paddingVertical: 18,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  btnDisabled: { opacity: 0.7 },
-  btnEntregueText: { color: "#fff", fontSize: 18, fontWeight: "600" },
-  btnAusenteText: { color: "#fff", fontSize: 18, fontWeight: "600" },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    padding: 24,
-  },
-  modalBox: { backgroundColor: "#fff", borderRadius: 12, padding: 24 },
-  modalBoxForm: { flex: 1, margin: 0, justifyContent: "center" },
-  modalMessage: { fontSize: 16, color: "#333", marginBottom: 16 },
-  modalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 16 },
-  btnEndereco: {
-    marginTop: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#0d6efd",
-    alignItems: "center",
-  },
-  btnEnderecoText: { color: "#0d6efd", fontSize: 16, fontWeight: "600" },
-  radio: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, marginBottom: 8, backgroundColor: "#f5f5f5" },
-  radioActive: { backgroundColor: "#0d6efd" },
-  radioText: { fontSize: 16 },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 12, marginTop: 12, minHeight: 80 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 24, gap: 12 },
-  modalBtnCancel: { paddingVertical: 10, paddingHorizontal: 20 },
-  modalBtnCancelText: { color: "#666" },
-  modalBtnOk: { backgroundColor: "#0d6efd", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
-  modalBtnOkText: { color: "#fff", fontWeight: "600" },
-});

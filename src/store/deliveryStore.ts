@@ -7,7 +7,9 @@ import {
   marcarEntregue,
   marcarAusente,
   type EnderecoBody,
+  type EntregueBody,
 } from "../features/entregas/api";
+import { geocodeAddress } from "../features/entregas/utils/geocode";
 
 export type MapMode = "list" | "map";
 
@@ -23,15 +25,28 @@ interface DeliveryState {
   loading: boolean;
   error: string | null;
 
+  /** Entregas da rota em construção (tela RouteBuilder). */
+  routeDeliveries: EntregaListItem[];
+  /** Ordem dos id_saida na rota. */
+  routeOrder: number[];
+  /** Status por id_saida na rota: pendente | entregue | ausente (para mapa/lista). */
+  routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente">;
+
   loadDeliveries: () => Promise<void>;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
   startRoute: (deliveryIds?: number[]) => Promise<number>;
   suggestRoute: (fromLat?: number, fromLon?: number) => void;
-  markDelivered: (idSaida: number) => Promise<void>;
+  markDelivered: (idSaida: number, body?: EntregueBody) => Promise<void>;
   markAbsent: (idSaida: number, motivoId: number, observacao?: string) => Promise<void>;
   setSelectedDelivery: (d: EntregaListItem | null) => void;
   setMapMode: (mode: MapMode) => void;
   clearSuggestedOrder: () => void;
+
+  setRouteDeliveries: (deliveries: EntregaListItem[]) => void;
+  clearRoute: () => void;
+  optimizeRoute: () => void;
+  reorderRoute: (order: number[]) => void;
+  setRouteDeliveryStatus: (idSaida: number, status: "pendente" | "entregue" | "ausente") => void;
 }
 
 function withAddress(d: EntregaListItem): boolean {
@@ -54,6 +69,9 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   suggestedOrder: null,
   loading: false,
   error: null,
+  routeDeliveries: [],
+  routeOrder: [],
+  routeDeliveryStatus: {},
 
   loadDeliveries: async () => {
     set({ loading: true, error: null });
@@ -70,12 +88,27 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao carregar entregas";
-      set({ error: message, loading: false });
+      set({
+        error: message,
+        loading: false,
+        pendingDeliveries: [],
+        deliveriesWithAddress: [],
+        deliveriesWithoutAddress: [],
+      });
     }
   },
 
   saveAddress: async (idSaida, body) => {
-    const updated = await putEndereco(idSaida, body);
+    let finalBody = body;
+    if (body.latitude == null || body.longitude == null) {
+      const parts = [body.rua, body.numero, body.complemento, body.bairro, body.cidade, body.estado, body.cep].filter(Boolean);
+      const address = parts.join(", ");
+      const coords = await geocodeAddress(address, { cidade: body.cidade, estado: body.estado });
+      if (coords) {
+        finalBody = { ...body, latitude: coords.latitude, longitude: coords.longitude };
+      }
+    }
+    const updated = await putEndereco(idSaida, finalBody);
     set((state) => {
       const list = state.pendingDeliveries.map((d) => (d.id_saida === idSaida ? updated : d));
       const withAddr = list.filter(withAddress);
@@ -122,13 +155,14 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     set({ suggestedOrder: orderedIds });
   },
 
-  markDelivered: async (idSaida) => {
-    await marcarEntregue(idSaida);
+  markDelivered: async (idSaida, body) => {
+    await marcarEntregue(idSaida, body);
     set((state) => ({
       pendingDeliveries: state.pendingDeliveries.filter((d) => d.id_saida !== idSaida),
       deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => d.id_saida !== idSaida),
       deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => d.id_saida !== idSaida),
       selectedDelivery: state.selectedDelivery?.id_saida === idSaida ? null : state.selectedDelivery,
+      routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: "entregue" as const },
     }));
   },
 
@@ -139,10 +173,63 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => d.id_saida !== idSaida),
       deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => d.id_saida !== idSaida),
       selectedDelivery: state.selectedDelivery?.id_saida === idSaida ? null : state.selectedDelivery,
+      routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: "ausente" as const },
     }));
   },
 
   setSelectedDelivery: (d) => set({ selectedDelivery: d }),
   setMapMode: (mode) => set({ mapMode: mode }),
   clearSuggestedOrder: () => set({ suggestedOrder: null }),
+
+  setRouteDeliveries: (deliveries) => {
+    const order = deliveries.map((d) => d.id_saida);
+    const routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente"> = {};
+    deliveries.forEach((d) => {
+      routeDeliveryStatus[d.id_saida] = "pendente";
+    });
+    set({ routeDeliveries: deliveries, routeOrder: order, routeDeliveryStatus });
+  },
+  clearRoute: () => set({ routeDeliveries: [], routeOrder: [], routeDeliveryStatus: {} }),
+  optimizeRoute: () => {
+    const { routeDeliveries, routeOrder } = get();
+    if (routeOrder.length === 0) return;
+    const withCoords = routeDeliveries.filter((d) => d.latitude != null && d.longitude != null);
+    const withoutCoords = routeDeliveries.filter((d) => d.latitude == null || d.longitude == null);
+    const byId = new Map(routeDeliveries.map((d) => [d.id_saida, d]));
+    const firstId = routeOrder[0];
+    const first = byId.get(firstId);
+    let refLat = first?.latitude ?? 0;
+    let refLon = first?.longitude ?? 0;
+    if (withCoords.length > 0 && (first?.latitude == null || first?.longitude == null)) {
+      refLat = withCoords[0].latitude!;
+      refLon = withCoords[0].longitude!;
+    }
+    const orderedIds: number[] = [];
+    const remaining = new Set(withCoords.map((d) => d.id_saida));
+    let curLat = refLat;
+    let curLon = refLon;
+    while (remaining.size > 0) {
+      let nearestId = -1;
+      let nearestDist = Infinity;
+      for (const id of remaining) {
+        const d = byId.get(id)!;
+        const d2 = distSq(curLat, curLon, d.latitude!, d.longitude!);
+        if (d2 < nearestDist) {
+          nearestDist = d2;
+          nearestId = id;
+        }
+      }
+      if (nearestId === -1) break;
+      remaining.delete(nearestId);
+      orderedIds.push(nearestId);
+      const next = byId.get(nearestId)!;
+      curLat = next.latitude!;
+      curLon = next.longitude!;
+    }
+    withoutCoords.forEach((d) => orderedIds.push(d.id_saida));
+    set({ routeOrder: orderedIds });
+  },
+  reorderRoute: (order) => set({ routeOrder: order }),
+  setRouteDeliveryStatus: (idSaida, status) =>
+    set((state) => ({ routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: status } })),
 }));

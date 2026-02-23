@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo } from "react";
+import React, { useCallback, useState, useMemo, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,13 +12,17 @@ import {
   Alert,
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
+import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
+import { useThemeColors } from "../../../theme/colors";
 import { getEntregas } from "../api";
 import type { EntregaListItem } from "../types";
+import FormEntregaConcluida from "../components/FormEntregaConcluida";
 import { useDeliveryStore } from "../../../store/deliveryStore";
+import { geocodeAddress } from "../utils/geocode";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregasList">;
 
@@ -29,6 +33,8 @@ const TAB_LABELS: Record<Tab, string> = {
   finalizadas: "Finalizadas",
   ausentes: "Ausentes",
 };
+
+const TAB_ORDER: Tab[] = ["pendente", "ausentes", "finalizadas"];
 
 function servicoTipo(serv?: string | null): "Shopee" | "Flex" | "Avulso" {
   const s = (serv || "").trim().toLowerCase();
@@ -44,12 +50,250 @@ const SERVICO_COLORS: Record<string, string> = {
   Avulso: "#6366f1",
 };
 
-const defaultExpanded: Record<string, boolean> = { Shopee: true, Flex: true, Avulso: true };
+const SERVICO_INICIAL: Record<string, string> = {
+  Shopee: "S",
+  Flex: "F",
+  Avulso: "A",
+};
+
+const defaultExpanded: Record<string, boolean> = { Shopee: false, Flex: false, Avulso: false };
 
 const DEFAULT_REGION = { latitude: -23.55, longitude: -46.63, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 
 export default function EntregasListScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: { flex: 1, backgroundColor: colors.background },
+        header: {
+          padding: 16,
+          backgroundColor: colors.backgroundCard,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.separator,
+        },
+        backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
+        title: { fontSize: 22, fontWeight: "700", color: colors.text },
+        tabs: {
+          flexDirection: "row",
+          backgroundColor: colors.backgroundCard,
+          paddingHorizontal: 8,
+          paddingVertical: 8,
+        },
+        tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 8 },
+        tabActive: { backgroundColor: colors.primary },
+        tabText: { fontSize: 14, color: colors.textSecondary },
+        tabTextActive: { color: colors.primaryContrast, fontWeight: "600" },
+        btnSugerirRota: {
+          marginHorizontal: 16,
+          marginBottom: 8,
+          paddingVertical: 10,
+          borderRadius: 8,
+          backgroundColor: colors.success,
+          alignItems: "center",
+        },
+        btnSugerirRotaText: { color: colors.primaryContrast, fontSize: 15, fontWeight: "600" },
+        toggleRow: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
+        modalOverlay: {
+          flex: 1,
+          backgroundColor: colors.overlay,
+          justifyContent: "center",
+          padding: 24,
+        },
+        modalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 24 },
+        modalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 8, color: colors.text },
+        modalMessage: { fontSize: 14, color: colors.textSecondary, marginBottom: 16 },
+        navegarBtn: {
+          backgroundColor: colors.primary,
+          paddingVertical: 14,
+          borderRadius: 8,
+          alignItems: "center",
+          marginBottom: 10,
+        },
+        navegarBtnText: { color: colors.primaryContrast, fontWeight: "600", fontSize: 16 },
+        modalBtnCancel: { paddingVertical: 12, alignItems: "center", marginTop: 8 },
+        modalBtnCancelText: { color: colors.textSecondary, fontSize: 16 },
+        toggleBtn: {
+          flex: 1,
+          paddingVertical: 10,
+          alignItems: "center",
+          borderRadius: 8,
+          backgroundColor: colors.backgroundCard,
+        },
+        toggleBtnActive: { backgroundColor: colors.primary },
+        toggleText: { fontSize: 14, color: colors.textSecondary },
+        toggleTextActive: { color: colors.primaryContrast, fontWeight: "600" },
+        loader: { marginTop: 48 },
+        listContent: { padding: 16, paddingBottom: 32 },
+        mapWrap: { flex: 1, minHeight: Dimensions.get("window").height * 0.5 },
+        map: { width: "100%", height: "100%", minHeight: 400 },
+        bottomSheetOverlay: { flex: 1, backgroundColor: colors.overlay },
+        bottomSheet: {
+          backgroundColor: colors.backgroundCard,
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
+          padding: 24,
+          paddingTop: 16,
+        },
+        listSheet: {
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          maxHeight: "70%",
+          backgroundColor: colors.backgroundCard,
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
+          padding: 24,
+          paddingTop: 16,
+        },
+        listSheetTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4, color: colors.text },
+        listSheetSubtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 12 },
+        listSheetList: { maxHeight: 320 },
+        listSheetItem: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 12,
+          paddingHorizontal: 0,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.separator,
+        },
+        listSheetItemDisabled: { opacity: 0.85 },
+        listSheetItemLeft: { flex: 1 },
+        listSheetItemCodigo: { fontSize: 16, fontWeight: "600", marginBottom: 2, color: colors.text },
+        listSheetItemCliente: { fontSize: 14, color: colors.textSecondary },
+        badgePendente: { backgroundColor: colors.primary },
+        badgeEntregue: { backgroundColor: colors.success },
+        badgeAusente: { backgroundColor: colors.textSecondary },
+        bottomSheetTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4, color: colors.text },
+        bottomSheetCliente: { fontSize: 16, color: colors.text, marginBottom: 8 },
+        bottomSheetEndereco: { fontSize: 14, color: colors.textSecondary, marginBottom: 16 },
+        bottomSheetActions: { flexDirection: "row", gap: 12, marginBottom: 12 },
+        bottomSheetBtnEntregue: {
+          flex: 1,
+          backgroundColor: colors.success,
+          paddingVertical: 14,
+          borderRadius: 8,
+          alignItems: "center",
+        },
+        bottomSheetBtnAusente: {
+          flex: 1,
+          backgroundColor: colors.danger,
+          paddingVertical: 14,
+          borderRadius: 8,
+          alignItems: "center",
+        },
+        btnDisabled: { opacity: 0.7 },
+        bottomSheetBtnText: { color: colors.primaryContrast, fontWeight: "600", fontSize: 14 },
+        bottomSheetFechar: { alignItems: "center", paddingVertical: 8 },
+        bottomSheetFecharText: { color: colors.primary, fontSize: 16 },
+        cardsRow: { flexDirection: "row", paddingHorizontal: 16, gap: 10, marginBottom: 12 },
+        servicoCard: {
+          flex: 1,
+          backgroundColor: colors.backgroundCard,
+          padding: 12,
+          borderRadius: 10,
+          borderTopWidth: 4,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+          elevation: 2,
+        },
+        cardTotal: {
+          flex: 1,
+          backgroundColor: colors.backgroundCard,
+          padding: 12,
+          borderRadius: 10,
+          borderTopWidth: 4,
+          borderTopColor: colors.textSecondary,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+          elevation: 2,
+        },
+        servicoCardLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 4 },
+        servicoCardValue: { fontSize: 20, fontWeight: "700", color: colors.text },
+        sectionHeaderWrap: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginTop: 12,
+          marginBottom: 6,
+          paddingVertical: 8,
+          paddingHorizontal: 4,
+        },
+        sectionHeader: { fontSize: 14, fontWeight: "600", color: colors.text },
+        sectionCount: { fontSize: 13, color: colors.textSecondary },
+        badgesRow: { flexDirection: "row", gap: 6, alignItems: "center" },
+        servicoBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+        servicoBadgeText: { fontSize: 11, color: "#fff", fontWeight: "600" },
+        item: {
+          backgroundColor: colors.backgroundCard,
+          padding: 16,
+          borderRadius: 12,
+          marginBottom: 12,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+          elevation: 2,
+        },
+        itemRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+        itemCodigo: { fontSize: 16, fontWeight: "600", color: colors.text },
+        badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+        badgeText: { fontSize: 12, color: "#fff", fontWeight: "600" },
+        itemCliente: { fontSize: 14, color: colors.text },
+        itemRow2: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
+        itemBairro: { fontSize: 13, color: colors.textSecondary },
+        enderecoOk: { fontSize: 12, color: colors.success, fontWeight: "500" },
+        enderecoFalta: { fontSize: 12, color: colors.danger },
+        markerWrap: {
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          justifyContent: "center",
+          alignItems: "center",
+          borderWidth: 2,
+          borderColor: colors.backgroundCard,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.25,
+          shadowRadius: 2,
+          elevation: 3,
+        },
+        markerEntregue: { backgroundColor: colors.success },
+        markerAusente: { backgroundColor: colors.textSecondary },
+        markerIconText: { fontSize: 20, color: colors.primaryContrast, fontWeight: "700" },
+        markerInicialText: { fontSize: 14, fontWeight: "700", color: colors.text },
+        markerCountBadge: {
+          position: "absolute",
+          top: -4,
+          right: -4,
+          minWidth: 16,
+          height: 16,
+          borderRadius: 8,
+          backgroundColor: colors.backgroundCard,
+          borderWidth: 1,
+          borderColor: colors.text,
+          justifyContent: "center",
+          alignItems: "center",
+        },
+        markerCountText: { fontSize: 10, fontWeight: "700", color: colors.text },
+        bottomSheetGrupoInfo: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
+        bottomSheetBtnVerDetalhes: {
+          backgroundColor: colors.primary,
+          paddingVertical: 14,
+          borderRadius: 8,
+          alignItems: "center",
+          marginBottom: 12,
+        },
+      }),
+    [colors]
+  );
   const [tab, setTab] = useState<Tab>("pendente");
   const [list, setList] = useState<EntregaListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,19 +302,31 @@ export default function EntregasListScreen({ navigation }: Props) {
 
   const {
     pendingDeliveries,
+    deliveriesWithAddress,
+    deliveriesWithoutAddress,
     mapMode,
     setMapMode,
+    setRouteDeliveries,
     selectedDelivery,
     setSelectedDelivery,
     loadDeliveries,
     markDelivered,
-    suggestRoute,
     suggestedOrder,
     loading: storeLoading,
   } = useDeliveryStore();
   const [showNavegarModal, setShowNavegarModal] = useState(false);
+  const [showEntregueModal, setShowEntregueModal] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [geocodedCoords, setGeocodedCoords] = useState<Record<number, { latitude: number; longitude: number }>>({});
+  const [selectedMarkerCount, setSelectedMarkerCount] = useState<number | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<{ originalLatitude: number; originalLongitude: number } | null>(null);
+  const selectedGroupRef = useRef<{ originalLatitude: number; originalLongitude: number } | null>(null);
+  const [listFinalizadas, setListFinalizadas] = useState<EntregaListItem[]>([]);
+  const [listAusentes, setListAusentes] = useState<EntregaListItem[]>([]);
+  const geocodedIdsRef = useRef<Set<number>>(new Set());
+  const mapRef = useRef<MapView>(null);
 
-  const listForTab = tab === "pendente" ? pendingDeliveries : list;
+  const listForTab = (tab === "pendente" ? pendingDeliveries : list) ?? [];
   const loadingForTab = tab === "pendente" ? storeLoading : loading;
 
   const load = useCallback(async () => {
@@ -95,50 +351,240 @@ export default function EntregasListScreen({ navigation }: Props) {
     }, [tab, loadDeliveries, load])
   );
 
+  useEffect(() => {
+    if (mapMode !== "map" || tab !== "pendente") return;
+    let cancelled = false;
+    let subscription: Location.LocationSubscription | null = null;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled || status !== "granted") return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (cancelled) return;
+        const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        setUserLocation(coords);
+        subscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 5000,
+            distanceInterval: 10,
+          },
+          (location) => {
+            if (cancelled) return;
+            const { latitude, longitude } = location.coords;
+            setUserLocation({ latitude, longitude });
+            mapRef.current?.animateToRegion({
+              latitude,
+              longitude,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
+            });
+          }
+        );
+      } catch {
+        // ignora falha de localização
+      }
+    })();
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [mapMode, tab]);
+
+  const loadMapListsRef = useRef(false);
+  useEffect(() => {
+    if (mapMode !== "map" || tab !== "pendente") return;
+    loadMapListsRef.current = false;
+    (async () => {
+      try {
+        const [fin, aus] = await Promise.all([getEntregas("finalizadas"), getEntregas("ausentes")]);
+        if (!loadMapListsRef.current) {
+          setListFinalizadas(fin ?? []);
+          setListAusentes(aus ?? []);
+        }
+      } catch {
+        if (!loadMapListsRef.current) {
+          setListFinalizadas([]);
+          setListAusentes([]);
+        }
+      }
+    })();
+    return () => { loadMapListsRef.current = true; };
+  }, [mapMode, tab]);
+
   const badgeColor = (exibicao: string) => {
-    if (exibicao === "Pendente") return "#ffc107";
-    if (exibicao === "Entregue") return "#198754";
-    if (exibicao === "Ausente") return "#dc3545";
-    return "#6c757d";
+    if (exibicao === "Pendente") return colors.warning;
+    if (exibicao === "Entregue") return colors.success;
+    if (exibicao === "Ausente") return colors.danger;
+    return colors.textSecondary;
   };
 
   const contagemPorServico = React.useMemo(() => {
     const c: Record<string, number> = { Shopee: 0, Flex: 0, Avulso: 0 };
-    listForTab.forEach((item) => {
+    (listForTab ?? []).forEach((item) => {
       const t = servicoTipo(item.servico);
       c[t]++;
     });
     return c;
   }, [listForTab]);
 
+  const orderedPendentes = useMemo(() => {
+    const source = listForTab ?? [];
+    if (tab !== "pendente" || !suggestedOrder || suggestedOrder.length === 0) return source;
+    const orderMap = new Map(suggestedOrder.map((id, i) => [id, i]));
+    return [...source].sort((a, b) => (orderMap.get(a.id_saida) ?? 999) - (orderMap.get(b.id_saida) ?? 999));
+  }, [tab, listForTab, suggestedOrder]);
+
   const listWithSections: { section: string; data: EntregaListItem[] }[] =
-    tab === "pendente"
-      ? SERVICO_ORDER.filter((s) => contagemPorServico[s] > 0).map((section) => ({
-          section,
-          data: orderedPendentes.filter((item) => servicoTipo(item.servico) === section),
-        }))
-      : [{ section: "", data: listForTab }];
+    SERVICO_ORDER.filter((s) => contagemPorServico[s] > 0).map((section) => ({
+      section,
+      data:
+        tab === "pendente"
+          ? (orderedPendentes ?? []).filter((item) => servicoTipo(item.servico) === section)
+          : (listForTab ?? []).filter((item) => servicoTipo(item.servico) === section),
+    }));
 
   const entregasComCoords = useMemo(
-    () => listForTab.filter((d) => d.latitude != null && d.longitude != null),
+    () => (listForTab ?? []).filter((d) => d.latitude != null && d.longitude != null),
     [listForTab]
   );
 
-  const orderedPendentes = useMemo(() => {
-    if (tab !== "pendente" || !suggestedOrder || suggestedOrder.length === 0) return listForTab;
-    const orderMap = new Map(suggestedOrder.map((id, i) => [id, i]));
-    return [...listForTab].sort((a, b) => (orderMap.get(a.id_saida) ?? 999) - (orderMap.get(b.id_saida) ?? 999));
-  }, [tab, listForTab, suggestedOrder]);
+  type MapMarkerStatus = "pendente" | "entregue" | "ausente";
+  type ItemComCoords = EntregaListItem & { latitude: number; longitude: number; mapStatus: MapMarkerStatus };
+
+  const listaUnicaParaMapa = useMemo(() => {
+    if (tab !== "pendente") return [];
+    const withCoords = (d: EntregaListItem, status: MapMarkerStatus): ItemComCoords | null => {
+      const lat = d.latitude ?? geocodedCoords[d.id_saida]?.latitude;
+      const lon = d.longitude ?? geocodedCoords[d.id_saida]?.longitude;
+      if (lat == null || lon == null) return null;
+      return { ...d, latitude: lat, longitude: lon, mapStatus: status };
+    };
+    const pendentes = (pendingDeliveries ?? []).map((d) => withCoords(d, "pendente")).filter(Boolean) as ItemComCoords[];
+    const finalizadas = listFinalizadas.map((d) => withCoords(d, "entregue")).filter(Boolean) as ItemComCoords[];
+    const ausentes = listAusentes.map((d) => withCoords(d, "ausente")).filter(Boolean) as ItemComCoords[];
+    return [...pendentes, ...finalizadas, ...ausentes];
+  }, [tab, pendingDeliveries, listFinalizadas, listAusentes, geocodedCoords]);
+
+  const gruposNoMapa = useMemo(() => {
+    const list = listaUnicaParaMapa;
+    const key = (lat: number, lon: number, tipo: string, status: MapMarkerStatus) =>
+      `${Number(lat.toFixed(6))}_${Number(lon.toFixed(6))}_${tipo}_${status}`;
+    const map = new Map<
+      string,
+      { latitude: number; longitude: number; tipo: string; status: MapMarkerStatus; items: ItemComCoords[] }
+    >();
+    for (const d of list) {
+      const tipo = servicoTipo(d.servico);
+      const k = key(d.latitude, d.longitude, tipo, d.mapStatus);
+      const existing = map.get(k);
+      if (existing) {
+        existing.items.push(d);
+      } else {
+        map.set(k, {
+          latitude: d.latitude,
+          longitude: d.longitude,
+          tipo,
+          status: d.mapStatus,
+          items: [d],
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [listaUnicaParaMapa]);
+
+  const OFFSET_DEG = 0.00012;
+  type GrupoComDeslocamento = {
+    latitude: number;
+    longitude: number;
+    originalLatitude: number;
+    originalLongitude: number;
+    tipo: string;
+    status: MapMarkerStatus;
+    items: ItemComCoords[];
+  };
+  const gruposComDeslocamento = useMemo((): GrupoComDeslocamento[] => {
+    const pointKey = (lat: number, lon: number) => `${Number(lat.toFixed(6))}_${Number(lon.toFixed(6))}`;
+    const byPoint = new Map<string, typeof gruposNoMapa>();
+    for (const g of gruposNoMapa) {
+      const k = pointKey(g.latitude, g.longitude);
+      if (!byPoint.has(k)) byPoint.set(k, []);
+      byPoint.get(k)!.push(g);
+    }
+    return gruposNoMapa.map((g) => {
+      const k = pointKey(g.latitude, g.longitude);
+      const noMesmoPonto = byPoint.get(k)!;
+      const originalLat = g.latitude;
+      const originalLon = g.longitude;
+      if (noMesmoPonto.length <= 1) {
+        return { ...g, originalLatitude: originalLat, originalLongitude: originalLon };
+      }
+      const idx = noMesmoPonto.indexOf(g);
+      const n = noMesmoPonto.length;
+      const angleRad = (idx * (2 * Math.PI)) / n;
+      const dLat = OFFSET_DEG * Math.cos(angleRad);
+      const dLon = (OFFSET_DEG / Math.cos((g.latitude * Math.PI) / 180)) * Math.sin(angleRad);
+      return {
+        ...g,
+        latitude: g.latitude + dLat,
+        longitude: g.longitude + dLon,
+        originalLatitude: originalLat,
+        originalLongitude: originalLon,
+      };
+    });
+  }, [gruposNoMapa]);
+
+  const listaPedidosNoEndereco = useMemo(() => {
+    if (!selectedGroup) return [];
+    return gruposComDeslocamento
+      .filter(
+        (g) =>
+          Number(g.originalLatitude.toFixed(6)) === Number(selectedGroup.originalLatitude.toFixed(6)) &&
+          Number(g.originalLongitude.toFixed(6)) === Number(selectedGroup.originalLongitude.toFixed(6))
+      )
+      .flatMap((g) => g.items);
+  }, [selectedGroup, gruposComDeslocamento]);
+
+  const totalNoEndereco = listaPedidosNoEndereco.length;
+  const finalizadosNoEndereco = listaPedidosNoEndereco.filter((i) => i.mapStatus !== "pendente").length;
+  const pendentesNoEndereco = listaPedidosNoEndereco.filter((i) => i.mapStatus === "pendente").length;
+
+  useEffect(() => {
+    if (mapMode !== "map" || tab !== "pendente") return;
+    const list = [
+      ...(pendingDeliveries ?? []),
+      ...listFinalizadas,
+      ...listAusentes,
+    ];
+    const toGeocode = list.filter(
+      (d) =>
+        (d.possui_endereco || (d.endereco_formatado ?? "").trim() || (d.endereco ?? "").trim()) &&
+        (d.latitude == null || d.longitude == null) &&
+        !geocodedIdsRef.current.has(d.id_saida)
+    );
+    if (toGeocode.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const d of toGeocode) {
+        if (cancelled) break;
+        geocodedIdsRef.current.add(d.id_saida);
+        const address = (d.endereco_formatado || d.endereco || "").trim();
+        if (!address) continue;
+        const coords = await geocodeAddress(address, { cidade: d.bairro ?? undefined, estado: undefined });
+        if (cancelled || !coords) continue;
+        setGeocodedCoords((prev) => ({ ...prev, [d.id_saida]: coords }));
+        await new Promise((r) => setTimeout(r, 1100));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mapMode, tab, pendingDeliveries, listFinalizadas, listAusentes]);
 
   const firstDestWithCoords = useMemo(
     () => orderedPendentes.find((d) => d.latitude != null && d.longitude != null),
     [orderedPendentes]
   );
-
-  const handleSugerirRota = useCallback(() => {
-    suggestRoute();
-    setShowNavegarModal(true);
-  }, [suggestRoute]);
 
   const openGoogleMaps = useCallback(() => {
     if (!firstDestWithCoords?.latitude || !firstDestWithCoords?.longitude) {
@@ -170,9 +616,16 @@ export default function EntregasListScreen({ navigation }: Props) {
     setShowNavegarModal(false);
   }, [firstDestWithCoords]);
   const mapRegion = useMemo(() => {
-    if (entregasComCoords.length === 0) return DEFAULT_REGION;
-    const lats = entregasComCoords.map((d) => d.latitude!);
-    const lons = entregasComCoords.map((d) => d.longitude!);
+    if (userLocation) {
+      return {
+        ...userLocation,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      };
+    }
+    if (gruposComDeslocamento.length === 0) return DEFAULT_REGION;
+    const lats = gruposComDeslocamento.map((g) => g.latitude);
+    const lons = gruposComDeslocamento.map((g) => g.longitude);
     const minLat = Math.min(...lats);
     const maxLat = Math.max(...lats);
     const minLon = Math.min(...lons);
@@ -183,19 +636,41 @@ export default function EntregasListScreen({ navigation }: Props) {
       latitudeDelta: Math.max(0.01, (maxLat - minLat) * 1.5 || 0.05),
       longitudeDelta: Math.max(0.01, (maxLon - minLon) * 1.5 || 0.05),
     };
-  }, [entregasComCoords]);
+  }, [userLocation, gruposComDeslocamento]);
 
-  const handleMarcarEntregue = useCallback(
-    async (idSaida: number) => {
-      setSaving(true);
-      try {
-        await markDelivered(idSaida);
-        setSelectedDelivery(null);
-      } finally {
-        setSaving(false);
+  const fecharSheetERestaurarLista = useCallback(() => {
+    setSelectedDelivery(null);
+    setSelectedMarkerCount(null);
+    if (selectedGroupRef.current) {
+      setSelectedGroup(selectedGroupRef.current);
+      selectedGroupRef.current = null;
+    }
+  }, []);
+
+  const handleAbrirEntregueModal = useCallback(() => setShowEntregueModal(true), []);
+
+  const handleEntregueModalSuccess = useCallback(() => {
+    if (!selectedDelivery) return;
+    const lat = selectedDelivery.latitude ?? geocodedCoords[selectedDelivery.id_saida]?.latitude;
+    const lon = selectedDelivery.longitude ?? geocodedCoords[selectedDelivery.id_saida]?.longitude;
+    if (lat != null && lon != null) {
+      setListFinalizadas((prev) => [...prev, { ...selectedDelivery, latitude: lat, longitude: lon }]);
+    }
+    setShowEntregueModal(false);
+    fecharSheetERestaurarLista();
+  }, [selectedDelivery, geocodedCoords, fecharSheetERestaurarLista]);
+
+  const handleMarcarAusente = useCallback(
+    (item: EntregaListItem) => {
+      const lat = (item as ItemComCoords).latitude ?? geocodedCoords[item.id_saida]?.latitude;
+      const lon = (item as ItemComCoords).longitude ?? geocodedCoords[item.id_saida]?.longitude;
+      if (lat != null && lon != null) {
+        setListAusentes((prev) => [...prev, { ...item, latitude: lat, longitude: lon }]);
       }
+      fecharSheetERestaurarLista();
+      navigation.navigate("EntregaDetail", { idSaida: item.id_saida });
     },
-    [markDelivered, setSelectedDelivery]
+    [geocodedCoords, navigation, fecharSheetERestaurarLista]
   );
 
 
@@ -213,7 +688,7 @@ export default function EntregasListScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.tabs}>
-        {(["pendente", "finalizadas", "ausentes"] as const).map((t) => (
+        {TAB_ORDER.map((t) => (
           <TouchableOpacity
             key={t}
             style={[styles.tab, tab === t && styles.tabActive]}
@@ -227,8 +702,38 @@ export default function EntregasListScreen({ navigation }: Props) {
       </View>
 
       {tab === "pendente" && listForTab.length > 0 && (
-        <TouchableOpacity style={styles.btnSugerirRota} onPress={handleSugerirRota}>
-          <Text style={styles.btnSugerirRotaText}>🧭 Sugerir Rota</Text>
+        <TouchableOpacity
+          style={styles.btnSugerirRota}
+          onPress={() => {
+            if (deliveriesWithAddress.length === 0) {
+              Alert.alert("Atenção", "Nenhuma entrega possui endereço válido.");
+              return;
+            }
+            if (deliveriesWithoutAddress.length > 0) {
+              const x = deliveriesWithoutAddress.length;
+              Alert.alert(
+                "Criar Rota",
+                `${x} entrega${x !== 1 ? "s" : ""} não possuem endereço e não entrarão na rota.`,
+                [
+                  { text: "Cancelar", style: "cancel" },
+                  {
+                    text: "Criar Rota",
+                    onPress: () => {
+                      setRouteDeliveries(deliveriesWithAddress);
+                      navigation.navigate("RouteBuilder");
+                    },
+                  },
+                ]
+              );
+            } else {
+              setRouteDeliveries(deliveriesWithAddress);
+              navigation.navigate("RouteBuilder");
+            }
+          }}
+        >
+          <Text style={styles.btnSugerirRotaText}>
+            {deliveriesWithoutAddress.length > 0 ? "🧭 Criar Rota" : "🧭 Sugerir Rota"}
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -249,14 +754,12 @@ export default function EntregasListScreen({ navigation }: Props) {
         </View>
       )}
 
-      {tab === "pendente" && !loadingForTab && listForTab.length > 0 && (
+      {!loadingForTab && (
         <View style={styles.cardsRow}>
-          {SERVICO_ORDER.map((s) => (
-            <View key={s} style={[styles.servicoCard, { borderTopColor: SERVICO_COLORS[s] || "#999" }]}>
-              <Text style={styles.servicoCardLabel}>{s}</Text>
-              <Text style={styles.servicoCardValue}>{contagemPorServico[s] ?? 0}</Text>
-            </View>
-          ))}
+          <View style={styles.cardTotal}>
+            <Text style={styles.servicoCardLabel}>{TAB_LABELS[tab]}</Text>
+            <Text style={styles.servicoCardValue}>{(listForTab ?? []).length}</Text>
+          </View>
         </View>
       )}
 
@@ -264,53 +767,183 @@ export default function EntregasListScreen({ navigation }: Props) {
         <ActivityIndicator size="large" style={styles.loader} />
       ) : tab === "pendente" && mapMode === "map" ? (
         <View style={styles.mapWrap}>
-          <MapView style={styles.map} initialRegion={mapRegion} region={mapRegion}>
-            {entregasComCoords.map((item) => (
-              <Marker
-                key={item.id_saida}
-                coordinate={{ latitude: item.latitude!, longitude: item.longitude! }}
-                pinColor={SERVICO_COLORS[servicoTipo(item.servico)] || "#999"}
-                onPress={() => setSelectedDelivery(item)}
-              />
-            ))}
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            initialRegion={mapRegion}
+            region={mapRegion}
+            showsUserLocation
+            showsMyLocationButton
+          >
+            {gruposComDeslocamento.map((grupo, idx) => {
+              const first = grupo.items[0];
+              const count = grupo.items.length;
+              const onPress = () => {
+                if (count > 1) {
+                  setSelectedGroup({ originalLatitude: grupo.originalLatitude, originalLongitude: grupo.originalLongitude });
+                  setSelectedDelivery(null);
+                  setSelectedMarkerCount(null);
+                } else {
+                  setSelectedGroup(null);
+                  setSelectedDelivery(first);
+                  setSelectedMarkerCount(1);
+                }
+              };
+              if (grupo.status === "entregue") {
+                return (
+                  <Marker
+                    key={`entregue-${idx}-${grupo.latitude}-${grupo.longitude}`}
+                    coordinate={{ latitude: grupo.latitude, longitude: grupo.longitude }}
+                    onPress={onPress}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                  >
+                    <View style={[styles.markerWrap, styles.markerEntregue]}>
+                      <Text style={styles.markerIconText}>✓</Text>
+                      {count > 1 && <View style={styles.markerCountBadge}><Text style={styles.markerCountText}>{count}</Text></View>}
+                    </View>
+                  </Marker>
+                );
+              }
+              if (grupo.status === "ausente") {
+                return (
+                  <Marker
+                    key={`ausente-${idx}-${grupo.latitude}-${grupo.longitude}`}
+                    coordinate={{ latitude: grupo.latitude, longitude: grupo.longitude }}
+                    onPress={onPress}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                  >
+                    <View style={[styles.markerWrap, styles.markerAusente]}>
+                      <Text style={styles.markerIconText}>✕</Text>
+                      {count > 1 && <View style={styles.markerCountBadge}><Text style={styles.markerCountText}>{count}</Text></View>}
+                    </View>
+                  </Marker>
+                );
+              }
+              const cor = SERVICO_COLORS[grupo.tipo] || "#999";
+              const inicial = SERVICO_INICIAL[grupo.tipo] || "?";
+              const textoClaro = grupo.tipo !== "Flex";
+              return (
+                <Marker
+                  key={`pendente-${idx}-${grupo.latitude}-${grupo.longitude}-${grupo.tipo}`}
+                  coordinate={{ latitude: grupo.latitude, longitude: grupo.longitude }}
+                  onPress={onPress}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                >
+                  <View style={[styles.markerWrap, { backgroundColor: cor }]}>
+                    <Text style={[styles.markerInicialText, { color: textoClaro ? "#fff" : "#333" }]}>{inicial}</Text>
+                    {count > 1 && <View style={styles.markerCountBadge}><Text style={styles.markerCountText}>{count}</Text></View>}
+                  </View>
+                </Marker>
+              );
+            })}
           </MapView>
+          <Modal visible={!!selectedGroup} transparent animationType="slide">
+            <TouchableOpacity
+              style={styles.bottomSheetOverlay}
+              activeOpacity={1}
+              onPress={() => setSelectedGroup(null)}
+            />
+            <View style={[styles.listSheet, { paddingBottom: Math.max(24, insets.bottom) }]}>
+              <Text style={styles.listSheetTitle}>Pedidos neste endereço</Text>
+              <Text style={styles.listSheetSubtitle}>
+                {finalizadosNoEndereco} de {totalNoEndereco} finalizados
+                {pendentesNoEndereco > 0 ? ` · ${pendentesNoEndereco} pendente${pendentesNoEndereco > 1 ? "s" : ""}` : ""}
+              </Text>
+              <FlatList
+                data={listaPedidosNoEndereco}
+                keyExtractor={(item) => String(item.id_saida)}
+                style={styles.listSheetList}
+                renderItem={({ item }) => {
+                  const isPendente = item.mapStatus === "pendente";
+                  const statusLabel = item.mapStatus === "entregue" ? "Entregue" : item.mapStatus === "ausente" ? "Ausente" : "Pendente";
+                  const statusStyle = item.mapStatus === "entregue" ? styles.badgeEntregue : item.mapStatus === "ausente" ? styles.badgeAusente : styles.badgePendente;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.listSheetItem, !isPendente && styles.listSheetItemDisabled]}
+                      onPress={() => {
+                        if (!isPendente) return;
+                        selectedGroupRef.current = selectedGroup;
+                        setSelectedDelivery(item);
+                        setSelectedGroup(null);
+                      }}
+                      disabled={!isPendente}
+                    >
+                      <View style={styles.listSheetItemLeft}>
+                        <Text style={styles.listSheetItemCodigo}>{item.codigo ?? "—"}</Text>
+                        <Text style={styles.listSheetItemCliente}>{item.cliente ?? "—"}</Text>
+                      </View>
+                      <View style={[styles.badge, statusStyle]}>
+                        <Text style={styles.badgeText}>{statusLabel}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+              <TouchableOpacity style={styles.bottomSheetFechar} onPress={() => setSelectedGroup(null)}>
+                <Text style={styles.bottomSheetFecharText}>Fechar</Text>
+              </TouchableOpacity>
+            </View>
+          </Modal>
+
           <Modal visible={!!selectedDelivery} transparent animationType="slide">
             <TouchableOpacity
               style={styles.bottomSheetOverlay}
               activeOpacity={1}
-              onPress={() => setSelectedDelivery(null)}
+              onPress={fecharSheetERestaurarLista}
             />
             <View style={[styles.bottomSheet, { paddingBottom: Math.max(24, insets.bottom) }]}>
               {selectedDelivery && (
                 <>
                   <Text style={styles.bottomSheetTitle}>{selectedDelivery.codigo ?? "—"}</Text>
                   <Text style={styles.bottomSheetCliente}>{selectedDelivery.cliente ?? "—"}</Text>
+                  {selectedMarkerCount != null && selectedMarkerCount > 1 && (
+                    <Text style={styles.bottomSheetGrupoInfo}>{selectedMarkerCount} entregas neste endereço</Text>
+                  )}
                   <Text style={styles.bottomSheetEndereco}>
                     {selectedDelivery.endereco_formatado || selectedDelivery.endereco || "—"}
                   </Text>
-                  <View style={styles.bottomSheetActions}>
+                  {(pendingDeliveries ?? []).some((d) => d.id_saida === selectedDelivery.id_saida) ? (
+                    <View style={styles.bottomSheetActions}>
+                      <TouchableOpacity
+                        style={styles.bottomSheetBtnEntregue}
+                        onPress={handleAbrirEntregueModal}
+                      >
+                        <Text style={styles.bottomSheetBtnText}>Marcar como entregue</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.bottomSheetBtnAusente, saving && styles.btnDisabled]}
+                        onPress={() => handleMarcarAusente(selectedDelivery)}
+                        disabled={saving}
+                      >
+                        <Text style={styles.bottomSheetBtnText}>Marcar como ausente</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
                     <TouchableOpacity
-                      style={[styles.bottomSheetBtnEntregue, saving && styles.btnDisabled]}
-                      onPress={() => handleMarcarEntregue(selectedDelivery.id_saida)}
-                      disabled={saving}
-                    >
-                      <Text style={styles.bottomSheetBtnText}>Marcar como entregue</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.bottomSheetBtnAusente, saving && styles.btnDisabled]}
+                      style={styles.bottomSheetBtnVerDetalhes}
                       onPress={() => navigation.navigate("EntregaDetail", { idSaida: selectedDelivery.id_saida })}
-                      disabled={saving}
                     >
-                      <Text style={styles.bottomSheetBtnText}>Marcar como ausente</Text>
+                      <Text style={styles.bottomSheetBtnText}>Ver detalhes</Text>
                     </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity style={styles.bottomSheetFechar} onPress={() => setSelectedDelivery(null)}>
+                  )}
+                  <TouchableOpacity style={styles.bottomSheetFechar} onPress={fecharSheetERestaurarLista}>
                     <Text style={styles.bottomSheetFecharText}>Fechar</Text>
                   </TouchableOpacity>
                 </>
               )}
             </View>
           </Modal>
+
+          <FormEntregaConcluida
+            visible={showEntregueModal && !!selectedDelivery}
+            idSaida={selectedDelivery?.id_saida ?? 0}
+            destinatarioPreenchido={selectedDelivery?.cliente ?? selectedDelivery?.endereco_formatado?.split(",")[0] ?? undefined}
+            onConfirm={async (body) => {
+              if (selectedDelivery) await markDelivered(selectedDelivery.id_saida, body);
+            }}
+            onClose={() => setShowEntregueModal(false)}
+            onSuccess={handleEntregueModalSuccess}
+          />
 
           <Modal visible={showNavegarModal} transparent animationType="fade">
             <View style={styles.modalOverlay}>
@@ -367,7 +1000,7 @@ export default function EntregasListScreen({ navigation }: Props) {
                       <View style={styles.itemRow}>
                         <Text style={styles.itemCodigo}>{item.codigo || "—"}</Text>
                         <View style={styles.badgesRow}>
-                          <View style={[styles.servicoBadge, { backgroundColor: SERVICO_COLORS[servicoTipo(item.servico)] || "#999" }]}>
+                          <View style={[styles.servicoBadge, { backgroundColor: SERVICO_COLORS[servicoTipo(item.servico)] || colors.placeholder }]}>
                             <Text style={styles.servicoBadgeText}>{servicoTipo(item.servico)}</Text>
                           </View>
                           <View style={[styles.badge, { backgroundColor: badgeColor(item.exibicao) }]}>
@@ -396,117 +1029,3 @@ export default function EntregasListScreen({ navigation }: Props) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  header: { padding: 16, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#eee" },
-  backText: { fontSize: 16, color: "#0d6efd", marginBottom: 8 },
-  title: { fontSize: 22, fontWeight: "700" },
-  tabs: { flexDirection: "row", backgroundColor: "#fff", paddingHorizontal: 8, paddingVertical: 8 },
-  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 8 },
-  tabActive: { backgroundColor: "#0d6efd" },
-  tabText: { fontSize: 14, color: "#666" },
-  tabTextActive: { color: "#fff", fontWeight: "600" },
-  btnSugerirRota: {
-    marginHorizontal: 16,
-    marginBottom: 8,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: "#198754",
-    alignItems: "center",
-  },
-  btnSugerirRotaText: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  toggleRow: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 24 },
-  modalBox: { backgroundColor: "#fff", borderRadius: 12, padding: 24 },
-  modalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 8 },
-  modalMessage: { fontSize: 14, color: "#666", marginBottom: 16 },
-  navegarBtn: {
-    backgroundColor: "#0d6efd",
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  navegarBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  modalBtnCancel: { paddingVertical: 12, alignItems: "center", marginTop: 8 },
-  modalBtnCancelText: { color: "#666", fontSize: 16 },
-  toggleBtn: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 8, backgroundColor: "#fff" },
-  toggleBtnActive: { backgroundColor: "#0d6efd" },
-  toggleText: { fontSize: 14, color: "#666" },
-  toggleTextActive: { color: "#fff", fontWeight: "600" },
-  loader: { marginTop: 48 },
-  listContent: { padding: 16, paddingBottom: 32 },
-  mapWrap: { flex: 1, minHeight: Dimensions.get("window").height * 0.5 },
-  map: { width: "100%", height: "100%", minHeight: 400 },
-  bottomSheetOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
-  bottomSheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 24,
-    paddingTop: 16,
-  },
-  bottomSheetTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  bottomSheetCliente: { fontSize: 16, color: "#333", marginBottom: 8 },
-  bottomSheetEndereco: { fontSize: 14, color: "#666", marginBottom: 16 },
-  bottomSheetActions: { flexDirection: "row", gap: 12, marginBottom: 12 },
-  bottomSheetBtnEntregue: { flex: 1, backgroundColor: "#198754", paddingVertical: 14, borderRadius: 8, alignItems: "center" },
-  bottomSheetBtnAusente: { flex: 1, backgroundColor: "#dc3545", paddingVertical: 14, borderRadius: 8, alignItems: "center" },
-  bottomSheetBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  bottomSheetFechar: { alignItems: "center", paddingVertical: 8 },
-  bottomSheetFecharText: { color: "#0d6efd", fontSize: 16 },
-  cardsRow: { flexDirection: "row", paddingHorizontal: 16, gap: 10, marginBottom: 12 },
-  servicoCard: {
-    flex: 1,
-    backgroundColor: "#fff",
-    padding: 12,
-    borderRadius: 10,
-    borderTopWidth: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  servicoCardLabel: { fontSize: 12, color: "#666", marginBottom: 4 },
-  servicoCardValue: { fontSize: 20, fontWeight: "700", color: "#333" },
-  sectionHeaderWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 12,
-    marginBottom: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  sectionHeader: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-  },
-  sectionCount: { fontSize: 13, color: "#666" },
-  badgesRow: { flexDirection: "row", gap: 6, alignItems: "center" },
-  servicoBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  servicoBadgeText: { fontSize: 11, color: "#fff", fontWeight: "600" },
-  item: {
-    backgroundColor: "#fff",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  itemRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  itemCodigo: { fontSize: 16, fontWeight: "600" },
-  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  badgeText: { fontSize: 12, color: "#fff", fontWeight: "600" },
-  itemCliente: { fontSize: 14, color: "#333" },
-  itemRow2: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
-  itemBairro: { fontSize: 13, color: "#666" },
-  enderecoOk: { fontSize: 12, color: "#198754", fontWeight: "500" },
-  enderecoFalta: { fontSize: 12, color: "#dc3545" },
-});
