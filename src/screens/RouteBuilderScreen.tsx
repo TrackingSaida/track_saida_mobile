@@ -88,15 +88,19 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         [
           { text: "Cancelar", style: "cancel" },
           {
-            text: "Criar Rota",
+            text: "Criar rota parcial",
             onPress: () => setRouteDeliveries(deliveriesWithAddress),
+          },
+          {
+            text: "Adicionar endereços",
+            onPress: () => navigation.navigate("PrepareDeliveries"),
           },
         ]
       );
     } else {
       setRouteDeliveries(deliveriesWithAddress);
     }
-  }, [deliveriesWithAddress, deliveriesWithoutAddress.length, setRouteDeliveries]);
+  }, [deliveriesWithAddress, deliveriesWithoutAddress.length, setRouteDeliveries, navigation]);
 
   const handleMarkerPress = useCallback((d: EntregaListItem) => {
     setSelectedDelivery(d);
@@ -228,6 +232,15 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           backgroundColor: colors.primary,
         },
         headerBtnText: { fontSize: 13, fontWeight: "600", color: colors.primaryContrast },
+        headerBtnSecondary: {
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          borderRadius: 8,
+          backgroundColor: "transparent",
+          borderWidth: 1,
+          borderColor: colors.primary,
+        },
+        headerBtnSecondaryText: { fontSize: 13, fontWeight: "600", color: colors.primary },
         toast: {
           position: "absolute",
           bottom: 120,
@@ -315,9 +328,9 @@ export default function RouteBuilderScreen({ navigation }: Props) {
 
   const selectedOrderNumber = useMemo(() => {
     if (!selectedDelivery) return undefined;
-    const idx = ordered.findIndex((d) => d.id_saida === selectedDelivery.id_saida);
+    const idx = routeOrder.indexOf(selectedDelivery.id_saida);
     return idx >= 0 ? idx + 1 : undefined;
-  }, [ordered, selectedDelivery]);
+  }, [routeOrder, selectedDelivery]);
 
   const selectedStatus = selectedDelivery
     ? (routeDeliveryStatus[selectedDelivery.id_saida] ?? "pendente")
@@ -366,6 +379,14 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           <TouchableOpacity style={styles.headerBtn} onPress={handleCriarRota}>
             <Text style={styles.headerBtnText}>Criar Rota</Text>
           </TouchableOpacity>
+          {isPartialRoute && (
+            <TouchableOpacity
+              style={styles.headerBtnSecondary}
+              onPress={() => navigation.navigate("PrepareDeliveries")}
+            >
+              <Text style={styles.headerBtnSecondaryText}>Adicionar Endereços</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 

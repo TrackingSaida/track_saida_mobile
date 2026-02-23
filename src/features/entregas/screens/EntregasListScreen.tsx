@@ -717,11 +717,15 @@ export default function EntregasListScreen({ navigation }: Props) {
                 [
                   { text: "Cancelar", style: "cancel" },
                   {
-                    text: "Criar Rota",
+                    text: "Criar rota parcial",
                     onPress: () => {
                       setRouteDeliveries(deliveriesWithAddress);
                       navigation.navigate("RouteBuilder");
                     },
+                  },
+                  {
+                    text: "Adicionar endereços",
+                    onPress: () => navigation.navigate("PrepareDeliveries"),
                   },
                 ]
               );

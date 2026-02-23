@@ -42,10 +42,13 @@ interface RouteItemProps {
   drag: () => void;
   colors: ReturnType<typeof useThemeColors>;
   status: RouteItemStatus;
+  routeOrder: number[];
 }
 
-function RouteItemRow({ item, index, isActive, drag, colors, status }: RouteItemProps) {
-  const orderNumber = index + 1;
+function RouteItemRow({ item, index, isActive, drag, colors, status, routeOrder }: RouteItemProps) {
+  const idx = routeOrder.indexOf(item.id_saida);
+  const routeNumber = idx >= 0 ? idx + 1 : 0;
+  const orderDisplay = routeNumber >= 1 ? String(routeNumber) : "—";
   const tipo = servicoTipo(item.servico);
   const badgeColor =
     status === "entregue"
@@ -107,7 +110,7 @@ function RouteItemRow({ item, index, isActive, drag, colors, status }: RouteItem
       activeOpacity={1}
     >
       <View style={styles.orderBox}>
-        <Text style={styles.orderText}>{orderNumber}</Text>
+        <Text style={styles.orderText}>{orderDisplay}</Text>
       </View>
       <View style={styles.body}>
         <View style={[styles.badge, { backgroundColor: badgeColor }]}>
@@ -162,9 +165,10 @@ export default function RouteBottomSheet() {
         drag={drag}
         colors={colors}
         status={routeDeliveryStatus[item.id_saida] ?? "pendente"}
+        routeOrder={routeOrder}
       />
     ),
-    [colors, routeDeliveryStatus]
+    [colors, routeDeliveryStatus, routeOrder]
   );
 
   const styles = useMemo(

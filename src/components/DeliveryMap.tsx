@@ -112,6 +112,7 @@ export default function DeliveryMap({ onMarkerPress, selectedId }: DeliveryMapPr
         : [],
     [withCoords]
   );
+  /* Polyline e marcadores usam apenas ordered (getOrderedRouteDeliveries); nunca routeDeliveries direto. */
 
   const showEmptyMessage = ordered.length > 0 && withCoords.length === 0;
 
@@ -134,12 +135,13 @@ export default function DeliveryMap({ onMarkerPress, selectedId }: DeliveryMapPr
             geodesic
           />
         )}
-      {ordered.map((d, index) => {
+      {ordered.map((d) => {
         if (d.latitude == null || d.longitude == null) return null;
+        const idx = routeOrder.indexOf(d.id_saida);
+        const routeNumber = idx >= 0 ? idx + 1 : 0;
         const status = routeDeliveryStatus[d.id_saida] ?? "pendente";
         const isSelected = selectedId === d.id_saida;
-        const orderNumber = index + 1;
-        const isFirst = orderNumber === 1;
+        const isFirst = routeNumber === 1;
         let backgroundColor: string;
         let content: React.ReactNode;
         if (status === "entregue") {
@@ -154,17 +156,17 @@ export default function DeliveryMap({ onMarkerPress, selectedId }: DeliveryMapPr
           const isLight = tipo === "Flex";
           content = (
             <Text style={[styles.markerText, { color: isLight ? "#333" : "#fff" }]}>
-              {orderNumber}
+              {routeNumber >= 1 ? routeNumber : "—"}
             </Text>
           );
         }
         return (
           <Marker
-            key={`${d.id_saida}-${index}`}
+            key={d.id_saida}
             coordinate={{ latitude: d.latitude, longitude: d.longitude }}
             anchor={{ x: 0.5, y: 0.5 }}
             tracksViewChanges={false}
-            onPress={() => onMarkerPress?.(d, index)}
+            onPress={() => onMarkerPress?.(d, routeNumber >= 1 ? routeNumber - 1 : 0)}
           >
             <View
               style={[
