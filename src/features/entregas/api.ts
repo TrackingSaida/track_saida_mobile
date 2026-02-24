@@ -29,7 +29,10 @@ client.interceptors.request.use((config) => {
 });
 
 export async function getResumoEntregas(): Promise<ResumoEntregas> {
-  const { data } = await client.get<ResumoEntregas>("/mobile/entregas/resumo");
+  const dataHoje = getTodayISO();
+  const { data } = await client.get<ResumoEntregas>("/mobile/entregas/resumo", {
+    params: { data: dataHoje },
+  });
   return data;
 }
 
