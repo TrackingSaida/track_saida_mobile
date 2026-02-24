@@ -7,6 +7,8 @@ export interface EntregaListItem {
   cliente: string | null;
   bairro: string | null;
   endereco: string | null;
+  numero?: string | null;
+  cep?: string | null;
   contato: string | null;
   data: string | null;
   data_hora_entrega: string | null;

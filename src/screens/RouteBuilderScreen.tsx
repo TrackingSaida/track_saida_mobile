@@ -8,6 +8,7 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Linking } from "react-native";
@@ -17,9 +18,12 @@ import { useThemeColors } from "../theme/colors";
 import DeliveryMap from "../components/DeliveryMap";
 import RouteBottomSheet from "../components/RouteBottomSheet";
 import RouteMarkerCard from "../components/RouteMarkerCard";
+import FormEntregaConcluida from "../features/entregas/components/FormEntregaConcluida";
+import type { EntregueBody } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
 import { getMotivosAusencia } from "../features/entregas/api";
-import { getOrderedRouteDeliveries, computeRouteStats } from "../features/entregas/utils/routeUtils";
+import { getOrderedRouteDeliveries, computeRouteStats, groupOrderedByAddress, computeRouteStatsFromGroups, addressAndRecipientKey, servicoTipo, type GroupedStop } from "../features/entregas/utils/routeUtils";
+import { geocodeAddress } from "../features/entregas/utils/geocode";
 import type { EntregaListItem, MotivoAusencia } from "../features/entregas/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RouteBuilder">;
@@ -53,7 +57,6 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const deliveriesWithAddress = useDeliveryStore((s) => s.deliveriesWithAddress);
   const deliveriesWithoutAddress = useDeliveryStore((s) => s.deliveriesWithoutAddress);
   const setRouteDeliveries = useDeliveryStore((s) => s.setRouteDeliveries);
-  const optimizeRoute = useDeliveryStore((s) => s.optimizeRoute);
   const activeRouteId = useDeliveryStore((s) => s.activeRouteId);
   const activeStopIndex = useDeliveryStore((s) => s.activeStopIndex);
   const startActiveRoute = useDeliveryStore((s) => s.startActiveRoute);
@@ -62,28 +65,55 @@ export default function RouteBuilderScreen({ navigation }: Props) {
 
   const isRouteActive = activeRouteId != null;
 
-  const [showToast, setShowToast] = useState(false);
   const [showRotaFinalizadaModal, setShowRotaFinalizadaModal] = useState(false);
   const [centerOnStopId, setCenterOnStopId] = useState<number | null>(null);
   const [iniciandoRota, setIniciandoRota] = useState(false);
+  const [stopDetailGroup, setStopDetailGroup] = useState<GroupedStop | null>(null);
+  const [pendingEntregueIds, setPendingEntregueIds] = useState<number[] | null>(null);
+  const [geocodedCoords, setGeocodedCoords] = useState<Record<number, { latitude: number; longitude: number }>>({});
 
   const ordered = useMemo(
     () => getOrderedRouteDeliveries(routeDeliveries, routeOrder),
     [routeDeliveries, routeOrder]
   );
-  const routeStats = useMemo(() => computeRouteStats(ordered), [ordered]);
+  const groupedStops = useMemo(() => groupOrderedByAddress(ordered), [ordered]);
+  const routeStats = useMemo(
+    () =>
+      groupedStops.length > 0
+        ? computeRouteStatsFromGroups(groupedStops)
+        : computeRouteStats(ordered),
+    [groupedStops, ordered]
+  );
   const isPartialRoute = deliveriesWithoutAddress.length > 0;
 
   useEffect(() => {
-    if (!showToast) return;
-    const t = setTimeout(() => setShowToast(false), 2000);
-    return () => clearTimeout(t);
-  }, [showToast]);
+    const withoutCoords = ordered.filter((d) => d.latitude == null || d.longitude == null);
+    if (withoutCoords.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const next: Record<number, { latitude: number; longitude: number }> = {};
+      for (const d of withoutCoords) {
+        if (cancelled) return;
+        const addr = d.endereco_formatado || [d.endereco, d.bairro].filter(Boolean).join(", ");
+            if (!addr.trim()) continue;
+            const res = await geocodeAddress(addr);
+            if (cancelled) return;
+            if (res) next[d.id_saida] = res;
+          }
+      if (!cancelled) setGeocodedCoords((prev) => ({ ...prev, ...next }));
+    })();
+    return () => { cancelled = true; };
+  }, [ordered]);
 
-  const handleOtimizar = useCallback(() => {
-    optimizeRoute();
-    setShowToast(true);
-  }, [optimizeRoute]);
+  const getPendingSameAddressRecipient = useCallback(
+    (d: EntregaListItem): EntregaListItem[] =>
+      ordered.filter(
+        (x) =>
+          addressAndRecipientKey(x) === addressAndRecipientKey(d) &&
+          (routeDeliveryStatus[x.id_saida] ?? "pendente") === "pendente"
+      ),
+    [ordered, routeDeliveryStatus]
+  );
 
   const handleCriarRota = useCallback(() => {
     if (deliveriesWithAddress.length === 0) {
@@ -120,28 +150,46 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     setSelectedDelivery(null);
   }, []);
 
-  const handleMarcarEntregue = useCallback(async () => {
+  const handleMarcarEntregue = useCallback(() => {
     if (!selectedDelivery) return;
-    const id = selectedDelivery.id_saida;
-    try {
-      await markDelivered(id, {});
-      setSelectedDelivery(null);
-      if (isRouteActive && activeRouteId) {
-        await completeStop();
-        const nextIdx = useDeliveryStore.getState().activeStopIndex;
-        const order = useDeliveryStore.getState().routeOrder;
-        if (nextIdx < order.length) {
+    const pending = getPendingSameAddressRecipient(selectedDelivery);
+    const ids = pending.map((d) => d.id_saida);
+    if (ids.length > 1) {
+      Alert.alert(
+        "Finalizar todos?",
+        `Há mais ${ids.length} pedidos para o mesmo destinatário neste endereço. Deseja finalizar todos?`,
+        [
+          { text: "Não", style: "cancel" as const, onPress: () => setPendingEntregueIds([selectedDelivery.id_saida]) },
+          { text: "Sim", onPress: () => setPendingEntregueIds(ids) },
+        ]
+      );
+    } else {
+      setPendingEntregueIds([selectedDelivery.id_saida]);
+    }
+  }, [selectedDelivery, getPendingSameAddressRecipient]);
+
+  const handleConfirmarEntregueBatch = useCallback(
+    async (body: EntregueBody) => {
+      if (!pendingEntregueIds || pendingEntregueIds.length === 0) return;
+      for (let i = 0; i < pendingEntregueIds.length; i++) {
+        await markDelivered(pendingEntregueIds[i], body);
+        if (isRouteActive && activeRouteId) {
+          await completeStop();
+          const nextIdx = useDeliveryStore.getState().activeStopIndex;
+          const order = useDeliveryStore.getState().routeOrder;
+          if (nextIdx >= order.length) {
+            await finishRoute();
+            setShowRotaFinalizadaModal(true);
+            break;
+          }
           setCenterOnStopId(order[nextIdx]);
-        } else {
-          await finishRoute();
-          setShowRotaFinalizadaModal(true);
         }
       }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Erro ao marcar entregue.";
-      Alert.alert("Erro", msg);
-    }
-  }, [selectedDelivery, markDelivered, isRouteActive, activeRouteId, completeStop, finishRoute]);
+      setPendingEntregueIds(null);
+      setSelectedDelivery(null);
+    },
+    [pendingEntregueIds, markDelivered, isRouteActive, activeRouteId, completeStop, finishRoute]
+  );
 
   const openAusenteModal = useCallback(() => {
     if (!selectedDelivery) return;
@@ -173,24 +221,41 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       Alert.alert("Atenção", "Informe a observação quando o motivo for 'Outro'.");
       return;
     }
+    const pending = getPendingSameAddressRecipient(deliveryForAusente);
+    const idsToMark =
+      pending.length > 1
+        ? await new Promise<number[]>((resolve) => {
+            Alert.alert(
+              "Finalizar todos?",
+              `Há mais ${pending.length} pedidos para o mesmo destinatário neste endereço. Deseja finalizar todos?`,
+              [
+                { text: "Não", style: "cancel" as const, onPress: () => resolve([deliveryForAusente.id_saida]) },
+                { text: "Sim", onPress: () => resolve(pending.map((d) => d.id_saida)) },
+              ]
+            );
+          })
+        : [deliveryForAusente.id_saida];
+
     setSaving(true);
     try {
-      await markAbsent(deliveryForAusente.id_saida, motivoId, observacao.trim() || undefined);
+      for (let i = 0; i < idsToMark.length; i++) {
+        await markAbsent(idsToMark[i], motivoId, observacao.trim() || undefined);
+        if (useDeliveryStore.getState().activeRouteId) {
+          await completeStop();
+          const nextIdx = useDeliveryStore.getState().activeStopIndex;
+          const order = useDeliveryStore.getState().routeOrder;
+          if (nextIdx < order.length) {
+            setCenterOnStopId(order[nextIdx]);
+          } else {
+            await finishRoute();
+            setShowRotaFinalizadaModal(true);
+            break;
+          }
+        }
+      }
       setShowAusenteModal(false);
       setDeliveryForAusente(null);
       setSelectedDelivery(null);
-      const active = useDeliveryStore.getState().activeRouteId;
-      if (active) {
-        await completeStop();
-        const nextIdx = useDeliveryStore.getState().activeStopIndex;
-        const order = useDeliveryStore.getState().routeOrder;
-        if (nextIdx < order.length) {
-          setCenterOnStopId(order[nextIdx]);
-        } else {
-          await finishRoute();
-          setShowRotaFinalizadaModal(true);
-        }
-      }
     } catch (e: unknown) {
       const msg =
         e && typeof e === "object" && "response" in e
@@ -200,7 +265,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [deliveryForAusente, motivoId, motivos, observacao, markAbsent, completeStop, finishRoute]);
+  }, [deliveryForAusente, motivoId, motivos, observacao, markAbsent, completeStop, finishRoute, getPendingSameAddressRecipient]);
 
   const openNavegarModal = useCallback(() => {
     if (!selectedDelivery) return;
@@ -293,19 +358,6 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           borderColor: colors.primary,
         },
         headerBtnSecondaryText: { fontSize: 13, fontWeight: "600", color: colors.primary },
-        toast: {
-          position: "absolute",
-          bottom: 120,
-          left: 24,
-          right: 24,
-          zIndex: 20,
-          backgroundColor: colors.primary,
-          paddingVertical: 12,
-          paddingHorizontal: 16,
-          borderRadius: 8,
-          alignItems: "center",
-        },
-        toastText: { fontSize: 14, fontWeight: "600", color: colors.primaryContrast },
         mapFull: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
         sheetOverlay: { position: "absolute", left: 0, right: 0, bottom: 0 },
         cardOverlay: {
@@ -384,6 +436,16 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     return idx >= 0 ? idx + 1 : undefined;
   }, [routeOrder, selectedDelivery]);
 
+  const activeGroupIndex1Based = useMemo(() => {
+    if (groupedStops.length === 0) return 1;
+    let idx = 0;
+    for (let i = 0; i < groupedStops.length; i++) {
+      if (activeStopIndex < idx + groupedStops[i].deliveries.length) return i + 1;
+      idx += groupedStops[i].deliveries.length;
+    }
+    return groupedStops.length;
+  }, [groupedStops, activeStopIndex]);
+
   const selectedStatus = selectedDelivery
     ? (routeDeliveryStatus[selectedDelivery.id_saida] ?? "pendente")
     : "pendente";
@@ -412,6 +474,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           onMarkerPress={handleMarkerPress}
           selectedId={selectedDelivery?.id_saida ?? null}
           centerOnStopId={centerOnStopId}
+          geocodedCoords={geocodedCoords}
         />
       </View>
 
@@ -423,11 +486,11 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         </View>
         <View style={styles.headerStats}>
           <Text style={styles.statText}>
-            <Text style={styles.statValue}>{ordered.length}</Text> parada{ordered.length !== 1 ? "s" : ""}
+            <Text style={styles.statValue}>{groupedStops.length}</Text> parada{groupedStops.length !== 1 ? "s" : ""}
           </Text>
           {isRouteActive ? (
             <Text style={styles.statText}>
-              Parada <Text style={styles.statValue}>{activeStopIndex + 1}</Text> de <Text style={styles.statValue}>{routeOrder.length}</Text>
+              Parada <Text style={styles.statValue}>{activeGroupIndex1Based}</Text> de <Text style={styles.statValue}>{groupedStops.length}</Text>
             </Text>
           ) : (
             <>
@@ -451,24 +514,9 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         <View style={styles.headerButtons}>
           {!isRouteActive && (
             <>
-          <TouchableOpacity
-            style={styles.headerBtn}
-            onPress={handleOtimizar}
-            disabled={ordered.length < 2}
-          >
-            <Text style={styles.headerBtnText}>Otimizar</Text>
-          </TouchableOpacity>
           <TouchableOpacity style={styles.headerBtn} onPress={handleCriarRota}>
             <Text style={styles.headerBtnText}>Criar Rota</Text>
           </TouchableOpacity>
-          {isPartialRoute && (
-            <TouchableOpacity
-              style={styles.headerBtnSecondary}
-              onPress={() => navigation.navigate("PrepareDeliveries")}
-            >
-              <Text style={styles.headerBtnSecondaryText}>Adicionar Endereços</Text>
-            </TouchableOpacity>
-          )}
             </>
           )}
           {!isRouteActive && ordered.length > 0 && (
@@ -485,15 +533,62 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         </View>
       </View>
 
-      {showToast && (
-        <View style={styles.toast}>
-          <Text style={styles.toastText}>Rota otimizada com sucesso.</Text>
-        </View>
-      )}
-
       <View style={styles.sheetOverlay}>
-        <RouteBottomSheet disableDrag={isRouteActive} />
+        <RouteBottomSheet
+          disableDrag={isRouteActive}
+          onStopPress={(group) => setStopDetailGroup(group)}
+        />
       </View>
+
+      <Modal visible={stopDetailGroup != null} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <Text style={styles.modalTitle}>Pedidos nesta parada</Text>
+              <TouchableOpacity onPress={() => setStopDetailGroup(null)}>
+                <Text style={styles.modalBtnCancelText}>Fechar</Text>
+              </TouchableOpacity>
+            </View>
+            {stopDetailGroup && (
+              <FlatList
+                data={stopDetailGroup.deliveries}
+                keyExtractor={(item) => String(item.id_saida)}
+                renderItem={({ item }) => {
+                  const status = routeDeliveryStatus[item.id_saida] ?? "pendente";
+                  const podeFinalizar = status === "pendente";
+                  return (
+                    <TouchableOpacity
+                      style={[styles.radio, !podeFinalizar && { opacity: 0.7 }]}
+                      onPress={() => {
+                        if (podeFinalizar) {
+                          setSelectedDelivery(item);
+                          setStopDetailGroup(null);
+                        }
+                      }}
+                      disabled={!podeFinalizar}
+                    >
+                      <Text style={styles.radioText}>
+                        Pedido {item.id_saida} · {item.codigo || "—"}
+                      </Text>
+                      <Text style={[styles.radioText, { fontSize: 13, fontWeight: "400", marginTop: 4 }]}>
+                        Destinatário: {item.cliente || item.exibicao || "—"}
+                      </Text>
+                      <Text style={[styles.radioText, { fontSize: 13, fontWeight: "400" }]}>
+                        Serviço: {servicoTipo(item.servico)}
+                      </Text>
+                      {!podeFinalizar && (
+                        <Text style={[styles.radioText, { fontSize: 12, color: colors.textSecondary, marginTop: 4 }]}>
+                          {status === "entregue" ? "Entregue" : "Ausente"}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {selectedDelivery && (
         <View style={[styles.cardOverlay, { paddingBottom: 24 + Math.max(0, insets.bottom) }]}>
@@ -607,6 +702,14 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         </TouchableOpacity>
       </Modal>
       {modalRotaFinalizada}
+      <FormEntregaConcluida
+        visible={pendingEntregueIds != null && pendingEntregueIds.length > 0}
+        idSaida={pendingEntregueIds?.[0] ?? 0}
+        destinatarioPreenchido={selectedDelivery?.cliente ?? undefined}
+        onConfirm={handleConfirmarEntregueBatch}
+        onClose={() => setPendingEntregueIds(null)}
+        onSuccess={() => {}}
+      />
     </View>
   );
 }

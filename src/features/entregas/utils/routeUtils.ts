@@ -16,6 +16,48 @@ export const ROUTE_MARKER_COLORS: Record<ServicoTipo, string> = {
   Shopee: "#ea580c",
 };
 
+/** Retorna chave de endereço para agrupamento: CEP + número quando disponível; senão coords; senão endereço formatado. */
+export function addressKey(d: EntregaListItem): string {
+  const cep = (d.cep ?? "").toString().replace(/\D/g, "").slice(0, 8);
+  const num = (d.numero ?? "").toString().trim();
+  if (cep && num) return `${cep}|${num}`;
+  if (d.latitude != null && d.longitude != null) {
+    return `coord|${Math.round(d.latitude * 100000)}|${Math.round(d.longitude * 100000)}`;
+  }
+  const addr = (d.endereco_formatado || [d.endereco, d.bairro].filter(Boolean).join(", ") || "").trim();
+  return addr ? `addr|${addr}` : `id|${d.id_saida}`;
+}
+
+/** Chave CEP + número + destinatário (para fluxo "finalizar todos"). */
+export function addressAndRecipientKey(d: EntregaListItem): string {
+  const base = addressKey(d);
+  const cliente = (d.cliente ?? "").trim();
+  return `${base}|${cliente}`;
+}
+
+/** Agrupa entregas na ordem da rota por mesmo endereço (CEP+número ou fallback). Preserva ordem. */
+export function groupOrderedByAddress(
+  ordered: EntregaListItem[]
+): Array<{ key: string; deliveries: EntregaListItem[] }> {
+  if (ordered.length === 0) return [];
+  const groups: Array<{ key: string; deliveries: EntregaListItem[] }> = [];
+  let currentKey = addressKey(ordered[0]);
+  let current: EntregaListItem[] = [ordered[0]];
+  for (let i = 1; i < ordered.length; i++) {
+    const d = ordered[i];
+    const k = addressKey(d);
+    if (k === currentKey) {
+      current.push(d);
+    } else {
+      groups.push({ key: currentKey, deliveries: current });
+      currentKey = k;
+      current = [d];
+    }
+  }
+  groups.push({ key: currentKey, deliveries: current });
+  return groups;
+}
+
 /** Retorna entregas na ordem atual da rota (routeOrder). */
 export function getOrderedRouteDeliveries(
   routeDeliveries: EntregaListItem[],
@@ -72,4 +114,17 @@ export function computeRouteStats(
   const stopMinutes = withCoords.length * minutesPerStop;
   const estimatedMinutes = Math.round(travelMinutes + stopMinutes);
   return { distanceKm: Math.round(distanceKm * 100) / 100, estimatedMinutes };
+}
+
+export type GroupedStop = { key: string; deliveries: EntregaListItem[] };
+
+/** Estatísticas da rota a partir de paradas agrupadas: um ponto por grupo (primeira entrega com coords). */
+export function computeRouteStatsFromGroups(
+  groupedStops: GroupedStop[]
+): { distanceKm: number; estimatedMinutes: number } {
+  const onePerGroup: EntregaListItem[] = groupedStops.map((g) => {
+    const withCoords = g.deliveries.find((d) => d.latitude != null && d.longitude != null);
+    return withCoords ?? g.deliveries[0];
+  });
+  return computeRouteStats(onePerGroup);
 }

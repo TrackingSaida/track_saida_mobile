@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -47,13 +47,13 @@ const MaisStack = createNativeStackNavigator<MaisStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 
-function HomeStackScreen() {
+function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
   return (
     <HomeStack.Navigator screenOptions={{ headerShown: false }}>
       <HomeStack.Screen name="HomeInicio">
         {({ navigation }) => (
           <HomeScreen
-            onLogout={useAuthStore.getState().logout}
+            onLogout={onLogout}
             onNavigateEntregas={() => navigation.navigate("EntregasList")}
             onNavigateScan={() => navigation.navigate("Scan")}
             onNavigateRouteBuilder={() => navigation.navigate("RouteBuilder")}
@@ -82,7 +82,7 @@ function MaisStackScreen() {
   );
 }
 
-function MainTabs() {
+function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
   const colors = useThemeColors();
   return (
     <Tab.Navigator
@@ -95,12 +95,13 @@ function MainTabs() {
     >
       <Tab.Screen
         name="Home"
-        component={HomeStackScreen}
         options={{
           tabBarLabel: "Home",
           tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size ?? 24} color={color} />,
         }}
-      />
+      >
+        {() => <HomeStackScreen onLogout={onLogout} />}
+      </Tab.Screen>
       <Tab.Screen
         name="Mais"
         component={MaisStackScreen}
@@ -114,9 +115,16 @@ function MainTabs() {
 }
 
 export default function App() {
-  const { token, isLoading, loadToken, requiresBiometricUnlock } = useAuthStore();
+  const { token, isLoading, loadToken, requiresBiometricUnlock, logout: logoutFromStore } = useAuthStore();
   const theme = useThemeStore((s) => s.theme);
   const loadTheme = useThemeStore((s) => s.loadTheme);
+  const [authDone, setAuthDone] = useState(false);
+
+  const logout = useCallback(async () => {
+    await logoutFromStore();
+    setAuthDone(false);
+  }, [logoutFromStore]);
+
   const navTheme = React.useMemo(
     () => ({
       ...DefaultTheme,
@@ -142,19 +150,21 @@ export default function App() {
     return null;
   }
 
+  const showMainApp = (token != null && !requiresBiometricUnlock) || authDone;
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <NavigationContainer theme={navTheme}>
         <StatusBar style={theme === "dark" ? "light" : "dark"} />
-        {token && !requiresBiometricUnlock ? (
-          <MainTabs />
+        {showMainApp ? (
+          <MainTabs onLogout={logout} />
         ) : (
           <AuthStack.Navigator screenOptions={{ headerShown: false }}>
             <AuthStack.Screen name="Login">
               {({ navigation }) => (
                 <LoginScreen
-                  onLoginSuccess={() => {}}
+                  onLoginSuccess={() => setAuthDone(true)}
                   onSelectSubBase={(identifier, password, subBases) =>
                     navigation.navigate("SelectSubBase", {
                       identifier,
@@ -171,7 +181,7 @@ export default function App() {
                   identifier={route.params.identifier}
                   password={route.params.password}
                   subBases={route.params.subBases}
-                  onSuccess={() => {}}
+                  onSuccess={() => setAuthDone(true)}
                   onBack={() => navigation.goBack()}
                 />
               )}
