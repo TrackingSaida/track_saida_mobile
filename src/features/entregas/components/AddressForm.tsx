@@ -92,6 +92,7 @@ export default function AddressForm({
   onSave,
   onCancel,
   submitLabel = "Salvar",
+  enableOnlyDestinatarioShortcut,
 }: AddressFormProps) {
   const colors = useThemeColors();
   const [values, setValues] = useState<AddressFormValues>(() => ({
