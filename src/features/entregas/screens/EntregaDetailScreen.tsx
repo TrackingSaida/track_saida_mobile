@@ -464,7 +464,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Adicionar Endereço</Text>
-            <Text style={styles.modalMessage}>Como deseja preencher o endereço?</Text>
             <TouchableOpacity style={styles.radio} onPress={handleDigitarEndereco} disabled={ocrLoading}>
               <Text style={styles.radioText}>Digitar</Text>
             </TouchableOpacity>

@@ -56,6 +56,23 @@ async function fetchViaCep(cep: string): Promise<ViaCepResponse | null> {
   }
 }
 
+function formatCep(value: string): string {
+  const d = value.replace(/\D/g, "").slice(0, 8);
+  if (d.length <= 5) return d.replace(/(\d{5})/, "$1-");
+  return d.replace(/(\d{5})(\d{0,3})/, "$1-$2");
+}
+
+function isAddressCompleteExceptDestinatario(v: Partial<AddressFormValues>): boolean {
+  const rua = (v.rua ?? "").trim();
+  const num = (v.numero ?? "").trim();
+  const bairro = (v.bairro ?? "").trim();
+  const cidade = (v.cidade ?? "").trim();
+  const estado = (v.estado ?? "").trim();
+  const cep = (v.cep ?? "").replace(/\D/g, "");
+  const dest = (v.destinatario ?? "").trim();
+  return rua.length > 0 && num.length > 0 && bairro.length > 0 && cidade.length > 0 && estado.length > 0 && cep.length === 8 && dest.length === 0;
+}
+
 interface AddressFormProps {
   idSaida: number;
   initialValues?: Partial<AddressFormValues>;
@@ -64,6 +81,8 @@ interface AddressFormProps {
   onCancel?: () => void;
   submitLabel?: string;
 }
+
+const TOTAL_STEPS = 3;
 
 export default function AddressForm({
   idSaida,
@@ -74,11 +93,105 @@ export default function AddressForm({
   submitLabel = "Salvar",
 }: AddressFormProps) {
   const colors = useThemeColors();
+  const [values, setValues] = useState<AddressFormValues>(() => ({
+    ...initialEmpty,
+    ...initialValues,
+  }));
+  const [step, setStep] = useState(1);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [loadingCep, setLoadingCep] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const onlyDestinatarioMode = useMemo(() => isAddressCompleteExceptDestinatario(values), [values]);
+
+  const set = useCallback((field: keyof AddressFormValues, text: string) => {
+    setValues((v) => ({ ...v, [field]: text }));
+  }, []);
+
+  const fetchCep = useCallback(() => {
+    const cep = values.cep.replace(/\D/g, "");
+    if (cep.length !== 8) return;
+    setLoadingCep(true);
+    fetchViaCep(cep)
+      .then((data) => {
+        if (data) {
+          setValues((v) => ({
+            ...v,
+            rua: data.logradouro ?? v.rua,
+            bairro: data.bairro ?? v.bairro,
+            cidade: data.localidade ?? v.cidade,
+            estado: data.uf ?? v.estado,
+          }));
+        }
+      })
+      .finally(() => setLoadingCep(false));
+  }, [values.cep]);
+
+  const blurCep = useCallback(() => {
+    setTouched((t) => ({ ...t, cep: true }));
+    fetchCep();
+  }, [fetchCep]);
+
+  const required = ["destinatario", "rua", "numero", "bairro", "cidade", "estado", "cep"];
+  const getError = (field: keyof AddressFormValues): string | null => {
+    if (!touched[field]) return null;
+    const v = (values[field] ?? "").trim();
+    const vCep = (values.cep ?? "").replace(/\D/g, "");
+    if (required.includes(field) && !v && field !== "cep") return "Obrigatório";
+    if (field === "cep" && vCep.length !== 8) return "CEP inválido (8 dígitos)";
+    if (field === "numero" && !v) return "Obrigatório";
+    if (field === "destinatario" && !v) return "Obrigatório";
+    return null;
+  };
+
+  const step1Valid = (values.cep ?? "").replace(/\D/g, "").length === 8 && (values.rua ?? "").trim().length > 0;
+  const step2Valid = (values.numero ?? "").trim().length > 0;
+
+  const handleNext = useCallback(() => {
+    if (step === 1 && step1Valid) setStep(2);
+    else if (step === 2 && step2Valid) setStep(3);
+  }, [step, step1Valid, step2Valid]);
+
+  const handleSubmit = async () => {
+    const dest = (values.destinatario || "").trim();
+    const rua = (values.rua || "").trim();
+    const num = (values.numero || "").trim();
+    const bairro = (values.bairro || "").trim();
+    const cidade = (values.cidade || "").trim();
+    const estado = (values.estado || "").trim();
+    const cep = (values.cep || "").replace(/\D/g, "");
+    if (!dest || !rua || !num || !bairro || !cidade || !estado || cep.length !== 8) {
+      setTouched((t) => ({ ...t, destinatario: true, rua: true, numero: true, bairro: true, cidade: true, estado: true, cep: true }));
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({
+        destinatario: dest,
+        rua,
+        numero: num,
+        complemento: (values.complemento || "").trim() || "",
+        bairro,
+        cidade,
+        estado,
+        cep,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
         wrap: { flex: 1 },
         scroll: { flex: 1 },
+        stepBar: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
+        stepDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.separator },
+        stepDotActive: { backgroundColor: colors.primary },
+        stepLine: { flex: 1, height: 2, backgroundColor: colors.separator, marginHorizontal: 4 },
+        stepLineDone: { backgroundColor: colors.primary },
+        stepLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 16 },
         field: { marginBottom: 16 },
         label: { fontSize: 14, color: colors.text, marginBottom: 6 },
         asterisk: { color: colors.danger },
@@ -96,9 +209,19 @@ export default function AddressForm({
         errorText: { fontSize: 12, color: colors.danger, marginTop: 4 },
         cepLoading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
         cepLoadingText: { fontSize: 12, color: colors.textSecondary },
+        readOnlyRow: { marginBottom: 10 },
+        readOnlyLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 2 },
+        readOnlyValue: { fontSize: 15, color: colors.text },
         actions: { flexDirection: "row", gap: 12, marginTop: 24, marginBottom: 24 },
         btnCancel: { paddingVertical: 12, paddingHorizontal: 20 },
         btnCancelText: { color: colors.textSecondary, fontSize: 16 },
+        btnNext: {
+          flex: 1,
+          backgroundColor: colors.primary,
+          paddingVertical: 14,
+          borderRadius: 8,
+          alignItems: "center",
+        },
         btnSave: {
           flex: 1,
           backgroundColor: colors.primary,
@@ -111,136 +234,168 @@ export default function AddressForm({
       }),
     [colors]
   );
-  const [values, setValues] = useState<AddressFormValues>(() => ({
-    ...initialEmpty,
-    ...initialValues,
-  }));
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [loadingCep, setLoadingCep] = useState(false);
-  const [saving, setSaving] = useState(false);
 
-  const set = useCallback((field: keyof AddressFormValues, text: string) => {
-    setValues((v) => ({ ...v, [field]: text }));
-  }, []);
-
-  const blur = useCallback((field: keyof AddressFormValues) => {
-    setTouched((t) => ({ ...t, [field]: true }));
-    if (field === "cep") {
-      const cep = values.cep.replace(/\D/g, "");
-      if (cep.length === 8) {
-        setLoadingCep(true);
-        fetchViaCep(cep)
-          .then((data) => {
-            if (data) {
-              setValues((v) => ({
-                ...v,
-                rua: data.logradouro ?? v.rua,
-                bairro: data.bairro ?? v.bairro,
-                cidade: data.localidade ?? v.cidade,
-                estado: data.uf ?? v.estado,
-              }));
-            }
-          })
-          .finally(() => setLoadingCep(false));
-      }
-    }
-  }, [values.cep]);
-
-  const required = ["destinatario", "rua", "numero", "bairro", "cidade", "estado", "cep"];
-  const getError = (field: keyof AddressFormValues): string | null => {
-    if (!touched[field]) return null;
-    const v = (values[field] || "").trim();
-    if (required.includes(field) && !v) return "Obrigatório";
-    if (field === "cep" && v.replace(/\D/g, "").length !== 8) return "CEP inválido";
-    return null;
-  };
-
-  const handleSubmit = async () => {
-    const allTouched = required.reduce((acc, k) => ({ ...acc, [k]: true }), {} as Record<string, boolean>);
-    setTouched((t) => ({ ...t, ...allTouched }));
-    const errs = required.map((f) => getError(f as keyof AddressFormValues));
-    const dest = (values.destinatario || "").trim();
-    const rua = (values.rua || "").trim();
-    const num = (values.numero || "").trim();
-    const bairro = (values.bairro || "").trim();
-    const cidade = (values.cidade || "").trim();
-    const estado = (values.estado || "").trim();
-    const cep = (values.cep || "").replace(/\D/g, "");
-    if (!dest || !rua || !num || !bairro || !cidade || !estado || cep.length !== 8) {
-      return;
-    }
-    setSaving(true);
-    try {
-      await onSave({
-        destinatario: dest,
-        rua,
-        numero: num,
-        complemento: (values.complemento || "").trim() || "",
-        bairro,
-        cidade,
-        estado,
-        cep: cep,
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const fields: { key: keyof AddressFormValues; label: string; placeholder?: string; required?: boolean }[] = [
-    { key: "destinatario", label: "Destinatário", required: true },
-    { key: "rua", label: "Rua", required: true },
-    { key: "numero", label: "Número", required: true },
-    { key: "complemento", label: "Complemento" },
-    { key: "bairro", label: "Bairro", required: true },
-    { key: "cidade", label: "Cidade", required: true },
-    { key: "estado", label: "Estado", required: true },
-    { key: "cep", label: "CEP", required: true },
-  ];
+  if (onlyDestinatarioMode) {
+    return (
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.wrap}>
+        <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <Text style={styles.stepLabel}>Falta apenas o destinatário.</Text>
+          <View style={styles.field}>
+            <Text style={styles.label}>Destinatário <Text style={styles.asterisk}>*</Text></Text>
+            <TextInput
+              style={[styles.input, getError("destinatario") ? styles.inputError : null]}
+              value={values.destinatario}
+              onChangeText={(t) => set("destinatario", t)}
+              onBlur={() => setTouched((t) => ({ ...t, destinatario: true }))}
+              placeholder="Nome do destinatário"
+              placeholderTextColor={colors.placeholder}
+            />
+            {getError("destinatario") ? <Text style={styles.errorText}>{getError("destinatario")}</Text> : null}
+          </View>
+          <View style={styles.actions}>
+            {onCancel && (
+              <TouchableOpacity style={styles.btnCancel} onPress={onCancel} disabled={saving}>
+                <Text style={styles.btnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={[styles.btnSave, saving && styles.btnDisabled]} onPress={handleSubmit} disabled={saving}>
+              {saving ? <ActivityIndicator color={colors.primaryContrast} size="small" /> : <Text style={styles.btnSaveText}>{submitLabel}</Text>}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.wrap}>
       <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        {fields.map(({ key, label, placeholder, required: req }) => {
-          const err = getError(key);
-          return (
-            <View key={key} style={styles.field}>
-              <Text style={styles.label}>
-                {label}
-                {req ? <Text style={styles.asterisk}> *</Text> : null}
-              </Text>
+        <View style={styles.stepBar}>
+          {[1, 2, 3].map((s) => (
+            <React.Fragment key={s}>
+              {s > 1 && <View style={[styles.stepLine, s <= step ? styles.stepLineDone : null]} />}
+              <View style={[styles.stepDot, s <= step ? styles.stepDotActive : null]} />
+            </React.Fragment>
+          ))}
+        </View>
+        <Text style={styles.stepLabel}>Passo {step} de {TOTAL_STEPS}</Text>
+
+        {step === 1 && (
+          <>
+            <View style={styles.field}>
+              <Text style={styles.label}>CEP <Text style={styles.asterisk}>*</Text></Text>
               <TextInput
-                style={[styles.input, err ? styles.inputError : null]}
-                value={values[key]}
-                onChangeText={(t) => set(key, t)}
-                onBlur={() => blur(key)}
-                placeholder={placeholder ?? label}
+                style={[styles.input, getError("cep") ? styles.inputError : null]}
+                value={values.cep}
+                onChangeText={(t) => set("cep", formatCep(t))}
+                onBlur={blurCep}
+                placeholder="00000-000"
                 placeholderTextColor={colors.placeholder}
-                editable={key !== "cep" || !loadingCep}
+                keyboardType="numeric"
+                maxLength={9}
+                editable={!loadingCep}
               />
-              {key === "cep" && loadingCep && (
+              {loadingCep && (
                 <View style={styles.cepLoading}>
                   <ActivityIndicator size="small" />
                   <Text style={styles.cepLoadingText}>Buscando CEP...</Text>
                 </View>
               )}
-              {err ? <Text style={styles.errorText}>{err}</Text> : null}
+              {getError("cep") ? <Text style={styles.errorText}>{getError("cep")}</Text> : null}
             </View>
-          );
-        })}
-        <View style={styles.actions}>
-          {onCancel && (
-            <TouchableOpacity style={styles.btnCancel} onPress={onCancel} disabled={saving}>
-              <Text style={styles.btnCancelText}>Cancelar</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={[styles.btnSave, saving && styles.btnDisabled]}
-            onPress={handleSubmit}
-            disabled={saving}
-          >
-            {saving ? <ActivityIndicator color={colors.primaryContrast} size="small" /> : <Text style={styles.btnSaveText}>{submitLabel}</Text>}
-          </TouchableOpacity>
-        </View>
+            <View style={styles.actions}>
+              {onCancel && (
+                <TouchableOpacity style={styles.btnCancel} onPress={onCancel}>
+                  <Text style={styles.btnCancelText}>Cancelar</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.btnNext, !step1Valid && styles.btnDisabled]}
+                onPress={handleNext}
+                disabled={!step1Valid || loadingCep}
+              >
+                <Text style={styles.btnSaveText}>Próximo</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <View style={styles.readOnlyRow}>
+              <Text style={styles.readOnlyLabel}>Rua</Text>
+              <Text style={styles.readOnlyValue}>{values.rua || "—"}</Text>
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Número <Text style={styles.asterisk}>*</Text></Text>
+              <TextInput
+                style={[styles.input, getError("numero") ? styles.inputError : null]}
+                value={values.numero}
+                onChangeText={(t) => set("numero", t)}
+                onBlur={() => setTouched((t) => ({ ...t, numero: true }))}
+                placeholder="Número"
+                placeholderTextColor={colors.placeholder}
+                keyboardType="numeric"
+              />
+              {getError("numero") ? <Text style={styles.errorText}>{getError("numero")}</Text> : null}
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Complemento</Text>
+              <TextInput
+                style={styles.input}
+                value={values.complemento}
+                onChangeText={(t) => set("complemento", t)}
+                placeholder="Apto, bloco, etc."
+                placeholderTextColor={colors.placeholder}
+              />
+            </View>
+            <View style={styles.readOnlyRow}>
+              <Text style={styles.readOnlyLabel}>Bairro</Text>
+              <Text style={styles.readOnlyValue}>{values.bairro || "—"}</Text>
+            </View>
+            <View style={styles.readOnlyRow}>
+              <Text style={styles.readOnlyLabel}>Cidade / Estado</Text>
+              <Text style={styles.readOnlyValue}>{[values.cidade, values.estado].filter(Boolean).join(" / ") || "—"}</Text>
+            </View>
+            <View style={styles.actions}>
+              <TouchableOpacity style={styles.btnCancel} onPress={() => setStep(1)}>
+                <Text style={styles.btnCancelText}>Voltar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btnNext, !step2Valid && styles.btnDisabled]}
+                onPress={handleNext}
+                disabled={!step2Valid}
+              >
+                <Text style={styles.btnSaveText}>Próximo</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <View style={styles.field}>
+              <Text style={styles.label}>Destinatário <Text style={styles.asterisk}>*</Text></Text>
+              <TextInput
+                style={[styles.input, getError("destinatario") ? styles.inputError : null]}
+                value={values.destinatario}
+                onChangeText={(t) => set("destinatario", t)}
+                onBlur={() => setTouched((t) => ({ ...t, destinatario: true }))}
+                placeholder="Nome do destinatário"
+                placeholderTextColor={colors.placeholder}
+              />
+              {getError("destinatario") ? <Text style={styles.errorText}>{getError("destinatario")}</Text> : null}
+            </View>
+            <View style={styles.actions}>
+              <TouchableOpacity style={styles.btnCancel} onPress={() => setStep(2)}>
+                <Text style={styles.btnCancelText}>Voltar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btnSave, saving && styles.btnDisabled]} onPress={handleSubmit} disabled={saving}>
+                {saving ? <ActivityIndicator color={colors.primaryContrast} size="small" /> : <Text style={styles.btnSaveText}>{submitLabel}</Text>}
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );

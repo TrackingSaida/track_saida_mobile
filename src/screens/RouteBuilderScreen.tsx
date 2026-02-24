@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from "react";
+import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   FlatList,
+  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Linking } from "react-native";
@@ -24,6 +25,7 @@ import { useDeliveryStore } from "../store/deliveryStore";
 import { getMotivosAusencia } from "../features/entregas/api";
 import { getOrderedRouteDeliveries, computeRouteStats, groupOrderedByAddress, computeRouteStatsFromGroups, addressAndRecipientKey, servicoTipo, type GroupedStop } from "../features/entregas/utils/routeUtils";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
+import { fetchOsrmRoutePolyline } from "../features/entregas/utils/osrm";
 import type { EntregaListItem, MotivoAusencia } from "../features/entregas/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RouteBuilder">;
@@ -71,6 +73,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const [stopDetailGroup, setStopDetailGroup] = useState<GroupedStop | null>(null);
   const [pendingEntregueIds, setPendingEntregueIds] = useState<number[] | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<number, { latitude: number; longitude: number }>>({});
+  const [routePolyline, setRoutePolyline] = useState<Array<{ latitude: number; longitude: number }> | null>(null);
 
   const ordered = useMemo(
     () => getOrderedRouteDeliveries(routeDeliveries, routeOrder),
@@ -85,6 +88,22 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     [groupedStops, ordered]
   );
   const isPartialRoute = deliveriesWithoutAddress.length > 0;
+
+  const routePointsForOsrm = useMemo(() => {
+    const points: Array<{ latitude: number; longitude: number }> = [];
+    for (const group of groupedStops) {
+      const d = group.deliveries.find(
+        (x) =>
+          (x.latitude != null && x.longitude != null) ||
+          (geocodedCoords[x.id_saida]?.latitude != null && geocodedCoords[x.id_saida]?.longitude != null)
+      );
+      if (!d) continue;
+      const lat = d.latitude ?? geocodedCoords[d.id_saida]?.latitude;
+      const lon = d.longitude ?? geocodedCoords[d.id_saida]?.longitude;
+      if (lat != null && lon != null) points.push({ latitude: lat, longitude: lon });
+    }
+    return points;
+  }, [groupedStops, geocodedCoords]);
 
   useEffect(() => {
     const withoutCoords = ordered.filter((d) => d.latitude == null || d.longitude == null);
@@ -104,6 +123,35 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     })();
     return () => { cancelled = true; };
   }, [ordered]);
+
+  useEffect(() => {
+    if (!isRouteActive) {
+      setRoutePolyline(null);
+      return;
+    }
+    if (routePointsForOsrm.length < 2) return;
+    let cancelled = false;
+    fetchOsrmRoutePolyline(routePointsForOsrm).then((poly) => {
+      if (!cancelled && poly) setRoutePolyline(poly);
+    });
+    return () => { cancelled = true; };
+  }, [isRouteActive, routePointsForOsrm]);
+
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!isRouteActive && ordered.length > 0) {
+      const animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 0.65, duration: 800, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+        ])
+      );
+      animation.start();
+      return () => animation.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isRouteActive, ordered.length, pulseAnim]);
 
   const getPendingSameAddressRecipient = useCallback(
     (d: EntregaListItem): EntregaListItem[] =>
@@ -173,15 +221,15 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       if (!pendingEntregueIds || pendingEntregueIds.length === 0) return;
       for (let i = 0; i < pendingEntregueIds.length; i++) {
         await markDelivered(pendingEntregueIds[i], body);
-        if (isRouteActive && activeRouteId) {
-          await completeStop();
-          const nextIdx = useDeliveryStore.getState().activeStopIndex;
-          const order = useDeliveryStore.getState().routeOrder;
-          if (nextIdx >= order.length) {
-            await finishRoute();
-            setShowRotaFinalizadaModal(true);
-            break;
-          }
+      }
+      if (isRouteActive && activeRouteId && pendingEntregueIds.length > 0) {
+        await completeStop();
+        const nextIdx = useDeliveryStore.getState().activeStopIndex;
+        const order = useDeliveryStore.getState().routeOrder;
+        if (nextIdx >= order.length) {
+          await finishRoute();
+          setShowRotaFinalizadaModal(true);
+        } else {
           setCenterOnStopId(order[nextIdx]);
         }
       }
@@ -240,17 +288,16 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     try {
       for (let i = 0; i < idsToMark.length; i++) {
         await markAbsent(idsToMark[i], motivoId, observacao.trim() || undefined);
-        if (useDeliveryStore.getState().activeRouteId) {
-          await completeStop();
-          const nextIdx = useDeliveryStore.getState().activeStopIndex;
-          const order = useDeliveryStore.getState().routeOrder;
-          if (nextIdx < order.length) {
-            setCenterOnStopId(order[nextIdx]);
-          } else {
-            await finishRoute();
-            setShowRotaFinalizadaModal(true);
-            break;
-          }
+      }
+      if (useDeliveryStore.getState().activeRouteId && idsToMark.length > 0) {
+        await completeStop();
+        const nextIdx = useDeliveryStore.getState().activeStopIndex;
+        const order = useDeliveryStore.getState().routeOrder;
+        if (nextIdx < order.length) {
+          setCenterOnStopId(order[nextIdx]);
+        } else {
+          await finishRoute();
+          setShowRotaFinalizadaModal(true);
         }
       }
       setShowAusenteModal(false);
@@ -475,6 +522,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           selectedId={selectedDelivery?.id_saida ?? null}
           centerOnStopId={centerOnStopId}
           geocodedCoords={geocodedCoords}
+          routePolyline={routePolyline ?? undefined}
         />
       </View>
 
@@ -520,15 +568,17 @@ export default function RouteBuilderScreen({ navigation }: Props) {
             </>
           )}
           {!isRouteActive && ordered.length > 0 && (
-            <TouchableOpacity
-              style={[styles.headerBtn, styles.headerBtnSecondary]}
-              onPress={handleIniciarRota}
-              disabled={iniciandoRota}
-            >
-              <Text style={styles.headerBtnSecondaryText}>
-                {iniciandoRota ? "Iniciando…" : "Iniciar Rota"}
-              </Text>
-            </TouchableOpacity>
+            <Animated.View style={{ opacity: pulseAnim }}>
+              <TouchableOpacity
+                style={[styles.headerBtn, styles.headerBtnSecondary]}
+                onPress={handleIniciarRota}
+                disabled={iniciandoRota}
+              >
+                <Text style={styles.headerBtnSecondaryText}>
+                  {iniciandoRota ? "Iniciando…" : "Iniciar Rota"}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
           )}
         </View>
       </View>
@@ -596,6 +646,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
             delivery={selectedDelivery}
             status={selectedStatus}
             orderNumber={selectedOrderNumber}
+            canMarkDelivery={isRouteActive}
             onClose={handleCloseCard}
             onMarcarEntregue={handleMarcarEntregue}
             onMarcarAusente={openAusenteModal}

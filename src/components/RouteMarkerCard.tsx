@@ -8,6 +8,8 @@ export interface RouteMarkerCardProps {
   status: "pendente" | "entregue" | "ausente";
   /** Ordem da parada na rota (1-based). Exibido quando fornecido. */
   orderNumber?: number;
+  /** Se false, oculta ações de marcar entregue/ausente e exibe mensagem para iniciar a rota. Default true. */
+  canMarkDelivery?: boolean;
   onClose: () => void;
   onMarcarEntregue: () => void;
   onMarcarAusente: () => void;
@@ -24,6 +26,7 @@ export default function RouteMarkerCard({
   delivery,
   status,
   orderNumber,
+  canMarkDelivery = true,
   onClose,
   onMarcarEntregue,
   onMarcarAusente,
@@ -74,12 +77,14 @@ export default function RouteMarkerCard({
         },
         statusBadgeText: { fontSize: 12, fontWeight: "600", color: "#fff" },
         orderLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 2, textTransform: "uppercase" },
+        hintText: { fontSize: 13, color: colors.textSecondary, textAlign: "center", marginTop: 8, marginBottom: 4 },
       }),
     [colors]
   );
 
-  const podeAcoes = status === "pendente";
+  const podeAcoes = status === "pendente" && canMarkDelivery;
   const temCoords = delivery.latitude != null && delivery.longitude != null;
+  const showStartRouteHint = status === "pendente" && !canMarkDelivery;
 
   return (
     <View style={styles.card}>
@@ -128,9 +133,13 @@ export default function RouteMarkerCard({
         </View>
       )}
 
+      {showStartRouteHint && (
+        <Text style={styles.hintText}>Inicie a rota para marcar entregas.</Text>
+      )}
+
       {temCoords && (
         <TouchableOpacity
-          style={[styles.btn, styles.btnNavegar, { marginTop: podeAcoes ? 10 : 0 }]}
+          style={[styles.btn, styles.btnNavegar, { marginTop: podeAcoes || showStartRouteHint ? 10 : 0 }]}
           onPress={onNavegar}
         >
           <Text style={styles.btnText}>Navegar</Text>

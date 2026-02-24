@@ -72,6 +72,18 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         modalBackText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
         modalTitle: { fontSize: 18, fontWeight: "700", color: colors.text },
         modalSubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
+        codigoCard: {
+          backgroundColor: colors.primary + "18",
+          borderWidth: 2,
+          borderColor: colors.primary,
+          borderRadius: 12,
+          paddingVertical: 12,
+          paddingHorizontal: 16,
+          marginTop: 12,
+          marginBottom: 8,
+        },
+        codigoLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginBottom: 4, textTransform: "uppercase" },
+        codigoValue: { fontSize: 22, fontWeight: "800", color: colors.text },
       }),
     [colors]
   );
@@ -170,10 +182,14 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
             <TouchableOpacity onPress={handleFecharSequencia}>
               <Text style={styles.modalBackText}>← Fechar</Text>
             </TouchableOpacity>
+            <View style={styles.codigoCard}>
+              <Text style={styles.codigoLabel}>Código do pedido</Text>
+              <Text style={styles.codigoValue}>{atual?.codigo ?? "—"}</Text>
+            </View>
             <Text style={styles.modalTitle}>
               Entrega {sequenciaIndex + 1} de {sequenciaTotal}
             </Text>
-            <Text style={styles.modalSubtitle}>{atual?.codigo ?? ""} — {atual?.cliente ?? ""}</Text>
+            <Text style={styles.modalSubtitle}>{atual?.cliente ? `Destinatário: ${atual.cliente}` : ""}</Text>
           </View>
           {atual && (
             <AddressForm

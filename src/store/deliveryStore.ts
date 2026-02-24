@@ -54,7 +54,7 @@ interface DeliveryState {
 
   setRouteDeliveries: (deliveries: EntregaListItem[]) => void;
   clearRoute: () => void;
-  optimizeRoute: () => void;
+  optimizeRoute: (fromLat?: number, fromLon?: number) => void;
   reorderRoute: (order: number[]) => void;
   setRouteDeliveryStatus: (idSaida: number, status: "pendente" | "entregue" | "ausente") => void;
 
@@ -260,6 +260,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   clearSuggestedOrder: () => set({ suggestedOrder: null }),
 
   setRouteDeliveries: (deliveries) => {
+    const state = get();
+    if (state.activeRouteId != null) {
+      return;
+    }
     const order = deliveries.map((d) => d.id_saida);
     const routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente"> = {};
     deliveries.forEach((d) => {
@@ -268,19 +272,23 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     set({ routeDeliveries: deliveries, routeOrder: order, routeDeliveryStatus });
   },
   clearRoute: () => set({ routeDeliveries: [], routeOrder: [], routeDeliveryStatus: {} }),
-  optimizeRoute: () => {
-    const { routeDeliveries, routeOrder } = get();
-    if (routeOrder.length === 0) return;
+  optimizeRoute: (fromLat?, fromLon?) => {
+    const { routeDeliveries, routeOrder, activeRouteId } = get();
+    if (activeRouteId != null || routeOrder.length === 0) return;
     const withCoords = routeDeliveries.filter((d) => d.latitude != null && d.longitude != null);
     const withoutCoords = routeDeliveries.filter((d) => d.latitude == null || d.longitude == null);
     const byId = new Map(routeDeliveries.map((d) => [d.id_saida, d]));
-    const firstId = routeOrder[0];
-    const first = byId.get(firstId);
-    let refLat = first?.latitude ?? 0;
-    let refLon = first?.longitude ?? 0;
-    if (withCoords.length > 0 && (first?.latitude == null || first?.longitude == null)) {
-      refLat = withCoords[0].latitude!;
-      refLon = withCoords[0].longitude!;
+    let refLat = fromLat;
+    let refLon = fromLon;
+    if (refLat == null || refLon == null) {
+      const firstId = routeOrder[0];
+      const first = byId.get(firstId);
+      refLat = first?.latitude ?? 0;
+      refLon = first?.longitude ?? 0;
+      if (withCoords.length > 0 && (first?.latitude == null || first?.longitude == null)) {
+        refLat = withCoords[0].latitude!;
+        refLon = withCoords[0].longitude!;
+      }
     }
     const orderedIds: number[] = [];
     const remaining = new Set(withCoords.map((d) => d.id_saida));
@@ -307,7 +315,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     withoutCoords.forEach((d) => orderedIds.push(d.id_saida));
     set({ routeOrder: orderedIds });
   },
-  reorderRoute: (order) => set({ routeOrder: order }),
+  reorderRoute: (order) => {
+    if (get().activeRouteId != null) return;
+    set({ routeOrder: order });
+  },
   setRouteDeliveryStatus: (idSaida, status) =>
     set((state) => ({ routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: status } })),
 }));

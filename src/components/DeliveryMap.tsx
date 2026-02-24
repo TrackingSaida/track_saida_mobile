@@ -1,9 +1,14 @@
-import React, { useMemo, useRef, useEffect } from "react";
+import React, { useMemo, useRef, useEffect, useState } from "react";
 import { View, Text, StyleSheet, Platform } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { useDeliveryStore } from "../store/deliveryStore";
 import { useThemeColors } from "../theme/colors";
-import { getOrderedRouteDeliveries, servicoTipo, ROUTE_MARKER_COLORS } from "../features/entregas/utils/routeUtils";
+import {
+  getOrderedRouteDeliveries,
+  groupOrderedByAddress,
+  servicoTipo,
+  ROUTE_MARKER_COLORS,
+} from "../features/entregas/utils/routeUtils";
 import type { EntregaListItem } from "../features/entregas/types";
 
 const DEFAULT_REGION = {
@@ -24,9 +29,11 @@ export interface DeliveryMapProps {
   centerOnStopId?: number | null;
   /** Coordenadas geocodificadas no app para entregas sem lat/long da API. */
   geocodedCoords?: Record<number, { latitude: number; longitude: number }>;
+  /** Quando definido (ex.: após iniciar rota), desenha a polilinha por ruas em vez de retas. */
+  routePolyline?: Array<{ latitude: number; longitude: number }>;
 }
 
-export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId, geocodedCoords = {} }: DeliveryMapProps) {
+export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId, geocodedCoords = {}, routePolyline }: DeliveryMapProps) {
   const mapRef = useRef<MapView>(null);
   const colors = useThemeColors();
   const routeDeliveries = useDeliveryStore((s) => s.routeDeliveries);
@@ -38,20 +45,63 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
     [routeDeliveries, routeOrder]
   );
 
-  const withCoords = useMemo(() => {
-    return ordered
-      .map((d) => {
-        const lat = d.latitude ?? geocodedCoords[d.id_saida]?.latitude;
-        const lon = d.longitude ?? geocodedCoords[d.id_saida]?.longitude;
-        return lat != null && lon != null ? { ...d, latitude: lat, longitude: lon } as EntregaListItem & { latitude: number; longitude: number } : null;
-      })
-      .filter((x): x is EntregaListItem & { latitude: number; longitude: number } => x != null);
-  }, [ordered, geocodedCoords]);
+  const groupedStops = useMemo(() => groupOrderedByAddress(ordered), [ordered]);
+
+  /** Um ponto por parada (grupo), com coords da primeira entrega que tiver lat/long ou geocoded. */
+  const groupedPointsWithCoords = useMemo(() => {
+    const result: Array<{
+      paradaIndex: number;
+      latitude: number;
+      longitude: number;
+      firstDelivery: EntregaListItem;
+      status: "pendente" | "entregue" | "ausente";
+    }> = [];
+    const statusMap = routeDeliveryStatus;
+    for (let i = 0; i < groupedStops.length; i++) {
+      const group = groupedStops[i];
+      const withCoords = group.deliveries.find(
+        (d) =>
+          (d.latitude != null && d.longitude != null) ||
+          (geocodedCoords[d.id_saida]?.latitude != null && geocodedCoords[d.id_saida]?.longitude != null)
+      );
+      if (!withCoords) continue;
+      const lat = withCoords.latitude ?? geocodedCoords[withCoords.id_saida]?.latitude;
+      const lon = withCoords.longitude ?? geocodedCoords[withCoords.id_saida]?.longitude;
+      if (lat == null || lon == null) continue;
+      const statuses = group.deliveries.map((d) => statusMap[d.id_saida] ?? "pendente");
+      const status = statuses.every((s) => s === "entregue")
+        ? "entregue"
+        : statuses.some((s) => s === "ausente")
+          ? "ausente"
+          : "pendente";
+      result.push({
+        paradaIndex: i + 1,
+        latitude: lat,
+        longitude: lon,
+        firstDelivery: group.deliveries[0],
+        status,
+      });
+    }
+    return result;
+  }, [groupedStops, routeDeliveryStatus, geocodedCoords]);
+
+  const withCoords = groupedPointsWithCoords;
+
+  const [markersReady, setMarkersReady] = useState(false);
+  useEffect(() => {
+    if (groupedPointsWithCoords.length === 0) return;
+    setMarkersReady(false);
+    const t = setTimeout(() => setMarkersReady(true), Platform.OS === "android" ? 500 : 1500);
+    return () => clearTimeout(t);
+  }, [groupedPointsWithCoords.length]);
+
+  /** No Android, manter tracksViewChanges=true para o número do marcador aparecer. */
+  const tracksMarkerChanges = Platform.OS === "android" ? true : !markersReady;
 
   const region = useMemo(() => {
     if (withCoords.length === 0) return DEFAULT_REGION;
-    const lats = withCoords.map((d) => d.latitude!);
-    const lons = withCoords.map((d) => d.longitude!);
+    const lats = withCoords.map((p) => p.latitude);
+    const lons = withCoords.map((p) => p.longitude);
     const minLat = Math.min(...lats);
     const maxLat = Math.max(...lats);
     const minLon = Math.min(...lons);
@@ -71,7 +121,7 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
     if (withCoords.length !== prevCountRef.current) {
       prevCountRef.current = withCoords.length;
       mapRef.current?.fitToCoordinates(
-        withCoords.map((d) => ({ latitude: d.latitude!, longitude: d.longitude! })),
+        withCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
         { edgePadding: { top: 48, right: 24, bottom: 24, left: 24 }, animated: true }
       );
     }
@@ -82,21 +132,22 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
     if (centerOnStopId == null) return;
     if (prevCenterIdRef.current === centerOnStopId) return;
     prevCenterIdRef.current = centerOnStopId;
-    const d = ordered.find((x) => x.id_saida === centerOnStopId);
-    const lat = d?.latitude ?? geocodedCoords[d?.id_saida ?? 0]?.latitude;
-    const lon = d?.longitude ?? geocodedCoords[d?.id_saida ?? 0]?.longitude;
-    if (lat != null && lon != null) {
-      mapRef.current?.animateToRegion(
-        {
-          latitude: lat,
-          longitude: lon,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        },
-        400
-      );
+    const groupIndex = groupedStops.findIndex((g) => g.deliveries.some((d) => d.id_saida === centerOnStopId));
+    if (groupIndex >= 0) {
+      const point = groupedPointsWithCoords.find((p) => p.paradaIndex === groupIndex + 1);
+      if (point) {
+        mapRef.current?.animateToRegion(
+          {
+            latitude: point.latitude,
+            longitude: point.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          },
+          400
+        );
+      }
     }
-  }, [centerOnStopId, ordered, geocodedCoords]);
+  }, [centerOnStopId, groupedPointsWithCoords, groupedStops]);
 
   const styles = useMemo(
     () =>
@@ -105,6 +156,8 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
         markerWrap: {
           width: 36,
           height: 36,
+          minWidth: 36,
+          minHeight: 36,
           borderRadius: 18,
           justifyContent: "center",
           alignItems: "center",
@@ -135,25 +188,18 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
   );
 
   const polylineCoordinates = useMemo(
-    () =>
-      withCoords.length >= 2
-        ? withCoords.map((d) => ({ latitude: d.latitude!, longitude: d.longitude! }))
-        : [],
-    [withCoords]
+    () => {
+      if (routePolyline && routePolyline.length >= 2) {
+        return routePolyline;
+      }
+      return withCoords.length >= 2
+        ? withCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))
+        : [];
+    },
+    [withCoords, routePolyline]
   );
-  /* Polyline e marcadores usam apenas ordered (getOrderedRouteDeliveries); nunca routeDeliveries direto. */
 
   const showEmptyMessage = ordered.length > 0 && withCoords.length === 0;
-
-  const markersData = useMemo(
-    () =>
-      ordered.map((d) => {
-        const lat = d.latitude ?? geocodedCoords[d.id_saida]?.latitude;
-        const lon = d.longitude ?? geocodedCoords[d.id_saida]?.longitude;
-        return { d, lat, lon };
-      }),
-    [ordered, geocodedCoords]
-  );
 
   return (
     <View style={styles.map}>
@@ -174,13 +220,12 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
             geodesic
           />
         )}
-      {markersData.map(({ d, lat, lon }) => {
-        if (lat == null || lon == null) return null;
-        const idx = routeOrder.indexOf(d.id_saida);
-        const routeNumber = idx >= 0 ? idx + 1 : 0;
-        const status = routeDeliveryStatus[d.id_saida] ?? "pendente";
-        const isSelected = selectedId === d.id_saida;
-        const isFirst = routeNumber === 1;
+      {groupedPointsWithCoords.map((point) => {
+        const paradaNumber = point.paradaIndex;
+        const status = point.status;
+        const group = groupedStops[point.paradaIndex - 1];
+        const isSelected = group?.deliveries.some((d) => d.id_saida === selectedId) ?? false;
+        const isFirst = paradaNumber === 1;
         let backgroundColor: string;
         let content: React.ReactNode;
         if (status === "entregue") {
@@ -188,24 +233,25 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
           content = <Text style={styles.markerIcon}>✓</Text>;
         } else if (status === "ausente") {
           backgroundColor = MARKER_STATUS_COLORS.ausente;
-          content = <Text style={styles.markerIcon}>!</Text>;
+          content = <Text style={styles.markerIcon}>✕</Text>;
         } else {
-          const tipo = servicoTipo(d.servico);
+          const tipo = servicoTipo(point.firstDelivery.servico);
           backgroundColor = ROUTE_MARKER_COLORS[tipo];
           const isLight = tipo === "Flex";
           content = (
             <Text style={[styles.markerText, { color: isLight ? "#333" : "#fff" }]}>
-              {routeNumber >= 1 ? routeNumber : "—"}
+              {paradaNumber}
             </Text>
           );
         }
         return (
           <Marker
-            key={d.id_saida}
-            coordinate={{ latitude: lat, longitude: lon }}
+            key={`parada-${point.paradaIndex}-${point.firstDelivery.id_saida}`}
+            coordinate={{ latitude: point.latitude, longitude: point.longitude }}
             anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
-            onPress={() => onMarkerPress?.(d, routeNumber >= 1 ? routeNumber - 1 : 0)}
+            tracksViewChanges={tracksMarkerChanges}
+            title={String(paradaNumber)}
+            onPress={() => onMarkerPress?.(point.firstDelivery, point.paradaIndex - 1)}
           >
             <View
               style={[

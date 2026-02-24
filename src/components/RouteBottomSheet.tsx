@@ -8,7 +8,9 @@ import {
   UIManager,
   Platform,
   FlatList,
+  ActivityIndicator,
 } from "react-native";
+import * as Location from "expo-location";
 import DraggableFlatList, {
   type RenderItemParams,
   type DragEndParams,
@@ -91,7 +93,7 @@ function GroupedStopRow({
           marginBottom: 8,
           borderWidth: 1,
           borderColor: isActive ? colors.primary : colors.separator,
-          opacity: status !== "pendente" ? 0.9 : 1,
+          opacity: status !== "pendente" ? 0.75 : 1,
         },
         orderBox: {
           width: 40,
@@ -103,7 +105,7 @@ function GroupedStopRow({
           marginRight: 12,
         },
         orderText: { fontSize: 16, fontWeight: "800", color: colors.primaryContrast },
-        body: { flex: 1 },
+        body: { flex: 1, minWidth: 0 },
         labelRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
         label: { fontSize: 11, color: colors.textSecondary },
         labelValue: { fontSize: 11, fontWeight: "600", color: colors.text },
@@ -115,7 +117,12 @@ function GroupedStopRow({
           marginBottom: 4,
         },
         badgeText: { fontSize: 11, fontWeight: "600", color: "#fff" },
-        destinatario: { fontSize: 15, fontWeight: "600", color: colors.text, marginBottom: 2 },
+        destinatario: {
+          fontSize: 15,
+          fontWeight: "600",
+          color: status !== "pendente" ? colors.textSecondary : colors.text,
+          marginBottom: 2,
+        },
         endereco: { fontSize: 12, color: colors.textSecondary },
       }),
     [colors, isActive, status]
@@ -130,24 +137,22 @@ function GroupedStopRow({
       activeOpacity={1}
     >
       <View style={styles.orderBox}>
-        <Text style={styles.orderText}>{stopIndex}</Text>
+        <Text style={styles.orderText}>{stopIndex ?? 1}</Text>
       </View>
       <View style={styles.body}>
         <View style={[styles.badge, { backgroundColor: badgeColor }]}>
           <Text style={styles.badgeText}>{statusLabel}</Text>
         </View>
         <View style={styles.labelRow}>
-          <Text style={styles.label}>Ordem</Text>
-          <Text style={styles.labelValue}>{stopIndex}</Text>
-          <Text style={styles.label}>Parada</Text>
-          <Text style={styles.labelValue}>{stopIndex}</Text>
-          <Text style={styles.label}>Pacotes nesta parada</Text>
+          <Text style={styles.label}>Parada na rota</Text>
+          <Text style={styles.labelValue}>{stopIndex ?? 1}</Text>
+          <Text style={styles.label}>Pedidos nesta parada</Text>
           <Text style={styles.labelValue}>{group.deliveries.length}</Text>
         </View>
-        <Text style={styles.destinatario} numberOfLines={1}>
+        <Text style={styles.destinatario} numberOfLines={1} ellipsizeMode="tail">
           {first?.cliente || first?.exibicao || "—"}
         </Text>
-        <Text style={styles.endereco} numberOfLines={1}>
+        <Text style={styles.endereco} numberOfLines={1} ellipsizeMode="tail">
           {enderecoResumido(first ?? group.deliveries[0])}
         </Text>
       </View>
@@ -172,12 +177,32 @@ export default function RouteBottomSheet({
   const optimizeRoute = useDeliveryStore((s) => s.optimizeRoute);
   const reorderRoute = useDeliveryStore((s) => s.reorderRoute);
 
+  const [optimizing, setOptimizing] = useState(false);
+
   const ordered = useMemo(
     () => getOrderedRouteDeliveries(routeDeliveries, routeOrder),
     [routeDeliveries, routeOrder]
   );
 
   const groupedStops = useMemo(() => groupOrderedByAddress(ordered), [ordered]);
+
+  const handleOptimize = useCallback(async () => {
+    if (groupedStops.length < 2) return;
+    setOptimizing(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        optimizeRoute();
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      optimizeRoute(pos.coords.latitude, pos.coords.longitude);
+    } catch {
+      optimizeRoute();
+    } finally {
+      setOptimizing(false);
+    }
+  }, [groupedStops.length, optimizeRoute]);
 
   const toggleCollapsed = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -193,36 +218,51 @@ export default function RouteBottomSheet({
   );
 
   const renderItem = useCallback(
-    ({ item, index, drag, isActive }: RenderItemParams<GroupedStop>) => (
-      <GroupedStopRow
-        group={item}
-        stopIndex={index + 1}
-        isActive={isActive}
-        drag={drag}
-        colors={colors}
-        status={groupStatus(item.deliveries, routeDeliveryStatus)}
-        disableDrag={disableDrag}
-        onPress={onStopPress ? () => onStopPress(item, index + 1) : undefined}
-      />
-    ),
+    ({ item, getIndex, drag, isActive }: RenderItemParams<GroupedStop>) => {
+      const idx = getIndex();
+      const paradaNumber = (typeof idx === "number" ? idx : 0) + 1;
+      return (
+        <GroupedStopRow
+          group={item}
+          stopIndex={paradaNumber}
+          isActive={isActive}
+          drag={drag}
+          colors={colors}
+          status={groupStatus(item.deliveries, routeDeliveryStatus)}
+          disableDrag={disableDrag}
+          onPress={onStopPress ? () => onStopPress(item, paradaNumber) : undefined}
+        />
+      );
+    },
     [colors, routeDeliveryStatus, disableDrag, onStopPress]
   );
 
   const renderRow = useCallback(
-    ({ item, index }: { item: GroupedStop; index: number }) => (
-      <GroupedStopRow
-        group={item}
-        stopIndex={index + 1}
-        isActive={false}
-        drag={() => {}}
-        colors={colors}
-        status={groupStatus(item.deliveries, routeDeliveryStatus)}
-        disableDrag
-        onPress={onStopPress ? () => onStopPress(item, index + 1) : undefined}
-      />
-    ),
+    ({ item, index }: { item: GroupedStop; index: number }) => {
+      const paradaNumber = (index ?? 0) + 1;
+      return (
+        <GroupedStopRow
+          group={item}
+          stopIndex={paradaNumber}
+          isActive={false}
+          drag={() => {}}
+          colors={colors}
+          status={groupStatus(item.deliveries, routeDeliveryStatus)}
+          disableDrag
+          onPress={onStopPress ? () => onStopPress(item, paradaNumber) : undefined}
+        />
+      );
+    },
     [colors, routeDeliveryStatus, onStopPress]
   );
+
+  const total = groupedStops.length;
+
+  const completedCount = useMemo(() => {
+    return groupedStops.filter(
+      (g) => groupStatus(g.deliveries, routeDeliveryStatus) !== "pendente"
+    ).length;
+  }, [groupedStops, routeDeliveryStatus]);
 
   const styles = useMemo(
     () =>
@@ -231,7 +271,7 @@ export default function RouteBottomSheet({
           backgroundColor: colors.backgroundCard,
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
-          paddingBottom: Math.max(16, insets.bottom),
+          paddingBottom: collapsed ? Math.max(8, insets.bottom) : Math.max(12, insets.bottom) + 24,
           maxHeight: "50%",
           minHeight: 80,
         },
@@ -255,6 +295,7 @@ export default function RouteBottomSheet({
           paddingVertical: 12,
         },
         totalText: { fontSize: 15, fontWeight: "600", color: colors.text },
+        collapsedHint: { fontSize: 12, color: colors.textSecondary, marginLeft: 8 },
         optimizeBtn: {
           backgroundColor: colors.primary,
           paddingHorizontal: 14,
@@ -269,28 +310,57 @@ export default function RouteBottomSheet({
         },
         emptyText: { fontSize: 14, color: colors.textSecondary },
       }),
-    [colors, insets.bottom]
+    [colors, insets.bottom, collapsed]
   );
 
-  const total = groupedStops.length;
-
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, collapsed && { minHeight: 88 }]}>
+      {collapsed ? (
+        <TouchableOpacity
+          style={[styles.handle, { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 0 }]}
+          onPress={toggleCollapsed}
+          activeOpacity={1}
+        >
+          <View style={styles.handleBar} />
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", marginLeft: 12, minWidth: 0 }}>
+            <Text style={styles.totalText} numberOfLines={1} ellipsizeMode="tail">
+              {disableDrag && total > 0
+                ? `${completedCount} de ${total} parada${total !== 1 ? "s" : ""}`
+                : `${total} parada${total !== 1 ? "s" : ""}`}
+            </Text>
+            {total > 0 && (
+              <Text style={styles.collapsedHint} numberOfLines={1}>· Toque para expandir</Text>
+            )}
+          </View>
+        </TouchableOpacity>
+      ) : (
+        <>
       <TouchableOpacity style={styles.handle} onPress={toggleCollapsed} activeOpacity={1}>
         <View style={styles.handleBar} />
       </TouchableOpacity>
 
       <View style={styles.header}>
-        <Text style={styles.totalText}>
-          {total} parada{total !== 1 ? "s" : ""}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 }}>
+          <Text style={styles.totalText} numberOfLines={1} ellipsizeMode="tail">
+            {disableDrag && total > 0
+              ? `${completedCount} de ${total} parada${total !== 1 ? "s" : ""}`
+              : `${total} parada${total !== 1 ? "s" : ""}`}
+          </Text>
+          {collapsed && total > 0 && (
+            <Text style={styles.collapsedHint}>· Toque para expandir</Text>
+          )}
+        </View>
         {!disableDrag && (
           <TouchableOpacity
             style={styles.optimizeBtn}
-            onPress={optimizeRoute}
-            disabled={total < 2}
+            onPress={handleOptimize}
+            disabled={total < 2 || optimizing}
           >
-            <Text style={styles.optimizeBtnText}>Otimizar Rota</Text>
+            {optimizing ? (
+              <ActivityIndicator size="small" color={colors.primaryContrast} />
+            ) : (
+              <Text style={styles.optimizeBtnText}>Otimizar Rota</Text>
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -316,6 +386,8 @@ export default function RouteBottomSheet({
             />
           )}
         </View>
+      )}
+        </>
       )}
     </View>
   );
