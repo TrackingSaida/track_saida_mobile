@@ -55,6 +55,8 @@ interface DeliveryState {
 
   setRouteDeliveries: (deliveries: EntregaListItem[]) => void;
   clearRoute: () => void;
+  /** Limpa rota ativa e dados locais (logout ou quando backend não retorna rota ativa). */
+  clearActiveRouteState: () => void;
   optimizeRoute: (fromLat?: number, fromLon?: number) => void;
   reorderRoute: (order: number[]) => void;
   setRouteDeliveryStatus: (idSaida: number, status: "pendente" | "entregue" | "ausente") => void;
@@ -186,6 +188,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   novaTentativa: async (idSaida) => {
     await postNovaTentativa(idSaida);
     await get().loadDeliveries();
+    get().clearActiveRouteState();
   },
 
   restoreActiveRoute: async (payload) => {
@@ -279,6 +282,14 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     set({ routeDeliveries: deliveries, routeOrder: order, routeDeliveryStatus });
   },
   clearRoute: () => set({ routeDeliveries: [], routeOrder: [], routeDeliveryStatus: {} }),
+  clearActiveRouteState: () =>
+    set({
+      activeRouteId: null,
+      activeStopIndex: 0,
+      routeDeliveries: [],
+      routeOrder: [],
+      routeDeliveryStatus: {},
+    }),
   optimizeRoute: (fromLat?, fromLon?) => {
     const { routeDeliveries, routeOrder, activeRouteId } = get();
     if (activeRouteId != null || routeOrder.length === 0) return;

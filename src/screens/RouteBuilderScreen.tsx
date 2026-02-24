@@ -90,6 +90,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const deliveriesWithoutAddress = useDeliveryStore((s) => s.deliveriesWithoutAddress);
   const setRouteDeliveries = useDeliveryStore((s) => s.setRouteDeliveries);
   const activeRouteId = useDeliveryStore((s) => s.activeRouteId);
+  const clearActiveRouteState = useDeliveryStore((s) => s.clearActiveRouteState);
   const activeStopIndex = useDeliveryStore((s) => s.activeStopIndex);
   const startActiveRoute = useDeliveryStore((s) => s.startActiveRoute);
   const completeStop = useDeliveryStore((s) => s.completeStop);
@@ -211,7 +212,10 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           { text: "Cancelar", style: "cancel" },
           {
             text: "Criar rota parcial",
-            onPress: () => setRouteDeliveries(deliveriesWithAddress),
+            onPress: () => {
+              if (activeRouteId === null) clearActiveRouteState();
+              setRouteDeliveries(deliveriesWithAddress);
+            },
           },
           {
             text: "Adicionar endereços",
@@ -220,9 +224,10 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         ]
       );
     } else {
+      if (activeRouteId === null) clearActiveRouteState();
       setRouteDeliveries(deliveriesWithAddress);
     }
-  }, [deliveriesWithAddress, deliveriesWithoutAddress.length, setRouteDeliveries, navigation]);
+  }, [deliveriesWithAddress, deliveriesWithoutAddress.length, setRouteDeliveries, navigation, activeRouteId, clearActiveRouteState]);
 
   const handleMarkerPress = useCallback((d: EntregaListItem) => {
     setSelectedDelivery(d);

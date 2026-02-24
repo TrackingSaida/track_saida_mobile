@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-nati
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAuthStore } from "../store/authStore";
+import { useDeliveryStore } from "../store/deliveryStore";
 import { useThemeColors } from "../theme/colors";
 import { decodeJwtPayload } from "../utils/jwt";
 
@@ -70,6 +71,7 @@ export default function MaisScreen({ navigation }: Props) {
   const nome = claims.username || "Motoboy";
 
   const handleSair = async () => {
+    useDeliveryStore.getState().clearActiveRouteState();
     await logout();
   };
 

@@ -18,7 +18,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
-import { getEntregas } from "../api";
+import { getEntregas, getTodayISO } from "../api";
 import type { EntregaListItem } from "../types";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -308,6 +308,8 @@ export default function EntregasListScreen({ navigation }: Props) {
     mapMode,
     setMapMode,
     setRouteDeliveries,
+    activeRouteId,
+    clearActiveRouteState,
     selectedDelivery,
     setSelectedDelivery,
     loadDeliveries,
@@ -333,7 +335,7 @@ export default function EntregasListScreen({ navigation }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = tab === "finalizadas" ? { dia: "hoje" as const } : undefined;
+      const params = tab === "finalizadas" ? { dia: "hoje" as const, data: getTodayISO() } : undefined;
       const data = await getEntregas(tab, params);
       setList(data);
     } catch {
@@ -400,8 +402,8 @@ export default function EntregasListScreen({ navigation }: Props) {
     (async () => {
       try {
         const [fin, aus] = await Promise.all([
-          getEntregas("finalizadas", { dia: "hoje" }),
-          getEntregas("ausentes", { dia: "hoje" }),
+          getEntregas("finalizadas", { dia: "hoje", data: getTodayISO() }),
+          getEntregas("ausentes", { dia: "hoje", data: getTodayISO() }),
         ]);
         if (!loadMapListsRef.current) {
           setListFinalizadas(fin ?? []);
@@ -727,6 +729,7 @@ export default function EntregasListScreen({ navigation }: Props) {
                   {
                     text: "Criar rota parcial",
                     onPress: () => {
+                      if (activeRouteId === null) clearActiveRouteState();
                       setRouteDeliveries(deliveriesWithAddress);
                       navigation.navigate("RouteBuilder");
                     },
@@ -738,6 +741,7 @@ export default function EntregasListScreen({ navigation }: Props) {
                 ]
               );
             } else {
+              if (activeRouteId === null) clearActiveRouteState();
               setRouteDeliveries(deliveriesWithAddress);
               navigation.navigate("RouteBuilder");
             }

@@ -16,7 +16,11 @@ function getAuthHeaders(): Record<string, string> {
 
 const client = axios.create({
   baseURL: API_BASE_URL,
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    Pragma: "no-cache",
+  },
 });
 
 client.interceptors.request.use((config) => {
@@ -29,12 +33,27 @@ export async function getResumoEntregas(): Promise<ResumoEntregas> {
   return data;
 }
 
+/** Data de hoje no fuso do dispositivo (YYYY-MM-DD) para filtrar por "hoje". */
+export function getTodayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export async function getEntregas(
   status: "pendente" | "finalizadas" | "ausentes",
-  params?: { dia?: "hoje" }
+  params?: { dia?: "hoje"; data?: string }
 ): Promise<EntregaListItem[]> {
+  const dataHoje = getTodayISO();
+  const useHoje = params?.dia === "hoje";
+  const query: Record<string, string | number> = {
+    status,
+    _: Date.now(), // evita cache
+  };
+  if (useHoje) {
+    query.dia = "hoje";
+    query.data = params?.data ?? dataHoje;
+  }
   const { data } = await client.get<EntregaListItem[]>("/mobile/entregas", {
-    params: { status, ...params },
+    params: query,
   });
   return data;
 }
@@ -144,8 +163,10 @@ export async function postRotasIniciar(ordem: number[]): Promise<{ rota_id: stri
   return data;
 }
 
-export async function getRotasAtiva(): Promise<RotasAtivaResponse | null> {
-  const { data } = await client.get<RotasAtivaResponse | null>("/mobile/rotas/ativa");
+export async function getRotasAtiva(dataHoje?: string): Promise<RotasAtivaResponse | null> {
+  const params: Record<string, string | number> = { _: Date.now() };
+  if (dataHoje) params.data = dataHoje;
+  const { data } = await client.get<RotasAtivaResponse | null>("/mobile/rotas/ativa", { params });
   return data ?? null;
 }
 

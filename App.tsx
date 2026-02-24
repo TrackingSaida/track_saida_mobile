@@ -7,6 +7,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "./src/store/authStore";
+import { useDeliveryStore } from "./src/store/deliveryStore";
 import { useThemeStore } from "./src/store/themeStore";
 import { getColors, useThemeColors } from "./src/theme/colors";
 import LoginScreen from "./src/screens/LoginScreen";
@@ -121,6 +122,7 @@ export default function App() {
   const [authDone, setAuthDone] = useState(false);
 
   const logout = useCallback(async () => {
+    useDeliveryStore.getState().clearActiveRouteState();
     await logoutFromStore();
     setAuthDone(false);
   }, [logoutFromStore]);

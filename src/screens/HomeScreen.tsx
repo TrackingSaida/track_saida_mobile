@@ -12,7 +12,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { decodeJwtPayload } from "../utils/jwt";
-import { getResumoEntregas, iniciarRota, getRotasAtiva } from "../features/entregas/api";
+import { getResumoEntregas, iniciarRota, getRotasAtiva, getTodayISO } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
 
 type Props = {
@@ -125,14 +125,29 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
       load();
       (async () => {
         try {
-          const rotaAtiva = await getRotasAtiva();
-          if (rotaAtiva && onNavigateRouteBuilder) {
-            const restoreActiveRoute = useDeliveryStore.getState().restoreActiveRoute;
-            await restoreActiveRoute(rotaAtiva);
+          const dataHoje = getTodayISO();
+          const rotaAtiva = await getRotasAtiva(dataHoje);
+          const store = useDeliveryStore.getState();
+          if (!rotaAtiva) {
+            store.clearActiveRouteState();
+            return;
+          }
+          const ordem = rotaAtiva.ordem ?? [];
+          if (ordem.length === 0) {
+            store.clearActiveRouteState();
+            return;
+          }
+          // Não redirecionar se todas as paradas já foram concluídas (rota concluída)
+          if (rotaAtiva.parada_atual >= ordem.length) {
+            store.clearActiveRouteState();
+            return;
+          }
+          if (onNavigateRouteBuilder) {
+            await store.restoreActiveRoute(rotaAtiva);
             onNavigateRouteBuilder();
           }
         } catch {
-          // ignora erro ao buscar rota ativa
+          useDeliveryStore.getState().clearActiveRouteState();
         }
       })();
     }, [load, onNavigateRouteBuilder])
