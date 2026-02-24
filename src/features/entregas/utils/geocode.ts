@@ -9,9 +9,12 @@ export interface GeocodeResult {
 
 export async function geocodeAddress(
   address: string,
-  options?: { cidade?: string; estado?: string }
+  options?: { cidade?: string; estado?: string; bairro?: string; numero?: string }
 ): Promise<GeocodeResult | null> {
-  const query = [address, options?.cidade, options?.estado, "Brasil"].filter(Boolean).join(", ");
+  const baseParts = [address, options?.numero, options?.bairro, options?.cidade, options?.estado, "Brasil"].filter(
+    Boolean
+  );
+  const query = baseParts.join(", ");
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
   try {
     const res = await fetch(url, {

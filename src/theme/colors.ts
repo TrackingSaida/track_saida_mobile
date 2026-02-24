@@ -22,6 +22,10 @@ export interface ThemeColors {
   tabBarInactive: string;
   overlay: string;
   shadowColor: string;
+  /** Gradiente tela de login: início */
+  loginGradientStart: string;
+  /** Gradiente tela de login: fim */
+  loginGradientEnd: string;
 }
 
 export const LIGHT_COLORS: ThemeColors = {
@@ -44,6 +48,8 @@ export const LIGHT_COLORS: ThemeColors = {
   tabBarInactive: "#666",
   overlay: "rgba(0,0,0,0.5)",
   shadowColor: "#000",
+  loginGradientStart: "#e3f2fd",
+  loginGradientEnd: "#f5f5f5",
 };
 
 export const DARK_COLORS: ThemeColors = {
@@ -66,6 +72,8 @@ export const DARK_COLORS: ThemeColors = {
   tabBarInactive: "#b0b0b0",
   overlay: "rgba(0,0,0,0.7)",
   shadowColor: "#000",
+  loginGradientStart: "#1a1a2e",
+  loginGradientEnd: "#121212",
 };
 
 export function getColors(theme: ThemeMode): ThemeColors {

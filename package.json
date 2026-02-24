@@ -19,6 +19,7 @@
     "expo-audio": "~1.1.1",
     "expo-camera": "~17.0.10",
     "expo-image-picker": "~17.0.10",
+    "expo-linear-gradient": "~15.0.8",
     "expo-local-authentication": "~17.0.8",
     "expo-location": "~19.0.8",
     "expo-secure-store": "^15.0.8",

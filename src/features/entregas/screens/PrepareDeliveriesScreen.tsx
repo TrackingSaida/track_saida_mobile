@@ -206,6 +206,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
               }}
               origem="manual"
               onSave={handleSalvarEndereco}
+              enableOnlyDestinatarioShortcut={false}
               onCancel={handleFecharSequencia}
               submitLabel="Salvar e próximo"
             />

@@ -123,9 +123,14 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   saveAddress: async (idSaida, body) => {
     let finalBody = body;
     if (body.latitude == null || body.longitude == null) {
-      const parts = [body.rua, body.numero, body.complemento, body.bairro, body.cidade, body.estado, body.cep].filter(Boolean);
+      const parts = [body.rua, body.numero, body.bairro, body.cidade, body.estado].filter(Boolean);
       const address = parts.join(", ");
-      const coords = await geocodeAddress(address, { cidade: body.cidade, estado: body.estado });
+      const coords = await geocodeAddress(address, {
+        cidade: body.cidade,
+        estado: body.estado,
+        bairro: body.bairro,
+        numero: body.numero,
+      });
       if (coords) {
         finalBody = { ...body, latitude: coords.latitude, longitude: coords.longitude };
       }

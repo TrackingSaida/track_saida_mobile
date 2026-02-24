@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 import {
   View,
   Text,
@@ -80,6 +80,7 @@ interface AddressFormProps {
   onSave: (values: AddressFormValues) => Promise<void>;
   onCancel?: () => void;
   submitLabel?: string;
+  enableOnlyDestinatarioShortcut?: boolean;
 }
 
 const TOTAL_STEPS = 3;
@@ -101,19 +102,24 @@ export default function AddressForm({
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [loadingCep, setLoadingCep] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [cepNotFound, setCepNotFound] = useState(false);
 
-  const onlyDestinatarioMode = useMemo(() => isAddressCompleteExceptDestinatario(values), [values]);
+  const onlyDestinatarioMode = useMemo(
+    () => enableOnlyDestinatarioShortcut !== false && isAddressCompleteExceptDestinatario(values),
+    [enableOnlyDestinatarioShortcut, values]
+  );
 
   const set = useCallback((field: keyof AddressFormValues, text: string) => {
     setValues((v) => ({ ...v, [field]: text }));
   }, []);
 
-  const fetchCep = useCallback(() => {
-    const cep = values.cep.replace(/\D/g, "");
-    if (cep.length !== 8) return;
-    setLoadingCep(true);
-    fetchViaCep(cep)
-      .then((data) => {
+  const fetchCep = useCallback(
+    async (digits: string, options?: { autoAdvance?: boolean }) => {
+      if (digits.length !== 8) return false;
+      setLoadingCep(true);
+      setCepNotFound(false);
+      try {
+        const data = await fetchViaCep(digits);
         if (data) {
           setValues((v) => ({
             ...v,
@@ -122,15 +128,25 @@ export default function AddressForm({
             cidade: data.localidade ?? v.cidade,
             estado: data.uf ?? v.estado,
           }));
+          if (options?.autoAdvance) {
+            setStep(2);
+          }
+          return true;
         }
-      })
-      .finally(() => setLoadingCep(false));
-  }, [values.cep]);
+        setCepNotFound(true);
+        return false;
+      } finally {
+        setLoadingCep(false);
+      }
+    },
+    []
+  );
 
   const blurCep = useCallback(() => {
     setTouched((t) => ({ ...t, cep: true }));
-    fetchCep();
-  }, [fetchCep]);
+    const digits = values.cep.replace(/\D/g, "");
+    void fetchCep(digits, { autoAdvance: false });
+  }, [fetchCep, values.cep]);
 
   const required = ["destinatario", "rua", "numero", "bairro", "cidade", "estado", "cep"];
   const getError = (field: keyof AddressFormValues): string | null => {
@@ -138,7 +154,10 @@ export default function AddressForm({
     const v = (values[field] ?? "").trim();
     const vCep = (values.cep ?? "").replace(/\D/g, "");
     if (required.includes(field) && !v && field !== "cep") return "Obrigatório";
-    if (field === "cep" && vCep.length !== 8) return "CEP inválido (8 dígitos)";
+    if (field === "cep") {
+      if (vCep.length !== 8) return "CEP inválido (8 dígitos)";
+      if (cepNotFound) return "CEP não encontrado";
+    }
     if (field === "numero" && !v) return "Obrigatório";
     if (field === "destinatario" && !v) return "Obrigatório";
     return null;
@@ -180,6 +199,17 @@ export default function AddressForm({
       setSaving(false);
     }
   };
+
+  // Sempre que mudar de entrega (idSaida), resetar formulário e voltar ao passo 1
+  useEffect(() => {
+    setValues({
+      ...initialEmpty,
+      ...initialValues,
+    });
+    setStep(1);
+    setTouched({});
+    setCepNotFound(false);
+  }, [idSaida, initialValues]);
 
   const styles = useMemo(
     () =>
@@ -287,7 +317,16 @@ export default function AddressForm({
               <TextInput
                 style={[styles.input, getError("cep") ? styles.inputError : null]}
                 value={values.cep}
-                onChangeText={(t) => set("cep", formatCep(t))}
+                onChangeText={(t) => {
+                  setCepNotFound(false);
+                  const formatted = formatCep(t);
+                  set("cep", formatted);
+                  const digits = formatted.replace(/\D/g, "");
+                  if (digits.length === 8) {
+                    setTouched((prev) => ({ ...prev, cep: true }));
+                    void fetchCep(digits, { autoAdvance: true });
+                  }
+                }}
                 onBlur={blurCep}
                 placeholder="00000-000"
                 placeholderTextColor={colors.placeholder}
