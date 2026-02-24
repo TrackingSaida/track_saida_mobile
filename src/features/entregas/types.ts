@@ -17,6 +17,7 @@ export interface EntregaListItem {
   endereco_formatado?: string | null;
   endereco_origem?: string | null;
   possui_endereco?: boolean;
+  tentativa?: number | null;
 }
 
 export interface ResumoEntregas {

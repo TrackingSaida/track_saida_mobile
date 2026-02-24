@@ -29,9 +29,12 @@ export async function getResumoEntregas(): Promise<ResumoEntregas> {
   return data;
 }
 
-export async function getEntregas(status: "pendente" | "finalizadas" | "ausentes"): Promise<EntregaListItem[]> {
+export async function getEntregas(
+  status: "pendente" | "finalizadas" | "ausentes",
+  params?: { dia?: "hoje" }
+): Promise<EntregaListItem[]> {
   const { data } = await client.get<EntregaListItem[]>("/mobile/entregas", {
-    params: { status },
+    params: { status, ...params },
   });
   return data;
 }
@@ -118,6 +121,13 @@ export async function assumirEntrega(idSaida: number): Promise<void> {
 
 export async function desatribuirEntrega(idSaida: number): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/desatribuir`);
+}
+
+export async function postNovaTentativa(idSaida: number): Promise<{ tentativa: number }> {
+  const { data } = await client.post<{ ok: boolean; id_saida: number; tentativa: number }>(
+    `/mobile/entrega/${idSaida}/nova-tentativa`
+  );
+  return { tentativa: data.tentativa };
 }
 
 // --- Rotas ativas persistidas ---

@@ -246,6 +246,7 @@ export default function EntregasListScreen({ navigation }: Props) {
         itemCodigo: { fontSize: 16, fontWeight: "600", color: colors.text },
         badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
         badgeText: { fontSize: 12, color: "#fff", fontWeight: "600" },
+        tentativaBadge: { fontSize: 11, color: colors.textSecondary, marginLeft: 4 },
         itemCliente: { fontSize: 14, color: colors.text },
         itemRow2: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
         itemBairro: { fontSize: 13, color: colors.textSecondary },
@@ -332,7 +333,8 @@ export default function EntregasListScreen({ navigation }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getEntregas(tab);
+      const params = tab === "finalizadas" ? { dia: "hoje" as const } : undefined;
+      const data = await getEntregas(tab, params);
       setList(data);
     } catch {
       setList([]);
@@ -397,7 +399,10 @@ export default function EntregasListScreen({ navigation }: Props) {
     loadMapListsRef.current = false;
     (async () => {
       try {
-        const [fin, aus] = await Promise.all([getEntregas("finalizadas"), getEntregas("ausentes")]);
+        const [fin, aus] = await Promise.all([
+          getEntregas("finalizadas", { dia: "hoje" }),
+          getEntregas("ausentes", { dia: "hoje" }),
+        ]);
         if (!loadMapListsRef.current) {
           setListFinalizadas(fin ?? []);
           setListAusentes(aus ?? []);
@@ -706,7 +711,10 @@ export default function EntregasListScreen({ navigation }: Props) {
           style={styles.btnSugerirRota}
           onPress={() => {
             if (deliveriesWithAddress.length === 0) {
-              Alert.alert("Atenção", "Nenhuma entrega possui endereço válido.");
+              Alert.alert("Atenção", "Nenhuma entrega possui endereço válido.", [
+                { text: "OK", style: "cancel" },
+                { text: "Adicionar endereços", onPress: () => navigation.navigate("PrepareDeliveries") },
+              ]);
               return;
             }
             if (deliveriesWithoutAddress.length > 0) {
@@ -1010,6 +1018,9 @@ export default function EntregasListScreen({ navigation }: Props) {
                           <View style={[styles.badge, { backgroundColor: badgeColor(item.exibicao) }]}>
                             <Text style={styles.badgeText}>{item.exibicao}</Text>
                           </View>
+                          {(item.tentativa ?? 1) >= 2 && (
+                            <Text style={styles.tentativaBadge}>{item.tentativa}ª tentativa</Text>
+                          )}
                         </View>
                       </View>
                       <Text style={styles.itemCliente} numberOfLines={1}>

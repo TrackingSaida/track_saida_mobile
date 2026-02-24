@@ -11,6 +11,7 @@ import {
   FlatList,
   Animated,
 } from "react-native";
+import LottieView from "lottie-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Linking } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -36,6 +37,35 @@ function getGoogleMapsUrl(lat: number, lon: number): string {
 
 function getWazeUrl(lat: number, lon: number): string {
   return `https://waze.com/ul?ll=${lat},${lon}&navigate=yes`;
+}
+
+const LOTTIE_SUCCESS_URL =
+  "https://lottie.host/65fe40cc-cd6f-46e7-b45b-1afec1539923/bXroAwf17P.json";
+
+function RotaFinalizadaLottie({ visible }: { visible: boolean }) {
+  const [source, setSource] = useState<object | null>(null);
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    fetch(LOTTIE_SUCCESS_URL)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setSource(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
+  if (!source) return <View style={{ width: 120, height: 120, marginVertical: 8 }} />;
+  return (
+    <LottieView
+      source={source}
+      autoPlay
+      loop
+      style={{ width: 120, height: 120, alignSelf: "center", marginVertical: 8 }}
+    />
+  );
 }
 
 export default function RouteBuilderScreen({ navigation }: Props) {
@@ -68,6 +98,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const isRouteActive = activeRouteId != null;
 
   const [showRotaFinalizadaModal, setShowRotaFinalizadaModal] = useState(false);
+  const [rotaFinalizadaTotalParadas, setRotaFinalizadaTotalParadas] = useState(0);
   const [centerOnStopId, setCenterOnStopId] = useState<number | null>(null);
   const [iniciandoRota, setIniciandoRota] = useState(false);
   const [stopDetailGroup, setStopDetailGroup] = useState<GroupedStop | null>(null);
@@ -165,7 +196,10 @@ export default function RouteBuilderScreen({ navigation }: Props) {
 
   const handleCriarRota = useCallback(() => {
     if (deliveriesWithAddress.length === 0) {
-      Alert.alert("Atenção", "Nenhuma entrega possui endereço válido.");
+      Alert.alert("Atenção", "Nenhuma entrega possui endereço válido.", [
+        { text: "OK", style: "cancel" },
+        { text: "Adicionar endereços", onPress: () => navigation.navigate("PrepareDeliveries") },
+      ]);
       return;
     }
     if (deliveriesWithoutAddress.length > 0) {
@@ -226,10 +260,11 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         await completeStop();
         const nextIdx = useDeliveryStore.getState().activeStopIndex;
         const order = useDeliveryStore.getState().routeOrder;
-        if (nextIdx >= order.length) {
-          await finishRoute();
-          setShowRotaFinalizadaModal(true);
-        } else {
+                if (nextIdx >= order.length) {
+                  setRotaFinalizadaTotalParadas(order.length);
+                  await finishRoute();
+                  setShowRotaFinalizadaModal(true);
+                } else {
           setCenterOnStopId(order[nextIdx]);
         }
       }
@@ -296,6 +331,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         if (nextIdx < order.length) {
           setCenterOnStopId(order[nextIdx]);
         } else {
+          setRotaFinalizadaTotalParadas(order.length);
           await finishRoute();
           setShowRotaFinalizadaModal(true);
         }
@@ -428,6 +464,8 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           maxHeight: "80%",
         },
         modalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 16, color: colors.text },
+        modalRotaFinalizadaPhrase: { fontSize: 16, color: colors.text, textAlign: "center", marginBottom: 4 },
+        modalRotaFinalizadaResumo: { fontSize: 14, color: colors.textSecondary, textAlign: "center", marginBottom: 8 },
         radio: {
           paddingVertical: 12,
           paddingHorizontal: 16,
@@ -502,12 +540,19 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       <View style={styles.modalOverlay}>
         <View style={styles.modalBox}>
           <Text style={styles.modalTitle}>Rota finalizada</Text>
-          <Text style={styles.modalBtnCancelText}>Parabéns! Você concluiu todas as paradas.</Text>
+          <RotaFinalizadaLottie visible={showRotaFinalizadaModal} />
+          <Text style={styles.modalRotaFinalizadaPhrase}>Parabéns! Você concluiu sua rota.</Text>
+          {rotaFinalizadaTotalParadas > 0 && (
+            <Text style={styles.modalRotaFinalizadaResumo}>
+              {rotaFinalizadaTotalParadas} parada{rotaFinalizadaTotalParadas !== 1 ? "s" : ""} concluída
+              {rotaFinalizadaTotalParadas !== 1 ? "s" : ""} hoje
+            </Text>
+          )}
           <TouchableOpacity
             style={[styles.modalBtnOk, { marginTop: 16 }]}
             onPress={handleFecharRotaFinalizada}
           >
-            <Text style={styles.modalBtnOkText}>OK</Text>
+            <Text style={styles.modalBtnOkText}>Ver listagem</Text>
           </TouchableOpacity>
         </View>
       </View>

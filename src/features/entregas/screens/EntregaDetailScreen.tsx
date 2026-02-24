@@ -117,6 +117,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         header: { marginBottom: 16 },
         backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
         title: { fontSize: 22, fontWeight: "700", color: colors.text },
+        tentativaLabel: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
         avisoRota: {
           backgroundColor: colors.warning,
           padding: 12,
@@ -147,9 +148,11 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           marginBottom: 12,
         },
         btnAusente: { backgroundColor: colors.danger, paddingVertical: 18, borderRadius: 12, alignItems: "center" },
+        btnNovaTentativa: { backgroundColor: colors.primary, paddingVertical: 18, borderRadius: 12, alignItems: "center", marginBottom: 12 },
         btnDisabled: { opacity: 0.7 },
         btnEntregueText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
         btnAusenteText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        btnNovaTentativaText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
         modalOverlay: {
           flex: 1,
           backgroundColor: colors.overlay,
@@ -214,6 +217,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [motivoId, setMotivoId] = useState<number | null>(null);
   const [observacao, setObservacao] = useState("");
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
+  const novaTentativa = useDeliveryStore((s) => s.novaTentativa);
 
   const load = async () => {
     setLoading(true);
@@ -396,6 +400,9 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const linkTel = telefone.length >= 10 ? `tel:+55${telefone}` : null;
   const statusNorm = (entrega.status || "").toUpperCase();
   const podeFinalizar = statusNorm === "EM_ROTA";
+  const isAusente = entrega.exibicao === "Ausente";
+  const tentativaNum = entrega.tentativa ?? 1;
+  const tentativaLabel = tentativaNum >= 2 ? `${tentativaNum}ª tentativa` : null;
 
   return (
     <ScrollView
@@ -407,9 +414,10 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           <Text style={styles.backText}>← Voltar</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Detalhe da entrega</Text>
+        {tentativaLabel ? <Text style={styles.tentativaLabel}>{tentativaLabel}</Text> : null}
       </View>
 
-      {!podeFinalizar && (
+      {!isAusente && !podeFinalizar && (
         <View style={styles.avisoRota}>
           <Text style={styles.avisoRotaText}>
             Inicie a rota na tela de escaneamento para poder finalizar esta entrega.
@@ -444,21 +452,48 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity
-        style={[styles.btnEntregue, !podeFinalizar && styles.btnDisabled]}
-        onPress={handleAbrirEntregueModal}
-        disabled={!podeFinalizar}
-      >
-        <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
-      </TouchableOpacity>
+      {isAusente ? (
+        <TouchableOpacity
+          style={[styles.btnNovaTentativa, saving && styles.btnDisabled]}
+          onPress={async () => {
+            setSaving(true);
+            try {
+              await novaTentativa(idSaida);
+              Alert.alert("Sucesso", "Pedido colocado em rota para nova tentativa.", [
+                { text: "OK", onPress: () => navigation.goBack() },
+              ]);
+            } catch (e: unknown) {
+              const msg = e && typeof e === "object" && "response" in e
+                ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
+                : "Erro ao solicitar nova tentativa.";
+              Alert.alert("Erro", String(msg));
+            } finally {
+              setSaving(false);
+            }
+          }}
+          disabled={saving}
+        >
+          <Text style={styles.btnNovaTentativaText}>Nova Tentativa</Text>
+        </TouchableOpacity>
+      ) : (
+        <>
+          <TouchableOpacity
+            style={[styles.btnEntregue, !podeFinalizar && styles.btnDisabled]}
+            onPress={handleAbrirEntregueModal}
+            disabled={!podeFinalizar}
+          >
+            <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
+          </TouchableOpacity>
 
-      <TouchableOpacity
-        style={[styles.btnAusente, (saving || !podeFinalizar) && styles.btnDisabled]}
-        onPress={handleAbrirAusente}
-        disabled={saving || !podeFinalizar}
-      >
-        <Text style={styles.btnAusenteText}>Marcar como ausente</Text>
-      </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.btnAusente, (saving || !podeFinalizar) && styles.btnDisabled]}
+            onPress={handleAbrirAusente}
+            disabled={saving || !podeFinalizar}
+          >
+            <Text style={styles.btnAusenteText}>Marcar como ausente</Text>
+          </TouchableOpacity>
+        </>
+      )}
 
       <Modal visible={modalEnderecoOpcoes} transparent animationType="fade">
         <View style={styles.modalOverlay}>

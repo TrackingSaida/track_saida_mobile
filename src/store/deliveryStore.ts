@@ -6,6 +6,7 @@ import {
   iniciarRota,
   marcarEntregue,
   marcarAusente,
+  postNovaTentativa,
   postRotasIniciar,
   getRotasAtiva,
   postRotasAvancar,
@@ -63,6 +64,7 @@ interface DeliveryState {
   completeStop: () => Promise<void>;
   finishRoute: () => Promise<void>;
   restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
+  novaTentativa: (idSaida: number) => Promise<void>;
 }
 
 function withAddress(d: EntregaListItem): boolean {
@@ -179,6 +181,11 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeOrder: [],
       routeDeliveryStatus: {},
     });
+  },
+
+  novaTentativa: async (idSaida) => {
+    await postNovaTentativa(idSaida);
+    await get().loadDeliveries();
   },
 
   restoreActiveRoute: async (payload) => {
