@@ -149,6 +149,16 @@ export default function App() {
     loadTheme();
   }, [loadToken, loadTheme]);
 
+  useEffect(() => {
+    useAuthStore.getState().setSessionExpiredCallback(() => {
+      useDeliveryStore.getState().clearActiveRouteState();
+      setAuthDone(false);
+    });
+    return () => {
+      useAuthStore.getState().setSessionExpiredCallback(null);
+    };
+  }, []);
+
   if (isLoading) {
     return null;
   }

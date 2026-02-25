@@ -1,17 +1,18 @@
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
-import { API_BASE_URL } from "../config/api";
-import { useAuthStore } from "../store/authStore";
-import { patchFotoSaida } from "../features/entregas/api";
+import { getPresignUpload, patchFotoSaida } from "../features/entregas/api";
+import type { AxiosError } from "axios";
+
+/** Converte base64 em Uint8Array para enviar no body do PUT. */
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
 
 const MAX_PHOTOS = 3;
-
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().token;
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
-}
 
 export type PhotoSource = "camera" | "gallery";
 
@@ -102,52 +103,77 @@ export interface UploadDeliveryPhotoParams {
   filename: string;
 }
 
+function getErrorMessage(e: unknown): string {
+  if (e && typeof e === "object" && "response" in e) {
+    const ax = e as AxiosError<{ detail?: string }>;
+    const detail = ax.response?.data?.detail;
+    if (detail) return typeof detail === "string" ? detail : JSON.stringify(detail);
+    if (ax.response?.status) return `Erro ${ax.response.status}`;
+  }
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
+
 /**
  * Obtém presigned PUT, envia o arquivo ao B2 e chama PATCH /saidas/{id}/foto (append).
- * Retorna o object_key. Lança em erro de rede ou API.
+ * Retorna o object_key. Lança em erro de rede ou API com mensagem descritiva.
  */
 export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Promise<string> {
   const { id_saida, tipo, uri, mimeType, filename } = params;
-  const headers = getAuthHeaders();
 
-  const presignRes = await fetch(`${API_BASE_URL}/upload/presign`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
-    body: JSON.stringify({
+  let presign: Awaited<ReturnType<typeof getPresignUpload>>;
+  try {
+    presign = await getPresignUpload({
       filename,
       id_saida,
       tipo,
       content_type: mimeType,
-    }),
-  });
-  if (!presignRes.ok) {
-    const err = await presignRes.json().catch(() => ({}));
-    throw new Error(err.detail || `Presign falhou: ${presignRes.status}`);
-  }
-  const presign = (await presignRes.json()) as {
-    upload_url: string;
-    object_key: string;
-    headers: { "Content-Type"?: string };
-  };
-
-  const uploadHeaders: Record<string, string> = {
-    ...(presign.headers["Content-Type"] ? { "Content-Type": presign.headers["Content-Type"] } : { "Content-Type": mimeType }),
-  };
-
-  const uploadResult = await FileSystem.uploadAsync(presign.upload_url, uri, {
-    httpMethod: "PUT",
-    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-    headers: uploadHeaders,
-  });
-
-  if (uploadResult.status < 200 || uploadResult.status >= 300) {
-    throw new Error(`Upload falhou: ${uploadResult.status}`);
+    });
+  } catch (e) {
+    throw new Error(getErrorMessage(e) || "Não foi possível obter permissão para envio. Verifique o servidor.");
   }
 
-  await patchFotoSaida(id_saida, presign.object_key, tipo);
+  const contentType = presign.headers["Content-Type"] ?? mimeType;
+
+  // Ler arquivo e enviar via fetch PUT (garante que o corpo binário chega ao B2;
+  // FileSystem.uploadAsync em alguns ambientes pode não enviar o body corretamente)
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const bodyBytes = base64ToUint8Array(base64);
+
+  const uploadResponse = await fetch(presign.upload_url, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: bodyBytes,
+  });
+
+  if (!uploadResponse.ok) {
+    const text = await uploadResponse.text().catch(() => "");
+    if (uploadResponse.status === 0 || !uploadResponse.status) {
+      throw new Error(
+        "Falha de rede ao enviar a foto. Verifique a internet e se o bucket está com CORS configurado para o app."
+      );
+    }
+    if (uploadResponse.status === 403) {
+      const hint =
+        "Acesso negado pelo B2 (403). Verifique a Application Key: deve ser Read and Write, bucket correto e prefixo saida/.";
+      throw new Error(
+        text && text.length < 300 ? `Upload recusado (403): ${text.slice(0, 200)}. ${hint}` : `Upload recusado (403). ${hint}`
+      );
+    }
+    throw new Error(
+      text && text.length < 200
+        ? `Upload recusado (${uploadResponse.status}): ${text}`
+        : `Upload recusado (${uploadResponse.status}). Verifique CORS no bucket B2.`
+    );
+  }
+
+  try {
+    await patchFotoSaida(id_saida, presign.object_key, tipo);
+  } catch (e) {
+    throw new Error(getErrorMessage(e) || "Foto enviada, mas falha ao registrar. Tente novamente.");
+  }
   return presign.object_key;
 }
 

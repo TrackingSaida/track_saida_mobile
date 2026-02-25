@@ -28,6 +28,16 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
+client.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    if (error.response?.status === 401) {
+      useAuthStore.getState().onUnauthorized();
+    }
+    return Promise.reject(error);
+  }
+);
+
 export async function getResumoEntregas(): Promise<ResumoEntregas> {
   const dataHoje = getTodayISO();
   const { data } = await client.get<ResumoEntregas>("/mobile/entregas/resumo", {
@@ -86,6 +96,22 @@ export async function marcarEntregue(idSaida: number, body?: EntregueBody): Prom
 
 export async function marcarAusente(idSaida: number, motivoId: number, observacao?: string): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/ausente`, { motivo_id: motivoId, observacao: observacao || null });
+}
+
+export interface PresignUploadResponse {
+  upload_url: string;
+  object_key: string;
+  headers: { "Content-Type"?: string };
+}
+
+export async function getPresignUpload(params: {
+  filename: string;
+  id_saida: number;
+  tipo: "entregue" | "ausente";
+  content_type: string;
+}): Promise<PresignUploadResponse> {
+  const { data } = await client.post<PresignUploadResponse>("/upload/presign", params);
+  return data;
 }
 
 export async function patchFotoSaida(

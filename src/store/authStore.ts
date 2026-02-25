@@ -5,6 +5,8 @@ import * as LocalAuthentication from "expo-local-authentication";
 const TOKEN_KEY = "access_token";
 const BIOMETRIC_ENABLED_KEY = "biometric_enabled";
 
+let sessionExpiredCallback: (() => void) | null = null;
+
 interface AuthState {
   token: string | null;
   isLoading: boolean;
@@ -12,6 +14,10 @@ interface AuthState {
   setToken: (token: string | null) => Promise<void>;
   loadToken: () => Promise<void>;
   logout: () => Promise<void>;
+  /** Chamado quando o servidor retorna 401 (token expirado/inválido). Faz logout e notifica o app para ir à tela de login. */
+  onUnauthorized: () => Promise<void>;
+  /** Registrar callback chamado após onUnauthorized (ex.: fechar navegação e mostrar login). */
+  setSessionExpiredCallback: (cb: (() => void) | null) => void;
   setBiometricEnabled: (enabled: boolean) => Promise<void>;
   unlockWithBiometric: () => Promise<boolean>;
 }
@@ -60,6 +66,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY);
     set({ token: null, requiresBiometricUnlock: false });
+  },
+
+  onUnauthorized: async () => {
+    await get().logout();
+    if (sessionExpiredCallback) sessionExpiredCallback();
+  },
+
+  setSessionExpiredCallback: (cb: (() => void) | null) => {
+    sessionExpiredCallback = cb;
   },
 
   setBiometricEnabled: async (enabled: boolean) => {

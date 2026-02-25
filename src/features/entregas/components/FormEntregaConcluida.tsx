@@ -164,11 +164,11 @@ export default function FormEntregaConcluida({
       setPhotos((prev) =>
         prev.map((p, j) => (j === idx ? { ...p, status: "sent" as const, object_key: objectKey } : p))
       );
-    } catch {
+    } catch (e) {
       setPhotos((prev) =>
         prev.map((p, j) => (j === idx ? { ...p, status: "error" as const } : p))
       );
-      throw new Error("Falha no envio da foto.");
+      throw e;
     }
   };
 
@@ -186,10 +186,12 @@ export default function FormEntregaConcluida({
     setError(null);
     setSaving(true);
     try {
-      const idleIndexes = photos.map((p, i) => (p.status === "idle" ? i : -1)).filter((i) => i >= 0);
-      for (const idx of idleIndexes) {
-        const item = photos[idx];
-        if (!item || item.status !== "idle") continue;
+      // Capturar lista de fotos pendentes no início (evita state desatualizado durante o async)
+      const photosSnapshot = photos;
+      const idleItems = photosSnapshot
+        .map((p, i) => (p.status === "idle" ? { item: p, idx: i } : null))
+        .filter((x): x is { item: PhotoItem; idx: number } => x !== null);
+      for (const { item, idx } of idleItems) {
         try {
           await uploadOnePhoto(item, idx);
         } catch (uploadErr) {
