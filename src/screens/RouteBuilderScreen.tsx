@@ -213,8 +213,16 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           {
             text: "Criar rota parcial",
             onPress: () => {
-              if (activeRouteId === null) clearActiveRouteState();
-              setRouteDeliveries(deliveriesWithAddress);
+              try {
+                if (activeRouteId === null) clearActiveRouteState();
+                setRouteDeliveries(deliveriesWithAddress);
+              } catch (e) {
+                console.error("[RouteBuilder Criar rota parcial] crash:", e);
+                Alert.alert(
+                  "Erro",
+                  `Erro ao criar rota parcial: ${e instanceof Error ? e.message : String(e)}. Conecte o celular ao PC e use "adb logcat" para ver o log completo.`
+                );
+              }
             },
           },
           {

@@ -729,9 +729,17 @@ export default function EntregasListScreen({ navigation }: Props) {
                   {
                     text: "Criar rota parcial",
                     onPress: () => {
-                      if (activeRouteId === null) clearActiveRouteState();
-                      setRouteDeliveries(deliveriesWithAddress);
-                      navigation.navigate("RouteBuilder");
+                      try {
+                        if (activeRouteId === null) clearActiveRouteState();
+                        setRouteDeliveries(deliveriesWithAddress);
+                        navigation.navigate("RouteBuilder");
+                      } catch (e) {
+                        console.error("[Criar rota parcial] crash:", e);
+                        Alert.alert(
+                          "Erro",
+                          `Erro ao criar rota parcial: ${e instanceof Error ? e.message : String(e)}. Conecte o celular ao PC e use "adb logcat" para ver o log completo.`
+                        );
+                      }
                     },
                   },
                   {
@@ -741,9 +749,17 @@ export default function EntregasListScreen({ navigation }: Props) {
                 ]
               );
             } else {
-              if (activeRouteId === null) clearActiveRouteState();
-              setRouteDeliveries(deliveriesWithAddress);
-              navigation.navigate("RouteBuilder");
+              try {
+                if (activeRouteId === null) clearActiveRouteState();
+                setRouteDeliveries(deliveriesWithAddress);
+                navigation.navigate("RouteBuilder");
+              } catch (e) {
+                console.error("[Sugerir Rota] crash:", e);
+                Alert.alert(
+                  "Erro",
+                  `Erro ao sugerir rota: ${e instanceof Error ? e.message : String(e)}. Conecte o celular ao PC e use "adb logcat" para ver o log completo.`
+                );
+              }
             }
           }}
         >

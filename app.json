@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "track_saida_mobile",
+    "name": "TrackingSaídas",
     "slug": "track_saida_mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -57,7 +57,12 @@
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE"
       ],
-      "package": "com.anonymous.track_saida_mobile"
+      "package": "com.anonymous.track_saida_mobile",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AlzaSyCaystfN4NGv6HyVEiFMVJt80MrmGsNb_E"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
