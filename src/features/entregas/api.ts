@@ -88,6 +88,14 @@ export async function marcarAusente(idSaida: number, motivoId: number, observaca
   await client.post(`/mobile/entrega/${idSaida}/ausente`, { motivo_id: motivoId, observacao: observacao || null });
 }
 
+export async function patchFotoSaida(
+  idSaida: number,
+  fotoUrl: string,
+  status: "entregue" | "ausente"
+): Promise<void> {
+  await client.patch(`/saidas/${idSaida}/foto`, { foto_url: fotoUrl, status });
+}
+
 export async function getMotivosAusencia(): Promise<MotivoAusencia[]> {
   const { data } = await client.get<MotivoAusencia[]>("/mobile/motivos-ausencia");
   return data;

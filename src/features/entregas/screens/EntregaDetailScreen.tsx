@@ -10,6 +10,7 @@ import {
   Alert,
   Modal,
   TextInput,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -17,6 +18,12 @@ import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import * as ImagePicker from "expo-image-picker";
 import { getEntrega, getMotivosAusencia, marcarEntregue, marcarAusente } from "../api";
+import {
+  selectOrTakePhoto,
+  preparePhoto,
+  uploadDeliveryPhoto,
+  MAX_PHOTOS,
+} from "../../../services/deliveryPhotoService";
 import type { EntregaListItem, MotivoAusencia } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import AddressForm, { type AddressFormValues, type AddressOrigem } from "../components/AddressForm";
@@ -196,6 +203,13 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         modalBtnCancelText: { color: colors.textSecondary },
         modalBtnOk: { backgroundColor: colors.primary, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
         modalBtnOkText: { color: colors.primaryContrast, fontWeight: "600" },
+        photoRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, marginTop: 12 },
+        photoWrap: { width: 64, height: 64, borderRadius: 8, overflow: "hidden", backgroundColor: colors.inputBackground },
+        photoImg: { width: 64, height: 64 },
+        photoRemove: { position: "absolute" as const, top: 2, right: 2, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 10, padding: 2 },
+        photoStatus: { fontSize: 9, color: colors.textSecondary, marginTop: 2 },
+        btnAddPhoto: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.inputBackground },
+        btnAddPhotoText: { fontSize: 13, color: colors.primary },
       }),
     [colors]
   );
@@ -216,6 +230,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [motivos, setMotivos] = useState<MotivoAusencia[]>([]);
   const [motivoId, setMotivoId] = useState<number | null>(null);
   const [observacao, setObservacao] = useState("");
+  type PhotoItem = { uri: string; status: "idle" | "uploading" | "sent" | "error"; object_key?: string };
+  const [ausentePhotos, setAusentePhotos] = useState<PhotoItem[]>([]);
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
   const novaTentativa = useDeliveryStore((s) => s.novaTentativa);
 
@@ -239,7 +255,26 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
 
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
 
-  const handleAbrirAusente = () => setModalAusente(true);
+  const handleAbrirAusente = () => {
+    setAusentePhotos([]);
+    setModalAusente(true);
+  };
+
+  const addPhotoAusente = async () => {
+    if (ausentePhotos.length >= MAX_PHOTOS) return;
+    try {
+      const picked = await selectOrTakePhoto();
+      if (!picked) return;
+      const prepared = await preparePhoto(picked.uri);
+      setAusentePhotos((prev) => [...prev, { uri: prepared.uri, status: "idle" }]);
+    } catch (e) {
+      Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+    }
+  };
+
+  const removePhotoAusente = (index: number) => {
+    setAusentePhotos((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleAbrirEndereco = () => setModalEnderecoOpcoes(true);
 
@@ -372,9 +407,37 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     }
     setSaving(true);
     try {
+      const idleIndexes = ausentePhotos.map((p, i) => (p.status === "idle" ? i : -1)).filter((i) => i >= 0);
+      for (const idx of idleIndexes) {
+        const item = ausentePhotos[idx];
+        if (!item || item.status !== "idle") continue;
+        setAusentePhotos((prev) =>
+          prev.map((p, j) => (j === idx ? { ...p, status: "uploading" as const } : p))
+        );
+        try {
+          await uploadDeliveryPhoto({
+            id_saida: idSaida,
+            tipo: "ausente",
+            uri: item.uri,
+            mimeType: "image/jpeg",
+            filename: "foto.jpg",
+          });
+          setAusentePhotos((prev) =>
+            prev.map((p, j) => (j === idx ? { ...p, status: "sent" as const } : p))
+          );
+        } catch (uploadErr) {
+          setAusentePhotos((prev) =>
+            prev.map((p, j) => (j === idx ? { ...p, status: "error" as const } : p))
+          );
+          Alert.alert("Erro ao enviar foto", (uploadErr as Error)?.message || "Falha no envio.");
+          setSaving(false);
+          return;
+        }
+      }
       await marcarAusente(idSaida, motivoId, observacao.trim() || undefined);
       setModalAusente(false);
       setObservacao("");
+      setAusentePhotos([]);
       Alert.alert("Sucesso", "Entrega marcada como ausente.", [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);
@@ -606,6 +669,32 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
                 multiline
               />
             )}
+            <Text style={styles.label}>Comprovante (opcional, até {MAX_PHOTOS} fotos)</Text>
+            <View style={styles.photoRow}>
+              {ausentePhotos.map((p, idx) => (
+                <View key={idx} style={styles.photoWrap}>
+                  <Image source={{ uri: p.uri }} style={styles.photoImg} resizeMode="cover" />
+                  <TouchableOpacity
+                    style={styles.photoRemove}
+                    onPress={() => removePhotoAusente(idx)}
+                    disabled={saving}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 10 }}>✕</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.photoStatus} numberOfLines={1}>
+                    {p.status === "idle" && "Pendente"}
+                    {p.status === "uploading" && "Enviando…"}
+                    {p.status === "sent" && "Enviado"}
+                    {p.status === "error" && "Falhou"}
+                  </Text>
+                </View>
+              ))}
+              {ausentePhotos.length < MAX_PHOTOS && (
+                <TouchableOpacity style={styles.btnAddPhoto} onPress={addPhotoAusente} disabled={saving}>
+                  <Text style={styles.btnAddPhotoText}>+ Foto</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalAusente(false)}>
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>

@@ -10,10 +10,18 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  Alert,
 } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
 import type { EntregueBody } from "../api";
 import { formatCPF, formatRG, unmaskCPF, unmaskRG } from "../utils/formatDocument";
+import {
+  selectOrTakePhoto,
+  preparePhoto,
+  uploadDeliveryPhoto,
+  MAX_PHOTOS,
+} from "../../../services/deliveryPhotoService";
 
 const TIPOS_RECEBEDOR = ["Comprador", "Familiar", "Vizinho", "Porteiro", "Outro"] as const;
 const TIPOS_DOCUMENTO = ["RG", "CPF"] as const;
@@ -85,6 +93,13 @@ export default function FormEntregaConcluida({
         },
         btnDisabled: { opacity: 0.7 },
         btnOkText: { color: colors.primaryContrast, fontWeight: "600", fontSize: 16 },
+        photoRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, marginTop: 8 },
+        photoWrap: { width: 72, height: 72, borderRadius: 8, overflow: "hidden", backgroundColor: colors.inputBackground },
+        photoImg: { width: 72, height: 72 },
+        photoRemove: { position: "absolute" as const, top: 4, right: 4, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 12, padding: 4 },
+        photoStatus: { fontSize: 10, color: colors.textSecondary, marginTop: 2, textAlign: "center" as const },
+        btnAddPhoto: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, backgroundColor: colors.inputBackground, alignSelf: "flex-start" },
+        btnAddPhotoText: { fontSize: 14, color: colors.primary },
       }),
     [colors]
   );
@@ -96,6 +111,9 @@ export default function FormEntregaConcluida({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  type PhotoItem = { uri: string; status: "idle" | "uploading" | "sent" | "error"; object_key?: string };
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
+
   useEffect(() => {
     if (visible) {
       setTipoRecebedor("Comprador");
@@ -104,6 +122,7 @@ export default function FormEntregaConcluida({
       setNumeroDocumento("");
       setObservacao("");
       setError(null);
+      setPhotos([]);
     }
   }, [visible, destinatarioPreenchido]);
 
@@ -118,10 +137,67 @@ export default function FormEntregaConcluida({
     setNumeroDocumento(formatted);
   };
 
+  const addPhoto = async () => {
+    if (photos.length >= MAX_PHOTOS) return;
+    try {
+      const picked = await selectOrTakePhoto();
+      if (!picked) return;
+      const prepared = await preparePhoto(picked.uri);
+      setPhotos((prev) => [...prev, { uri: prepared.uri, status: "idle" }]);
+    } catch (e) {
+      Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+    }
+  };
+
+  const uploadOnePhoto = async (item: PhotoItem, idx: number) => {
+    setPhotos((prev) =>
+      prev.map((p, j) => (j === idx ? { ...p, status: "uploading" as const } : p))
+    );
+    try {
+      const objectKey = await uploadDeliveryPhoto({
+        id_saida: idSaida,
+        tipo: "entregue",
+        uri: item.uri,
+        mimeType: "image/jpeg",
+        filename: "foto.jpg",
+      });
+      setPhotos((prev) =>
+        prev.map((p, j) => (j === idx ? { ...p, status: "sent" as const, object_key: objectKey } : p))
+      );
+    } catch {
+      setPhotos((prev) =>
+        prev.map((p, j) => (j === idx ? { ...p, status: "error" as const } : p))
+      );
+      throw new Error("Falha no envio da foto.");
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const retryPhotoUpload = (index: number) => {
+    setPhotos((prev) =>
+      prev.map((p, i) => (i === index && p.status === "error" ? { ...p, status: "idle" as const } : p))
+    );
+  };
+
   const handleConfirmar = async () => {
     setError(null);
     setSaving(true);
     try {
+      const idleIndexes = photos.map((p, i) => (p.status === "idle" ? i : -1)).filter((i) => i >= 0);
+      for (const idx of idleIndexes) {
+        const item = photos[idx];
+        if (!item || item.status !== "idle") continue;
+        try {
+          await uploadOnePhoto(item, idx);
+        } catch (uploadErr) {
+          Alert.alert("Erro ao enviar foto", (uploadErr as Error)?.message || "Falha no envio.");
+          setSaving(false);
+          return;
+        }
+      }
       const body: EntregueBody = {
         tipo_recebedor: tipoRecebedor || undefined,
         nome_recebedor: nomeRecebedor.trim() || undefined,
@@ -143,6 +219,10 @@ export default function FormEntregaConcluida({
       setSaving(false);
     }
   };
+
+  const anyUploading = photos.some((p) => p.status === "uploading");
+  const hasErrorPhoto = photos.some((p) => p.status === "error");
+  const canAddPhoto = photos.length < MAX_PHOTOS;
 
   if (!visible) return null;
 
@@ -206,6 +286,42 @@ export default function FormEntregaConcluida({
               keyboardType={tipoDocumento === "CPF" ? "numeric" : "default"}
             />
 
+            <Text style={styles.label}>Comprovante (opcional, até {MAX_PHOTOS} fotos)</Text>
+            <View style={styles.photoRow}>
+              {photos.map((p, idx) => (
+                <View key={idx} style={styles.photoWrap}>
+                  <Image source={{ uri: p.uri }} style={styles.photoImg} resizeMode="cover" />
+                  <TouchableOpacity
+                    style={styles.photoRemove}
+                    onPress={() => removePhoto(idx)}
+                    disabled={saving || anyUploading}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 12 }}>✕</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.photoStatus} numberOfLines={1}>
+                    {p.status === "idle" && "Pendente"}
+                    {p.status === "uploading" && "Enviando…"}
+                    {p.status === "sent" && "Enviado"}
+                    {p.status === "error" && "Falhou"}
+                  </Text>
+                  {p.status === "error" && (
+                    <TouchableOpacity onPress={() => retryPhotoUpload(idx)} disabled={saving}>
+                      <Text style={{ fontSize: 10, color: colors.primary, marginTop: 2 }}>Tentar novamente</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+              {canAddPhoto && (
+                <TouchableOpacity
+                  style={styles.btnAddPhoto}
+                  onPress={addPhoto}
+                  disabled={saving || anyUploading}
+                >
+                  <Text style={styles.btnAddPhotoText}>+ Adicionar foto</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
             <Text style={styles.label}>Observação (opcional)</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
@@ -220,10 +336,14 @@ export default function FormEntregaConcluida({
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
             <View style={styles.actions}>
-              <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={saving}>
+              <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={saving || anyUploading}>
                 <Text style={styles.btnCancelText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.btnOk, saving && styles.btnDisabled]} onPress={handleConfirmar} disabled={saving}>
+              <TouchableOpacity
+                style={[styles.btnOk, (saving || anyUploading) && styles.btnDisabled]}
+                onPress={handleConfirmar}
+                disabled={saving || anyUploading}
+              >
                 {saving ? (
                   <ActivityIndicator color={colors.primaryContrast} size="small" />
                 ) : (

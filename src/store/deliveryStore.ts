@@ -16,8 +16,15 @@ import {
   type RotasAtivaResponse,
 } from "../features/entregas/api";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
+import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
 
 export type MapMode = "list" | "map";
+
+export type CurrentLocation = {
+  latitude: number;
+  longitude: number;
+  heading?: number;
+};
 
 interface DeliveryState {
   pendingDeliveries: EntregaListItem[];
@@ -42,6 +49,10 @@ interface DeliveryState {
   activeRouteId: string | null;
   /** Índice 0-based da próxima parada na rota ativa. */
   activeStopIndex: number;
+
+  /** Localização atual do motoboy (atualizada pelo rastreamento em background quando rota ativa). */
+  currentLocation: CurrentLocation | null;
+  setCurrentLocation: (location: CurrentLocation | null) => void;
 
   loadDeliveries: () => Promise<void>;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
@@ -94,6 +105,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   routeDeliveryStatus: {},
   activeRouteId: null,
   activeStopIndex: 0,
+  currentLocation: null,
+  setCurrentLocation: (location) => set({ currentLocation: location }),
 
   loadDeliveries: async () => {
     set({ loading: true, error: null });
@@ -166,6 +179,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       activeStopIndex: 0,
       routeStarted: true,
     });
+    await startBackgroundTracking();
     await get().loadDeliveries();
     return rota_id;
   },
@@ -180,6 +194,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   finishRoute: async () => {
     const { activeRouteId } = get();
     if (!activeRouteId) return;
+    await stopBackgroundTracking();
     await postRotasFinalizar(activeRouteId);
     set({
       activeRouteId: null,
@@ -187,6 +202,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDeliveries: [],
       routeOrder: [],
       routeDeliveryStatus: {},
+      currentLocation: null,
     });
   },
 
@@ -221,6 +237,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDeliveries: deliveries,
       routeDeliveryStatus,
     });
+    await startBackgroundTracking();
   },
 
   suggestRoute: (fromLat?, fromLon?) => {
@@ -287,14 +304,17 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     set({ routeDeliveries: deliveries, routeOrder: order, routeDeliveryStatus });
   },
   clearRoute: () => set({ routeDeliveries: [], routeOrder: [], routeDeliveryStatus: {} }),
-  clearActiveRouteState: () =>
+  clearActiveRouteState: () => {
+    stopBackgroundTracking().catch(() => {});
     set({
       activeRouteId: null,
       activeStopIndex: 0,
       routeDeliveries: [],
       routeOrder: [],
       routeDeliveryStatus: {},
-    }),
+      currentLocation: null,
+    });
+  },
   optimizeRoute: (fromLat?, fromLon?) => {
     const { routeDeliveries, routeOrder, activeRouteId } = get();
     if (activeRouteId != null || routeOrder.length === 0) return;

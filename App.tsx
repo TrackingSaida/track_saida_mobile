@@ -1,3 +1,4 @@
+import "./src/services/location/backgroundLocationTask";
 import React, { useEffect, useState, useCallback } from "react";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";

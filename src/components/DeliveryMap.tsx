@@ -39,6 +39,9 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
   const routeDeliveries = useDeliveryStore((s) => s.routeDeliveries);
   const routeOrder = useDeliveryStore((s) => s.routeOrder);
   const routeDeliveryStatus = useDeliveryStore((s) => s.routeDeliveryStatus);
+  const activeRouteId = useDeliveryStore((s) => s.activeRouteId);
+  const activeStopIndex = useDeliveryStore((s) => s.activeStopIndex);
+  const currentLocation = useDeliveryStore((s) => s.currentLocation);
 
   const ordered = useMemo(
     () => getOrderedRouteDeliveries(routeDeliveries, routeOrder),
@@ -149,6 +152,27 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
     }
   }, [centerOnStopId, groupedPointsWithCoords, groupedStops]);
 
+  const prevActiveRouteIdRef = useRef<string | null>(null);
+  const prevActiveStopIndexRef = useRef<number>(0);
+  useEffect(() => {
+    if (!currentLocation || !activeRouteId) return;
+    const routeJustActivated = prevActiveRouteIdRef.current !== activeRouteId;
+    const stopIndexChanged = prevActiveStopIndexRef.current !== activeStopIndex;
+    prevActiveRouteIdRef.current = activeRouteId;
+    prevActiveStopIndexRef.current = activeStopIndex;
+    if (routeJustActivated || stopIndexChanged) {
+      mapRef.current?.animateToRegion(
+        {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        },
+        400
+      );
+    }
+  }, [activeRouteId, activeStopIndex, currentLocation]);
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -183,6 +207,19 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
           padding: 24,
         },
         emptyText: { fontSize: 16, textAlign: "center", color: "#333", lineHeight: 24 },
+        motoboyMarker: {
+          width: 14,
+          height: 14,
+          borderRadius: 7,
+          backgroundColor: "#2196F3",
+          borderWidth: 2,
+          borderColor: "#fff",
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.3,
+          shadowRadius: 2,
+          elevation: 3,
+        },
       }),
     []
   );
@@ -219,6 +256,16 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
             lineJoin="round"
             geodesic
           />
+        )}
+        {currentLocation && (
+          <Marker
+            coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+            title="Você"
+          >
+            <View style={styles.motoboyMarker} />
+          </Marker>
         )}
       {groupedPointsWithCoords.map((point) => {
         const paradaNumber = point.paradaIndex;
