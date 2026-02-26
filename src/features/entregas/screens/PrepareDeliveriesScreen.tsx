@@ -19,6 +19,7 @@ import { useDeliveryStore } from "../../../store/deliveryStore";
 import AddressForm, { type AddressFormValues, type AddressOrigem, type AddressCandidate } from "../components/AddressForm";
 import VoiceAddressModal from "../components/VoiceAddressModal";
 import type { EntregaListItem } from "../types";
+import type { ServicoTipo } from "../utils/servico";
 import { servicoTipo, SERVICO_ORDER } from "../utils/servico";
 import { parseOcrToAddress, parseVoiceToAddress } from "../utils/ocrAddress";
 
@@ -133,6 +134,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
 
   const [sequenciaAtiva, setSequenciaAtiva] = useState(false);
   const [showOrdemModal, setShowOrdemModal] = useState(false);
+  /** Quando true, exibe "Por qual serviço iniciar?" (após escolher "Por serviço"). */
+  const [showServicoInicioModal, setShowServicoInicioModal] = useState(false);
   /** Lista fixa de entregas sem endereço no início da sequência (permite pular e ordem por serviço). */
   const [sequenciaList, setSequenciaList] = useState<EntregaListItem[]>([]);
   const [sequenciaIndex, setSequenciaIndex] = useState(0);
@@ -163,13 +166,25 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   };
 
   const handleEscolherOrdem = (porServico: boolean) => {
+    if (!porServico) {
+      setShowOrdemModal(false);
+      setSequenciaList([...deliveriesWithoutAddress]);
+      setSequenciaIndex(0);
+      setSequenciaAtiva(true);
+      return;
+    }
     setShowOrdemModal(false);
-    const list = porServico
-      ? [...deliveriesWithoutAddress].sort(
-          (a, b) =>
-            SERVICO_ORDER.indexOf(servicoTipo(a.servico)) - SERVICO_ORDER.indexOf(servicoTipo(b.servico))
-        )
-      : [...deliveriesWithoutAddress];
+    setShowServicoInicioModal(true);
+  };
+
+  /** Ordem dos serviços com o escolhido primeiro (ex.: [Flex, Shopee, Avulso]). */
+  const handleEscolherServicoInicio = (primeiro: ServicoTipo) => {
+    setShowServicoInicioModal(false);
+    const ordem: ServicoTipo[] = [primeiro, ...SERVICO_ORDER.filter((s) => s !== primeiro)];
+    const list = [...deliveriesWithoutAddress].sort(
+      (a, b) =>
+        ordem.indexOf(servicoTipo(a.servico)) - ordem.indexOf(servicoTipo(b.servico))
+    );
     setSequenciaList(list);
     setSequenciaIndex(0);
     setSequenciaAtiva(true);
@@ -397,16 +412,51 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
               <Text style={styles.ordemBtnText}>Sequencial</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.ordemBtn, styles.ordemBtnLast, { backgroundColor: colors.primary }]}
+              style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
               onPress={() => handleEscolherOrdem(true)}
             >
-              <Text style={styles.ordemBtnText}>Por serviço (ML → Shopee → Avulso)</Text>
+              <Text style={styles.ordemBtnText}>Por serviço</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.ordemBtn, styles.ordemBtnOutline, styles.ordemBtnLast]}
               onPress={() => setShowOrdemModal(false)}
             >
               <Text style={styles.ordemBtnOutlineText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showServicoInicioModal} transparent animationType="fade">
+        <View style={styles.ordemModalOverlay}>
+          <View style={styles.ordemModalBox}>
+            <Text style={styles.ordemModalTitle}>Por qual serviço iniciar?</Text>
+            <TouchableOpacity
+              style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
+              onPress={() => handleEscolherServicoInicio("Shopee")}
+            >
+              <Text style={styles.ordemBtnText}>Shopee</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
+              onPress={() => handleEscolherServicoInicio("Flex")}
+            >
+              <Text style={styles.ordemBtnText}>Flex (ML)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
+              onPress={() => handleEscolherServicoInicio("Avulso")}
+            >
+              <Text style={styles.ordemBtnText}>Avulso</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ordemBtn, styles.ordemBtnOutline, styles.ordemBtnLast]}
+              onPress={() => {
+                setShowServicoInicioModal(false);
+                setShowOrdemModal(true);
+              }}
+            >
+              <Text style={styles.ordemBtnOutlineText}>Voltar</Text>
             </TouchableOpacity>
           </View>
         </View>

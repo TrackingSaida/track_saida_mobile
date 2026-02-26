@@ -88,6 +88,14 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
         },
         btnDisabled: { opacity: 0.7 },
         btnIniciarText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnRotaAtiva: {
+          backgroundColor: colors.success,
+          paddingVertical: 16,
+          borderRadius: 12,
+          alignItems: "center",
+          marginBottom: 12,
+        },
+        btnRotaAtivaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
         btnSair: { marginTop: 24, paddingVertical: 12, alignItems: "center" },
         btnSairText: { color: colors.danger, fontSize: 16 },
       }),
@@ -119,7 +127,7 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
     }
   }, []);
 
-  // Atualiza o resumo sempre que a tela ganha foco (ex.: voltar de Entregas ou Scanner)
+  // Atualiza o resumo e restaura estado da rota ativa (sem redirecionar)
   useFocusEffect(
     useCallback(() => {
       load();
@@ -137,21 +145,19 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
             store.clearActiveRouteState();
             return;
           }
-          // Não redirecionar se todas as paradas já foram concluídas (rota concluída)
           if (rotaAtiva.parada_atual >= ordem.length) {
             store.clearActiveRouteState();
             return;
           }
-          if (onNavigateRouteBuilder) {
-            await store.restoreActiveRoute(rotaAtiva);
-            onNavigateRouteBuilder();
-          }
+          await store.restoreActiveRoute(rotaAtiva);
         } catch {
           useDeliveryStore.getState().clearActiveRouteState();
         }
       })();
-    }, [load, onNavigateRouteBuilder])
+    }, [load])
   );
+
+  const activeRouteId = useDeliveryStore((s) => s.activeRouteId);
 
   const handleIniciarRota = async () => {
     if (!resumo?.pode_iniciar_rota) return;
@@ -204,6 +210,12 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
           <TouchableOpacity style={styles.btnScan} onPress={onNavigateScan}>
             <Text style={styles.btnScanText}>Escanear</Text>
           </TouchableOpacity>
+
+          {activeRouteId != null && onNavigateRouteBuilder ? (
+            <TouchableOpacity style={styles.btnRotaAtiva} onPress={onNavigateRouteBuilder}>
+              <Text style={styles.btnRotaAtivaText}>Continuar rota ativa</Text>
+            </TouchableOpacity>
+          ) : null}
 
           {resumo?.pode_iniciar_rota ? (
             <TouchableOpacity
