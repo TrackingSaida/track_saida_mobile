@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -7,13 +7,20 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
+  Alert,
 } from "react-native";
+import Constants from "expo-constants";
+import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import { useDeliveryStore } from "../../../store/deliveryStore";
-import AddressForm, { type AddressFormValues, type AddressOrigem } from "../components/AddressForm";
+import AddressForm, { type AddressFormValues, type AddressOrigem, type AddressCandidate } from "../components/AddressForm";
+import VoiceAddressModal from "../components/VoiceAddressModal";
+import type { EntregaListItem } from "../types";
+import { servicoTipo, SERVICO_ORDER } from "../utils/servico";
+import { parseOcrToAddress, parseVoiceToAddress } from "../utils/ocrAddress";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
@@ -84,6 +91,31 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         },
         codigoLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginBottom: 4, textTransform: "uppercase" },
         codigoValue: { fontSize: 22, fontWeight: "800", color: colors.text },
+        modalHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+        btnPular: { paddingVertical: 8, paddingHorizontal: 12, marginLeft: 8 },
+        btnPularText: { fontSize: 15, color: colors.primary, fontWeight: "600" },
+        ordemModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 },
+        ordemModalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 20 },
+        ordemModalTitle: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 16 },
+        ordemBtn: { paddingVertical: 14, borderRadius: 10, alignItems: "center", marginBottom: 10 },
+        ordemBtnLast: { marginBottom: 0 },
+        ordemBtnText: { fontSize: 16, fontWeight: "600", color: colors.primaryContrast },
+        ordemBtnOutline: { borderWidth: 1, borderColor: colors.primary, backgroundColor: "transparent" },
+        ordemBtnOutlineText: { color: colors.primary },
+        btnCriarRota: {
+          backgroundColor: colors.primary,
+          paddingVertical: 16,
+          borderRadius: 12,
+          alignItems: "center",
+          marginTop: 12,
+        },
+        btnCriarRotaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        voiceModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 24 },
+        voiceModalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 20 },
+        voiceModalTitle: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 8 },
+        voiceModalMessage: { fontSize: 14, color: colors.textSecondary, marginBottom: 16 },
+        voiceModalBtnCancel: { paddingVertical: 12, alignItems: "center" },
+        voiceModalBtnCancelText: { fontSize: 16, color: colors.primary },
       }),
     [colors]
   );
@@ -94,11 +126,23 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     loadDeliveries,
     saveAddress,
     loading,
+    setRouteDeliveries,
+    clearActiveRouteState,
+    activeRouteId,
   } = useDeliveryStore();
 
   const [sequenciaAtiva, setSequenciaAtiva] = useState(false);
-  const [sequenciaTotal, setSequenciaTotal] = useState(0);
+  const [showOrdemModal, setShowOrdemModal] = useState(false);
+  /** Lista fixa de entregas sem endereço no início da sequência (permite pular e ordem por serviço). */
+  const [sequenciaList, setSequenciaList] = useState<EntregaListItem[]>([]);
   const [sequenciaIndex, setSequenciaIndex] = useState(0);
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [speechModule, setSpeechModule] = useState<{
+    ExpoSpeechRecognitionModule: typeof import("expo-speech-recognition").ExpoSpeechRecognitionModule;
+    useSpeechRecognitionEvent: typeof import("expo-speech-recognition").useSpeechRecognitionEvent;
+  } | null>(null);
+  const voiceResolveRef = useRef<(v: AddressCandidate[] | AddressCandidate | null) => void>(() => {});
+  const voiceRejectRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     loadDeliveries();
@@ -107,24 +151,184 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const total = pendingDeliveries.length;
   const comEndereco = deliveriesWithAddress.length;
   const semEndereco = deliveriesWithoutAddress.length;
-  const atual = deliveriesWithoutAddress[0];
+  const sequenciaTotal = sequenciaList.length;
+  const atual = sequenciaList[sequenciaIndex] ?? null;
 
   const handleIniciarSequencia = () => {
     if (semEndereco === 0) {
       setSequenciaAtiva(false);
       return;
     }
-    setSequenciaTotal(semEndereco);
+    setShowOrdemModal(true);
+  };
+
+  const handleEscolherOrdem = (porServico: boolean) => {
+    setShowOrdemModal(false);
+    const list = porServico
+      ? [...deliveriesWithoutAddress].sort(
+          (a, b) =>
+            SERVICO_ORDER.indexOf(servicoTipo(a.servico)) - SERVICO_ORDER.indexOf(servicoTipo(b.servico))
+        )
+      : [...deliveriesWithoutAddress];
+    setSequenciaList(list);
     setSequenciaIndex(0);
     setSequenciaAtiva(true);
   };
 
-  const handleSalvarEndereco = async (vals: AddressFormValues) => {
+  const handleSalvarEndereco = async (vals: AddressFormValues, origemOverride?: AddressOrigem) => {
     if (!atual) return;
-    await saveAddress(atual.id_saida, { ...vals, origem: "manual" as AddressOrigem });
+    try {
+      await saveAddress(atual.id_saida, { ...vals, origem: origemOverride ?? "manual" });
+      const nextIndex = sequenciaIndex + 1;
+      setSequenciaIndex(nextIndex);
+      if (nextIndex >= sequenciaList.length) {
+        setSequenciaAtiva(false);
+      }
+    } catch (e) {
+      Alert.alert("Erro ao salvar endereço", e instanceof Error ? e.message : "Não foi possível salvar. Tente novamente.");
+    }
+  };
+
+  const handleRequestOcr = useCallback(async (): Promise<AddressCandidate[] | AddressCandidate | null> => {
+    const isExpoGo = Constants.appOwnership === "expo";
+    if (isExpoGo) {
+      Alert.alert(
+        "OCR no Expo Go",
+        "O leitor por imagem (OCR) só funciona em build nativo. No Expo Go use a opção Digitar ou Voz para preencher o endereço."
+      );
+      return null;
+    }
+    let extractTextFromImage: (uri: string) => Promise<string[]>;
+    let isSupported: boolean;
+    try {
+      const ocrModule = await import("expo-text-extractor");
+      extractTextFromImage = ocrModule.extractTextFromImage;
+      isSupported = ocrModule.isSupported;
+    } catch {
+      Alert.alert(
+        "OCR não disponível",
+        "O leitor de texto (OCR) funciona apenas em versão de desenvolvimento (build nativo). Use digitar ou Voz para preencher o endereço."
+      );
+      return null;
+    }
+    if (!isSupported) {
+      Alert.alert("Não disponível", "Reconhecimento de texto não é suportado neste dispositivo.");
+      return null;
+    }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permissão", "É necessário permitir o uso da câmera para escanear.");
+      return null;
+    }
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+        base64: false,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return null;
+      const lines = await extractTextFromImage(result.assets[0].uri);
+      const parsed = parseOcrToAddress(lines);
+      return Object.keys(parsed).length > 0 ? parsed : null;
+    } catch {
+      Alert.alert("Erro", "Não foi possível ler o texto da imagem.");
+      return null;
+    }
+  }, []);
+
+  const handleRequestVoz = useCallback((): Promise<AddressCandidate[] | AddressCandidate | null> => {
+    const isExpoGo = Constants.appOwnership === "expo";
+    if (isExpoGo) {
+      Alert.alert(
+        "Voz no Expo Go",
+        "O reconhecimento por voz só funciona em build nativo. No Expo Go use a opção Digitar ou Leitor (OCR) para preencher o endereço."
+      );
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      voiceResolveRef.current = (v) => {
+        setShowVoiceModal(false);
+        setSpeechModule(null);
+        resolve(v);
+      };
+      voiceRejectRef.current = () => {
+        setShowVoiceModal(false);
+        setSpeechModule(null);
+        resolve(null);
+      };
+      (async () => {
+        try {
+          const mod = await import("expo-speech-recognition");
+          setSpeechModule(mod);
+          setShowVoiceModal(true);
+        } catch {
+          Alert.alert(
+            "Voz não disponível",
+            "O reconhecimento de voz funciona apenas em versão de desenvolvimento (build nativo). Use digitar ou Leitor (OCR) para preencher o endereço."
+          );
+          resolve(null);
+        }
+      })();
+    });
+  }, []);
+
+  const handleVoiceDone = useCallback((transcript: string) => {
+    const parsed = parseVoiceToAddress(transcript);
+    if (Object.keys(parsed).length > 0) {
+      voiceResolveRef.current(parsed);
+    } else {
+      voiceResolveRef.current(null);
+    }
+  }, []);
+
+  const handleVoiceCancel = useCallback(() => {
+    voiceRejectRef.current();
+  }, []);
+
+  const handleCriarRota = useCallback(() => {
+    if (deliveriesWithAddress.length === 0) return;
+    if (deliveriesWithoutAddress.length > 0) {
+      const x = deliveriesWithoutAddress.length;
+      Alert.alert(
+        "Criar Rota",
+        `${x} entrega${x !== 1 ? "s" : ""} não possuem endereço e não entrarão na rota.`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Criar rota parcial",
+            onPress: () => {
+              try {
+                if (activeRouteId !== null) clearActiveRouteState();
+                setRouteDeliveries(deliveriesWithAddress);
+                navigation.navigate("RouteBuilder");
+              } catch (e) {
+                console.error("[Criar rota parcial] crash:", e);
+                Alert.alert(
+                  "Erro",
+                  `Erro ao criar rota: ${e instanceof Error ? e.message : String(e)}.`
+                );
+              }
+            },
+          },
+          { text: "Adicionar endereços", onPress: () => {} },
+        ]
+      );
+    } else {
+      try {
+        if (activeRouteId !== null) clearActiveRouteState();
+        setRouteDeliveries(deliveriesWithAddress);
+        navigation.navigate("RouteBuilder");
+      } catch (e) {
+        console.error("[Criar Rota] crash:", e);
+        Alert.alert("Erro", `Erro ao criar rota: ${e instanceof Error ? e.message : String(e)}.`);
+      }
+    }
+  }, [deliveriesWithAddress, deliveriesWithoutAddress, activeRouteId, clearActiveRouteState, setRouteDeliveries, navigation]);
+
+  const handlePular = () => {
     const nextIndex = sequenciaIndex + 1;
     setSequenciaIndex(nextIndex);
-    if (nextIndex >= sequenciaTotal) {
+    if (nextIndex >= sequenciaList.length) {
       setSequenciaAtiva(false);
     }
   };
@@ -176,12 +380,49 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         <Text style={styles.btnListaText}>Ir para Pendentes</Text>
       </TouchableOpacity>
 
+      {comEndereco > 0 && (
+        <TouchableOpacity style={styles.btnCriarRota} onPress={handleCriarRota}>
+          <Text style={styles.btnCriarRotaText}>Criar Rota / Iniciar Rota</Text>
+        </TouchableOpacity>
+      )}
+
+      <Modal visible={showOrdemModal} transparent animationType="fade">
+        <View style={styles.ordemModalOverlay}>
+          <View style={styles.ordemModalBox}>
+            <Text style={styles.ordemModalTitle}>Como ordenar as entregas?</Text>
+            <TouchableOpacity
+              style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
+              onPress={() => handleEscolherOrdem(false)}
+            >
+              <Text style={styles.ordemBtnText}>Sequencial</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ordemBtn, styles.ordemBtnLast, { backgroundColor: colors.primary }]}
+              onPress={() => handleEscolherOrdem(true)}
+            >
+              <Text style={styles.ordemBtnText}>Por serviço (ML → Shopee → Avulso)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ordemBtn, styles.ordemBtnOutline, styles.ordemBtnLast]}
+              onPress={() => setShowOrdemModal(false)}
+            >
+              <Text style={styles.ordemBtnOutlineText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={sequenciaAtiva && !!atual} animationType="slide">
         <View style={styles.modalWrap}>
           <View style={[styles.modalHeader, { paddingTop: Math.max(16, insets.top) }]}>
-            <TouchableOpacity onPress={handleFecharSequencia}>
-              <Text style={styles.modalBackText}>← Fechar</Text>
-            </TouchableOpacity>
+            <View style={styles.modalHeaderRow}>
+              <TouchableOpacity onPress={handleFecharSequencia}>
+                <Text style={styles.modalBackText}>← Fechar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.btnPular} onPress={handlePular}>
+                <Text style={styles.btnPularText}>Pular</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.codigoCard}>
               <Text style={styles.codigoLabel}>Código do pedido</Text>
               <Text style={styles.codigoValue}>{atual?.codigo ?? "—"}</Text>
@@ -192,24 +433,44 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
             <Text style={styles.modalSubtitle}>{atual?.cliente ? `Destinatário: ${atual.cliente}` : ""}</Text>
           </View>
           {atual && (
-            <AddressForm
-              idSaida={atual.id_saida}
-              initialValues={{
-                destinatario: atual.cliente ?? "",
-                rua: "",
-                numero: "",
-                complemento: "",
-                bairro: atual.bairro ?? "",
-                cidade: "",
-                estado: "",
-                cep: "",
-              }}
-              origem="manual"
-              onSave={handleSalvarEndereco}
-              enableOnlyDestinatarioShortcut={false}
-              onCancel={handleFecharSequencia}
-              submitLabel="Salvar e próximo"
-            />
+            <>
+              <AddressForm
+                idSaida={atual.id_saida}
+                initialValues={{
+                  destinatario: atual.cliente ?? "",
+                  rua: "",
+                  numero: "",
+                  complemento: "",
+                  bairro: atual.bairro ?? "",
+                  cidade: "",
+                  estado: "",
+                  cep: "",
+                }}
+                origem="manual"
+                onSave={handleSalvarEndereco}
+                enableOnlyDestinatarioShortcut={false}
+                onCancel={handleFecharSequencia}
+                submitLabel="Salvar e próximo"
+                showOcrVozIcons
+                onRequestOcr={handleRequestOcr}
+                onRequestVoz={handleRequestVoz}
+              />
+              {showVoiceModal && speechModule && (
+                <VoiceAddressModal
+                  speechModule={speechModule}
+                  modalStyles={{
+                    modalOverlay: styles.voiceModalOverlay,
+                    modalBox: styles.voiceModalBox,
+                    modalTitle: styles.voiceModalTitle,
+                    modalMessage: styles.voiceModalMessage,
+                    modalBtnCancel: styles.voiceModalBtnCancel,
+                    modalBtnCancelText: styles.voiceModalBtnCancelText,
+                  }}
+                  onDone={handleVoiceDone}
+                  onCancel={handleVoiceCancel}
+                />
+              )}
+            </>
           )}
         </View>
       </Modal>

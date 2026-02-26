@@ -4,11 +4,12 @@ import {
   type AudioPlayer,
 } from "expo-audio";
 
-type SoundType = "success" | "error";
+type SoundType = "success" | "error" | "warn";
 
 const SOUND_URIS: Record<SoundType, string> = {
   success: "https://assets.mixkit.co/active_storage/sfx/2560-success.mp3",
   error: "https://assets.mixkit.co/active_storage/sfx/2568-error.mp3",
+  warn: "https://assets.mixkit.co/active_storage/sfx/2570-warning-alert.mp3",
 };
 
 let cached: Partial<Record<SoundType, AudioPlayer>> = {};

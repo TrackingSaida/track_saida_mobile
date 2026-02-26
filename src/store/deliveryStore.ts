@@ -148,19 +148,29 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         finalBody = { ...body, latitude: coords.latitude, longitude: coords.longitude };
       }
     }
-    const updated = await putEndereco(idSaida, finalBody);
-    set((state) => {
-      const list = state.pendingDeliveries.map((d) => (d.id_saida === idSaida ? updated : d));
-      const withAddr = list.filter(withAddress);
-      const withoutAddr = list.filter((d) => !withAddress(d));
-      return {
-        pendingDeliveries: list,
-        deliveriesWithAddress: withAddr,
-        deliveriesWithoutAddress: withoutAddr,
-        selectedDelivery: state.selectedDelivery?.id_saida === idSaida ? updated : state.selectedDelivery,
-      };
-    });
-    return updated;
+    try {
+      const updated = await putEndereco(idSaida, finalBody);
+      set((state) => {
+        const list = state.pendingDeliveries.map((d) => (d.id_saida === idSaida ? updated : d));
+        const withAddr = list.filter(withAddress);
+        const withoutAddr = list.filter((d) => !withAddress(d));
+        return {
+          pendingDeliveries: list,
+          deliveriesWithAddress: withAddr,
+          deliveriesWithoutAddress: withoutAddr,
+          selectedDelivery: state.selectedDelivery?.id_saida === idSaida ? updated : state.selectedDelivery,
+        };
+      });
+      return updated;
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === "object" && "response" in err && err.response && typeof err.response === "object" && "data" in err.response && err.response.data && typeof err.response.data === "object" && "detail" in err.response.data
+          ? String((err.response.data as { detail?: unknown }).detail)
+          : err instanceof Error
+            ? err.message
+            : "Não foi possível salvar o endereço.";
+      throw new Error(msg);
+    }
   },
 
   startRoute: async (deliveryIds) => {
@@ -320,42 +330,35 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     if (activeRouteId != null || routeOrder.length === 0) return;
     const withCoords = routeDeliveries.filter((d) => d.latitude != null && d.longitude != null);
     const withoutCoords = routeDeliveries.filter((d) => d.latitude == null || d.longitude == null);
-    const byId = new Map(routeDeliveries.map((d) => [d.id_saida, d]));
     let refLat = fromLat;
     let refLon = fromLon;
     if (refLat == null || refLon == null) {
-      const firstId = routeOrder[0];
-      const first = byId.get(firstId);
+      const first = routeDeliveries.find((d) => d.id_saida === routeOrder[0]) ?? withCoords[0];
       refLat = first?.latitude ?? 0;
       refLon = first?.longitude ?? 0;
-      if (withCoords.length > 0 && (first?.latitude == null || first?.longitude == null)) {
-        refLat = withCoords[0].latitude!;
-        refLon = withCoords[0].longitude!;
-      }
     }
-    const orderedIds: number[] = [];
-    const remaining = new Set(withCoords.map((d) => d.id_saida));
+    const sortedWithCoords: typeof routeDeliveries = [];
+    const remaining = [...withCoords];
     let curLat = refLat;
     let curLon = refLon;
-    while (remaining.size > 0) {
-      let nearestId = -1;
+    while (remaining.length > 0) {
+      let nearestIdx = -1;
       let nearestDist = Infinity;
-      for (const id of remaining) {
-        const d = byId.get(id)!;
+      for (let i = 0; i < remaining.length; i++) {
+        const d = remaining[i];
         const d2 = distSq(curLat, curLon, d.latitude!, d.longitude!);
         if (d2 < nearestDist) {
           nearestDist = d2;
-          nearestId = id;
+          nearestIdx = i;
         }
       }
-      if (nearestId === -1) break;
-      remaining.delete(nearestId);
-      orderedIds.push(nearestId);
-      const next = byId.get(nearestId)!;
+      if (nearestIdx === -1) break;
+      const next = remaining.splice(nearestIdx, 1)[0];
+      sortedWithCoords.push(next);
       curLat = next.latitude!;
       curLon = next.longitude!;
     }
-    withoutCoords.forEach((d) => orderedIds.push(d.id_saida));
+    const orderedIds = sortedWithCoords.map((d) => d.id_saida).concat(withoutCoords.map((d) => d.id_saida));
     set({ routeOrder: orderedIds });
   },
   reorderRoute: (order) => {

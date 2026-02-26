@@ -73,17 +73,29 @@ function isAddressCompleteExceptDestinatario(v: Partial<AddressFormValues>): boo
   return rua.length > 0 && num.length > 0 && bairro.length > 0 && cidade.length > 0 && estado.length > 0 && cep.length === 8 && dest.length === 0;
 }
 
+export type AddressCandidate = Partial<AddressFormValues>;
+
 interface AddressFormProps {
   idSaida: number;
   initialValues?: Partial<AddressFormValues>;
   origem: AddressOrigem;
-  onSave: (values: AddressFormValues) => Promise<void>;
+  onSave: (values: AddressFormValues, origemOverride?: AddressOrigem) => Promise<void>;
   onCancel?: () => void;
   submitLabel?: string;
   enableOnlyDestinatarioShortcut?: boolean;
+  /** Exibe ícones OCR e Voz ao lado do campo no Step 1 (escolha no momento). */
+  showOcrVozIcons?: boolean;
+  /** Retorna candidato(s) de endereço; o formulário exibe lista para o usuário selecionar. */
+  onRequestOcr?: () => Promise<AddressCandidate[] | AddressCandidate | null>;
+  onRequestVoz?: () => Promise<AddressCandidate[] | AddressCandidate | null>;
 }
 
 const TOTAL_STEPS = 3;
+
+function candidateSummary(c: AddressCandidate): string {
+  const parts = [c.rua, c.numero, c.bairro, c.cidade, c.estado].filter(Boolean);
+  return parts.join(", ") || "Endereço";
+}
 
 export default function AddressForm({
   idSaida,
@@ -93,6 +105,9 @@ export default function AddressForm({
   onCancel,
   submitLabel = "Salvar",
   enableOnlyDestinatarioShortcut,
+  showOcrVozIcons,
+  onRequestOcr,
+  onRequestVoz,
 }: AddressFormProps) {
   const colors = useThemeColors();
   const [values, setValues] = useState<AddressFormValues>(() => ({
@@ -104,6 +119,12 @@ export default function AddressForm({
   const [loadingCep, setLoadingCep] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cepNotFound, setCepNotFound] = useState(false);
+  /** Candidatos de OCR/Voz para o usuário selecionar (Step 1). */
+  const [addressCandidates, setAddressCandidates] = useState<AddressCandidate[] | null>(null);
+  const [candidateOrigem, setCandidateOrigem] = useState<"ocr" | "voz" | null>(null);
+  const [loadingOcrVoz, setLoadingOcrVoz] = useState(false);
+  /** Origem usada no save (manual ou definida ao selecionar candidato OCR/voz). */
+  const [saveOrigem, setSaveOrigem] = useState<AddressOrigem>(origem);
 
   const onlyDestinatarioMode = useMemo(
     () => enableOnlyDestinatarioShortcut !== false && isAddressCompleteExceptDestinatario(values),
@@ -186,20 +207,81 @@ export default function AddressForm({
     }
     setSaving(true);
     try {
-      await onSave({
-        destinatario: dest,
-        rua,
-        numero: num,
-        complemento: (values.complemento || "").trim() || "",
-        bairro,
-        cidade,
-        estado,
-        cep,
-      });
+      await onSave(
+        {
+          destinatario: dest,
+          rua,
+          numero: num,
+          complemento: (values.complemento || "").trim() || "",
+          bairro,
+          cidade,
+          estado,
+          cep,
+        },
+        saveOrigem
+      );
     } finally {
       setSaving(false);
     }
   };
+
+  const runOcr = useCallback(async () => {
+    if (!onRequestOcr) return;
+    setLoadingOcrVoz(true);
+    try {
+      const result = await onRequestOcr();
+      if (result != null) {
+        const list = Array.isArray(result) ? result : [result];
+        setAddressCandidates(list);
+        setCandidateOrigem("ocr");
+      }
+    } finally {
+      setLoadingOcrVoz(false);
+    }
+  }, [onRequestOcr]);
+
+  const runVoz = useCallback(async () => {
+    if (!onRequestVoz) return;
+    setLoadingOcrVoz(true);
+    try {
+      const result = await onRequestVoz();
+      if (result != null) {
+        const list = Array.isArray(result) ? result : [result];
+        setAddressCandidates(list);
+        setCandidateOrigem("voz");
+      }
+    } finally {
+      setLoadingOcrVoz(false);
+    }
+  }, [onRequestVoz]);
+
+  const selectCandidate = useCallback(
+    (c: AddressCandidate) => {
+      const merged: AddressFormValues = {
+        ...initialEmpty,
+        ...initialValues,
+        destinatario: (c.destinatario ?? values.destinatario ?? initialValues?.destinatario ?? "").trim(),
+        rua: (c.rua ?? "").trim(),
+        numero: (c.numero ?? "").trim(),
+        complemento: (c.complemento ?? "").trim(),
+        bairro: (c.bairro ?? "").trim(),
+        cidade: (c.cidade ?? "").trim(),
+        estado: (c.estado ?? "").trim(),
+        cep: (c.cep ?? "").replace(/\D/g, "").slice(0, 8),
+      };
+      if (merged.cep.length === 8) {
+        const formatted = merged.cep.replace(/(\d{5})(\d{3})/, "$1-$2");
+        merged.cep = formatted;
+      }
+      setValues(merged);
+      setAddressCandidates(null);
+      setCandidateOrigem(null);
+      setSaveOrigem(candidateOrigem ?? "manual");
+      const hasNumero = (merged.numero ?? "").trim().length > 0;
+      setStep(hasNumero ? 3 : 2);
+    },
+    [initialValues, values.destinatario, candidateOrigem]
+  );
 
   // Sempre que mudar de entrega (idSaida), resetar formulário e voltar ao passo 1
   useEffect(() => {
@@ -210,7 +292,10 @@ export default function AddressForm({
     setStep(1);
     setTouched({});
     setCepNotFound(false);
-  }, [idSaida, initialValues]);
+    setAddressCandidates(null);
+    setCandidateOrigem(null);
+    setSaveOrigem(origem);
+  }, [idSaida, initialValues, origem]);
 
   const styles = useMemo(
     () =>
@@ -262,6 +347,29 @@ export default function AddressForm({
         },
         btnDisabled: { opacity: 0.7 },
         btnSaveText: { color: colors.primaryContrast, fontWeight: "600", fontSize: 16 },
+        cepRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+        cepInputWrap: { flex: 1 },
+        iconBtn: {
+          width: 44,
+          height: 44,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.inputBackground,
+          justifyContent: "center",
+          alignItems: "center",
+        },
+        candidateListTitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 12 },
+        candidateItem: {
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          marginBottom: 8,
+          backgroundColor: colors.backgroundCard,
+        },
+        candidateItemText: { fontSize: 15, color: colors.text },
       }),
     [colors]
   );
@@ -311,30 +419,58 @@ export default function AddressForm({
         </View>
         <Text style={styles.stepLabel}>Passo {step} de {TOTAL_STEPS}</Text>
 
-        {step === 1 && (
+        {step === 1 && addressCandidates && addressCandidates.length > 0 && (
+          <>
+            <Text style={styles.candidateListTitle}>Selecione o endereço</Text>
+            {addressCandidates.map((c, idx) => (
+              <TouchableOpacity key={idx} style={styles.candidateItem} onPress={() => selectCandidate(c)} activeOpacity={0.7}>
+                <Text style={styles.candidateItemText}>{candidateSummary(c)}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={[styles.btnCancel, { marginTop: 12 }]} onPress={() => { setAddressCandidates(null); setCandidateOrigem(null); }}>
+              <Text style={styles.btnCancelText}>Voltar</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        {step === 1 && !addressCandidates?.length && (
           <>
             <View style={styles.field}>
-              <Text style={styles.label}>CEP <Text style={styles.asterisk}>*</Text></Text>
-              <TextInput
-                style={[styles.input, getError("cep") ? styles.inputError : null]}
-                value={values.cep}
-                onChangeText={(t) => {
-                  setCepNotFound(false);
-                  const formatted = formatCep(t);
-                  set("cep", formatted);
-                  const digits = formatted.replace(/\D/g, "");
-                  if (digits.length === 8) {
-                    setTouched((prev) => ({ ...prev, cep: true }));
-                    void fetchCep(digits, { autoAdvance: true });
-                  }
-                }}
-                onBlur={blurCep}
-                placeholder="00000-000"
-                placeholderTextColor={colors.placeholder}
-                keyboardType="numeric"
-                maxLength={9}
-                editable={!loadingCep}
-              />
+              <Text style={styles.label}>CEP ou endereço <Text style={styles.asterisk}>*</Text></Text>
+              <View style={styles.cepRow}>
+                <View style={styles.cepInputWrap}>
+                  <TextInput
+                    style={[styles.input, getError("cep") ? styles.inputError : null]}
+                    value={values.cep}
+                    onChangeText={(t) => {
+                      setCepNotFound(false);
+                      const formatted = formatCep(t);
+                      set("cep", formatted);
+                      const digits = formatted.replace(/\D/g, "");
+                      if (digits.length === 8) {
+                        setTouched((prev) => ({ ...prev, cep: true }));
+                        void fetchCep(digits, { autoAdvance: true });
+                      }
+                    }}
+                    onBlur={blurCep}
+                    placeholder="00000-000 ou digite o CEP"
+                    placeholderTextColor={colors.placeholder}
+                    keyboardType="numeric"
+                    maxLength={9}
+                    editable={!loadingCep}
+                  />
+                </View>
+                {showOcrVozIcons && (
+                  <>
+                    <TouchableOpacity style={styles.iconBtn} onPress={runOcr} disabled={loadingOcrVoz}>
+                      {loadingOcrVoz ? <ActivityIndicator size="small" /> : <Text style={{ fontSize: 18 }}>📷</Text>}
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.iconBtn} onPress={runVoz} disabled={loadingOcrVoz}>
+                      <Text style={{ fontSize: 18 }}>🎤</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
               {loadingCep && (
                 <View style={styles.cepLoading}>
                   <ActivityIndicator size="small" />
@@ -352,7 +488,7 @@ export default function AddressForm({
               <TouchableOpacity
                 style={[styles.btnNext, !step1Valid && styles.btnDisabled]}
                 onPress={handleNext}
-                disabled={!step1Valid || loadingCep}
+                disabled={!step1Valid || loadingCep || loadingOcrVoz}
               >
                 <Text style={styles.btnSaveText}>Próximo</Text>
               </TouchableOpacity>

@@ -58,16 +58,21 @@ export function groupOrderedByAddress(
   return groups;
 }
 
-/** Retorna entregas na ordem atual da rota (routeOrder). */
+/** Retorna entregas na ordem atual da rota (routeOrder). Suporta mesmo id_saida em várias entregas (usa uma entrega por id na ordem). */
 export function getOrderedRouteDeliveries(
   routeDeliveries: EntregaListItem[],
   routeOrder: number[]
 ): EntregaListItem[] {
-  const byId = new Map(routeDeliveries.map((d) => [d.id_saida, d]));
+  const byId = new Map<number, EntregaListItem[]>();
+  for (const d of routeDeliveries) {
+    const list = byId.get(d.id_saida) ?? [];
+    list.push(d);
+    byId.set(d.id_saida, list);
+  }
   const ordered: EntregaListItem[] = [];
   for (const id of routeOrder) {
-    const d = byId.get(id);
-    if (d) ordered.push(d);
+    const list = byId.get(id);
+    if (list && list.length > 0) ordered.push(list.shift()!);
   }
   return ordered;
 }

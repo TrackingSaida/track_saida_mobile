@@ -9,6 +9,7 @@ import {
   Platform,
   FlatList,
   ActivityIndicator,
+  Dimensions,
 } from "react-native";
 import * as Location from "expo-location";
 import DraggableFlatList, {
@@ -264,6 +265,7 @@ export default function RouteBottomSheet({
     ).length;
   }, [groupedStops, routeDeliveryStatus]);
 
+  const windowHeight = Dimensions.get("window").height;
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -272,7 +274,7 @@ export default function RouteBottomSheet({
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
           paddingBottom: collapsed ? Math.max(8, insets.bottom) : Math.max(12, insets.bottom) + 24,
-          maxHeight: "50%",
+          maxHeight: windowHeight * 0.78,
           minHeight: 80,
         },
         handle: {
@@ -303,91 +305,92 @@ export default function RouteBottomSheet({
           borderRadius: 8,
         },
         optimizeBtnText: { fontSize: 13, fontWeight: "600", color: colors.primaryContrast },
-        list: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, height: 280 },
+        list: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, flex: 1, minHeight: 200 },
         empty: {
           paddingVertical: 24,
           alignItems: "center",
         },
         emptyText: { fontSize: 14, color: colors.textSecondary },
       }),
-    [colors, insets.bottom, collapsed]
+    [colors, insets.bottom, collapsed, windowHeight]
   );
 
   return (
-    <View style={[styles.container, collapsed && { minHeight: 88 }]}>
+    <View
+      style={[
+        styles.container,
+        collapsed && { minHeight: 104 },
+        !collapsed && { height: windowHeight * 0.78 },
+      ]}
+    >
       {collapsed ? (
         <TouchableOpacity
-          style={[styles.handle, { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 0 }]}
+          style={[styles.handle, { flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 0 }]}
           onPress={toggleCollapsed}
           activeOpacity={1}
         >
           <View style={styles.handleBar} />
-          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", marginLeft: 12, minWidth: 0 }}>
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", marginLeft: 12, minWidth: 0, flexWrap: "wrap" }}>
             <Text style={styles.totalText} numberOfLines={1} ellipsizeMode="tail">
               {disableDrag && total > 0
                 ? `${completedCount} de ${total} parada${total !== 1 ? "s" : ""}`
                 : `${total} parada${total !== 1 ? "s" : ""}`}
             </Text>
             {total > 0 && (
-              <Text style={styles.collapsedHint} numberOfLines={1}>· Toque para expandir</Text>
+              <Text style={styles.collapsedHint}>· Toque para expandir</Text>
             )}
           </View>
         </TouchableOpacity>
       ) : (
-        <>
-      <TouchableOpacity style={styles.handle} onPress={toggleCollapsed} activeOpacity={1}>
-        <View style={styles.handleBar} />
-      </TouchableOpacity>
-
-      <View style={styles.header}>
-        <View style={{ flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 }}>
-          <Text style={styles.totalText} numberOfLines={1} ellipsizeMode="tail">
-            {disableDrag && total > 0
-              ? `${completedCount} de ${total} parada${total !== 1 ? "s" : ""}`
-              : `${total} parada${total !== 1 ? "s" : ""}`}
-          </Text>
-          {collapsed && total > 0 && (
-            <Text style={styles.collapsedHint}>· Toque para expandir</Text>
-          )}
-        </View>
-        {!disableDrag && (
-          <TouchableOpacity
-            style={styles.optimizeBtn}
-            onPress={handleOptimize}
-            disabled={total < 2 || optimizing}
-          >
-            {optimizing ? (
-              <ActivityIndicator size="small" color={colors.primaryContrast} />
-            ) : (
-              <Text style={styles.optimizeBtnText}>Otimizar Rota</Text>
-            )}
+        <View style={{ flex: 1, minHeight: 0 }}>
+          <TouchableOpacity style={styles.handle} onPress={toggleCollapsed} activeOpacity={1}>
+            <View style={styles.handleBar} />
           </TouchableOpacity>
-        )}
-      </View>
 
-      {!collapsed && (
-        <View style={styles.list}>
-          {groupedStops.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Nenhuma entrega na rota</Text>
+          <View style={styles.header}>
+            <View style={{ flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 }}>
+              <Text style={styles.totalText} numberOfLines={1} ellipsizeMode="tail">
+                {disableDrag && total > 0
+                  ? `${completedCount} de ${total} parada${total !== 1 ? "s" : ""}`
+                  : `${total} parada${total !== 1 ? "s" : ""}`}
+              </Text>
             </View>
-          ) : disableDrag ? (
-            <FlatList
-              data={groupedStops}
-              keyExtractor={(_, index) => `stop-${index}`}
-              renderItem={({ item, index }) => renderRow({ item, index })}
-            />
-          ) : (
-            <DraggableFlatList
-              data={groupedStops}
-              keyExtractor={(_, index) => `stop-${index}`}
-              renderItem={renderItem}
-              onDragEnd={handleDragEnd}
-            />
-          )}
+            {!disableDrag && (
+              <TouchableOpacity
+                style={styles.optimizeBtn}
+                onPress={handleOptimize}
+                disabled={total < 2 || optimizing}
+              >
+                {optimizing ? (
+                  <ActivityIndicator size="small" color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.optimizeBtnText}>Otimizar Rota</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.list}>
+            {groupedStops.length === 0 ? (
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>Nenhuma entrega na rota</Text>
+              </View>
+            ) : disableDrag ? (
+              <FlatList
+                data={groupedStops}
+                keyExtractor={(_, index) => `stop-${index}`}
+                renderItem={({ item, index }) => renderRow({ item, index })}
+              />
+            ) : (
+              <DraggableFlatList
+                data={groupedStops}
+                keyExtractor={(_, index) => `stop-${index}`}
+                renderItem={renderItem}
+                onDragEnd={handleDragEnd}
+              />
+            )}
+          </View>
         </View>
-      )}
-        </>
       )}
     </View>
   );

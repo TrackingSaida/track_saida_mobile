@@ -25,6 +25,7 @@ import type { EntregueBody } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
 import { getMotivosAusencia } from "../features/entregas/api";
 import { getOrderedRouteDeliveries, computeRouteStats, groupOrderedByAddress, computeRouteStatsFromGroups, addressAndRecipientKey, servicoTipo, type GroupedStop } from "../features/entregas/utils/routeUtils";
+import { playSound } from "../utils/sound";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
 import { fetchOsrmRoutePolyline } from "../features/entregas/utils/osrm";
 import type { EntregaListItem, MotivoAusencia } from "../features/entregas/types";
@@ -276,10 +277,14 @@ export default function RouteBuilderScreen({ navigation }: Props) {
                 if (nextIdx >= order.length) {
                   setRotaFinalizadaTotalParadas(order.length);
                   await finishRoute();
+                  playSound("success");
                   setShowRotaFinalizadaModal(true);
                 } else {
+          playSound("success");
           setCenterOnStopId(order[nextIdx]);
         }
+      } else if (pendingEntregueIds && pendingEntregueIds.length > 0) {
+        playSound("success");
       }
       setPendingEntregueIds(null);
       setSelectedDelivery(null);
@@ -342,12 +347,16 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         const nextIdx = useDeliveryStore.getState().activeStopIndex;
         const order = useDeliveryStore.getState().routeOrder;
         if (nextIdx < order.length) {
+          playSound("warn");
           setCenterOnStopId(order[nextIdx]);
         } else {
           setRotaFinalizadaTotalParadas(order.length);
           await finishRoute();
+          playSound("success");
           setShowRotaFinalizadaModal(true);
         }
+      } else {
+        playSound("warn");
       }
       setShowAusenteModal(false);
       setDeliveryForAusente(null);
@@ -380,6 +389,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     setIniciandoRota(true);
     try {
       await startActiveRoute();
+      playSound("success");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erro ao iniciar rota.";
       Alert.alert("Erro", msg);
