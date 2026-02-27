@@ -1,6 +1,7 @@
 import "./src/services/location/backgroundLocationTask";
 import React, { useEffect, useState, useCallback } from "react";
 import { StatusBar } from "expo-status-bar";
+import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
@@ -148,6 +149,10 @@ export default function App() {
     loadToken();
     loadTheme();
   }, [loadToken, loadTheme]);
+
+  useEffect(() => {
+    initAudioSession();
+  }, []);
 
   useEffect(() => {
     useAuthStore.getState().setSessionExpiredCallback(() => {

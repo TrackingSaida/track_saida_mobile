@@ -46,9 +46,13 @@ export async function getResumoEntregas(): Promise<ResumoEntregas> {
   return data;
 }
 
-/** Data de hoje no fuso do dispositivo (YYYY-MM-DD) para filtrar por "hoje". */
+/** Data de hoje no fuso LOCAL do dispositivo (YYYY-MM-DD) para filtrar por "hoje". */
 export function getTodayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export async function getEntregas(

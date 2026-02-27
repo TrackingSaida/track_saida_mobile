@@ -2,8 +2,10 @@ import * as FileSystem from "expo-file-system";
 import {
   createAudioPlayer,
   setAudioModeAsync,
+  requestRecordingPermissionsAsync,
   type AudioPlayer,
 } from "expo-audio";
+import * as Haptics from "expo-haptics";
 import { generateBeepWav } from "./beepWav";
 
 type SoundType = "success" | "error" | "warn";
@@ -24,6 +26,7 @@ const BEEP_FILES: Record<SoundType, string> = {
 let cached: Partial<Record<SoundType, AudioPlayer>> = {};
 let fileUris: Partial<Record<SoundType, string>> = {};
 let modeSet = false;
+let permissionAsked = false;
 
 const BASE64_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -43,8 +46,8 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return out;
 }
 
-async function ensureMode(): Promise<void> {
-  if (modeSet) return;
+/** Chamar no startup do app (ex.: App.tsx) para ativar a sessão de áudio cedo. */
+export async function initAudioSession(): Promise<void> {
   try {
     await setAudioModeAsync({
       playsInSilentMode: true,
@@ -55,6 +58,22 @@ async function ensureMode(): Promise<void> {
     modeSet = true;
   } catch {
     modeSet = true;
+  }
+}
+
+async function ensureMode(): Promise<void> {
+  if (modeSet) return;
+  await initAudioSession();
+}
+
+/** Em alguns dispositivos a sessão de áudio só responde após permissão de gravação; pedimos uma vez. */
+async function ensureAudioPermission(): Promise<void> {
+  if (permissionAsked) return;
+  permissionAsked = true;
+  try {
+    await requestRecordingPermissionsAsync();
+  } catch {
+    // Ignorar: playback não exige permissão de gravação, mas em alguns Android ajuda
   }
 }
 
@@ -76,19 +95,29 @@ async function getBeepUri(type: SoundType): Promise<string> {
   return uri;
 }
 
+function triggerHapticFallback(_type: SoundType): void {
+  try {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  } catch {
+    // Haptics indisponível
+  }
+}
+
 export async function playSound(type: SoundType): Promise<void> {
   try {
     await ensureMode();
+    await ensureAudioPermission();
     const uri = await getBeepUri(type);
     let player = cached[type];
     if (!player) {
-      player = createAudioPlayer(uri, { downloadFirst: true });
+      // Para URI local (file://) não usar downloadFirst para carregar imediatamente
+      player = createAudioPlayer(uri, { downloadFirst: false });
       cached[type] = player;
     }
     await player.seekTo(0);
     player.play();
   } catch {
-    // Ignore: permissão ou áudio indisponível
+    triggerHapticFallback(type);
   }
 }
 
