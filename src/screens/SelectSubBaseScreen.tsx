@@ -18,6 +18,7 @@ type Props = {
   password: string;
   subBases: string[];
   onSuccess: () => void;
+  onMustChangePassword?: (currentPassword: string) => void;
   onBack?: () => void;
 };
 
@@ -26,6 +27,7 @@ export default function SelectSubBaseScreen({
   password,
   subBases,
   onSuccess,
+  onMustChangePassword,
   onBack,
 }: Props) {
   const setToken = useAuthStore((s) => s.setToken);
@@ -63,6 +65,10 @@ export default function SelectSubBaseScreen({
       const res = await motoboySelectSubBase(identifier, password, subBase);
       if (res.access_token) {
         await setToken(res.access_token);
+        if (res.must_change_password && onMustChangePassword) {
+          onMustChangePassword(password);
+          return;
+        }
         await offerBiometricAfterLogin(setBiometricEnabled, onSuccess);
       }
     } catch (err: unknown) {

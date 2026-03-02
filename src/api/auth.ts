@@ -6,11 +6,26 @@ export interface MotoboyLoginResponse {
   token_type?: string;
   multiple_sub_base?: boolean;
   sub_bases?: string[];
+  must_change_password?: boolean;
 }
 
 export interface MotoboySelectSubBaseResponse {
   access_token: string;
   token_type: string;
+  must_change_password?: boolean;
+}
+
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: boolean; message?: string }> {
+  const { data } = await axios.post<{ ok: boolean; message?: string }>(
+    `${API_BASE_URL}/users/me/password`,
+    { current_password: currentPassword, new_password: newPassword },
+    { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
+  );
+  return data;
 }
 
 export async function motoboyLogin(

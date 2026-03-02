@@ -14,6 +14,7 @@ import { useThemeStore } from "./src/store/themeStore";
 import { getColors, useThemeColors } from "./src/theme/colors";
 import LoginScreen from "./src/screens/LoginScreen";
 import SelectSubBaseScreen from "./src/screens/SelectSubBaseScreen";
+import ChangePasswordRequiredScreen from "./src/screens/ChangePasswordRequiredScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import MaisScreen, { type MaisStackParamList } from "./src/screens/MaisScreen";
 import MeusDadosScreen from "./src/screens/MeusDadosScreen";
@@ -122,6 +123,7 @@ export default function App() {
   const theme = useThemeStore((s) => s.theme);
   const loadTheme = useThemeStore((s) => s.loadTheme);
   const [authDone, setAuthDone] = useState(false);
+  const [pendingChangePassword, setPendingChangePassword] = useState<{ currentPassword: string } | null>(null);
 
   const logout = useCallback(async () => {
     useDeliveryStore.getState().clearActiveRouteState();
@@ -175,7 +177,12 @@ export default function App() {
       <SafeAreaProvider>
         <NavigationContainer theme={navTheme}>
         <StatusBar style={theme === "dark" ? "light" : "dark"} />
-        {showMainApp ? (
+        {pendingChangePassword ? (
+          <ChangePasswordRequiredScreen
+            currentPassword={pendingChangePassword.currentPassword}
+            onDone={() => setPendingChangePassword(null)}
+          />
+        ) : showMainApp ? (
           <MainTabs onLogout={logout} />
         ) : (
           <AuthStack.Navigator screenOptions={{ headerShown: false }}>
@@ -183,6 +190,7 @@ export default function App() {
               {({ navigation }) => (
                 <LoginScreen
                   onLoginSuccess={() => setAuthDone(true)}
+                  onMustChangePassword={(currentPassword) => setPendingChangePassword({ currentPassword })}
                   onSelectSubBase={(identifier, password, subBases) =>
                     navigation.navigate("SelectSubBase", {
                       identifier,
@@ -200,6 +208,7 @@ export default function App() {
                   password={route.params.password}
                   subBases={route.params.subBases}
                   onSuccess={() => setAuthDone(true)}
+                  onMustChangePassword={(currentPassword) => setPendingChangePassword({ currentPassword })}
                   onBack={() => navigation.goBack()}
                 />
               )}

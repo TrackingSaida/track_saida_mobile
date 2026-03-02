@@ -27,10 +27,11 @@ const REMEMBER_CREDENTIALS_KEY = "remember_credentials";
 
 type Props = {
   onLoginSuccess: () => void;
+  onMustChangePassword?: (currentPassword: string) => void;
   onSelectSubBase: (identifier: string, password: string, subBases: string[]) => void;
 };
 
-export default function LoginScreen({ onLoginSuccess, onSelectSubBase }: Props) {
+export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSelectSubBase }: Props) {
   const setToken = useAuthStore((s) => s.setToken);
   const setBiometricEnabled = useAuthStore((s) => s.setBiometricEnabled);
   const requiresBiometricUnlock = useAuthStore((s) => s.requiresBiometricUnlock);
@@ -100,6 +101,11 @@ export default function LoginScreen({ onLoginSuccess, onSelectSubBase }: Props) 
       if (res.multiple_sub_base && res.sub_bases && res.sub_bases.length > 1) {
         onSelectSubBase(id, pwd, res.sub_bases);
       } else if (res.access_token) {
+        if (res.must_change_password && onMustChangePassword) {
+          await setToken(res.access_token);
+          onMustChangePassword(pwd);
+          return;
+        }
         await saveOrClearCredentials(id, pwd, rememberMe);
         await setToken(res.access_token);
         await offerBiometricAfterLogin(setBiometricEnabled, onLoginSuccess);
