@@ -137,7 +137,7 @@ export default function ChangePasswordRequiredScreen({ currentPassword, onDone }
       >
         <Text style={styles.title}>Trocar senha</Text>
         <Text style={styles.subtitle}>
-          Sua senha é temporária. Defina uma nova senha para continuar.
+          Sua senha atual é temporária (ex.: 123456). Defina uma nova senha para continuar.
         </Text>
         <View style={styles.inputRow}>
           <Ionicons name="lock-closed-outline" size={22} color={colors.placeholder} style={styles.inputIcon} />
