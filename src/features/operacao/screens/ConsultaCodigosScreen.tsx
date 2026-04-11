@@ -259,7 +259,26 @@ export default function ConsultaCodigosScreen() {
           marginTop: 4,
         },
         metaPillText: { fontSize: 12, color: colors.textSecondary },
-        metaRow: { flexDirection: "row", flexWrap: "wrap" },
+        metaRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
+        servicoBadge: {
+          alignSelf: "flex-start",
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 999,
+          marginRight: 6,
+          marginTop: 4,
+        },
+        servicoBadgeText: { fontSize: 13, fontWeight: "700" },
+        heroTapHint: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          marginTop: 12,
+          paddingTop: 12,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.inputBorder,
+        },
+        heroTapHintText: { fontSize: 13, color: colors.primary, fontWeight: "600", flex: 1 },
         notFoundBox: {
           padding: 16,
           borderRadius: 12,
@@ -371,13 +390,6 @@ export default function ConsultaCodigosScreen() {
         cameraBackText: { fontSize: 16, color: "#fff", marginBottom: 6, fontWeight: "600" },
         cameraTitle: { fontSize: 20, fontWeight: "700", color: "#fff" },
         cameraSubtitle: { fontSize: 14, color: "rgba(255,255,255,0.9)", marginTop: 4 },
-        cameraFooter: {
-          position: "absolute",
-          bottom: Math.max(24, insets.bottom + 8),
-          left: 16,
-          right: 16,
-          zIndex: 10,
-        },
         permissionText: {
           fontSize: 16,
           color: "#fff",
@@ -882,11 +894,21 @@ export default function ConsultaCodigosScreen() {
                     <Text style={styles.metaPillText}>Entregador: {primeiro.entregador}</Text>
                   </View>
                 ) : null}
-                {primeiro.servico ? (
-                  <View style={styles.metaPill}>
-                    <Text style={styles.metaPillText}>Serviço: {primeiro.servico}</Text>
-                  </View>
-                ) : null}
+                {primeiro.servico
+                  ? (() => {
+                      const sv = coresBadgeServico(primeiro.servico);
+                      return (
+                        <View style={[styles.servicoBadge, { backgroundColor: sv.bg }]}>
+                          <Text style={[styles.servicoBadgeText, { color: sv.fg }]}>{primeiro.servico}</Text>
+                        </View>
+                      );
+                    })()
+                  : null}
+              </View>
+              <View style={styles.heroTapHint}>
+                <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+                <Text style={styles.heroTapHintText}>Toque no card para ver os detalhes do pedido.</Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.primary} />
               </View>
             </TouchableOpacity>
           ) : null}
@@ -921,11 +943,16 @@ export default function ConsultaCodigosScreen() {
                           <Text style={styles.metaPillText}>{r.entregador}</Text>
                         </View>
                       ) : null}
-                      {r.servico ? (
-                        <View style={styles.metaPill}>
-                          <Text style={styles.metaPillText}>{r.servico}</Text>
-                        </View>
-                      ) : null}
+                      {r.servico
+                        ? (() => {
+                            const sv = coresBadgeServico(r.servico);
+                            return (
+                              <View style={[styles.servicoBadge, { backgroundColor: sv.bg }]}>
+                                <Text style={[styles.servicoBadgeText, { color: sv.fg }]}>{r.servico}</Text>
+                              </View>
+                            );
+                          })()
+                        : null}
                     </View>
                   </TouchableOpacity>
                 );
@@ -966,9 +993,7 @@ export default function ConsultaCodigosScreen() {
               <Text style={styles.cameraBackText}>← Voltar</Text>
             </Pressable>
             <Text style={styles.cameraTitle}>Escanear QR</Text>
-            <Text style={styles.cameraSubtitle}>
-              Centralize o QR na moldura. Ao ler, a câmera fecha e a consulta roda na sua base.
-            </Text>
+            <Text style={styles.cameraSubtitle}>Centralize o QR na moldura.</Text>
           </View>
           {!permission ? (
             <View
@@ -1002,11 +1027,6 @@ export default function ConsultaCodigosScreen() {
                 pointerEvents="none"
               >
                 <ScanFrameOverlay wrapStyle={{}} />
-              </View>
-              <View style={styles.cameraFooter} pointerEvents="none">
-                <Text style={{ color: "rgba(255,255,255,0.88)", fontSize: 13, textAlign: "center" }}>
-                  Somente QR · dados só da sua sub_base (servidor filtra por login)
-                </Text>
               </View>
             </>
           )}
