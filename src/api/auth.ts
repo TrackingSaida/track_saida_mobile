@@ -21,14 +21,19 @@ export interface UserTokenResponse {
   must_change_password?: boolean;
 }
 
+/** Troca obrigatória (must_change_password): omita currentPassword. Troca voluntária: informe a senha atual. */
 export async function changePassword(
   token: string,
-  currentPassword: string,
-  newPassword: string
+  newPassword: string,
+  currentPassword?: string
 ): Promise<{ ok: boolean; message?: string }> {
+  const body: { new_password: string; current_password?: string } = { new_password: newPassword };
+  if (currentPassword != null && currentPassword !== "") {
+    body.current_password = currentPassword;
+  }
   const { data } = await axios.post<{ ok: boolean; message?: string }>(
     `${API_BASE_URL}/users/me/password`,
-    { current_password: currentPassword, new_password: newPassword },
+    body,
     { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
   );
   return data;

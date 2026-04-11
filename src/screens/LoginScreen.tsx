@@ -30,7 +30,7 @@ const REMEMBER_CREDENTIALS_KEY = "remember_credentials";
 
 type Props = {
   onLoginSuccess: () => void;
-  onMustChangePassword?: (currentPassword: string) => void;
+  onMustChangePassword?: () => void;
   onSelectSubBase: (identifier: string, password: string, subBases: string[]) => void;
 };
 
@@ -114,7 +114,7 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
         } else if (res.access_token) {
           if (res.must_change_password && onMustChangePassword) {
             await setToken(res.access_token);
-            onMustChangePassword(pwd);
+            onMustChangePassword();
             return;
           }
           await saveOrClearCredentials(id, pwd, rememberMe);
@@ -141,7 +141,7 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
             if (userRes.access_token) {
               if (userRes.must_change_password && onMustChangePassword) {
                 await setToken(userRes.access_token);
-                onMustChangePassword(pwd);
+                onMustChangePassword();
                 return;
               }
               await saveOrClearCredentials(id, pwd, rememberMe);

@@ -20,11 +20,10 @@ import { formatApiError } from "../utils/formatApiError";
 const MIN_PASSWORD_LENGTH = 8;
 
 type Props = {
-  currentPassword: string;
   onDone: () => void;
 };
 
-export default function ChangePasswordRequiredScreen({ currentPassword, onDone }: Props) {
+export default function ChangePasswordRequiredScreen({ onDone }: Props) {
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
   const colors = useThemeColors();
@@ -51,7 +50,7 @@ export default function ChangePasswordRequiredScreen({ currentPassword, onDone }
     }
     setLoading(true);
     try {
-      await changePassword(token, currentPassword, newP);
+      await changePassword(token, newP);
       await logout();
       onDone();
     } catch (err: unknown) {
@@ -134,7 +133,7 @@ export default function ChangePasswordRequiredScreen({ currentPassword, onDone }
       >
         <Text style={styles.title}>Trocar senha</Text>
         <Text style={styles.subtitle}>
-          Sua senha atual é temporária (ex.: 123456). Defina uma nova senha para continuar.
+          Sua conta exige definir uma nova senha antes de continuar.
         </Text>
         <View style={styles.inputRow}>
           <Ionicons name="lock-closed-outline" size={22} color={colors.placeholder} style={styles.inputIcon} />

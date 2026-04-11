@@ -152,7 +152,7 @@ export default function App() {
   const { token, isLoading, loadToken, requiresBiometricUnlock, logout: logoutFromStore } = useAuthStore();
   const theme = useThemeStore((s) => s.theme);
   const loadTheme = useThemeStore((s) => s.loadTheme);
-  const [pendingChangePassword, setPendingChangePassword] = useState<{ currentPassword: string } | null>(null);
+  const [pendingChangePassword, setPendingChangePassword] = useState(false);
 
   const logout = useCallback(async () => {
     useDeliveryStore.getState().clearActiveRouteState();
@@ -205,10 +205,7 @@ export default function App() {
         <NavigationContainer theme={navTheme}>
         <StatusBar style={theme === "dark" ? "light" : "dark"} />
         {pendingChangePassword ? (
-          <ChangePasswordRequiredScreen
-            currentPassword={pendingChangePassword.currentPassword}
-            onDone={() => setPendingChangePassword(null)}
-          />
+          <ChangePasswordRequiredScreen onDone={() => setPendingChangePassword(false)} />
         ) : showMainApp ? (
           <MainTabs onLogout={logout} />
         ) : (
@@ -217,7 +214,7 @@ export default function App() {
               {({ navigation }) => (
                 <LoginScreen
                   onLoginSuccess={() => {}}
-                  onMustChangePassword={(currentPassword) => setPendingChangePassword({ currentPassword })}
+                  onMustChangePassword={() => setPendingChangePassword(true)}
                   onSelectSubBase={(identifier, password, subBases) =>
                     navigation.navigate("SelectSubBase", {
                       identifier,
@@ -235,7 +232,7 @@ export default function App() {
                   password={route.params.password}
                   subBases={route.params.subBases}
                   onSuccess={() => {}}
-                  onMustChangePassword={(currentPassword) => setPendingChangePassword({ currentPassword })}
+                  onMustChangePassword={() => setPendingChangePassword(true)}
                   onBack={() => navigation.goBack()}
                 />
               )}

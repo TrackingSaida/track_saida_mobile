@@ -19,7 +19,7 @@ type Props = {
   password: string;
   subBases: string[];
   onSuccess: () => void;
-  onMustChangePassword?: (currentPassword: string) => void;
+  onMustChangePassword?: () => void;
   onBack?: () => void;
 };
 
@@ -67,7 +67,7 @@ export default function SelectSubBaseScreen({
       if (res.access_token) {
         await setToken(res.access_token);
         if (res.must_change_password && onMustChangePassword) {
-          onMustChangePassword(password);
+          onMustChangePassword();
           return;
         }
         await offerBiometricAfterLogin(setBiometricEnabled, onSuccess);
