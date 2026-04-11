@@ -40,6 +40,7 @@ import {
   type SaidaHistoricoItem,
   type MotoboyItem,
 } from "../saidasApi";
+import { parseCodigoQrRaw, inferServicoSaida } from "../parseCodigoQr";
 
 /** Consulta por câmera: apenas QR (moldura central), como na leitura de coleta. */
 const CONSULTA_BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -69,14 +70,6 @@ function getIdSaidaFromItem(item: SaidaListItem): number | null {
   if (raw == null) return null;
   const n = typeof raw === "number" ? raw : Number(raw);
   return Number.isFinite(n) ? n : null;
-}
-
-/** Heurística para POST /saidas/ler (campo servico obrigatório no backend). */
-function inferServicoFromCodigo(codigo: string): string {
-  const c = codigo.trim().toUpperCase();
-  if (c.startsWith("BR")) return "Shopee";
-  if (/^\d{10,}$/.test(codigo.trim())) return "Mercado Livre";
-  return "Avulso";
 }
 
 /** Reforço no cliente: GET /saidas/listar já filtra por JWT; descarta linhas com sub_base estranha. */
@@ -400,7 +393,8 @@ export default function ConsultaCodigosScreen() {
       const range = getPeriodRange(appliedPeriod);
       const { codigoOverride, ...rest } = override ?? {};
       const raw = codigoOverride !== undefined ? codigoOverride : searchInput;
-      const codigoTrim = String(raw || "").trim() || undefined;
+      const parsed = parseCodigoQrRaw(String(raw || ""));
+      const codigoTrim = parsed.codigo.trim() || undefined;
       return {
         status: appliedStatus || undefined,
         de: range.de,
@@ -536,7 +530,8 @@ export default function ConsultaCodigosScreen() {
       rawCodigo: string,
       opts?: { registrarNaoColetado?: boolean; motoboy?: { id: number; nome: string } }
     ) => {
-      const c = String(rawCodigo || "").trim();
+      const parsed = parseCodigoQrRaw(String(rawCodigo || ""));
+      const c = parsed.codigo.trim();
       if (!c || !podeLerSaida) return;
 
       let mb = opts?.motoboy;
@@ -569,8 +564,9 @@ export default function ConsultaCodigosScreen() {
           motoboy_id: mb.id,
           entregador: mb.nome,
           codigo: c,
-          servico: inferServicoFromCodigo(c),
+          servico: inferServicoSaida(c),
           registrar_nao_coletado: opts?.registrarNaoColetado,
+          qr_payload_raw: parsed.qr_payload_raw,
         });
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert("Sucesso", "Leitura registrada.");
@@ -641,7 +637,9 @@ export default function ConsultaCodigosScreen() {
       const now = Date.now();
       if (now - lastScanRef.current < SCAN_DEBOUNCE_MS) return;
       lastScanRef.current = now;
-      const t = data.trim();
+      const parsed = parseCodigoQrRaw(data.trim());
+      const t = parsed.codigo.trim();
+      if (!t) return;
       setCameraAtiva(false);
       setSearchInput(t);
       void executarBusca(0, { codigoOverride: t });

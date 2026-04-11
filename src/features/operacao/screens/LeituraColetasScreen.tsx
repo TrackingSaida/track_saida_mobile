@@ -21,6 +21,7 @@ import { playSound } from "../../../utils/sound";
 import { enviarColetaUnica, type ServicoColeta } from "../coletasApi";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
+import { parseCodigoQrRaw, toAsciiDigits, isCodigoShopee } from "../parseCodigoQr";
 
 type StatusLeitura = "pendente" | "enviado" | "duplicado" | "erro";
 
@@ -63,33 +64,6 @@ function markScanned(data: string): void {
   if (key) recentCodes.set(key, Date.now());
 }
 
-function toAsciiDigits(s: string): string {
-  if (!s) return "";
-  const sup: Record<string, string> = {
-    "⁰": "0",
-    "¹": "1",
-    "²": "2",
-    "³": "3",
-    "⁴": "4",
-    "⁵": "5",
-    "⁶": "6",
-    "⁷": "7",
-    "⁸": "8",
-    "⁹": "9",
-  };
-  let out = String(s).replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (d) => sup[d] ?? d);
-  out = out.replace(/[０-９]/g, (d) =>
-    String.fromCharCode(d.charCodeAt(0) - 0xff10 + 0x30)
-  );
-  return out;
-}
-
-function isCodigoShopee(codigo: string): boolean {
-  if (!codigo || typeof codigo !== "string") return false;
-  const c = String(codigo).toUpperCase().trim();
-  return /^BR(\d{13}|\d{12}[A-Z])$/.test(c);
-}
-
 interface ClassifyResult {
   ok: boolean;
   servico?: ServicoColeta;
@@ -103,85 +77,22 @@ function classifyCodigo(rawInput: string): ClassifyResult {
   const raw = toAsciiDigits(rawInputStr).toUpperCase().trim();
   const allDigits = raw.replace(/\D+/g, "");
 
-  try {
-    if (rawInputStr.startsWith("{") && rawInputStr.trim().endsWith("}")) {
-      const obj = JSON.parse(rawInputStr) as { id?: string; sender_id?: unknown; hash_code?: unknown };
-      if (typeof obj.id === "string" && (obj.sender_id != null || obj.hash_code != null)) {
-        const codigo = String(obj.id).trim();
-        return { ok: true, servico: "Mercado Livre", codigo, qr_payload_raw: rawInputStr };
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    if (raw.startsWith("{") && raw.endsWith("}")) {
-      const obj = JSON.parse(raw) as { external_order_id?: string };
-      if (typeof obj.external_order_id === "string") {
-        const codigo = obj.external_order_id.toUpperCase().trim();
-        const servico: ServicoColeta = isCodigoShopee(codigo) ? "Shopee" : "Avulso";
-        return { ok: true, servico, codigo };
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  const extMatch = raw.match(/external_order_id["']?\s*[:=]\s*["']?([\w-]+)/i);
-  if (extMatch) {
-    const codigo = extMatch[1].toUpperCase();
-    const servico: ServicoColeta = isCodigoShopee(codigo) ? "Shopee" : "Avulso";
-    return { ok: true, servico, codigo };
-  }
-
-  const magaluMatch = raw.match(/external_grouper_code\^Ç\^(\d{10,})\^/i);
-  if (magaluMatch) {
-    return { ok: true, servico: "Avulso", codigo: magaluMatch[1] };
-  }
-
-  if (/^LM[\w\d-]+$/i.test(raw)) {
-    return { ok: true, servico: "Avulso", codigo: raw };
-  }
-
   if (/^\d{44}$/.test(allDigits)) {
     return { ok: false, motivo: "NF-e (44 dígitos) não é aceita como código de coleta." };
   }
 
-  const sh = raw.match(/(?:^|[^A-Z0-9])(BR(?:\d{13}|\d{12}[A-Z]))(?=$|[^A-Z0-9])/i);
-  if (sh) {
-    return { ok: true, servico: "Shopee", codigo: sh[1].toUpperCase() };
+  const p = parseCodigoQrRaw(rawInput);
+  if (p.fonte === "fallback") {
+    return { ok: false, motivo: "Padrão de código não reconhecido para coleta." };
   }
 
-  const mlRun = allDigits.match(/4[5-9]\d{9,}/);
-  if (mlRun) {
-    return {
-      ok: true,
-      servico: "Mercado Livre",
-      codigo: mlRun[0].slice(0, 11),
-      qr_payload_raw: rawInputStr,
-    };
+  if (p.qr_payload_raw) {
+    return { ok: true, servico: "Mercado Livre", codigo: p.codigo, qr_payload_raw: p.qr_payload_raw };
   }
-
-  if (/^\d{8}$/.test(allDigits)) {
-    return { ok: true, servico: "Avulso", codigo: allDigits };
+  if (isCodigoShopee(p.codigo)) {
+    return { ok: true, servico: "Shopee", codigo: p.codigo };
   }
-
-  if (/^\d{7}$/.test(allDigits)) {
-    return { ok: true, servico: "Avulso", codigo: allDigits };
-  }
-
-  if (/^CP\d{3,}/.test(raw) || /^TIME\d{6}$/i.test(raw)) {
-    return { ok: true, servico: "Avulso", codigo: raw };
-  }
-
-  const phone = raw.match(/0?(\d{2})[-\s]?(\d{4,5})[-\s]?(\d{4})/);
-  if (phone) {
-    const cod = `${phone[1]}${phone[2]}${phone[3]}`;
-    return { ok: true, servico: "Avulso", codigo: cod };
-  }
-
-  return { ok: false, motivo: "Padrão de código não reconhecido para coleta." };
+  return { ok: true, servico: "Avulso", codigo: p.codigo };
 }
 
 export default function LeituraColetasScreen() {
