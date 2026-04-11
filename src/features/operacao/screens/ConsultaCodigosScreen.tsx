@@ -9,10 +9,15 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
+  Platform,
+  KeyboardAvoidingView,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
+import * as Haptics from "expo-haptics";
 import { useThemeColors } from "../../../theme/colors";
 import { useAuthStore } from "../../../store/authStore";
+import { effectivePodeLerSaida } from "../../../utils/role";
 import {
   listSaidas,
   type ListSaidasParams,
@@ -23,8 +28,22 @@ import {
   type SaidaHistoricoItem,
 } from "../saidasApi";
 
+function parseYmd(s: string): Date | null {
+  const t = s.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatYmd(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
 export default function ConsultaCodigosScreen() {
-  const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
 
@@ -34,6 +53,12 @@ export default function ConsultaCodigosScreen() {
   const [de, setDe] = useState("");
   const [ate, setAte] = useState("");
   const [somenteG, setSomenteG] = useState(false);
+
+  const [filtersExpanded, setFiltersExpanded] = useState(true);
+  const [helpVisible, setHelpVisible] = useState(false);
+  const [iosDateOpen, setIosDateOpen] = useState(false);
+  const [iosWhich, setIosWhich] = useState<"de" | "ate">("de");
+  const [iosDraft, setIosDraft] = useState(() => new Date());
 
   const [results, setResults] = useState<SaidaListItem[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -52,7 +77,6 @@ export default function ConsultaCodigosScreen() {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 24, paddingBottom: 48 },
-        title: { fontSize: 22, fontWeight: "700", color: colors.text, marginBottom: 12 },
         description: { fontSize: 15, color: colors.textSecondary, marginBottom: 16 },
         badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
         badge: {
@@ -68,7 +92,6 @@ export default function ConsultaCodigosScreen() {
           borderRadius: 12,
           backgroundColor: colors.backgroundCard,
         },
-        infoTitle: { fontSize: 15, fontWeight: "600", color: colors.text, marginBottom: 4 },
         infoText: { fontSize: 14, color: colors.textSecondary },
         label: { fontSize: 14, color: colors.textSecondary, marginBottom: 6 },
         input: {
@@ -85,11 +108,12 @@ export default function ConsultaCodigosScreen() {
         row: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
         btnPrimary: {
           paddingHorizontal: 16,
-          paddingVertical: 12,
+          paddingVertical: 14,
           borderRadius: 10,
           backgroundColor: colors.primary,
           alignItems: "center",
           justifyContent: "center",
+          width: "100%",
         },
         btnSecondary: {
           paddingHorizontal: 16,
@@ -139,7 +163,7 @@ export default function ConsultaCodigosScreen() {
           paddingHorizontal: 8,
           paddingVertical: 3,
           borderRadius: 999,
-          backgroundColor: colors.chipBackground ?? colors.inputBackground,
+          backgroundColor: colors.chipBackground,
         },
         metaPillText: { fontSize: 12, color: colors.textSecondary },
         loadMoreBtn: { marginTop: 8, alignItems: "center" },
@@ -160,7 +184,7 @@ export default function ConsultaCodigosScreen() {
         },
         togglePillActive: {
           borderColor: colors.primary,
-          backgroundColor: colors.primarySoft ?? "rgba(13,110,253,0.08)",
+          backgroundColor: colors.primarySoft,
         },
         togglePillText: { fontSize: 13, color: colors.textSecondary },
         togglePillTextActive: { color: colors.primary },
@@ -198,12 +222,55 @@ export default function ConsultaCodigosScreen() {
           alignItems: "center",
           backgroundColor: "rgba(0,0,0,0.12)",
         },
+        helpBtn: {
+          alignSelf: "flex-start",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          marginBottom: 12,
+        },
+        helpBtnText: { fontSize: 14, color: colors.primary, fontWeight: "600" },
+        filterSectionHeader: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 10,
+        },
+        filterSectionTitle: { fontSize: 16, fontWeight: "600", color: colors.text },
+        dateField: {
+          justifyContent: "center",
+          minHeight: 44,
+        },
+        iosDateOverlay: {
+          flex: 1,
+          justifyContent: "flex-end",
+          backgroundColor: "rgba(0,0,0,0.45)",
+        },
+        iosDateSheet: {
+          padding: 16,
+          paddingBottom: 28,
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
+          backgroundColor: colors.backgroundCard,
+        },
+        helpModalCard: {
+          width: "100%",
+          maxHeight: "80%",
+          borderRadius: 14,
+          padding: 18,
+          backgroundColor: colors.backgroundCard,
+        },
       }),
     [colors]
   );
 
   const role = currentUser?.role;
-  const podeLerSaida = Boolean(currentUser?.pode_ler_saida);
+  const podeLerSaida = effectivePodeLerSaida(currentUser);
   const tipoOwner = (currentUser?.tipo_owner as string | undefined) ?? "subbase";
   const ignorarColeta = Boolean(currentUser?.ignorar_coleta);
   const modoOperacao = (currentUser?.modo_operacao as string | undefined) ?? "codigo";
@@ -226,6 +293,43 @@ export default function ConsultaCodigosScreen() {
     [codigo, entregador, status, de, ate, somenteG, offset]
   );
 
+  const openDatePicker = useCallback(
+    (which: "de" | "ate") => {
+      const currentStr = which === "de" ? de : ate;
+      const base = parseYmd(currentStr) ?? new Date();
+
+      if (Platform.OS === "web") {
+        return;
+      }
+
+      if (Platform.OS === "android") {
+        DateTimePickerAndroid.open({
+          value: base,
+          mode: "date",
+          onChange: (event, selectedDate) => {
+            if (event.type !== "set" || !selectedDate) return;
+            const ymd = formatYmd(selectedDate);
+            if (which === "de") setDe(ymd);
+            else setAte(ymd);
+          },
+        });
+        return;
+      }
+
+      setIosWhich(which);
+      setIosDraft(base);
+      setIosDateOpen(true);
+    },
+    [de, ate]
+  );
+
+  const confirmIosDate = useCallback(() => {
+    const ymd = formatYmd(iosDraft);
+    if (iosWhich === "de") setDe(ymd);
+    else setAte(ymd);
+    setIosDateOpen(false);
+  }, [iosDraft, iosWhich]);
+
   const handleBuscar = useCallback(async () => {
     if (!podeLerSaida) {
       Alert.alert("Sem permissão", "Seu usuário não possui permissão para consultar saídas.");
@@ -239,6 +343,7 @@ export default function ConsultaCodigosScreen() {
       setResults(res.rows ?? []);
       setTotal(res.total ?? null);
       setHasMore(res.hasMore);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
       Alert.alert("Erro", "Falha ao buscar registros de saída.");
     } finally {
@@ -311,156 +416,193 @@ export default function ConsultaCodigosScreen() {
 
   return (
     <>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={[styles.content, { paddingTop: Math.max(24, insets.top) }]}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <Text style={styles.title}>Consulta de Códigos</Text>
-        <Text style={styles.description}>
-          Consulta rápida de registros de saída por código, motoboy, status e data, focada na operação diária.
-        </Text>
-
-        <View style={styles.badgeRow}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Role: {role ?? "desconhecida"}</Text>
-          </View>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              Permissão leitura saídas: {podeLerSaida ? "Ativa" : "Desativada"}
-            </Text>
-          </View>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Owner: {tipoOwner}</Text>
-          </View>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Modo: {modoOperacao}</Text>
-          </View>
-          {ignorarColeta ? (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>Coletas desativadas para este owner</Text>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Filtros principais</Text>
-          <Text style={styles.infoText}>
-            Use código para localizar um registro específico ou combine entregador, status e período para acompanhar
-            a rota de um motoboy. Os dados são retornados do mesmo `/saidas/listar` usado no painel web.
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={[styles.content, { paddingTop: 12 }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.description}>
+            Busque saídas por código, entregador, status ou período.
           </Text>
-        </View>
 
-        <View style={{ marginTop: 16 }}>
-          <Text style={styles.label}>Código</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: BR..., código marketplace ou interno"
-            placeholderTextColor={colors.placeholder}
-            value={codigo}
-            onChangeText={setCodigo}
-            autoCapitalize="characters"
-            autoCorrect={false}
-          />
+          <TouchableOpacity
+            style={styles.helpBtn}
+            onPress={() => setHelpVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="help-circle-outline" size={20} color={colors.primary} />
+            <Text style={styles.helpBtnText}>Ajuda e diagnóstico</Text>
+          </TouchableOpacity>
 
-          <Text style={styles.label}>Entregador / Motoboy</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Nome do entregador (texto livre)"
-            placeholderTextColor={colors.placeholder}
-            value={entregador}
-            onChangeText={setEntregador}
-            autoCapitalize="words"
-          />
+          <View style={styles.infoCard}>
+            <TouchableOpacity
+              style={styles.filterSectionHeader}
+              onPress={() => setFiltersExpanded((e) => !e)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.filterSectionTitle}>Filtros</Text>
+              <Ionicons
+                name={filtersExpanded ? "chevron-up" : "chevron-down"}
+                size={22}
+                color={colors.textSecondary}
+              />
+            </TouchableOpacity>
 
-          <Text style={styles.label}>Status</Text>
-          <View style={styles.togglePillRow}>
-            {[
-              { key: "", label: "Todos" },
-              { key: "Saiu para entrega", label: "Saiu para entrega" },
-              { key: "Entregue", label: "Entregue" },
-              { key: "Ausente", label: "Ausente" },
-            ].map((opt) => {
-              const active = status === opt.key;
-              return (
-                <TouchableOpacity
-                  key={opt.key || "all"}
-                  style={[styles.togglePill, active && styles.togglePillActive]}
-                  onPress={() => setStatus(opt.key)}
-                >
-                  <Text
-                    style={[
-                      styles.togglePillText,
-                      active && styles.togglePillTextActive,
-                    ]}
+            {filtersExpanded ? (
+              <>
+                <Text style={[styles.infoText, { marginBottom: 12 }]}>
+                  Combine os campos e toque em Buscar.
+                </Text>
+
+                <Text style={styles.label}>Código</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex: BR..., código marketplace ou interno"
+                  placeholderTextColor={colors.placeholder}
+                  value={codigo}
+                  onChangeText={setCodigo}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+
+                <Text style={styles.label}>Entregador / Motoboy</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nome do entregador (texto livre)"
+                  placeholderTextColor={colors.placeholder}
+                  value={entregador}
+                  onChangeText={setEntregador}
+                  autoCapitalize="words"
+                />
+
+                <Text style={styles.label}>Status</Text>
+                <View style={styles.togglePillRow}>
+                  {[
+                    { key: "", label: "Todos" },
+                    { key: "Saiu para entrega", label: "Saiu para entrega" },
+                    { key: "Entregue", label: "Entregue" },
+                    { key: "Ausente", label: "Ausente" },
+                  ].map((opt) => {
+                    const active = status === opt.key;
+                    return (
+                      <TouchableOpacity
+                        key={opt.key || "all"}
+                        style={[styles.togglePill, active && styles.togglePillActive]}
+                        onPress={() => setStatus(opt.key)}
+                      >
+                        <Text
+                          style={[
+                            styles.togglePillText,
+                            active && styles.togglePillTextActive,
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {Platform.OS === "web" ? (
+                  <View style={styles.row}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>De (data)</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="AAAA-MM-DD"
+                        placeholderTextColor={colors.placeholder}
+                        value={de}
+                        onChangeText={setDe}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>Até (data)</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="AAAA-MM-DD"
+                        placeholderTextColor={colors.placeholder}
+                        value={ate}
+                        onChangeText={setAte}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.row}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>De (data)</Text>
+                      <TouchableOpacity
+                        style={[styles.input, styles.dateField]}
+                        onPress={() => openDatePicker("de")}
+                        activeOpacity={0.75}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            color: de ? colors.text : colors.placeholder,
+                          }}
+                        >
+                          {de || "AAAA-MM-DD"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>Até (data)</Text>
+                      <TouchableOpacity
+                        style={[styles.input, styles.dateField]}
+                        onPress={() => openDatePicker("ate")}
+                        activeOpacity={0.75}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            color: ate ? colors.text : colors.placeholder,
+                          }}
+                        >
+                          {ate || "AAAA-MM-DD"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.row}>
+                  <TouchableOpacity
+                    style={[styles.togglePill, somenteG && styles.togglePillActive]}
+                    onPress={() => setSomenteG((v) => !v)}
                   >
-                    {opt.label}
-                  </Text>
+                    <Text
+                      style={[
+                        styles.togglePillText,
+                        somenteG && styles.togglePillTextActive,
+                      ]}
+                    >
+                      Somente pacotes G (Grandes)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.btnPrimary}
+                  onPress={handleBuscar}
+                  disabled={loading || !podeLerSaida}
+                >
+                  {loading ? (
+                    <ActivityIndicator color={colors.primaryContrast} size="small" />
+                  ) : (
+                    <Text style={styles.btnTextPrimary}>Buscar</Text>
+                  )}
                 </TouchableOpacity>
-              );
-            })}
+              </>
+            ) : null}
           </View>
-
-          <View style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>De (data)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="AAAA-MM-DD"
-                placeholderTextColor={colors.placeholder}
-                value={de}
-                onChangeText={setDe}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Até (data)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="AAAA-MM-DD"
-                placeholderTextColor={colors.placeholder}
-                value={ate}
-                onChangeText={setAte}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-          </View>
-
-          <View style={styles.row}>
-            <TouchableOpacity
-              style={[
-                styles.togglePill,
-                somenteG && styles.togglePillActive,
-              ]}
-              onPress={() => setSomenteG((v) => !v)}
-            >
-              <Text
-                style={[
-                  styles.togglePillText,
-                  somenteG && styles.togglePillTextActive,
-                ]}
-              >
-                Somente pacotes G (Grandes)
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.row}>
-            <TouchableOpacity
-              style={styles.btnPrimary}
-              onPress={handleBuscar}
-              disabled={loading || !podeLerSaida}
-            >
-              {loading ? (
-                <ActivityIndicator color={colors.primaryContrast} size="small" />
-              ) : (
-                <Text style={styles.btnTextPrimary}>Buscar</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
 
         <View style={styles.resultsHeader}>
           <Text style={styles.resultsHeaderText}>
@@ -534,13 +676,72 @@ export default function ConsultaCodigosScreen() {
             </TouchableOpacity>
           </View>
         ) : null}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {loading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
       )}
+
+      {Platform.OS === "ios" ? (
+        <Modal visible={iosDateOpen} transparent animationType="slide" onRequestClose={() => setIosDateOpen(false)}>
+          <View style={styles.iosDateOverlay}>
+            <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setIosDateOpen(false)} />
+            <View style={styles.iosDateSheet}>
+              <DateTimePicker
+                value={iosDraft}
+                mode="date"
+                display="spinner"
+                onChange={(_, d) => {
+                  if (d) setIosDraft(d);
+                }}
+              />
+              <TouchableOpacity style={styles.btnPrimary} onPress={confirmIosDate}>
+                <Text style={styles.btnTextPrimary}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+
+      <Modal visible={helpVisible} transparent animationType="fade" onRequestClose={() => setHelpVisible(false)}>
+        <View style={styles.detailModalOverlay}>
+          <View style={styles.helpModalCard}>
+            <Text style={styles.detailTitle}>Diagnóstico</Text>
+            <Text style={[styles.detailLine, { marginBottom: 12 }]}>
+              Informações úteis para suporte. Os dados vêm da mesma API do painel web.
+            </Text>
+            <View style={styles.badgeRow}>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>Role: {role ?? "desconhecida"}</Text>
+              </View>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  Permissão leitura saídas: {podeLerSaida ? "Ativa" : "Desativada"}
+                </Text>
+              </View>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>Owner: {tipoOwner}</Text>
+              </View>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>Modo: {modoOperacao}</Text>
+              </View>
+              {ignorarColeta ? (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>Coletas desativadas para este owner</Text>
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.detailFooterRow}>
+              <TouchableOpacity style={styles.detailCloseBtn} onPress={() => setHelpVisible(false)}>
+                <Text style={styles.detailCloseText}>Fechar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={detailVisible} transparent animationType="fade" onRequestClose={handleFecharDetalhe}>
         <View style={styles.detailModalOverlay}>

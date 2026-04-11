@@ -6,6 +6,7 @@ import { useAuthStore } from "../store/authStore";
 import { useDeliveryStore } from "../store/deliveryStore";
 import { useThemeColors } from "../theme/colors";
 import { decodeJwtPayload } from "../utils/jwt";
+import { isMotoboyRole } from "../utils/role";
 
 export type MaisStackParamList = {
   MaisInicio: undefined;
@@ -68,7 +69,9 @@ export default function MaisScreen({ navigation }: Props) {
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
   const claims = token ? decodeJwtPayload(token) : {};
-  const nome = claims.username || "Motoboy";
+  const nome = claims.username || "Usuário";
+  const role = claims.role as number | undefined;
+  const showMotoboyMenu = isMotoboyRole(role);
 
   const handleSair = async () => {
     useDeliveryStore.getState().clearActiveRouteState();
@@ -98,11 +101,15 @@ export default function MaisScreen({ navigation }: Props) {
           <Text style={styles.menuIcon}>⚙</Text>
           <Text style={styles.menuText}>Preferência (Modo Escuro ou Claro)</Text>
         </TouchableOpacity>
-        <View style={styles.separator} />
-        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate("MinhasEntregas")} activeOpacity={0.7}>
-          <Text style={styles.menuIcon}>📋</Text>
-          <Text style={styles.menuText}>Minhas Entregas</Text>
-        </TouchableOpacity>
+        {showMotoboyMenu ? (
+          <>
+            <View style={styles.separator} />
+            <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate("MinhasEntregas")} activeOpacity={0.7}>
+              <Text style={styles.menuIcon}>📋</Text>
+              <Text style={styles.menuText}>Minhas Entregas</Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
         <View style={styles.separator} />
         <TouchableOpacity style={styles.menuItem} onPress={handleSair} activeOpacity={0.7}>
           <Text style={styles.menuIcon}>↪</Text>

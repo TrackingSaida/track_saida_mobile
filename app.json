@@ -21,7 +21,8 @@
         {
           "faceIDPermission": "Usar Face ID para entrar no app"
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",

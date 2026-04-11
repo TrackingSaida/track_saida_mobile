@@ -26,6 +26,10 @@ export interface ThemeColors {
   loginGradientStart: string;
   /** Gradiente tela de login: fim */
   loginGradientEnd: string;
+  /** Fundo de chips / meta pills */
+  chipBackground: string;
+  /** Primário em baixa opacidade (fundo de ícones, pills ativos) */
+  primarySoft: string;
 }
 
 export const LIGHT_COLORS: ThemeColors = {
@@ -50,6 +54,8 @@ export const LIGHT_COLORS: ThemeColors = {
   shadowColor: "#000",
   loginGradientStart: "#e3f2fd",
   loginGradientEnd: "#f5f5f5",
+  chipBackground: "#f0f4f8",
+  primarySoft: "rgba(13,110,253,0.12)",
 };
 
 export const DARK_COLORS: ThemeColors = {
@@ -74,6 +80,8 @@ export const DARK_COLORS: ThemeColors = {
   shadowColor: "#000",
   loginGradientStart: "#1a1a2e",
   loginGradientEnd: "#121212",
+  chipBackground: "#2a2a2a",
+  primarySoft: "rgba(77,171,247,0.18)",
 };
 
 export function getColors(theme: ThemeMode): ThemeColors {

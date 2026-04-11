@@ -12,13 +12,16 @@ import {
   Dimensions,
   type ViewStyle,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
 import { useAuthStore } from "../../../store/authStore";
+import { effectivePodeLerColeta, isStaffOperacaoRole } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { enviarColetaUnica, type ServicoColeta } from "../coletasApi";
+import * as Haptics from "expo-haptics";
 
 const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
 const CORNER_LENGTH = 40;
@@ -239,6 +242,7 @@ export default function LeituraColetasScreen() {
   const [leituras, setLeituras] = useState<ColetaItemLocal[]>([]);
   const [loading, setLoading] = useState(false);
   const [cameraAtiva, setCameraAtiva] = useState(false);
+  const [configExpanded, setConfigExpanded] = useState(true);
   const scanLocked = useRef(false);
 
   const styles = useMemo(
@@ -246,7 +250,6 @@ export default function LeituraColetasScreen() {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 24, paddingBottom: 48 },
-        title: { fontSize: 22, fontWeight: "700", color: colors.text, marginBottom: 12 },
         description: { fontSize: 15, color: colors.textSecondary, marginBottom: 16 },
         badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
         badge: {
@@ -293,8 +296,35 @@ export default function LeituraColetasScreen() {
           alignItems: "center",
           justifyContent: "center",
         },
+        btnOutline: {
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          borderRadius: 10,
+          borderWidth: 1.5,
+          borderColor: colors.primary,
+          backgroundColor: "transparent",
+          alignItems: "center",
+          justifyContent: "center",
+        },
         btnTextPrimary: { color: colors.primaryContrast, fontSize: 15, fontWeight: "600" },
         btnTextSecondary: { color: colors.text, fontSize: 15, fontWeight: "500" },
+        btnTextOutline: { color: colors.primary, fontSize: 15, fontWeight: "600" },
+        cameraCta: {
+          paddingVertical: 16,
+          borderRadius: 12,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 16,
+        },
+        cameraCtaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "700" },
+        filterHeader: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+        },
+        filterHeaderTitle: { fontSize: 15, fontWeight: "600", color: colors.text },
         resumoRow: {
           flexDirection: "row",
           justifyContent: "space-between",
@@ -307,10 +337,20 @@ export default function LeituraColetasScreen() {
           paddingVertical: 10,
           borderRadius: 10,
           alignItems: "center",
+          backgroundColor: colors.backgroundCard,
         },
-        resumoShopee: { backgroundColor: "rgba(238,77,45,0.08)" },
-        resumoMl: { backgroundColor: "rgba(255,224,102,0.12)" },
-        resumoAvulso: { backgroundColor: "rgba(99,102,241,0.08)" },
+        resumoShopee: {
+          borderWidth: 1,
+          borderColor: "rgba(238,77,45,0.45)",
+        },
+        resumoMl: {
+          borderWidth: 1,
+          borderColor: "rgba(218,165,32,0.55)",
+        },
+        resumoAvulso: {
+          borderWidth: 1,
+          borderColor: "rgba(99,102,241,0.45)",
+        },
         resumoNum: { fontSize: 18, fontWeight: "700", color: colors.text },
         resumoLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
         listaContainer: {
@@ -332,7 +372,7 @@ export default function LeituraColetasScreen() {
         listaItem: {
           flexDirection: "row",
           alignItems: "center",
-          justifyContent: "spaceBetween",
+          justifyContent: "space-between",
           paddingHorizontal: 14,
           paddingVertical: 10,
           borderBottomWidth: StyleSheet.hairlineWidth,
@@ -409,9 +449,10 @@ export default function LeituraColetasScreen() {
     [colors, insets.bottom, insets.top]
   );
 
-  const podeLerColeta = Boolean(currentUser?.pode_ler_coleta);
+  const podeLerColeta = effectivePodeLerColeta(currentUser);
   const subBase = currentUser?.sub_base ?? "";
   const ignorarColeta = Boolean(currentUser?.ignorar_coleta);
+  const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
   const resumo = useMemo(() => {
     const ativos = leituras.filter((l) => l.status !== "duplicado");
@@ -510,6 +551,7 @@ export default function LeituraColetasScreen() {
           )
         );
         playSound("success");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (err) {
         const ax = err as {
           response?: { status?: number; data?: { detail?: string } };
@@ -575,11 +617,10 @@ export default function LeituraColetasScreen() {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: Math.max(24, insets.top) }]}
+      contentContainerStyle={[styles.content, { paddingTop: 12 }]}
     >
-      <Text style={styles.title}>Leitura de Coletas</Text>
       <Text style={styles.description}>
-        Área para leitura de coletas (Shopee, Mercado Livre, Avulso) pelos perfis de Admin/Operador.
+        Leia códigos Shopee, Mercado Livre ou avulsos; a base é obrigatória antes de registrar.
       </Text>
 
       <View style={styles.badgeRow}>
@@ -588,11 +629,13 @@ export default function LeituraColetasScreen() {
             <Text style={styles.badgeText}>Base: {subBase}</Text>
           </View>
         ) : null}
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>
-            Permissão de leitura de coletas: {podeLerColeta ? "Ativa" : "Desativada"}
-          </Text>
-        </View>
+        {!hideStaffBadges ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>
+              Permissão de leitura de coletas: {podeLerColeta ? "Ativa" : "Desativada"}
+            </Text>
+          </View>
+        ) : null}
         {ignorarColeta ? (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>Coletas desativadas para este owner</Text>
@@ -601,11 +644,23 @@ export default function LeituraColetasScreen() {
       </View>
 
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>Configuração da coleta</Text>
-        <Text style={styles.infoText}>
-          Selecione a base e, em seguida, escaneie ou digite os códigos. Cada leitura é enviada imediatamente para o
-          backend `/coletas/lote`, com classificação automática de serviço (Shopee, Mercado Livre, Avulso).
-        </Text>
+        <TouchableOpacity
+          style={styles.filterHeader}
+          onPress={() => setConfigExpanded((e) => !e)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.filterHeaderTitle}>Configuração da coleta</Text>
+          <Ionicons
+            name={configExpanded ? "chevron-up" : "chevron-down"}
+            size={22}
+            color={colors.textSecondary}
+          />
+        </TouchableOpacity>
+        {configExpanded ? (
+          <Text style={styles.infoText}>
+            Informe a base, depois escaneie ou digite. O serviço é detectado automaticamente.
+          </Text>
+        ) : null}
       </View>
 
       <View style={{ marginTop: 16 }}>
@@ -623,39 +678,37 @@ export default function LeituraColetasScreen() {
       </View>
 
       <View style={{ marginTop: 8 }}>
-        <Text style={styles.label}>Código (escaneie ou digite)</Text>
-        <View style={styles.row}>
-          <TextInput
-            style={[styles.input, { flex: 1, marginBottom: 0 }]}
-            placeholder="BR... / código marketplace"
-            placeholderTextColor={colors.placeholder}
-            value={codigoInput}
-            onChangeText={setCodigoInput}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            editable={!loading}
-          />
-          <TouchableOpacity
-            style={styles.btnPrimary}
-            onPress={handleRegistrarManual}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.btnTextPrimary}>Registrar</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-        <View style={[styles.row, { marginTop: 8 }]}>
-          <TouchableOpacity
-            style={styles.btnSecondary}
-            onPress={ensurePermissionAndOpenCamera}
-            disabled={loading || !podeLerColeta || ignorarColeta}
-          >
-            <Text style={styles.btnTextSecondary}>Abrir câmera</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.cameraCta}
+          onPress={ensurePermissionAndOpenCamera}
+          disabled={loading || !podeLerColeta || ignorarColeta}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.cameraCtaText}>Abrir câmera</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.label}>Ou digite o código</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="BR... / código marketplace"
+          placeholderTextColor={colors.placeholder}
+          value={codigoInput}
+          onChangeText={setCodigoInput}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          editable={!loading}
+        />
+        <TouchableOpacity
+          style={styles.btnOutline}
+          onPress={handleRegistrarManual}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color={colors.primary} size="small" />
+          ) : (
+            <Text style={styles.btnTextOutline}>Registrar manualmente</Text>
+          )}
+        </TouchableOpacity>
       </View>
 
       <View style={styles.resumoRow}>

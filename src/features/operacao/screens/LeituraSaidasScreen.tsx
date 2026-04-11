@@ -19,7 +19,9 @@ import type { AxiosError } from "axios";
 import { useThemeColors } from "../../../theme/colors";
 import { useAuthStore } from "../../../store/authStore";
 import { playSound } from "../../../utils/sound";
+import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
+import { effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
 import { lerSaidaAdmin, listMotoboysOperacao, updateSaidaAdmin, type MotoboyItem } from "../saidasApi";
 
 const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
@@ -140,7 +142,6 @@ export default function LeituraSaidasScreen() {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 24, paddingBottom: 48 },
-        title: { fontSize: 22, fontWeight: "700", color: colors.text, marginBottom: 12 },
         description: { fontSize: 15, color: colors.textSecondary, marginBottom: 16 },
         badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
         badge: {
@@ -186,8 +187,28 @@ export default function LeituraSaidasScreen() {
           alignItems: "center",
           justifyContent: "center",
         },
+        btnOutline: {
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          borderRadius: 10,
+          borderWidth: 1.5,
+          borderColor: colors.primary,
+          backgroundColor: "transparent",
+          alignItems: "center",
+          justifyContent: "center",
+        },
         btnTextPrimary: { color: colors.primaryContrast, fontSize: 15, fontWeight: "600" },
         btnTextSecondary: { color: colors.text, fontSize: 15, fontWeight: "500" },
+        btnTextOutline: { color: colors.primary, fontSize: 15, fontWeight: "600" },
+        cameraCta: {
+          paddingVertical: 16,
+          borderRadius: 12,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 16,
+        },
+        cameraCtaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "700" },
         row: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
         listaContainer: {
           marginTop: 16,
@@ -295,8 +316,9 @@ export default function LeituraSaidasScreen() {
     [colors, insets.bottom, insets.top]
   );
 
-  const podeLerSaida = Boolean(currentUser?.pode_ler_saida);
+  const podeLerSaida = effectivePodeLerSaida(currentUser);
   const username = currentUser?.username ?? "";
+  const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
   const totalSucesso = leituras.filter((l) => l.status === "sucesso").length;
   const totalAlterado = leituras.filter((l) => l.status === "alterado").length;
@@ -382,6 +404,7 @@ export default function LeituraSaidasScreen() {
           playSound("warn");
         } else {
           playSound("success");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
       } catch (err) {
         const ax = err as AxiosError<{
@@ -495,6 +518,7 @@ export default function LeituraSaidasScreen() {
         },
       ]);
       playSound("success");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setConflito(null);
     } catch (err) {
       playSound("error");
@@ -514,32 +538,31 @@ export default function LeituraSaidasScreen() {
     <>
       <ScrollView
         style={styles.container}
-        contentContainerStyle={[styles.content, { paddingTop: Math.max(24, insets.top) }]}
+        contentContainerStyle={[styles.content, { paddingTop: 12 }]}
       >
-        <Text style={styles.title}>Leitura de Saídas</Text>
         <Text style={styles.description}>
-          Leitura administrativa de saídas para acompanhar códigos, entregadores e tratar conflitos de motoboy
-          (TROCA_ENTREGADOR), espelhando o fluxo do painel web.
+          Escaneie ou digite o código; cada leitura é enviada para o motoboy selecionado.
         </Text>
 
-        <View style={styles.badgeRow}>
-          {username ? (
+        {!hideStaffBadges ? (
+          <View style={styles.badgeRow}>
+            {username ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>Usuário: {username}</Text>
+              </View>
+            ) : null}
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>Usuário: {username}</Text>
+              <Text style={styles.badgeText}>
+                Permissão de leitura de saídas: {podeLerSaida ? "Ativa" : "Desativada"}
+              </Text>
             </View>
-          ) : null}
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              Permissão de leitura de saídas: {podeLerSaida ? "Ativa" : "Desativada"}
-            </Text>
           </View>
-        </View>
+        ) : null}
 
         <View style={styles.infoCard}>
           <Text style={styles.infoTitle}>Motoboy / Entregador alvo</Text>
           <Text style={styles.infoText}>
-            Selecione o motoboy para o qual as saídas serão registradas. Cada leitura chama diretamente o endpoint
-            `/saidas/ler` com esse entregador.
+            Escolha o motoboy antes de ler. As leituras usam o entregador selecionado.
           </Text>
           <View style={{ marginTop: 16 }}>
             <View style={styles.row}>
@@ -590,39 +613,37 @@ export default function LeituraSaidasScreen() {
         </View>
 
         <View style={{ marginTop: 16 }}>
-          <Text style={styles.label}>Código (escaneie ou digite)</Text>
-          <View style={styles.row}>
-            <TextInput
-              style={[styles.input, { flex: 1, marginBottom: 0 }]}
-              placeholder="Código da saída"
-              placeholderTextColor={colors.placeholder}
-              value={codigoInput}
-              onChangeText={setCodigoInput}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={!loading}
-            />
-            <TouchableOpacity
-              style={styles.btnPrimary}
-              onPress={handleRegistrarManual}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.btnTextPrimary}>Registrar</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-          <View style={[styles.row, { marginTop: 8 }]}>
-            <TouchableOpacity
-              style={styles.btnSecondary}
-              onPress={ensurePermissionAndOpenCamera}
-              disabled={loading || !podeLerSaida}
-            >
-              <Text style={styles.btnTextSecondary}>Abrir câmera</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.cameraCta}
+            onPress={ensurePermissionAndOpenCamera}
+            disabled={loading || !podeLerSaida}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.cameraCtaText}>Abrir câmera</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.label}>Ou digite o código</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Código da saída"
+            placeholderTextColor={colors.placeholder}
+            value={codigoInput}
+            onChangeText={setCodigoInput}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            editable={!loading}
+          />
+          <TouchableOpacity
+            style={styles.btnOutline}
+            onPress={handleRegistrarManual}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color={colors.primary} size="small" />
+            ) : (
+              <Text style={styles.btnTextOutline}>Registrar manualmente</Text>
+            )}
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.resumoLabel}>

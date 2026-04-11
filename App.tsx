@@ -26,6 +26,8 @@ import PrepareDeliveriesScreen from "./src/features/entregas/screens/PrepareDeli
 import RouteBuilderScreen from "./src/screens/RouteBuilderScreen";
 import MinhasEntregasScreen from "./src/features/entregas/screens/MinhasEntregasScreen";
 import MinhasEntregasDiaScreen from "./src/features/entregas/screens/MinhasEntregasDiaScreen";
+import StaffHomeStack from "./src/navigation/StaffHomeStack";
+import { isMotoboyRole } from "./src/utils/role";
 
 export type RootStackParamList = {
   HomeInicio: undefined;
@@ -88,6 +90,9 @@ function MaisStackScreen() {
 
 function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
   const colors = useThemeColors();
+  const role = useAuthStore((s) => s.currentUser?.role);
+  const isMotoboy = isMotoboyRole(role);
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -100,11 +105,13 @@ function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
       <Tab.Screen
         name="Home"
         options={{
-          tabBarLabel: "Home",
-          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size ?? 24} color={color} />,
+          tabBarLabel: isMotoboy ? "Home" : "Operação",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name={isMotoboy ? "home-outline" : "briefcase-outline"} size={size ?? 24} color={color} />
+          ),
         }}
       >
-        {() => <HomeStackScreen onLogout={onLogout} />}
+        {() => (isMotoboy ? <HomeStackScreen onLogout={onLogout} /> : <StaffHomeStack />)}
       </Tab.Screen>
       <Tab.Screen
         name="Mais"
