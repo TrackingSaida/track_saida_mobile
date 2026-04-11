@@ -1,9 +1,15 @@
 import React, { useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { LinearGradient } from "expo-linear-gradient";
 import { useAuthStore } from "../store/authStore";
+import MenuSection from "../components/ui/MenuSection";
+import PressableMenuRow from "../components/ui/PressableMenuRow";
 import { useThemeColors } from "../theme/colors";
+import { useProfileTheme } from "../theme/profileTheme";
+import { space } from "../theme/spacing";
+import { type as typo } from "../theme/typography";
 import { decodeJwtPayload } from "../utils/jwt";
 import { isMotoboyRole } from "../utils/role";
 
@@ -23,49 +29,32 @@ type Props = NativeStackScreenProps<MaisStackParamList, "MaisInicio"> & {
 export default function MaisScreen({ navigation, onLogout }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
+  const profile = useProfileTheme();
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        content: { paddingBottom: 48 },
-        header: {
-          backgroundColor: colors.backgroundCard,
-          padding: 24,
-          marginBottom: 12,
+        content: { paddingBottom: space.xxl },
+        headerGradient: {
+          paddingHorizontal: space.lg,
+          paddingBottom: space.xl,
           alignItems: "center",
-          shadowColor: colors.shadowColor,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.06,
-          shadowRadius: 4,
-          elevation: 2,
         },
         avatar: {
-          width: 64,
-          height: 64,
-          borderRadius: 32,
-          backgroundColor: colors.inputBackground,
+          width: 76,
+          height: 76,
+          borderRadius: 38,
+          backgroundColor: colors.backgroundCard,
           justifyContent: "center",
           alignItems: "center",
-          marginBottom: 12,
+          marginBottom: space.md,
         },
-        avatarText: { fontSize: 24, fontWeight: "600", color: colors.textSecondary },
-        greeting: { fontSize: 14, color: colors.textSecondary, marginBottom: 4 },
-        nome: { fontSize: 18, fontWeight: "600", color: colors.text },
-        menu: {
-          backgroundColor: colors.backgroundCard,
-          paddingHorizontal: 16,
-          shadowColor: colors.shadowColor,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.06,
-          shadowRadius: 4,
-          elevation: 2,
-        },
-        menuItem: { flexDirection: "row", alignItems: "center", paddingVertical: 16, paddingHorizontal: 8 },
-        menuIcon: { fontSize: 20, marginRight: 16 },
-        menuText: { fontSize: 16, color: colors.text, flex: 1 },
-        separator: { height: 1, backgroundColor: colors.separator, marginLeft: 44 },
+        avatarText: { fontSize: 30, fontWeight: "800", color: profile.accent },
+        greeting: { fontSize: typo.caption, color: colors.textSecondary, marginBottom: 4, fontWeight: "600" },
+        nome: { fontSize: 22, fontWeight: "800", color: colors.text, letterSpacing: -0.3 },
+        body: { paddingHorizontal: space.md, marginTop: space.sm },
       }),
-    [colors]
+    [colors, profile]
   );
   const token = useAuthStore((s) => s.token);
   const claims = token ? decodeJwtPayload(token) : {};
@@ -73,47 +62,83 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
   const role = claims.role as number | undefined;
   const showMotoboyMenu = isMotoboyRole(role);
 
-  const handleSair = async () => {
-    await onLogout();
+  const handleSair = () => {
+    Alert.alert("Sair", "Deseja sair da sua conta?", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Sair",
+        style: "destructive",
+        onPress: () => {
+          void onLogout();
+        },
+      },
+    ]);
   };
 
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: Math.max(24, insets.top) }]}
+      contentContainerStyle={[styles.content, { paddingTop: 0 }]}
+      showsVerticalScrollIndicator={false}
     >
-      <View style={styles.header}>
-        <View style={styles.avatar}>
+      <LinearGradient
+        colors={[...profile.headerGradient]}
+        locations={[0, 1]}
+        style={[styles.headerGradient, { paddingTop: Math.max(space.lg, insets.top) }]}
+      >
+        <View style={[styles.avatar, { borderWidth: 3, borderColor: profile.accentSoft }]}>
           <Text style={styles.avatarText}>{nome.charAt(0).toUpperCase()}</Text>
         </View>
-        <Text style={styles.greeting}>Olá!</Text>
+        <Text style={styles.greeting}>Olá</Text>
         <Text style={styles.nome}>{nome}</Text>
-      </View>
+      </LinearGradient>
 
-      <View style={styles.menu}>
-        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate("MeusDados")} activeOpacity={0.7}>
-          <Text style={styles.menuIcon}>👤</Text>
-          <Text style={styles.menuText}>Meus dados</Text>
-        </TouchableOpacity>
-        <View style={styles.separator} />
-        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate("Preferencia")} activeOpacity={0.7}>
-          <Text style={styles.menuIcon}>⚙</Text>
-          <Text style={styles.menuText}>Preferência (Modo Escuro ou Claro)</Text>
-        </TouchableOpacity>
+      <View style={styles.body}>
+        <MenuSection label="Conta">
+          <PressableMenuRow
+            icon="person-outline"
+            title="Meus dados"
+            onPress={() => navigation.navigate("MeusDados")}
+            iconColor={profile.accent}
+            iconSoftBg={profile.accentSoft}
+            isLast
+          />
+        </MenuSection>
+
+        <MenuSection label="Preferências">
+          <PressableMenuRow
+            icon="color-palette-outline"
+            title="Tema (claro ou escuro)"
+            onPress={() => navigation.navigate("Preferencia")}
+            iconColor={profile.accent}
+            iconSoftBg={profile.accentSoft}
+            isLast
+          />
+        </MenuSection>
+
         {showMotoboyMenu ? (
-          <>
-            <View style={styles.separator} />
-            <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate("MinhasEntregas")} activeOpacity={0.7}>
-              <Text style={styles.menuIcon}>📋</Text>
-              <Text style={styles.menuText}>Minhas Entregas</Text>
-            </TouchableOpacity>
-          </>
+          <MenuSection label="Operação">
+            <PressableMenuRow
+              icon="list-outline"
+              title="Minhas entregas"
+              onPress={() => navigation.navigate("MinhasEntregas")}
+              iconColor={profile.accent}
+              iconSoftBg={profile.accentSoft}
+              isLast
+            />
+          </MenuSection>
         ) : null}
-        <View style={styles.separator} />
-        <TouchableOpacity style={styles.menuItem} onPress={handleSair} activeOpacity={0.7}>
-          <Text style={styles.menuIcon}>↪</Text>
-          <Text style={styles.menuText}>Sair</Text>
-        </TouchableOpacity>
+
+        <MenuSection label="Sessão">
+          <PressableMenuRow
+            icon="log-out-outline"
+            title="Sair"
+            onPress={handleSair}
+            danger
+            showChevron={false}
+            isLast
+          />
+        </MenuSection>
       </View>
     </ScrollView>
   );

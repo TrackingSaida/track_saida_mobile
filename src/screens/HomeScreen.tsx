@@ -6,11 +6,17 @@ import {
   StyleSheet,
   ActivityIndicator,
   ScrollView,
+  Alert,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import GradientScreenHeader from "../components/ui/GradientScreenHeader";
 import { useAuthStore } from "../store/authStore";
+import { useThemeStore } from "../store/themeStore";
 import { useThemeColors } from "../theme/colors";
+import { space, radius } from "../theme/spacing";
+import { type as typo } from "../theme/typography";
 import { decodeJwtPayload } from "../utils/jwt";
 import { getResumoEntregas, iniciarRota, getRotasAtiva, getTodayISO } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
@@ -22,82 +28,113 @@ type Props = {
   onNavigateRouteBuilder?: () => void;
 };
 
-export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateScan, onNavigateRouteBuilder }: Props) {
-  const insets = useSafeAreaInsets();
+export default function HomeScreen({
+  onLogout,
+  onNavigateEntregas,
+  onNavigateScan,
+  onNavigateRouteBuilder,
+}: Props) {
+  const themeMode = useThemeStore((s) => s.theme);
   const colors = useThemeColors();
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        content: { padding: 24, paddingBottom: 48 },
-        header: { marginBottom: 24 },
-        title: { fontSize: 24, fontWeight: "700", marginBottom: 4, color: colors.text },
-        greeting: { fontSize: 16, color: colors.text },
-        subBase: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
-        loader: { marginTop: 48 },
-        cardMain: {
-          backgroundColor: colors.primary,
-          padding: 24,
-          borderRadius: 12,
-          marginBottom: 16,
+        content: { paddingBottom: space.xxl },
+        body: { paddingHorizontal: space.md },
+        loader: { marginTop: space.xxl },
+        cardMainShadow: {
+          borderRadius: radius.xl,
+          marginBottom: space.md,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.18,
+          shadowRadius: 16,
+          elevation: 8,
         },
-        cardMainLabel: { fontSize: 14, color: "rgba(255,255,255,0.9)" },
-        cardMainValue: { fontSize: 36, fontWeight: "700", color: colors.primaryContrast, marginVertical: 8 },
-        cardMainLink: { fontSize: 14, color: colors.primaryContrast, textDecorationLine: "underline" },
+        cardMainInner: {
+          padding: space.xl,
+          borderRadius: radius.xl,
+          overflow: "hidden",
+        },
+        cardMainLabel: { fontSize: typo.bodySmall, color: "rgba(255,255,255,0.92)", fontWeight: "600" },
+        cardMainValue: {
+          fontSize: typo.metricLarge,
+          fontWeight: "800",
+          color: colors.primaryContrast,
+          marginVertical: space.sm,
+          letterSpacing: -1,
+        },
+        cardMainLink: {
+          fontSize: typo.bodySmall,
+          color: "rgba(255,255,255,0.95)",
+          fontWeight: "700",
+          textDecorationLine: "underline",
+        },
         cardSec: {
           backgroundColor: colors.backgroundCard,
-          padding: 16,
-          borderRadius: 12,
-          marginBottom: 24,
+          padding: space.lg,
+          borderRadius: radius.lg,
+          marginBottom: space.md,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
           shadowColor: colors.shadowColor,
-          shadowOffset: { width: 0, height: 1 },
+          shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.06,
-          shadowRadius: 4,
+          shadowRadius: 8,
           elevation: 2,
         },
-        cardSecLabel: { fontSize: 14, color: colors.textSecondary },
-        cardSecValue: { fontSize: 24, fontWeight: "600", color: colors.text },
-        cardSecRow: { flexDirection: "row", gap: 12, marginBottom: 24 },
+        cardSecLabel: { fontSize: typo.caption, color: colors.textSecondary, fontWeight: "600" },
+        cardSecValue: { fontSize: typo.metricMedium, fontWeight: "800", color: colors.text, marginTop: 4 },
+        cardSecRow: { flexDirection: "row", gap: space.sm, marginBottom: space.md },
         cardSecSmall: {
           flex: 1,
-          backgroundColor: colors.backgroundCard,
-          padding: 16,
-          borderRadius: 12,
-          shadowColor: colors.shadowColor,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.06,
-          shadowRadius: 4,
-          elevation: 2,
+          backgroundColor: colors.chipBackground,
+          padding: space.md,
+          borderRadius: radius.md,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
         },
-        cardSecSmallLeft: {},
-        cardSecSmallRight: {},
+        cardSecSmallLabel: { fontSize: typo.label, color: colors.textSecondary, fontWeight: "600" },
+        cardSecSmallValue: { fontSize: 20, fontWeight: "800", color: colors.text, marginTop: 4 },
         btnScan: {
-          backgroundColor: colors.success,
-          paddingVertical: 18,
-          borderRadius: 12,
+          flexDirection: "row",
           alignItems: "center",
-          marginBottom: 12,
+          justifyContent: "center",
+          gap: space.sm,
+          paddingVertical: space.lg,
+          borderRadius: radius.xl,
+          marginBottom: space.sm,
+          overflow: "hidden",
         },
-        btnScanText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        btnScanText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "800" },
         btnIniciar: {
-          backgroundColor: colors.primary,
-          paddingVertical: 14,
-          borderRadius: 12,
+          paddingVertical: 16,
+          paddingHorizontal: space.md,
+          borderRadius: radius.lg,
           alignItems: "center",
-          marginBottom: 12,
+          marginBottom: space.sm,
         },
         btnDisabled: { opacity: 0.7 },
-        btnIniciarText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnIniciarText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "700" },
         btnRotaAtiva: {
-          backgroundColor: colors.success,
-          paddingVertical: 16,
-          borderRadius: 12,
+          paddingVertical: space.md,
+          borderRadius: radius.lg,
           alignItems: "center",
-          marginBottom: 12,
+          marginBottom: space.sm,
+          overflow: "hidden",
         },
-        btnRotaAtivaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
-        btnSair: { marginTop: 24, paddingVertical: 12, alignItems: "center" },
-        btnSairText: { color: colors.danger, fontSize: 16 },
+        btnRotaAtivaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "700" },
+        btnSair: {
+          marginTop: space.lg,
+          paddingVertical: space.md,
+          alignItems: "center",
+          borderRadius: radius.md,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          backgroundColor: colors.backgroundCard,
+        },
+        btnSairText: { color: colors.textSecondary, fontSize: 15, fontWeight: "600" },
       }),
     [colors]
   );
@@ -115,6 +152,11 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
   const nome = claims.username || "Motoboy";
   const subBase = claims.sub_base || "";
 
+  const kpiGradient =
+    themeMode === "dark"
+      ? ([colors.deliveryAccent, "#2d8f5a"] as const)
+      : ([colors.deliveryAccent, "#0a6e42"] as const);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -127,7 +169,6 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
     }
   }, []);
 
-  // Atualiza o resumo e restaura estado da rota ativa (sem redirecionar)
   useFocusEffect(
     useCallback(() => {
       load();
@@ -170,70 +211,110 @@ export default function HomeScreen({ onLogout, onNavigateEntregas, onNavigateSca
     }
   };
 
+  const handleSair = () => {
+    Alert.alert("Sair", "Deseja sair da sua conta?", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Sair", style: "destructive", onPress: () => onLogout() },
+    ]);
+  };
+
+  const headerGradient: readonly [string, string] = [
+    colors.deliveryHeaderGradientStart,
+    colors.deliveryHeaderGradientEnd,
+  ];
+
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: Math.max(24, insets.top) }]}
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>Entregas</Text>
-        <Text style={styles.greeting}>Olá, {nome}</Text>
-        {subBase ? <Text style={styles.subBase}>Base: {subBase}</Text> : null}
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <GradientScreenHeader
+        gradientColors={headerGradient}
+        title="Entregas"
+        subtitle={`Olá, ${nome}`}
+        tertiary={subBase ? `Base: ${subBase}` : undefined}
+        paddingBottom={space.lg}
+      />
+
+      <View style={styles.body}>
+        {loading ? (
+          <ActivityIndicator size="large" style={styles.loader} color={colors.deliveryAccent} />
+        ) : (
+          <>
+            <View style={styles.cardMainShadow}>
+              <TouchableOpacity onPress={onNavigateEntregas} activeOpacity={0.92}>
+                <LinearGradient colors={[...kpiGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardMainInner}>
+                  <Text style={styles.cardMainLabel}>Entregas pendentes</Text>
+                  <Text style={styles.cardMainValue}>{resumo?.pendentes ?? 0}</Text>
+                  <Text style={styles.cardMainLink}>Ver todas</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.cardSec}>
+              <Text style={styles.cardSecLabel}>Finalizadas hoje</Text>
+              <Text style={styles.cardSecValue}>{resumo?.finalizadas_hoje ?? 0}</Text>
+            </View>
+
+            <View style={styles.cardSecRow}>
+              <View style={styles.cardSecSmall}>
+                <Text style={styles.cardSecSmallLabel}>Ausentes</Text>
+                <Text style={styles.cardSecSmallValue}>{resumo?.ausentes ?? 0}</Text>
+              </View>
+              <View style={styles.cardSecSmall}>
+                <Text style={styles.cardSecSmallLabel}>Atraso (D+1)</Text>
+                <Text style={styles.cardSecSmallValue}>{resumo?.atraso_d1 ?? 0}</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity onPress={onNavigateScan} activeOpacity={0.92}>
+              <LinearGradient
+                colors={[...kpiGradient]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.btnScan}
+              >
+                <Ionicons name="scan-outline" size={26} color={colors.primaryContrast} />
+                <Text style={styles.btnScanText}>Escanear</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {activeRouteId != null && onNavigateRouteBuilder ? (
+              <TouchableOpacity onPress={onNavigateRouteBuilder} activeOpacity={0.92}>
+                <LinearGradient
+                  colors={[colors.deliveryAccent, themeMode === "dark" ? "#2a9d62" : "#0a6e42"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.btnRotaAtiva}
+                >
+                  <Text style={styles.btnRotaAtivaText}>Continuar rota ativa</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : null}
+
+            {resumo?.pode_iniciar_rota ? (
+              <TouchableOpacity
+                onPress={handleIniciarRota}
+                disabled={iniciando}
+                activeOpacity={0.92}
+                style={iniciando ? styles.btnDisabled : undefined}
+              >
+                <LinearGradient
+                  colors={[colors.deliveryAccent, themeMode === "dark" ? "#2a9d62" : "#0a6e42"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.btnIniciar}
+                >
+                  <Text style={styles.btnIniciarText}>
+                    {iniciando ? "Iniciando…" : "Iniciar rota"}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity style={styles.btnSair} onPress={handleSair} activeOpacity={0.85}>
+              <Text style={styles.btnSairText}>Sair</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
-
-      {loading ? (
-        <ActivityIndicator size="large" style={styles.loader} />
-      ) : (
-        <>
-          <TouchableOpacity style={styles.cardMain} onPress={onNavigateEntregas}>
-            <Text style={styles.cardMainLabel}>Entregas pendentes</Text>
-            <Text style={styles.cardMainValue}>{resumo?.pendentes ?? 0}</Text>
-            <Text style={styles.cardMainLink}>Ver todas</Text>
-          </TouchableOpacity>
-
-          <View style={styles.cardSec}>
-            <Text style={styles.cardSecLabel}>Finalizadas hoje</Text>
-            <Text style={styles.cardSecValue}>{resumo?.finalizadas_hoje ?? 0}</Text>
-          </View>
-
-          <View style={styles.cardSecRow}>
-            <View style={[styles.cardSecSmall, styles.cardSecSmallLeft]}>
-              <Text style={styles.cardSecLabel}>Ausentes</Text>
-              <Text style={styles.cardSecValue}>{resumo?.ausentes ?? 0}</Text>
-            </View>
-            <View style={[styles.cardSecSmall, styles.cardSecSmallRight]}>
-              <Text style={styles.cardSecLabel}>Em atraso (D+1)</Text>
-              <Text style={styles.cardSecValue}>{resumo?.atraso_d1 ?? 0}</Text>
-            </View>
-          </View>
-
-          <TouchableOpacity style={styles.btnScan} onPress={onNavigateScan}>
-            <Text style={styles.btnScanText}>Escanear</Text>
-          </TouchableOpacity>
-
-          {activeRouteId != null && onNavigateRouteBuilder ? (
-            <TouchableOpacity style={styles.btnRotaAtiva} onPress={onNavigateRouteBuilder}>
-              <Text style={styles.btnRotaAtivaText}>Continuar rota ativa</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {resumo?.pode_iniciar_rota ? (
-            <TouchableOpacity
-              style={[styles.btnIniciar, iniciando && styles.btnDisabled]}
-              onPress={handleIniciarRota}
-              disabled={iniciando}
-            >
-              <Text style={styles.btnIniciarText}>
-                {iniciando ? "Iniciando…" : "Iniciar rota"}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-
-          <TouchableOpacity style={styles.btnSair} onPress={onLogout}>
-            <Text style={styles.btnSairText}>Sair</Text>
-          </TouchableOpacity>
-        </>
-      )}
     </ScrollView>
   );
 }

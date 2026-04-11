@@ -25,7 +25,7 @@ import type { BarcodeScanningResult } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { useThemeColors } from "../../../theme/colors";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeLerSaida } from "../../../utils/role";
+import { effectivePodeLerSaida, isMotoboyRole } from "../../../utils/role";
 import { formatApiError } from "../../../utils/formatApiError";
 import {
   listSaidas,
@@ -121,6 +121,8 @@ export default function ConsultaCodigosScreen() {
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeLerSaida = effectivePodeLerSaida(currentUser);
+  /** Ditar por voz só no perfil entregador; operador/admin usam texto e câmera. */
+  const mostrarVozConsulta = isMotoboyRole(currentUser?.role as number | undefined);
 
   const [searchInput, setSearchInput] = useState("");
   const [results, setResults] = useState<SaidaListItem[]>([]);
@@ -716,6 +718,7 @@ export default function ConsultaCodigosScreen() {
   }, [permission, requestPermission]);
 
   const openVoice = useCallback(async () => {
+    if (!mostrarVozConsulta) return;
     try {
       const mod = await import("../components/VoiceConsultaModal");
       setVoiceModalComp(() => mod.default);
@@ -726,7 +729,7 @@ export default function ConsultaCodigosScreen() {
         "Reconhecimento de voz não está disponível neste build. Use texto ou câmera. Em desenvolvimento, use um dev build com o módulo nativo (no Expo Go costuma faltar)."
       );
     }
-  }, []);
+  }, [mostrarVozConsulta]);
 
   const openRegistrarLeitura = useCallback(async () => {
     try {
@@ -865,9 +868,13 @@ export default function ConsultaCodigosScreen() {
           ]}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.hint}>Digite ou escaneie o código e confirme. Toque no microfone para ditar.</Text>
+          <Text style={styles.hint}>
+            {mostrarVozConsulta
+              ? "Digite ou escaneie o código e confirme. Toque no microfone para ditar."
+              : "Digite ou escaneie o código e confirme."}
+          </Text>
 
-          {voiceBanner ? (
+          {mostrarVozConsulta && voiceBanner ? (
             <View style={styles.voiceBanner}>
               <Text style={styles.voiceBannerText}>{voiceBanner}</Text>
               <TouchableOpacity
@@ -896,9 +903,11 @@ export default function ConsultaCodigosScreen() {
             <TouchableOpacity style={styles.iconBtn} onPress={openCamera} accessibilityLabel="Escanear">
               <Ionicons name="camera-outline" size={26} color={colors.primary} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} onPress={openVoice} accessibilityLabel="Voz">
-              <Ionicons name="mic-outline" size={26} color={colors.primary} />
-            </TouchableOpacity>
+            {mostrarVozConsulta ? (
+              <TouchableOpacity style={styles.iconBtn} onPress={openVoice} accessibilityLabel="Voz">
+                <Ionicons name="mic-outline" size={26} color={colors.primary} />
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           {loading && results.length === 0 ? (
@@ -1094,7 +1103,7 @@ export default function ConsultaCodigosScreen() {
         </View>
       </Modal>
 
-      {voiceVisible && VoiceModalResolved ? (
+      {mostrarVozConsulta && voiceVisible && VoiceModalResolved ? (
         <VoiceModalResolved
           visible
           onDone={handleVoiceDone}

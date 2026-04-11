@@ -5,13 +5,17 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuthStore } from "../store/authStore";
+import { useThemeStore } from "../store/themeStore";
+import GradientScreenHeader from "../components/ui/GradientScreenHeader";
 import { useThemeColors } from "../theme/colors";
+import { space, radius } from "../theme/spacing";
 import { effectivePodeLerColeta, staffRoleLabel } from "../utils/role";
 import type { StaffStackParamList } from "../navigation/staffStackTypes";
 
 type Props = NativeStackScreenProps<StaffStackParamList, "StaffHome">;
 
 export default function StaffHomeScreen({ navigation }: Props) {
+  const themeMode = useThemeStore((s) => s.theme);
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
   const nome = (currentUser?.username as string | undefined)?.trim() || "Usuário";
@@ -24,75 +28,86 @@ export default function StaffHomeScreen({ navigation }: Props) {
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        content: { paddingBottom: 48 },
-        gradientHeader: {
-          paddingBottom: 20,
-          paddingHorizontal: 20,
-          paddingTop: 20,
-        },
-        title: { fontSize: 28, fontWeight: "700", marginBottom: 4, color: colors.text },
-        greeting: { fontSize: 16, color: colors.textSecondary },
-        subBase: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
+        content: { paddingBottom: space.xxl },
+        body: { paddingHorizontal: space.md, marginTop: space.sm },
         badge: {
           alignSelf: "flex-start",
-          marginTop: 10,
-          paddingHorizontal: 12,
-          paddingVertical: 6,
-          borderRadius: 999,
-          backgroundColor: colors.chipBackground,
+          marginTop: space.md,
+          paddingHorizontal: space.md,
+          paddingVertical: space.sm,
+          borderRadius: radius.full,
+          backgroundColor: colors.primarySoft,
         },
-        badgeText: { fontSize: 13, color: colors.textSecondary, fontWeight: "500" },
-        body: { paddingHorizontal: 16, marginTop: 8 },
+        badgeText: { fontSize: 13, color: colors.primary, fontWeight: "700" },
+        heroShadow: {
+          borderRadius: radius.xl,
+          marginBottom: space.md,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.15,
+          shadowRadius: 14,
+          elevation: 6,
+        },
         heroBtn: {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
-          gap: 12,
-          backgroundColor: colors.primary,
-          paddingVertical: 18,
-          paddingHorizontal: 20,
-          borderRadius: 16,
-          marginBottom: 16,
-          minHeight: 56,
+          gap: space.sm,
+          paddingVertical: space.lg,
+          paddingHorizontal: space.lg,
+          minHeight: 58,
+          borderRadius: radius.xl,
+          overflow: "hidden",
         },
         heroBtnText: {
           color: colors.primaryContrast,
           fontSize: 18,
-          fontWeight: "700",
+          fontWeight: "800",
+          letterSpacing: 0.2,
         },
         grid: {
           flexDirection: "row",
           flexWrap: "wrap",
-          gap: 12,
+          gap: space.sm,
         },
         gridItem: {
           flexGrow: 1,
           flexBasis: "45%",
           minWidth: 140,
           backgroundColor: colors.backgroundCard,
-          borderRadius: 16,
-          paddingVertical: 20,
-          paddingHorizontal: 14,
+          borderRadius: radius.lg,
+          paddingVertical: space.lg,
+          paddingHorizontal: space.md,
           alignItems: "center",
           justifyContent: "center",
-          borderWidth: 1,
-          borderColor: colors.inputBorder,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.06,
+          shadowRadius: 8,
+          elevation: 2,
         },
         gridIcon: {
-          width: 48,
-          height: 48,
-          borderRadius: 24,
+          width: 52,
+          height: 52,
+          borderRadius: 26,
           backgroundColor: colors.primarySoft,
           alignItems: "center",
           justifyContent: "center",
-          marginBottom: 10,
+          marginBottom: space.sm,
         },
-        gridTitle: { fontSize: 16, fontWeight: "700", color: colors.text, textAlign: "center" },
+        gridTitle: { fontSize: 16, fontWeight: "800", color: colors.text, textAlign: "center" },
         gridSub: {
-          fontSize: 12,
+          fontSize: 11,
           color: colors.textSecondary,
           textAlign: "center",
           marginTop: 4,
+          lineHeight: 15,
+          fontWeight: "500",
+        },
+        gridItemWide: {
+          flexBasis: "100%",
         },
       }),
     [colors]
@@ -103,6 +118,11 @@ export default function StaffHomeScreen({ navigation }: Props) {
     navigation.navigate(route);
   };
 
+  const headerGradient: readonly [string, string] = [
+    colors.operatorHeaderGradientStart,
+    colors.operatorHeaderGradientEnd,
+  ];
+
   return (
     <ScrollView
       style={styles.container}
@@ -110,38 +130,45 @@ export default function StaffHomeScreen({ navigation }: Props) {
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
-      <LinearGradient
-        colors={[colors.primarySoft, colors.background]}
-        locations={[0, 1]}
-        style={styles.gradientHeader}
+      <GradientScreenHeader
+        gradientColors={headerGradient}
+        title="Operação"
+        subtitle={`Olá, ${nome}`}
+        tertiary={subBase ? `Base: ${subBase}` : undefined}
+        paddingBottom={space.lg}
       >
-        <Text style={styles.title}>Operação</Text>
-        <Text style={styles.greeting}>Olá, {nome}</Text>
-        {subBase ? <Text style={styles.subBase}>Base: {subBase}</Text> : null}
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{labelPerfil}</Text>
         </View>
-      </LinearGradient>
+      </GradientScreenHeader>
 
       <View style={styles.body}>
-        <TouchableOpacity
-          style={styles.heroBtn}
-          onPress={() => go("LeituraSaidas")}
-          activeOpacity={0.88}
-          accessibilityRole="button"
-          accessibilityLabel="Escanear saída"
-        >
-          <Ionicons name="scan-outline" size={28} color={colors.primaryContrast} />
-          <Text style={styles.heroBtnText}>Escanear saída</Text>
-        </TouchableOpacity>
+        <View style={styles.heroShadow}>
+          <TouchableOpacity
+            onPress={() => go("LeituraSaidas")}
+            activeOpacity={0.92}
+            accessibilityRole="button"
+            accessibilityLabel="Escanear saída"
+          >
+            <LinearGradient
+              colors={
+                themeMode === "dark"
+                  ? [colors.primary, "#2563ab"]
+                  : [colors.primary, "#0a58ca"]
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.heroBtn}
+            >
+              <Ionicons name="scan-outline" size={28} color={colors.primaryContrast} />
+              <Text style={styles.heroBtnText}>Escanear saída</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.grid}>
           {mostrarColeta ? (
-            <TouchableOpacity
-              style={styles.gridItem}
-              onPress={() => go("LeituraColetas")}
-              activeOpacity={0.88}
-            >
+            <TouchableOpacity style={styles.gridItem} onPress={() => go("LeituraColetas")} activeOpacity={0.88}>
               <View style={styles.gridIcon}>
                 <Ionicons name="layers-outline" size={26} color={colors.primary} />
               </View>
@@ -152,14 +179,14 @@ export default function StaffHomeScreen({ navigation }: Props) {
             </TouchableOpacity>
           ) : null}
           <TouchableOpacity
-            style={[styles.gridItem, !mostrarColeta && { flexBasis: "100%" }]}
+            style={[styles.gridItem, !mostrarColeta && styles.gridItemWide]}
             onPress={() => go("ConsultaCodigos")}
             activeOpacity={0.88}
           >
             <View style={styles.gridIcon}>
               <Ionicons name="search-outline" size={26} color={colors.primary} />
             </View>
-            <Text style={styles.gridTitle}>Consultar</Text>
+            <Text style={[styles.gridTitle, !mostrarColeta && { fontSize: 17 }]}>Consultar</Text>
             <Text style={styles.gridSub} numberOfLines={2}>
               Códigos e status
             </Text>

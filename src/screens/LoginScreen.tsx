@@ -14,7 +14,9 @@ import {
   Switch,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import { motoboyLogin, userLogin } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
@@ -38,6 +40,11 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
   const requiresBiometricUnlock = useAuthStore((s) => s.requiresBiometricUnlock);
   const unlockWithBiometric = useAuthStore((s) => s.unlockWithBiometric);
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
+  const appVersion =
+    Constants.expoConfig?.version ??
+    (typeof Constants.nativeAppVersion === "string" ? Constants.nativeAppVersion : null) ??
+    "1.0.0";
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -261,6 +268,17 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
           marginTop: 12,
         },
         buttonBiometricText: { color: colors.primary, fontSize: 16, fontWeight: "600" },
+        footer: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          paddingHorizontal: 24,
+          paddingTop: 8,
+        },
+        footerText: {
+          fontSize: 12,
+          color: colors.textSecondary,
+        },
       }),
     [colors]
   );
@@ -362,6 +380,10 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
             )}
           </View>
         </ScrollView>
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <Text style={styles.footerText}>© {new Date().getFullYear()} Tracking Saídas</Text>
+          <Text style={styles.footerText}>v{appVersion}</Text>
+        </View>
       </KeyboardAvoidingView>
     </LinearGradient>
   );

@@ -1,5 +1,6 @@
 import "./src/services/location/backgroundLocationTask";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -12,6 +13,7 @@ import { useAuthStore } from "./src/store/authStore";
 import { useDeliveryStore } from "./src/store/deliveryStore";
 import { useThemeStore } from "./src/store/themeStore";
 import { getColors, useThemeColors } from "./src/theme/colors";
+import { getProfileThemeColors } from "./src/theme/profileTheme";
 import LoginScreen from "./src/screens/LoginScreen";
 import SelectSubBaseScreen from "./src/screens/SelectSubBaseScreen";
 import ChangePasswordRequiredScreen from "./src/screens/ChangePasswordRequiredScreen";
@@ -92,16 +94,26 @@ function MaisStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
 
 function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
   const colors = useThemeColors();
+  const themeMode = useThemeStore((s) => s.theme);
   const role = useAuthStore((s) => s.currentUser?.role);
   const isMotoboy = isMotoboyRole(role);
+  const profileTab = useMemo(() => getProfileThemeColors(themeMode, role as number | undefined), [themeMode, role]);
 
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.tabBarActive,
+        tabBarActiveTintColor: profileTab.tabBarActive,
         tabBarInactiveTintColor: colors.tabBarInactive,
-        tabBarStyle: { backgroundColor: colors.tabBarBackground },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: "600" },
+        tabBarStyle: {
+          backgroundColor: colors.tabBarBackground,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
+          paddingTop: 6,
+          paddingBottom: 8,
+          minHeight: 58,
+        },
       }}
     >
       <Tab.Screen
