@@ -75,10 +75,12 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
   );
 }
 
-function MaisStackScreen() {
+function MaisStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
   return (
     <MaisStack.Navigator screenOptions={{ headerShown: false }}>
-      <MaisStack.Screen name="MaisInicio" component={MaisScreen} />
+      <MaisStack.Screen name="MaisInicio">
+        {(props) => <MaisScreen {...props} onLogout={onLogout} />}
+      </MaisStack.Screen>
       <MaisStack.Screen name="MeusDados" component={MeusDadosScreen} />
       <MaisStack.Screen name="Preferencia" component={PreferenciaScreen} />
       <MaisStack.Screen name="MinhasEntregas" component={MinhasEntregasScreen} />
@@ -123,12 +125,13 @@ function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
       </Tab.Screen>
       <Tab.Screen
         name="Mais"
-        component={MaisStackScreen}
         options={{
           tabBarLabel: "Mais",
           tabBarIcon: ({ color, size }) => <Ionicons name="menu-outline" size={size ?? 24} color={color} />,
         }}
-      />
+      >
+        {() => <MaisStackScreen onLogout={onLogout} />}
+      </Tab.Screen>
     </Tab.Navigator>
   );
 }
@@ -137,13 +140,11 @@ export default function App() {
   const { token, isLoading, loadToken, requiresBiometricUnlock, logout: logoutFromStore } = useAuthStore();
   const theme = useThemeStore((s) => s.theme);
   const loadTheme = useThemeStore((s) => s.loadTheme);
-  const [authDone, setAuthDone] = useState(false);
   const [pendingChangePassword, setPendingChangePassword] = useState<{ currentPassword: string } | null>(null);
 
   const logout = useCallback(async () => {
     useDeliveryStore.getState().clearActiveRouteState();
     await logoutFromStore();
-    setAuthDone(false);
   }, [logoutFromStore]);
 
   const navTheme = React.useMemo(
@@ -174,7 +175,6 @@ export default function App() {
   useEffect(() => {
     useAuthStore.getState().setSessionExpiredCallback(() => {
       useDeliveryStore.getState().clearActiveRouteState();
-      setAuthDone(false);
     });
     return () => {
       useAuthStore.getState().setSessionExpiredCallback(null);
@@ -185,7 +185,7 @@ export default function App() {
     return null;
   }
 
-  const showMainApp = (token != null && !requiresBiometricUnlock) || authDone;
+  const showMainApp = token != null && !requiresBiometricUnlock;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -204,7 +204,7 @@ export default function App() {
             <AuthStack.Screen name="Login">
               {({ navigation }) => (
                 <LoginScreen
-                  onLoginSuccess={() => setAuthDone(true)}
+                  onLoginSuccess={() => {}}
                   onMustChangePassword={(currentPassword) => setPendingChangePassword({ currentPassword })}
                   onSelectSubBase={(identifier, password, subBases) =>
                     navigation.navigate("SelectSubBase", {
@@ -222,7 +222,7 @@ export default function App() {
                   identifier={route.params.identifier}
                   password={route.params.password}
                   subBases={route.params.subBases}
-                  onSuccess={() => setAuthDone(true)}
+                  onSuccess={() => {}}
                   onMustChangePassword={(currentPassword) => setPendingChangePassword({ currentPassword })}
                   onBack={() => navigation.goBack()}
                 />

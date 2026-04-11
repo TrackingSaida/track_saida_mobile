@@ -3,7 +3,6 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-nati
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAuthStore } from "../store/authStore";
-import { useDeliveryStore } from "../store/deliveryStore";
 import { useThemeColors } from "../theme/colors";
 import { decodeJwtPayload } from "../utils/jwt";
 import { isMotoboyRole } from "../utils/role";
@@ -17,9 +16,11 @@ export type MaisStackParamList = {
   EntregaDetail: { idSaida: number };
 };
 
-type Props = NativeStackScreenProps<MaisStackParamList, "MaisInicio">;
+type Props = NativeStackScreenProps<MaisStackParamList, "MaisInicio"> & {
+  onLogout: () => Promise<void>;
+};
 
-export default function MaisScreen({ navigation }: Props) {
+export default function MaisScreen({ navigation, onLogout }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(
@@ -67,15 +68,13 @@ export default function MaisScreen({ navigation }: Props) {
     [colors]
   );
   const token = useAuthStore((s) => s.token);
-  const logout = useAuthStore((s) => s.logout);
   const claims = token ? decodeJwtPayload(token) : {};
   const nome = claims.username || "Usuário";
   const role = claims.role as number | undefined;
   const showMotoboyMenu = isMotoboyRole(role);
 
   const handleSair = async () => {
-    useDeliveryStore.getState().clearActiveRouteState();
-    await logout();
+    await onLogout();
   };
 
   return (
