@@ -43,6 +43,8 @@ interface LeituraSaidaItem {
   codigo: string;
   servico?: string | null;
   entregador: string;
+  /** Motoboy para o qual a leitura foi contada (igual à web: duplicidade por entregador+código). */
+  motoboyId: number;
   status: StatusLeituraSaida;
 }
 
@@ -180,6 +182,14 @@ function coresFeedback(tipo: FeedbackTipo): { bg: string; border: string; fg: st
   }
 }
 
+function coresBadgeServicoLabel(servico: string): { bg: string; fg: string } {
+  const s = servico.trim().toLowerCase();
+  if (s.includes("shopee")) return { bg: "rgba(238,77,45,0.15)", fg: "#ee4d2d" };
+  if (s.includes("mercado") || s.includes("livre")) return { bg: "rgba(255,230,0,0.35)", fg: "#2d3277" };
+  if (!s || s === "—") return { bg: "rgba(108,117,125,0.15)", fg: "#6c757d" };
+  return { bg: "rgba(13,110,253,0.12)", fg: "#0d6efd" };
+}
+
 function coresFeedbackMain(tipo: FeedbackTipo, colors: ReturnType<typeof useThemeColors>) {
   switch (tipo) {
     case "sucesso":
@@ -302,6 +312,19 @@ export default function LeituraSaidasScreen() {
           backgroundColor: colors.inputBackground,
         },
         contadorChipText: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
+        servicoBadgesRow: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginTop: 12,
+          justifyContent: "center",
+        },
+        servicoBadge: {
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 999,
+        },
+        servicoBadgeText: { fontSize: 12, fontWeight: "700" },
         ultimaCard: {
           marginTop: 4,
           padding: 14,
@@ -580,25 +603,55 @@ export default function LeituraSaidasScreen() {
   const username = currentUser?.username ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
-  const totalSucesso = useMemo(() => leituras.filter((l) => l.status === "sucesso").length, [leituras]);
-  const totalAlterado = useMemo(() => leituras.filter((l) => l.status === "alterado").length, [leituras]);
-  const totalNaoColetado = useMemo(() => leituras.filter((l) => l.status === "nao_coletado").length, [leituras]);
-  const totalErros = useMemo(() => leituras.filter((l) => l.status === "erro").length, [leituras]);
+  const leiturasDoMotoboy = useMemo(() => {
+    if (motoboyId == null) return [];
+    return leituras.filter((l) => l.motoboyId === motoboyId);
+  }, [leituras, motoboyId]);
+
+  const totalSucesso = useMemo(
+    () => leiturasDoMotoboy.filter((l) => l.status === "sucesso").length,
+    [leiturasDoMotoboy]
+  );
+  const totalAlterado = useMemo(
+    () => leiturasDoMotoboy.filter((l) => l.status === "alterado").length,
+    [leiturasDoMotoboy]
+  );
+  const totalNaoColetado = useMemo(
+    () => leiturasDoMotoboy.filter((l) => l.status === "nao_coletado").length,
+    [leiturasDoMotoboy]
+  );
+  const totalErros = useMemo(
+    () => leiturasDoMotoboy.filter((l) => l.status === "erro").length,
+    [leiturasDoMotoboy]
+  );
   const totalValidas = useMemo(
     () => totalSucesso + totalAlterado + totalNaoColetado,
     [totalSucesso, totalAlterado, totalNaoColetado]
   );
-  const ultimaLeitura = useMemo(() => (leituras.length ? leituras[leituras.length - 1] : undefined), [leituras]);
+  const contagensPorServico = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of leiturasDoMotoboy) {
+      if (l.status === "erro") continue;
+      const label = String(l.servico ?? "").trim() || "Sem serviço";
+      map.set(label, (map.get(label) ?? 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+  }, [leiturasDoMotoboy]);
+
+  const ultimaLeitura = useMemo(
+    () => (leiturasDoMotoboy.length ? leiturasDoMotoboy[leiturasDoMotoboy.length - 1] : undefined),
+    [leiturasDoMotoboy]
+  );
   const listaRecentes = useMemo(() => {
-    const slice = leituras.slice(-LISTA_RECENTES_MAX);
-    const start = Math.max(0, leituras.length - slice.length);
+    const slice = leiturasDoMotoboy.slice(-LISTA_RECENTES_MAX);
+    const start = Math.max(0, leiturasDoMotoboy.length - slice.length);
     return slice
       .map((item, i) => ({
         item,
-        key: `${start + i}-${item.codigo}-${item.status}`,
+        key: `${start + i}-${item.codigo}-${item.status}-${item.motoboyId}`,
       }))
       .reverse();
-  }, [leituras]);
+  }, [leiturasDoMotoboy]);
 
   const fetchMotoboys = useCallback(async () => {
     setCarregandoMotoboys(true);
@@ -684,11 +737,14 @@ export default function LeituraSaidasScreen() {
       markScanned(c);
       scanLocked.current = true;
 
-      if (leituras.some((l) => l.codigo === c && l.status !== "erro")) {
+      const jaLidoPorEsteMotoboy = leituras.some(
+        (l) => l.motoboyId === motoboyId && l.codigo === c && l.status !== "erro"
+      );
+      if (jaLidoPorEsteMotoboy) {
         scanLocked.current = false;
         playSound("warn");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        pushFeedback("duplicado", "Código já lido nesta sessão.", c);
+        pushFeedback("duplicado", "Já registrado para este motoboy nesta sessão.", c);
         return;
       }
 
@@ -706,12 +762,34 @@ export default function LeituraSaidasScreen() {
           qr_payload_raw: parsed.qr_payload_raw,
         });
 
-        const servico = res?.servico ?? null;
+        const inferido = inferServicoSaida(c);
+        const servicoEfetivo =
+          (res.servico != null && String(res.servico).trim() !== "" ? String(res.servico).trim() : null) ||
+          inferido ||
+          null;
+
+        const apiMb = res.motoboy_id;
+        if (apiMb != null && Number(apiMb) !== Number(motoboyId)) {
+          setConflito({
+            codigo: c,
+            idSaida: res.id_saida ?? 0,
+            entregadorAtual: res.entregador ?? "—",
+            usuarioRegistro: res.username ?? "—",
+            novoEntregador: motoboyNome,
+            motoboyId,
+          });
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("info", "Já saiu com outro motoboy. Confirme a troca.", c);
+          return;
+        }
+
         const statusBackend = res?.status ?? "Saiu para entrega";
         const item: LeituraSaidaItem = {
           codigo: c,
-          servico,
+          servico: servicoEfetivo,
           entregador: motoboyNome,
+          motoboyId,
           status: statusBackend === "Não Coletado" ? "nao_coletado" : "sucesso",
         };
 
@@ -760,12 +838,14 @@ export default function LeituraSaidasScreen() {
         }
 
         if (status === 422 && code === "NAO_COLETADO") {
+          const srvNc = inferServicoSaida(c);
           setLeituras((prev) => [
             ...prev,
             {
               codigo: c,
-              servico: null,
+              servico: srvNc || null,
               entregador: motoboyNome,
+              motoboyId,
               status: "nao_coletado",
             },
           ]);
@@ -775,7 +855,7 @@ export default function LeituraSaidasScreen() {
         } else {
           setLeituras((prev) => [
             ...prev,
-            { codigo: c, servico: null, entregador: motoboyNome, status: "erro" },
+            { codigo: c, servico: null, entregador: motoboyNome, motoboyId, status: "erro" },
           ]);
           playSound("error");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -829,6 +909,7 @@ export default function LeituraSaidasScreen() {
           codigo: conflito.codigo,
           servico: null,
           entregador: conflito.novoEntregador,
+          motoboyId: conflito.motoboyId,
           status: "alterado",
         },
       ]);
@@ -952,8 +1033,10 @@ export default function LeituraSaidasScreen() {
         ) : null}
 
         <View style={styles.resumoCard}>
-          <Text style={styles.totalGigante}>{totalValidas}</Text>
-          <Text style={styles.totalLegenda}>Lidos na sessão (válidos)</Text>
+          <Text style={styles.totalGigante}>{motoboySelecionadoOk ? totalValidas : 0}</Text>
+          <Text style={styles.totalLegenda}>
+            Lidos nesta sessão para o motoboy selecionado (válidos)
+          </Text>
           <View style={styles.contadoresRow}>
             <View style={styles.contadorChip}>
               <Text style={styles.contadorChipText}>Sucesso: {totalSucesso}</Text>
@@ -970,6 +1053,20 @@ export default function LeituraSaidasScreen() {
               </View>
             ) : null}
           </View>
+          {motoboySelecionadoOk && contagensPorServico.length > 0 ? (
+            <View style={styles.servicoBadgesRow}>
+              {contagensPorServico.map(([nome, qtd]) => {
+                const cv = coresBadgeServicoLabel(nome);
+                return (
+                  <View key={nome} style={[styles.servicoBadge, { backgroundColor: cv.bg }]}>
+                    <Text style={[styles.servicoBadgeText, { color: cv.fg }]}>
+                      {nome}: {qtd}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
           <View style={styles.ultimaCard}>
             <Text style={styles.ultimaTitulo}>Última leitura</Text>
             {ultimaLeitura ? (
@@ -1025,7 +1122,11 @@ export default function LeituraSaidasScreen() {
             <Text style={styles.listaHeaderText}>até {LISTA_RECENTES_MAX}</Text>
           </View>
           {listaRecentes.length === 0 ? (
-            <Text style={[styles.vazioText, { padding: 16 }]}>Nenhuma leitura nesta sessão</Text>
+            <Text style={[styles.vazioText, { padding: 16 }]}>
+              {!motoboySelecionadoOk
+                ? "Selecione um motoboy para ver as leituras."
+                : "Nenhuma leitura para este motoboy nesta sessão."}
+            </Text>
           ) : (
             <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
               {listaRecentes.map(({ item: l, key }) => {

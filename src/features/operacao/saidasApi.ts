@@ -170,6 +170,9 @@ export interface LerSaidaApiRow {
   servico?: string | null;
   status?: string | null;
   is_grande?: boolean;
+  motoboy_id?: number | null;
+  entregador?: string | null;
+  username?: string | null;
 }
 
 /**
