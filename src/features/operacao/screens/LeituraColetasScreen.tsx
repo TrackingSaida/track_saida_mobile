@@ -21,7 +21,7 @@ import { playSound } from "../../../utils/sound";
 import { enviarColetaUnica, type ServicoColeta } from "../coletasApi";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
-import { parseCodigoQrRaw, toAsciiDigits, isCodigoShopee } from "../parseCodigoQr";
+import { classifyCodigoParaOperacao, type ClassifyCodigoOperacaoResult } from "../parseCodigoQr";
 
 type StatusLeitura = "pendente" | "enviado" | "duplicado" | "erro";
 
@@ -73,26 +73,15 @@ interface ClassifyResult {
 }
 
 function classifyCodigo(rawInput: string): ClassifyResult {
-  const rawInputStr = String(rawInput || "").trim();
-  const raw = toAsciiDigits(rawInputStr).toUpperCase().trim();
-  const allDigits = raw.replace(/\D+/g, "");
-
-  if (/^\d{44}$/.test(allDigits)) {
-    return { ok: false, motivo: "NF-e (44 dígitos) não é aceita como código de coleta." };
+  const r: ClassifyCodigoOperacaoResult = classifyCodigoParaOperacao(rawInput);
+  if (!r.ok) {
+    return { ok: false, motivo: r.motivo };
   }
-
-  const p = parseCodigoQrRaw(rawInput);
-  if (p.fonte === "fallback") {
-    return { ok: false, motivo: "Padrão de código não reconhecido para coleta." };
+  const serv = r.servico as ServicoColeta;
+  if (serv !== "Shopee" && serv !== "Mercado Livre" && serv !== "Avulso") {
+    return { ok: true, servico: "Avulso", codigo: r.codigo, qr_payload_raw: r.qr_payload_raw };
   }
-
-  if (p.qr_payload_raw) {
-    return { ok: true, servico: "Mercado Livre", codigo: p.codigo, qr_payload_raw: p.qr_payload_raw };
-  }
-  if (isCodigoShopee(p.codigo)) {
-    return { ok: true, servico: "Shopee", codigo: p.codigo };
-  }
-  return { ok: true, servico: "Avulso", codigo: p.codigo };
+  return { ok: true, servico: serv, codigo: r.codigo, qr_payload_raw: r.qr_payload_raw };
 }
 
 export default function LeituraColetasScreen() {

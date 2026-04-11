@@ -35,6 +35,53 @@ function isCodigoShopee(codigo: string): boolean {
   return /^BR(\d{13}|\d{12}[A-Z])$/.test(c);
 }
 
+/** Igual ao painel web (`classifyCodigo`): só aceita padrões de envio conhecidos; rejeita fallback e lixo (URLs, NF-e). */
+export type ClassifyCodigoOperacaoResult =
+  | { ok: true; codigo: string; servico: string; qr_payload_raw?: string }
+  | { ok: false; motivo: string };
+
+export function classifyCodigoParaOperacao(rawInput: string): ClassifyCodigoOperacaoResult {
+  const rawInputStr = String(rawInput || "").trim();
+  if (!rawInputStr) {
+    return { ok: false, motivo: "Informe um código." };
+  }
+
+  const allDigits = toAsciiDigits(rawInputStr).replace(/\D+/g, "");
+  if (/^\d{44}$/.test(allDigits)) {
+    return { ok: false, motivo: "NF-e (44 dígitos) — use o código da etiqueta do envio." };
+  }
+
+  if (/^(https?|exp|expo|data):/i.test(rawInputStr)) {
+    return { ok: false, motivo: "Link ou QR de sistema não é código de envio." };
+  }
+
+  const p = parseCodigoQrRaw(rawInputStr);
+  if (p.fonte === "fallback") {
+    return { ok: false, motivo: "Código não reconhecido. Use etiqueta Shopee, Mercado Livre ou avulso válido." };
+  }
+
+  const codigo = p.codigo.trim();
+  if (!codigo) {
+    return { ok: false, motivo: "Código vazio após leitura." };
+  }
+
+  let servico: string;
+  if (p.qr_payload_raw) {
+    servico = "Mercado Livre";
+  } else if (isCodigoShopee(codigo)) {
+    servico = "Shopee";
+  } else {
+    servico = inferServicoSaida(codigo);
+  }
+
+  return {
+    ok: true,
+    codigo,
+    servico,
+    ...(p.qr_payload_raw ? { qr_payload_raw: p.qr_payload_raw } : {}),
+  };
+}
+
 /** Heurística para POST /saidas/ler (campo servico). */
 export function inferServicoSaida(codigo: string): string {
   const c = codigo.trim().toUpperCase();

@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -40,7 +40,7 @@ import {
   type SaidaHistoricoItem,
   type MotoboyItem,
 } from "../saidasApi";
-import { parseCodigoQrRaw, inferServicoSaida } from "../parseCodigoQr";
+import { parseCodigoQrRaw, inferServicoSaida, classifyCodigoParaOperacao } from "../parseCodigoQr";
 
 /** Consulta por câmera: apenas QR (moldura central), como na leitura de coleta. */
 const CONSULTA_BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -151,6 +151,15 @@ export default function ConsultaCodigosScreen() {
   const [voiceModalComp, setVoiceModalComp] = useState<React.ComponentType<VoiceConsultaModalProps> | null>(
     null
   );
+  /** Aviso não bloqueante (voz / permissões); não usa Alert. */
+  const [voiceBanner, setVoiceBanner] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!voiceBanner) return;
+    const t = setTimeout(() => setVoiceBanner(null), 8000);
+    return () => clearTimeout(t);
+  }, [voiceBanner]);
+
   const [registrarLeituraVisible, setRegistrarLeituraVisible] = useState(false);
 
   const [selectedDetail, setSelectedDetail] = useState<SaidaDetail | null>(null);
@@ -189,6 +198,19 @@ export default function ConsultaCodigosScreen() {
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 20, paddingBottom: 48 },
         hint: { fontSize: 14, color: colors.textSecondary, marginBottom: 14 },
+        voiceBanner: {
+          flexDirection: "row",
+          alignItems: "flex-start",
+          gap: 10,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          borderRadius: 10,
+          backgroundColor: "rgba(220,53,69,0.12)",
+          borderWidth: 1,
+          borderColor: "rgba(220,53,69,0.35)",
+          marginBottom: 12,
+        },
+        voiceBannerText: { flex: 1, fontSize: 14, color: colors.text, lineHeight: 20 },
         searchRow: {
           flexDirection: "row",
           alignItems: "center",
@@ -473,6 +495,28 @@ export default function ConsultaCodigosScreen() {
     [buildParams, podeLerSaida, currentUser?.sub_base]
   );
 
+  const handleVoiceNotice = useCallback((message: string) => {
+    setVoiceBanner(message);
+  }, []);
+
+  const handleVoiceCancel = useCallback(() => {
+    setVoiceVisible(false);
+    setVoiceModalComp(null);
+  }, []);
+
+  const handleVoiceDone = useCallback(
+    (text: string) => {
+      setVoiceVisible(false);
+      setVoiceModalComp(null);
+      const t = text.replace(/\s+/g, " ").trim();
+      if (t) {
+        setSearchInput(t);
+        void executarBusca(0, { codigoOverride: t });
+      }
+    },
+    [executarBusca]
+  );
+
   const handleSubmitSearch = useCallback(() => {
     void executarBusca(0);
   }, [executarBusca]);
@@ -542,8 +586,12 @@ export default function ConsultaCodigosScreen() {
       rawCodigo: string,
       opts?: { registrarNaoColetado?: boolean; motoboy?: { id: number; nome: string } }
     ) => {
-      const parsed = parseCodigoQrRaw(String(rawCodigo || ""));
-      const c = parsed.codigo.trim();
+      const cls = classifyCodigoParaOperacao(String(rawCodigo || ""));
+      if (!cls.ok) {
+        Alert.alert("Código inválido", cls.motivo);
+        return;
+      }
+      const c = cls.codigo.trim();
       if (!c || !podeLerSaida) return;
 
       let mb = opts?.motoboy;
@@ -576,9 +624,9 @@ export default function ConsultaCodigosScreen() {
           motoboy_id: mb.id,
           entregador: mb.nome,
           codigo: c,
-          servico: inferServicoSaida(c),
+          servico: cls.servico,
           registrar_nao_coletado: opts?.registrarNaoColetado,
-          qr_payload_raw: parsed.qr_payload_raw,
+          qr_payload_raw: cls.qr_payload_raw,
         });
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert("Sucesso", "Leitura registrada.");
@@ -672,10 +720,10 @@ export default function ConsultaCodigosScreen() {
       const mod = await import("../components/VoiceConsultaModal");
       setVoiceModalComp(() => mod.default);
       setVoiceVisible(true);
-    } catch {
-      Alert.alert(
-        "Indisponível",
-        "Reconhecimento de voz não está disponível neste build. É necessário um development build com o módulo nativo expo-speech-recognition (no Expo Go costuma faltar)."
+    } catch (err) {
+      console.error("[ConsultaCodigosScreen] failed to load VoiceConsultaModal", err);
+      setVoiceBanner(
+        "Reconhecimento de voz não está disponível neste build. Use texto ou câmera. Em desenvolvimento, use um dev build com o módulo nativo (no Expo Go costuma faltar)."
       );
     }
   }, []);
@@ -818,6 +866,19 @@ export default function ConsultaCodigosScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.hint}>Digite ou escaneie o código e confirme. Toque no microfone para ditar.</Text>
+
+          {voiceBanner ? (
+            <View style={styles.voiceBanner}>
+              <Text style={styles.voiceBannerText}>{voiceBanner}</Text>
+              <TouchableOpacity
+                onPress={() => setVoiceBanner(null)}
+                accessibilityLabel="Fechar aviso de voz"
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close-circle" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           <View style={styles.searchRow}>
             <TextInput
@@ -1036,19 +1097,9 @@ export default function ConsultaCodigosScreen() {
       {voiceVisible && VoiceModalResolved ? (
         <VoiceModalResolved
           visible
-          onDone={(text) => {
-            setVoiceVisible(false);
-            setVoiceModalComp(null);
-            const t = text.replace(/\s+/g, " ").trim();
-            if (t) {
-              setSearchInput(t);
-              void executarBusca(0, { codigoOverride: t });
-            }
-          }}
-          onCancel={() => {
-            setVoiceVisible(false);
-            setVoiceModalComp(null);
-          }}
+          onDone={handleVoiceDone}
+          onCancel={handleVoiceCancel}
+          onVoiceNotice={handleVoiceNotice}
           overlayBg="rgba(0,0,0,0.45)"
           cardBg={colors.backgroundCard}
           textColor={colors.text}

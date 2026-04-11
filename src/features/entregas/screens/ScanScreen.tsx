@@ -20,6 +20,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect } from "@react-navigation/native";
 import { scanCodigo, assumirEntrega, desatribuirEntrega, getEntrega } from "../api";
+import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { playSound } from "../../../utils/sound";
@@ -304,10 +305,18 @@ export default function ScanScreen({ navigation }: Props) {
 
   const processarCodigo = useCallback(
     async (raw: string) => {
-      const c = String(raw || "").trim();
-      if (!c || scanLocked.current) return;
-      if (isRecentlyScanned(c)) return;
+      const rawTrim = String(raw || "").trim();
+      if (!rawTrim || scanLocked.current) return;
+      const cls = classifyCodigoParaOperacao(rawTrim);
+      if (!cls.ok) {
+        playSound("error");
+        Alert.alert("Código inválido", cls.motivo);
+        return;
+      }
+      const c = cls.codigo;
+      if (isRecentlyScanned(c) || isRecentlyScanned(rawTrim)) return;
       markScanned(c);
+      markScanned(rawTrim);
       scanLocked.current = true;
       setLoading(true);
       setConflito(null);

@@ -26,7 +26,7 @@ import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
 import { effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
 import { lerSaidaAdmin, listMotoboysOperacao, updateSaidaAdmin, type MotoboyItem } from "../saidasApi";
-import { parseCodigoQrRaw, inferServicoSaida } from "../parseCodigoQr";
+import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
 
 const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
 const CORNER_LENGTH = 40;
@@ -727,9 +727,17 @@ export default function LeituraSaidasScreen() {
       }
 
       const rawStr = String(raw || "").trim();
-      const parsed = parseCodigoQrRaw(rawStr);
-      const c = parsed.codigo.trim();
-      if (!c || scanLocked.current) return;
+      if (!rawStr || scanLocked.current) return;
+
+      const cls = classifyCodigoParaOperacao(rawStr);
+      if (!cls.ok) {
+        playSound("error");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        pushFeedback("erro", cls.motivo, rawStr.slice(0, 80));
+        return;
+      }
+      const c = cls.codigo;
+      if (!c) return;
 
       if (isRecentlyScanned(rawStr) || isRecentlyScanned(c)) return;
 
@@ -758,8 +766,8 @@ export default function LeituraSaidasScreen() {
           motoboy_id: motoboyId,
           entregador: motoboyNome,
           codigo: c,
-          servico: inferServicoSaida(c),
-          qr_payload_raw: parsed.qr_payload_raw,
+          servico: cls.servico,
+          qr_payload_raw: cls.qr_payload_raw,
         });
 
         const inferido = inferServicoSaida(c);
