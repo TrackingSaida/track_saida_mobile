@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -111,7 +111,15 @@ function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
           ),
         }}
       >
-        {() => (isMotoboy ? <HomeStackScreen onLogout={onLogout} /> : <StaffHomeStack />)}
+        {() =>
+          isMotoboy ? (
+            <HomeStackScreen onLogout={onLogout} />
+          ) : (
+            <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
+              <StaffHomeStack />
+            </SafeAreaView>
+          )
+        }
       </Tab.Screen>
       <Tab.Screen
         name="Mais"

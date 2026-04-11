@@ -20,6 +20,7 @@ export default function StaffHomeStack() {
         headerTintColor: colors.primary,
         headerTitleStyle: { color: colors.text, fontWeight: "600" },
         headerShadowVisible: false,
+        statusBarTranslucent: false,
       }}
     >
       <Stack.Screen name="StaffHome" component={StaffHomeScreen} options={{ headerShown: false }} />

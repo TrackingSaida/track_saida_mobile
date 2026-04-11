@@ -52,12 +52,18 @@ export interface ListSaidasParams {
   somente_g?: boolean;
   localizar?: string;
   codigo?: string;
+  /** Quando true, o backend compara o código com igualdade (case-insensitive); sem substring. */
+  codigoExato?: boolean;
   sort?: string;
   limit?: number;
   offset?: number;
 }
 
 export interface SaidaListItem {
+  /** PK da saída — devolvido por GET /saidas/listar (items[].id_saida) */
+  id_saida?: number;
+  /** Base lógica do owner; o listar já filtra por JWT, o app refiltra por segurança. */
+  sub_base?: string | null;
   id?: number | string;
   codigo?: string;
   status?: string;
@@ -67,6 +73,7 @@ export interface SaidaListItem {
   entregador?: string | null;
   is_grande?: boolean;
   tsFmt?: string;
+  timestamp?: string;
   [key: string]: unknown;
 }
 
@@ -92,6 +99,7 @@ export async function listSaidas(params: ListSaidasParams): Promise<ListSaidasRe
   if (params.somente_g) search.set("somente_g", "true");
   if (params.localizar) search.set("localizar", params.localizar);
   if (params.codigo) search.set("codigo", params.codigo);
+  if (params.codigoExato) search.set("codigo_exato", "true");
   if (params.sort) search.set("sort", params.sort);
   search.set("limit", String(limit));
   search.set("offset", String(offset));
