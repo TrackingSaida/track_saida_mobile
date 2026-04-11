@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { changePassword } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
+import { formatApiError } from "../utils/formatApiError";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -54,11 +55,7 @@ export default function ChangePasswordRequiredScreen({ currentPassword, onDone }
       await logout();
       onDone();
     } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : "Erro ao alterar senha.";
-      Alert.alert("Erro", String(msg || "Tente novamente."));
+      Alert.alert("Erro", formatApiError(err, "Não foi possível alterar a senha. Tente novamente."));
     } finally {
       setLoading(false);
     }

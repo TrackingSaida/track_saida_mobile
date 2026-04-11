@@ -26,6 +26,7 @@ import { useDeliveryStore } from "../store/deliveryStore";
 import { getMotivosAusencia } from "../features/entregas/api";
 import { getOrderedRouteDeliveries, computeRouteStats, groupOrderedByAddress, computeRouteStatsFromGroups, addressAndRecipientKey, servicoTipo, type GroupedStop } from "../features/entregas/utils/routeUtils";
 import { playSound } from "../utils/sound";
+import { formatApiError } from "../utils/formatApiError";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
 import { fetchOsrmRoutePolyline } from "../features/entregas/utils/osrm";
 import type { EntregaListItem, MotivoAusencia } from "../features/entregas/types";
@@ -362,11 +363,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       setDeliveryForAusente(null);
       setSelectedDelivery(null);
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : "Erro ao salvar.";
-      Alert.alert("Erro", String(msg));
+      Alert.alert("Erro", formatApiError(e, "Erro ao salvar."));
     } finally {
       setSaving(false);
     }

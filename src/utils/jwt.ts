@@ -1,9 +1,23 @@
-export function decodeJwtPayload(token: string): { username?: string; sub_base?: string } {
+export interface JwtClaims {
+  username?: string;
+  sub_base?: string;
+  role?: number;
+  tipo_owner?: string;
+  ignorar_coleta?: boolean;
+  modo_operacao?: string;
+  owner_valor?: string;
+  motoboy_id?: number;
+  pode_ler_coleta?: boolean;
+  pode_ler_saida?: boolean;
+  [key: string]: unknown;
+}
+
+export function decodeJwtPayload(token: string): JwtClaims {
   try {
     const parts = token.split(".");
     if (parts.length < 2) return {};
     const payload = JSON.parse(atob(parts[1]));
-    return { username: payload.username, sub_base: payload.sub_base };
+    return payload as JwtClaims;
   } catch {
     return {};
   }

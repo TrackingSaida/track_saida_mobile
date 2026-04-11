@@ -15,6 +15,12 @@ export interface MotoboySelectSubBaseResponse {
   must_change_password?: boolean;
 }
 
+export interface UserTokenResponse {
+  access_token: string;
+  token_type: string;
+  must_change_password?: boolean;
+}
+
 export async function changePassword(
   token: string,
   currentPassword: string,
@@ -28,13 +34,26 @@ export async function changePassword(
   return data;
 }
 
+export async function userLogin(
+  identifier: string,
+  password: string
+): Promise<UserTokenResponse> {
+  // Sempre enviar strings: undefined em JSON.stringify omite a chave e o backend responde "Field required".
+  const { data } = await axios.post<UserTokenResponse>(
+    `${API_BASE_URL}/auth/token`,
+    { identifier: identifier ?? "", password: password ?? "" },
+    { headers: { "Content-Type": "application/json" } }
+  );
+  return data;
+}
+
 export async function motoboyLogin(
   identifier: string,
   password: string
 ): Promise<MotoboyLoginResponse> {
   const { data } = await axios.post<MotoboyLoginResponse>(
     `${API_BASE_URL}/auth/motoboy-login`,
-    { identifier, password },
+    { identifier: identifier ?? "", password: password ?? "" },
     { headers: { "Content-Type": "application/json" } }
   );
   return data;
@@ -47,7 +66,11 @@ export async function motoboySelectSubBase(
 ): Promise<MotoboySelectSubBaseResponse> {
   const { data } = await axios.post<MotoboySelectSubBaseResponse>(
     `${API_BASE_URL}/auth/motoboy-select-subbase`,
-    { identifier, password, sub_base: subBase },
+    {
+      identifier: identifier ?? "",
+      password: password ?? "",
+      sub_base: subBase ?? "",
+    },
     { headers: { "Content-Type": "application/json" } }
   );
   return data;

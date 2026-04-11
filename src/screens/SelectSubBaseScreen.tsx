@@ -12,6 +12,7 @@ import { motoboySelectSubBase } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { offerBiometricAfterLogin } from "../utils/biometricOffer";
+import { formatApiError } from "../utils/formatApiError";
 
 type Props = {
   identifier: string;
@@ -72,11 +73,7 @@ export default function SelectSubBaseScreen({
         await offerBiometricAfterLogin(setBiometricEnabled, onSuccess);
       }
     } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : "Erro ao selecionar sub_base.";
-      Alert.alert("Erro", String(msg || "Falha."));
+      Alert.alert("Erro", formatApiError(err, "Não foi possível selecionar a base. Tente novamente."));
     } finally {
       setLoading(false);
     }

@@ -16,10 +16,11 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
-import { motoboyLogin } from "../api/auth";
+import { motoboyLogin, userLogin } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { offerBiometricAfterLogin } from "../utils/biometricOffer";
+import { formatApiError } from "../utils/formatApiError";
 
 const SAVED_IDENTIFIER_KEY = "saved_login_identifier";
 const SAVED_PASSWORD_KEY = "saved_login_password";
@@ -97,27 +98,64 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
     }
     setLoading(true);
     try {
-      const res = await motoboyLogin(id, pwd);
-      if (res.multiple_sub_base && res.sub_bases && res.sub_bases.length > 1) {
-        onSelectSubBase(id, pwd, res.sub_bases);
-      } else if (res.access_token) {
-        if (res.must_change_password && onMustChangePassword) {
+      // Primeiro tenta login como motoboy (fluxo atual do app).
+      // Se não for motoboy (403/404), cai para login de usuário normal (Admin/Operador) via /auth/token.
+      try {
+        const res = await motoboyLogin(id, pwd);
+        if (res.multiple_sub_base && res.sub_bases && res.sub_bases.length > 1) {
+          onSelectSubBase(id, pwd, res.sub_bases);
+        } else if (res.access_token) {
+          if (res.must_change_password && onMustChangePassword) {
+            await setToken(res.access_token);
+            onMustChangePassword(pwd);
+            return;
+          }
+          await saveOrClearCredentials(id, pwd, rememberMe);
           await setToken(res.access_token);
-          onMustChangePassword(pwd);
+          await offerBiometricAfterLogin(setBiometricEnabled, onLoginSuccess);
+        } else {
+          Alert.alert("Erro", "Resposta inesperada do servidor.");
+        }
+        return;
+      } catch (err: unknown) {
+        const anyErr = err as { response?: { status?: number; data?: { detail?: unknown } } };
+        const status = anyErr.response?.status;
+
+        // 401: credenciais inválidas – não tenta outro tipo de login.
+        if (status === 401) {
+          Alert.alert("Erro", formatApiError(err, "Login ou senha incorretos."));
           return;
         }
-        await saveOrClearCredentials(id, pwd, rememberMe);
-        await setToken(res.access_token);
-        await offerBiometricAfterLogin(setBiometricEnabled, onLoginSuccess);
-      } else {
-        Alert.alert("Erro", "Resposta inesperada do servidor.");
+
+        // 403/404: não é motoboy ou sem perfil de motoboy → tenta login normal (Admin/Operador).
+        if (status === 403 || status === 404) {
+          try {
+            const userRes = await userLogin(id, pwd);
+            if (userRes.access_token) {
+              if (userRes.must_change_password && onMustChangePassword) {
+                await setToken(userRes.access_token);
+                onMustChangePassword(pwd);
+                return;
+              }
+              await saveOrClearCredentials(id, pwd, rememberMe);
+              await setToken(userRes.access_token);
+              await offerBiometricAfterLogin(setBiometricEnabled, onLoginSuccess);
+              return;
+            }
+            Alert.alert("Erro", "Resposta inesperada do servidor.");
+            return;
+          } catch (errUser: unknown) {
+            Alert.alert("Erro", formatApiError(errUser, "Falha no login."));
+            return;
+          }
+        }
+
+        // Outros erros inesperados do endpoint de motoboy.
+        Alert.alert("Erro", formatApiError(err, "Falha no login."));
+        return;
       }
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : "Login ou senha incorretos.";
-      Alert.alert("Erro", String(msg || "Falha no login."));
+    } catch (e: unknown) {
+      Alert.alert("Erro", formatApiError(e, "Falha inesperada ao entrar. Tente novamente."));
     } finally {
       setLoading(false);
     }

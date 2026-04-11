@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
+import { decodeJwtPayload, type JwtClaims } from "../utils/jwt";
 
 const TOKEN_KEY = "access_token";
 const BIOMETRIC_ENABLED_KEY = "biometric_enabled";
@@ -9,6 +10,7 @@ let sessionExpiredCallback: (() => void) | null = null;
 
 interface AuthState {
   token: string | null;
+  currentUser: JwtClaims | null;
   isLoading: boolean;
   requiresBiometricUnlock: boolean;
   setToken: (token: string | null) => Promise<void>;
@@ -24,16 +26,19 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
+  currentUser: null,
   isLoading: true,
   requiresBiometricUnlock: false,
 
   setToken: async (token: string | null) => {
     if (token) {
       await SecureStore.setItemAsync(TOKEN_KEY, token);
+      const claims = decodeJwtPayload(token);
+      set({ token, currentUser: claims });
     } else {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
+      set({ token: null, currentUser: null });
     }
-    set({ token });
   },
 
   loadToken: async () => {
@@ -43,29 +48,46 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         (await SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY)) === "true";
 
       if (!token) {
-        set({ token: null, isLoading: false, requiresBiometricUnlock: false });
+        set({
+          token: null,
+          currentUser: null,
+          isLoading: false,
+          requiresBiometricUnlock: false,
+        });
         return;
       }
 
       if (!biometricEnabled) {
-        set({ token, isLoading: false, requiresBiometricUnlock: false });
+        const claims = decodeJwtPayload(token);
+        set({
+          token,
+          currentUser: claims,
+          isLoading: false,
+          requiresBiometricUnlock: false,
+        });
         return;
       }
 
       set({
         token: null,
+        currentUser: null,
         isLoading: false,
         requiresBiometricUnlock: true,
       });
     } catch {
-      set({ token: null, isLoading: false, requiresBiometricUnlock: false });
+      set({
+        token: null,
+        currentUser: null,
+        isLoading: false,
+        requiresBiometricUnlock: false,
+      });
     }
   },
 
   logout: async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY);
-    set({ token: null, requiresBiometricUnlock: false });
+    set({ token: null, currentUser: null, requiresBiometricUnlock: false });
   },
 
   onUnauthorized: async () => {
@@ -95,7 +117,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (!success) return false;
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
       if (!token) return false;
-      set({ token, requiresBiometricUnlock: false });
+      const claims = decodeJwtPayload(token);
+      set({ token, currentUser: claims, requiresBiometricUnlock: false });
       return true;
     } catch {
       return false;
