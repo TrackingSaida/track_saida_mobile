@@ -12,6 +12,7 @@ import {
 import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
@@ -22,6 +23,7 @@ import type { EntregaListItem } from "../types";
 import type { ServicoTipo } from "../utils/servico";
 import { servicoTipo, SERVICO_ORDER } from "../utils/servico";
 import { parseOcrToAddress, parseVoiceToAddress } from "../utils/ocrAddress";
+import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
@@ -131,6 +133,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     clearActiveRouteState,
     activeRouteId,
   } = useDeliveryStore();
+  const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
+  const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
 
   const [sequenciaAtiva, setSequenciaAtiva] = useState(false);
   const [showOrdemModal, setShowOrdemModal] = useState(false);
@@ -147,9 +151,15 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const voiceResolveRef = useRef<(v: AddressCandidate[] | AddressCandidate | null) => void>(() => {});
   const voiceRejectRef = useRef<() => void>(() => {});
 
-  useEffect(() => {
-    loadDeliveries();
-  }, [loadDeliveries]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!roteirizacaoHabilitada) {
+        navigation.replace("EntregasList");
+        return;
+      }
+      void loadDeliveries({ onlyToday: somenteHojePendentes });
+    }, [roteirizacaoHabilitada, navigation, loadDeliveries, somenteHojePendentes])
+  );
 
   const total = pendingDeliveries.length;
   const comEndereco = deliveriesWithAddress.length;

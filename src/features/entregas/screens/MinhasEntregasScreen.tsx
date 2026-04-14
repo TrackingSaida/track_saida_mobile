@@ -1,34 +1,25 @@
 import React, { useCallback, useState, useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeColors } from "../../../theme/colors";
-import { getEntregas } from "../api";
-import type { EntregaListItem } from "../types";
-import { getDiasQuinzenaAtualEAnterior, formatarDiaParaExibicao } from "../utils/quinzena";
+import { getExtratoFinanceiro } from "../api";
+import type { ExtratoFinanceiro, ExtratoStatusFiltro } from "../types";
+import { formatarDiaParaExibicao, getQuinzenaAtualIntervalo } from "../utils/quinzena";
 import type { MaisStackParamList } from "../../../screens/MaisScreen";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "MinhasEntregas">;
 
-function getDayKey(item: EntregaListItem): string | null {
-  const dataStr = item.data_hora_entrega || item.data;
-  if (!dataStr) return null;
-  try {
-    const d = new Date(dataStr);
-    if (isNaN(d.getTime())) return null;
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  } catch {
-    return null;
-  }
+function formatCurrencyBRL(value: string): string {
+  const num = Number(value || 0);
+  return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 export default function MinhasEntregasScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
+  const quinzena = useMemo(() => getQuinzenaAtualIntervalo(), []);
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -38,82 +29,105 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
         backText: { fontSize: 16, color: colors.primary },
         title: { fontSize: 22, fontWeight: "700", marginBottom: 16, paddingHorizontal: 16, color: colors.text },
         listContent: { padding: 16, paddingBottom: 48 },
-        row: {
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
+        filtersCard: {
           backgroundColor: colors.backgroundCard,
-          padding: 16,
+          borderRadius: 12,
+          padding: 12,
+          marginBottom: 12,
+        },
+        filterLabel: { color: colors.textSecondary, fontSize: 13, marginBottom: 6 },
+        filterRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+        input: {
+          flex: 1,
+          borderWidth: 1,
+          borderColor: colors.separator,
+          borderRadius: 8,
+          paddingHorizontal: 10,
+          paddingVertical: 8,
+          color: colors.text,
+          backgroundColor: colors.background,
+        },
+        actionsRow: { flexDirection: "row", gap: 8 },
+        chip: {
+          flex: 1,
+          borderRadius: 8,
+          paddingVertical: 10,
+          alignItems: "center",
+          backgroundColor: colors.background,
+        },
+        chipActive: { backgroundColor: colors.primary },
+        chipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "600" },
+        chipTextActive: { color: colors.primaryContrast },
+        btnAplicar: {
+          marginTop: 8,
+          backgroundColor: colors.primary,
+          borderRadius: 8,
+          alignItems: "center",
+          paddingVertical: 10,
+        },
+        btnAplicarText: { color: colors.primaryContrast, fontWeight: "700" },
+        resumoGrid: { flexDirection: "row", gap: 8, marginBottom: 12 },
+        resumoCard: {
+          flex: 1,
+          backgroundColor: colors.backgroundCard,
+          borderRadius: 12,
+          padding: 12,
+        },
+        resumoLabel: { color: colors.textSecondary, fontSize: 12, marginBottom: 6 },
+        resumoValue: { color: colors.text, fontSize: 18, fontWeight: "800" },
+        row: {
+          backgroundColor: colors.backgroundCard,
+          padding: 14,
           marginBottom: 8,
           borderRadius: 12,
-          shadowColor: colors.shadowColor,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.06,
-          shadowRadius: 4,
-          elevation: 2,
         },
-        rowLeft: { flex: 1 },
-        rowDate: { fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 4 },
-        rowResumo: { fontSize: 14, color: colors.textSecondary },
-        chevron: { fontSize: 24, color: colors.placeholder, marginLeft: 8 },
+        rowTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
+        rowDate: { fontSize: 16, fontWeight: "600", color: colors.text },
+        rowValue: { fontSize: 15, fontWeight: "700", color: colors.success },
+        rowResumo: { fontSize: 13, color: colors.textSecondary },
+        emptyText: { color: colors.textSecondary, textAlign: "center", marginTop: 24 },
+        footerInfo: {
+          backgroundColor: colors.backgroundCard,
+          padding: 12,
+          borderRadius: 10,
+          marginTop: 10,
+          marginBottom: 24,
+        },
+        footerInfoText: { color: colors.textSecondary, fontSize: 12, lineHeight: 18 },
       }),
     [colors]
   );
   const [loading, setLoading] = useState(true);
-  const [finalizadas, setFinalizadas] = useState<EntregaListItem[]>([]);
-  const [ausentes, setAusentes] = useState<EntregaListItem[]>([]);
+  const [dataInicio, setDataInicio] = useState(quinzena.inicio);
+  const [dataFim, setDataFim] = useState(quinzena.fim);
+  const [statusFiltro, setStatusFiltro] = useState<ExtratoStatusFiltro>("grupo_entregue");
+  const [extrato, setExtrato] = useState<ExtratoFinanceiro | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (custom?: { dataInicio?: string; dataFim?: string; statusFiltro?: ExtratoStatusFiltro }) => {
     setLoading(true);
     try {
-      const [fin, aus] = await Promise.all([getEntregas("finalizadas"), getEntregas("ausentes")]);
-      setFinalizadas(fin ?? []);
-      setAusentes(aus ?? []);
+      const res = await getExtratoFinanceiro({
+        data_inicio: custom?.dataInicio ?? dataInicio,
+        data_fim: custom?.dataFim ?? dataFim,
+        status_filtro: custom?.statusFiltro ?? statusFiltro,
+      });
+      setExtrato(res);
     } catch {
-      setFinalizadas([]);
-      setAusentes([]);
+      setExtrato(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dataInicio, dataFim, statusFiltro]);
 
   useFocusEffect(
     useCallback(() => {
-      load();
+      void load();
     }, [load])
   );
 
-  const diasQuinzena = useMemo(() => getDiasQuinzenaAtualEAnterior(), []);
-
-  const porDia = useMemo(() => {
-    const all = [...(finalizadas ?? []), ...(ausentes ?? [])];
-    const map: Record<string, { entregues: number; falhas: number; total: number }> = {};
-    diasQuinzena.forEach((d) => {
-      map[d] = { entregues: 0, falhas: 0, total: 0 };
-    });
-    all.forEach((item) => {
-      const key = getDayKey(item);
-      if (!key || !map[key]) return;
-      if (item.exibicao === "Entregue" || item.status === "ENTREGUE") {
-        map[key].entregues += 1;
-      } else {
-        map[key].falhas += 1;
-      }
-      map[key].total += 1;
-    });
-    return diasQuinzena
-      .filter((d) => map[d].total > 0)
-      .map((data) => ({
-        data,
-        label: formatarDiaParaExibicao(data),
-        ...map[data],
-      }))
-      .sort((a, b) => b.data.localeCompare(a.data));
-  }, [finalizadas, ausentes, diasQuinzena]);
-
-  const handleDiaPress = (data: string) => {
-    navigation.navigate("MinhasEntregasDia", { data });
-  };
+  const handleAplicar = useCallback(() => {
+    void load();
+  }, [load]);
 
   if (loading) {
     return (
@@ -129,25 +143,93 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
         <Text style={styles.backText}>← Voltar</Text>
       </TouchableOpacity>
       <Text style={styles.title}>Minhas Entregas</Text>
+      <View style={styles.listContent}>
+        <View style={styles.filtersCard}>
+          <Text style={styles.filterLabel}>Período (YYYY-MM-DD)</Text>
+          <View style={styles.filterRow}>
+            <TextInput
+              style={styles.input}
+              value={dataInicio}
+              onChangeText={setDataInicio}
+              placeholder="2026-04-01"
+              placeholderTextColor={colors.placeholder}
+            />
+            <TextInput
+              style={styles.input}
+              value={dataFim}
+              onChangeText={setDataFim}
+              placeholder="2026-04-15"
+              placeholderTextColor={colors.placeholder}
+            />
+          </View>
+          <Text style={styles.filterLabel}>Status</Text>
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              style={[styles.chip, statusFiltro === "grupo_entregue" && styles.chipActive]}
+              onPress={() => setStatusFiltro("grupo_entregue")}
+            >
+              <Text style={[styles.chipText, statusFiltro === "grupo_entregue" && styles.chipTextActive]}>
+                Entregue (Saiu/Em rota/Entregue)
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.chip, statusFiltro === "todos" && styles.chipActive]}
+              onPress={() => setStatusFiltro("todos")}
+            >
+              <Text style={[styles.chipText, statusFiltro === "todos" && styles.chipTextActive]}>
+                Todos (inclui cancelados)
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.btnAplicar} onPress={handleAplicar}>
+            <Text style={styles.btnAplicarText}>Aplicar filtros</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.resumoGrid}>
+          <View style={styles.resumoCard}>
+            <Text style={styles.resumoLabel}>Valor a receber</Text>
+            <Text style={styles.resumoValue}>
+              {formatCurrencyBRL(extrato?.valor_a_receber ?? "0")}
+            </Text>
+          </View>
+          <View style={styles.resumoCard}>
+            <Text style={styles.resumoLabel}>Pacotes associados</Text>
+            <Text style={styles.resumoValue}>{extrato?.total_pacotes_associados ?? 0}</Text>
+          </View>
+        </View>
+      </View>
       <FlatList
-        data={porDia}
+        data={extrato?.dias ?? []}
         keyExtractor={(item) => item.data}
         contentContainerStyle={styles.listContent}
+        ListEmptyComponent={<Text style={styles.emptyText}>Sem dados no período selecionado.</Text>}
         renderItem={({ item }) => {
-          const resumo =
-            item.falhas === 0
-              ? `${item.total} entregues (${item.entregues} bem-sucedidas)`
-              : `${item.total} entregues (${item.entregues} bem-sucedidas, ${item.falhas} falhas)`;
           return (
-            <TouchableOpacity style={styles.row} onPress={() => handleDiaPress(item.data)} activeOpacity={0.7}>
-              <View style={styles.rowLeft}>
-                <Text style={styles.rowDate}>{item.label}</Text>
-                <Text style={styles.rowResumo}>{resumo}</Text>
+            <View style={styles.row}>
+              <View style={styles.rowTop}>
+                <Text style={styles.rowDate}>{formatarDiaParaExibicao(item.data)}</Text>
+                <Text style={styles.rowValue}>{formatCurrencyBRL(item.valor_dia)}</Text>
               </View>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
+              <Text style={styles.rowResumo}>
+                Filtrados: {item.total_pacotes_filtrados} | Associados: {item.total_pacotes_associados}
+              </Text>
+            </View>
           );
         }}
+        ListFooterComponent={
+          <View style={styles.footerInfo}>
+            <Text style={styles.footerInfoText}>
+              Período: {extrato?.periodo_inicio ?? dataInicio} até {extrato?.periodo_fim ?? dataFim}
+            </Text>
+            <Text style={styles.footerInfoText}>
+              Cancelados no período: {extrato?.total_cancelados ?? 0}
+            </Text>
+            <Text style={styles.footerInfoText}>
+              Serviços filtrados: Shopee {extrato?.resumo_por_servico?.shopee ?? 0} | Flex {extrato?.resumo_por_servico?.flex ?? 0} | Avulso {extrato?.resumo_por_servico?.avulso ?? 0}
+            </Text>
+          </View>
+        }
       />
     </View>
   );

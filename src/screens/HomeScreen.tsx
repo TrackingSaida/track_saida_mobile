@@ -14,11 +14,12 @@ import { Ionicons } from "@expo/vector-icons";
 import GradientScreenHeader from "../components/ui/GradientScreenHeader";
 import { useAuthStore } from "../store/authStore";
 import { useThemeStore } from "../store/themeStore";
+import { useMotoboyPrefsStore } from "../store/motoboyPrefsStore";
 import { useThemeColors } from "../theme/colors";
 import { space, radius } from "../theme/spacing";
 import { type as typo } from "../theme/typography";
 import { decodeJwtPayload } from "../utils/jwt";
-import { getResumoEntregas, iniciarRota, getRotasAtiva, getTodayISO } from "../features/entregas/api";
+import { getResumoEntregas, iniciarRota, getRotasAtiva, getTodayISO, getEntregas } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
 
 type Props = {
@@ -148,6 +149,8 @@ export default function HomeScreen({
   const [loading, setLoading] = useState(true);
   const [iniciando, setIniciando] = useState(false);
   const token = useAuthStore((s) => s.token);
+  const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
+  const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const claims = token ? decodeJwtPayload(token) : {};
   const nome = claims.username || "Motoboy";
   const subBase = claims.sub_base || "";
@@ -161,18 +164,27 @@ export default function HomeScreen({
     setLoading(true);
     try {
       const r = await getResumoEntregas();
-      setResumo(r);
+      if (somenteHojePendentes) {
+        const pendentesHoje = await getEntregas("pendente", { dia: "hoje", data: getTodayISO() });
+        setResumo({ ...r, pendentes: pendentesHoje.length });
+      } else {
+        setResumo(r);
+      }
     } catch {
       setResumo({ pendentes: 0, finalizadas_hoje: 0, pode_iniciar_rota: false, ausentes: 0, atraso_d1: 0 });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [somenteHojePendentes]);
 
   useFocusEffect(
     useCallback(() => {
       load();
       (async () => {
+        if (!roteirizacaoHabilitada) {
+          useDeliveryStore.getState().clearActiveRouteState();
+          return;
+        }
         try {
           const dataHoje = getTodayISO();
           const rotaAtiva = await getRotasAtiva(dataHoje);
@@ -195,7 +207,7 @@ export default function HomeScreen({
           useDeliveryStore.getState().clearActiveRouteState();
         }
       })();
-    }, [load])
+    }, [load, roteirizacaoHabilitada])
   );
 
   const activeRouteId = useDeliveryStore((s) => s.activeRouteId);
@@ -276,7 +288,7 @@ export default function HomeScreen({
               </LinearGradient>
             </TouchableOpacity>
 
-            {activeRouteId != null && onNavigateRouteBuilder ? (
+            {roteirizacaoHabilitada && activeRouteId != null && onNavigateRouteBuilder ? (
               <TouchableOpacity onPress={onNavigateRouteBuilder} activeOpacity={0.92}>
                 <LinearGradient
                   colors={[colors.deliveryAccent, themeMode === "dark" ? "#2a9d62" : "#0a6e42"]}

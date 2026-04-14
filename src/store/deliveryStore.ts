@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { EntregaListItem } from "../features/entregas/types";
 import {
   getEntregas,
+  getTodayISO,
   putEndereco,
   iniciarRota,
   marcarEntregue,
@@ -17,6 +18,7 @@ import {
 } from "../features/entregas/api";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
 import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
+import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
 
 export type MapMode = "list" | "map";
 
@@ -54,7 +56,7 @@ interface DeliveryState {
   currentLocation: CurrentLocation | null;
   setCurrentLocation: (location: CurrentLocation | null) => void;
 
-  loadDeliveries: () => Promise<void>;
+  loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<void>;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
   startRoute: (deliveryIds?: number[]) => Promise<number>;
   suggestRoute: (fromLat?: number, fromLon?: number) => void;
@@ -108,10 +110,15 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   currentLocation: null,
   setCurrentLocation: (location) => set({ currentLocation: location }),
 
-  loadDeliveries: async () => {
+  loadDeliveries: async (opts) => {
     set({ loading: true, error: null });
     try {
-      const list = await getEntregas("pendente");
+      const prefOnlyToday = useMotoboyPrefsStore.getState().somenteHojePendentes;
+      const useOnlyToday = opts?.onlyToday ?? prefOnlyToday;
+      const list = await getEntregas(
+        "pendente",
+        useOnlyToday ? { dia: "hoje", data: getTodayISO() } : undefined
+      );
       const withAddr = list.filter(withAddress);
       const withoutAddr = list.filter((d) => !withAddress(d));
       set({

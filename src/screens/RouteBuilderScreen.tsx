@@ -14,6 +14,7 @@ import {
 import LottieView from "lottie-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Linking } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../App";
 import { useThemeColors } from "../theme/colors";
@@ -30,6 +31,7 @@ import { formatApiError } from "../utils/formatApiError";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
 import { fetchOsrmRoutePolyline } from "../features/entregas/utils/osrm";
 import type { EntregaListItem, MotivoAusencia } from "../features/entregas/types";
+import { useMotoboyPrefsStore } from "../store/motoboyPrefsStore";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RouteBuilder">;
 
@@ -108,6 +110,15 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const [pendingEntregueIds, setPendingEntregueIds] = useState<number[] | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<number, { latitude: number; longitude: number }>>({});
   const [routePolyline, setRoutePolyline] = useState<Array<{ latitude: number; longitude: number }> | null>(null);
+  const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!roteirizacaoHabilitada) {
+        navigation.replace("EntregasList");
+      }
+    }, [roteirizacaoHabilitada, navigation])
+  );
 
   const ordered = useMemo(
     () => getOrderedRouteDeliveries(routeDeliveries, routeOrder),

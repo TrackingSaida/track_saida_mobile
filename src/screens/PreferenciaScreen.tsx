@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeStore, type ThemeMode } from "../store/themeStore";
 import { useAuthStore } from "../store/authStore";
+import { useMotoboyPrefsStore } from "../store/motoboyPrefsStore";
 import { useThemeColors } from "../theme/colors";
 import type { MaisStackParamList } from "./MaisScreen";
 
@@ -18,6 +19,10 @@ export default function PreferenciaScreen({ navigation }: Props) {
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const setBiometricEnabled = useAuthStore((s) => s.setBiometricEnabled);
+  const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
+  const setSomenteHojePendentes = useMotoboyPrefsStore((s) => s.setSomenteHojePendentes);
+  const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
+  const setRoteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.setRoteirizacaoHabilitada);
   const colors = useThemeColors();
   const [biometricEnabled, setBiometricEnabledLocal] = useState(false);
 
@@ -120,6 +125,26 @@ export default function PreferenciaScreen({ navigation }: Props) {
           <Switch
             value={biometricEnabled}
             onValueChange={handleBiometricToggle}
+            trackColor={{ false: colors.separator, true: colors.primary }}
+            thumbColor={colors.backgroundCard}
+          />
+        </View>
+      </View>
+      <View style={[styles.card, { marginTop: 16 }]}>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Pendentes: somente pedidos de hoje</Text>
+          <Switch
+            value={somenteHojePendentes}
+            onValueChange={(value) => void setSomenteHojePendentes(value)}
+            trackColor={{ false: colors.separator, true: colors.primary }}
+            thumbColor={colors.backgroundCard}
+          />
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Criar roteirização</Text>
+          <Switch
+            value={roteirizacaoHabilitada}
+            onValueChange={(value) => void setRoteirizacaoHabilitada(value)}
             trackColor={{ false: colors.separator, true: colors.primary }}
             thumbColor={colors.backgroundCard}
           />

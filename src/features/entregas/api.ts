@@ -6,6 +6,8 @@ import type {
   ResumoEntregas,
   MotivoAusencia,
   ScanConflito,
+  ExtratoFinanceiro,
+  ExtratoStatusFiltro,
 } from "./types";
 
 function getAuthHeaders(): Record<string, string> {
@@ -71,6 +73,21 @@ export async function getEntregas(
   }
   const { data } = await client.get<EntregaListItem[]>("/mobile/entregas", {
     params: query,
+  });
+  return data;
+}
+
+export async function getExtratoFinanceiro(params?: {
+  data_inicio?: string;
+  data_fim?: string;
+  status_filtro?: ExtratoStatusFiltro;
+}): Promise<ExtratoFinanceiro> {
+  const { data } = await client.get<ExtratoFinanceiro>("/mobile/entregas/extrato", {
+    params: {
+      data_inicio: params?.data_inicio,
+      data_fim: params?.data_fim,
+      status_filtro: params?.status_filtro ?? "grupo_entregue",
+    },
   });
   return data;
 }

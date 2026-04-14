@@ -23,6 +23,7 @@ import type { EntregaListItem } from "../types";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { geocodeAddress } from "../utils/geocode";
+import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregasList">;
 
@@ -95,6 +96,7 @@ export default function EntregasListScreen({ navigation }: Props) {
         },
         btnSugerirRotaText: { color: colors.primaryContrast, fontSize: 15, fontWeight: "600" },
         toggleRow: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
+        filterRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 4, gap: 8 },
         modalOverlay: {
           flex: 1,
           backgroundColor: colors.overlay,
@@ -328,6 +330,9 @@ export default function EntregasListScreen({ navigation }: Props) {
   const [listAusentes, setListAusentes] = useState<EntregaListItem[]>([]);
   const geocodedIdsRef = useRef<Set<number>>(new Set());
   const mapRef = useRef<MapView>(null);
+  const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
+  const setSomenteHojePendentes = useMotoboyPrefsStore((s) => s.setSomenteHojePendentes);
+  const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
 
   const listForTab = (tab === "pendente" ? pendingDeliveries : list) ?? [];
   const loadingForTab = tab === "pendente" ? storeLoading : loading;
@@ -348,11 +353,11 @@ export default function EntregasListScreen({ navigation }: Props) {
   useFocusEffect(
     useCallback(() => {
       if (tab === "pendente") {
-        loadDeliveries();
+        loadDeliveries({ onlyToday: somenteHojePendentes });
       } else {
         load();
       }
-    }, [tab, loadDeliveries, load])
+    }, [tab, loadDeliveries, load, somenteHojePendentes])
   );
 
   useEffect(() => {
@@ -685,6 +690,14 @@ export default function EntregasListScreen({ navigation }: Props) {
     setExpandedServico((prev) => ({ ...prev, [s]: !prev[s] }));
   };
 
+  const handleToggleSomenteHoje = useCallback(
+    async (value: boolean) => {
+      await setSomenteHojePendentes(value);
+      await loadDeliveries({ onlyToday: value });
+    },
+    [setSomenteHojePendentes, loadDeliveries]
+  );
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: Math.max(16, insets.top) }]}>
@@ -708,7 +721,7 @@ export default function EntregasListScreen({ navigation }: Props) {
         ))}
       </View>
 
-      {tab === "pendente" && listForTab.length > 0 && (
+      {tab === "pendente" && listForTab.length > 0 && roteirizacaoHabilitada && (
         <TouchableOpacity
           style={styles.btnSugerirRota}
           onPress={() => {
@@ -767,6 +780,27 @@ export default function EntregasListScreen({ navigation }: Props) {
             {deliveriesWithoutAddress.length > 0 ? "🧭 Criar Rota" : "🧭 Sugerir Rota"}
           </Text>
         </TouchableOpacity>
+      )}
+
+      {tab === "pendente" && (
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={[styles.toggleBtn, somenteHojePendentes && styles.toggleBtnActive]}
+            onPress={() => void handleToggleSomenteHoje(true)}
+          >
+            <Text style={[styles.toggleText, somenteHojePendentes && styles.toggleTextActive]}>
+              Somente hoje
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.toggleBtn, !somenteHojePendentes && styles.toggleBtnActive]}
+            onPress={() => void handleToggleSomenteHoje(false)}
+          >
+            <Text style={[styles.toggleText, !somenteHojePendentes && styles.toggleTextActive]}>
+              Todos pendentes
+            </Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {tab === "pendente" && (

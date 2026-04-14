@@ -44,3 +44,21 @@ export function formatarDiaParaExibicao(dateStr: string): string {
   const meses = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
   return `${date.getDate()} de ${meses[date.getMonth()]}`;
 }
+
+export function getQuinzenaAtualIntervalo(): { inicio: string; fim: string } {
+  const hoje = new Date();
+  const ano = hoje.getFullYear();
+  const mes = hoje.getMonth();
+  const inicioDia = hoje.getDate() <= 15 ? 1 : 16;
+  const inicio = new Date(ano, mes, inicioDia);
+  const yI = inicio.getFullYear();
+  const mI = String(inicio.getMonth() + 1).padStart(2, "0");
+  const dI = String(inicio.getDate()).padStart(2, "0");
+  const yF = hoje.getFullYear();
+  const mF = String(hoje.getMonth() + 1).padStart(2, "0");
+  const dF = String(hoje.getDate()).padStart(2, "0");
+  return {
+    inicio: `${yI}-${mI}-${dI}`,
+    fim: `${yF}-${mF}-${dF}`,
+  };
+}

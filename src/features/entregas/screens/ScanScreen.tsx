@@ -23,6 +23,7 @@ import { scanCodigo, assumirEntrega, desatribuirEntrega, getEntrega } from "../a
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
+import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { playSound } from "../../../utils/sound";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Scan">;
@@ -272,6 +273,7 @@ export default function ScanScreen({ navigation }: Props) {
   const [showPrepararRotaModal, setShowPrepararRotaModal] = useState(false);
   const scanLocked = useRef(false);
   const startRoute = useDeliveryStore((s) => s.startRoute);
+  const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const [permission, requestPermission] = useCameraPermissions();
 
   useFocusEffect(
@@ -395,7 +397,11 @@ export default function ScanScreen({ navigation }: Props) {
       await startRoute();
       clearLeituras();
       setRotaIniciada(true);
-      setShowPrepararRotaModal(true);
+      if (roteirizacaoHabilitada) {
+        setShowPrepararRotaModal(true);
+      } else {
+        navigation.navigate("EntregasList");
+      }
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
       const msg = ax?.response?.data?.detail ?? "Erro ao iniciar rota.";

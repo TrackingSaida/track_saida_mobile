@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "./src/store/authStore";
 import { useDeliveryStore } from "./src/store/deliveryStore";
 import { useThemeStore } from "./src/store/themeStore";
+import { useMotoboyPrefsStore } from "./src/store/motoboyPrefsStore";
 import { getColors, useThemeColors } from "./src/theme/colors";
 import { getProfileThemeColors } from "./src/theme/profileTheme";
 import LoginScreen from "./src/screens/LoginScreen";
@@ -149,7 +150,7 @@ function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
 }
 
 export default function App() {
-  const { token, isLoading, loadToken, requiresBiometricUnlock, logout: logoutFromStore } = useAuthStore();
+  const { token, currentUser, isLoading, loadToken, requiresBiometricUnlock, logout: logoutFromStore } = useAuthStore();
   const theme = useThemeStore((s) => s.theme);
   const loadTheme = useThemeStore((s) => s.loadTheme);
   const [pendingChangePassword, setPendingChangePassword] = useState(false);
@@ -183,6 +184,11 @@ export default function App() {
   useEffect(() => {
     initAudioSession();
   }, []);
+
+  useEffect(() => {
+    if (!token || requiresBiometricUnlock || !currentUser) return;
+    useMotoboyPrefsStore.getState().loadForCurrentUser().catch(() => {});
+  }, [token, currentUser, requiresBiometricUnlock]);
 
   useEffect(() => {
     useAuthStore.getState().setSessionExpiredCallback(() => {
