@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Pressable,
   StatusBar,
+  Image,
 } from "react-native";
 import type { AxiosError } from "axios";
 import { useNavigation } from "@react-navigation/native";
@@ -23,11 +24,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import * as Haptics from "expo-haptics";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { useThemeColors } from "../../../theme/colors";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeLerSaida, isMotoboyRole } from "../../../utils/role";
+import { effectivePodeLerSaida, isAdminRole, isMotoboyRole } from "../../../utils/role";
 import { formatApiError } from "../../../utils/formatApiError";
 import {
+  gerarEtiquetaArquivo,
   listSaidas,
   listMotoboysOperacao,
   lerSaidaAdmin,
@@ -46,12 +50,27 @@ import { parseCodigoQrRaw, inferServicoSaida, classifyCodigoParaOperacao } from 
 const CONSULTA_BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
 
 const SCAN_DEBOUNCE_MS = 1200;
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 function formatYmd(d: Date): string {
   const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${mo}-${day}`;
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    out += BASE64_ALPHABET[a >>> 2];
+    out += BASE64_ALPHABET[((a & 3) << 4) | (b >>> 4)];
+    out += i + 1 < bytes.length ? BASE64_ALPHABET[((b & 15) << 2) | (c >>> 6)] : "=";
+    out += i + 2 < bytes.length ? BASE64_ALPHABET[c & 63] : "=";
+  }
+  return out;
 }
 
 function getPeriodRange(period: "none" | "today" | "7d"): { de?: string; ate?: string } {
@@ -67,6 +86,14 @@ function getPeriodRange(period: "none" | "today" | "7d"): { de?: string; ate?: s
 /** Resolve id numérico para GET /saidas/{id_saida} */
 function getIdSaidaFromItem(item: SaidaListItem): number | null {
   const raw = item.id_saida ?? item.id;
+  if (raw == null) return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function getIdSaidaFromDetail(detail: SaidaDetail | null): number | null {
+  if (!detail) return null;
+  const raw = (detail.id_saida as number | string | undefined) ?? detail.id;
   if (raw == null) return null;
   const n = typeof raw === "number" ? raw : Number(raw);
   return Number.isFinite(n) ? n : null;
@@ -121,6 +148,9 @@ export default function ConsultaCodigosScreen() {
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeLerSaida = effectivePodeLerSaida(currentUser);
+  const role = currentUser?.role as number | undefined;
+  const podeGerarEtiqueta = role === 0 || role === 1 || role === 2;
+  const podeCancelarSaida = isAdminRole(role);
   /** Ditar por voz só no perfil entregador; operador/admin usam texto e câmera. */
   const mostrarVozConsulta = isMotoboyRole(currentUser?.role as number | undefined);
 
@@ -135,6 +165,7 @@ export default function ConsultaCodigosScreen() {
   const inFlightRef = useRef(false);
   const lastScanRef = useRef(0);
   const lastCodigoConsultaRef = useRef<string | null>(null);
+  const lastRawLeituraRef = useRef<string | null>(null);
 
   const [appliedStatus, setAppliedStatus] = useState<StatusFilterUi>("");
   const [appliedPeriod, setAppliedPeriod] = useState<"none" | "today" | "7d">("none");
@@ -166,14 +197,30 @@ export default function ConsultaCodigosScreen() {
 
   const [selectedDetail, setSelectedDetail] = useState<SaidaDetail | null>(null);
   const [selectedHistorico, setSelectedHistorico] = useState<SaidaHistoricoItem[]>([]);
+  const [selectedDetailId, setSelectedDetailId] = useState<number | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [cancelandoSaida, setCancelandoSaida] = useState(false);
+  const [gerandoEtiqueta, setGerandoEtiqueta] = useState(false);
+  const [etiquetaUri, setEtiquetaUri] = useState<string | null>(null);
+  const [etiquetaCodigo, setEtiquetaCodigo] = useState("");
+  const [previewEtiquetaVisible, setPreviewEtiquetaVisible] = useState(false);
 
   const [conflito, setConflito] = useState<ConflitoTroca | null>(null);
   const [confirmandoTroca, setConfirmandoTroca] = useState(false);
-  const [pendingNaoColetadoCodigo, setPendingNaoColetadoCodigo] = useState<string | null>(null);
+  const [pendingNaoColetado, setPendingNaoColetado] = useState<{ codigo: string; rawScan?: string } | null>(
+    null
+  );
   /** Última busca usou código com correspondência exata (consulta por código). */
   const [buscaComCodigoExato, setBuscaComCodigoExato] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (etiquetaUri) {
+        void FileSystem.deleteAsync(etiquetaUri, { idempotent: true });
+      }
+    };
+  }, [etiquetaUri]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -387,6 +434,54 @@ export default function ConsultaCodigosScreen() {
           padding: 18,
           backgroundColor: colors.backgroundCard,
         },
+        detailActionsRow: {
+          flexDirection: "row",
+          gap: 10,
+          marginTop: 14,
+        },
+        detailActionBtn: {
+          flex: 1,
+          borderRadius: 12,
+          paddingVertical: 12,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        detailActionPrimary: {
+          backgroundColor: colors.primary,
+        },
+        detailActionDanger: {
+          backgroundColor: "#dc3545",
+        },
+        detailActionText: {
+          color: colors.primaryContrast,
+          fontSize: 14,
+          fontWeight: "700",
+        },
+        previewCard: {
+          flex: 1,
+          borderRadius: 16,
+          overflow: "hidden",
+          backgroundColor: colors.backgroundCard,
+          marginTop: 24,
+          marginBottom: 24,
+        },
+        previewHeader: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.inputBorder,
+        },
+        previewTitle: { flex: 1, fontSize: 15, fontWeight: "700", color: colors.text },
+        previewFooter: {
+          flexDirection: "row",
+          gap: 10,
+          padding: 12,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.inputBorder,
+        },
         detailTitle: { fontSize: 18, fontWeight: "700", color: colors.text },
         timelineStep: { flexDirection: "row", alignItems: "flex-start", marginBottom: 12, gap: 10 },
         timelineIcon: { marginTop: 2 },
@@ -477,7 +572,10 @@ export default function ConsultaCodigosScreen() {
               : Haptics.NotificationFeedbackType.Warning
           );
           if (rows.length > 0) {
-            setTimeout(() => setSearchInput(""), 400);
+            setTimeout(() => {
+              lastRawLeituraRef.current = null;
+              setSearchInput("");
+            }, 400);
           }
         } else {
           setResults((prev) => [...prev, ...rows]);
@@ -512,12 +610,18 @@ export default function ConsultaCodigosScreen() {
       setVoiceModalComp(null);
       const t = text.replace(/\s+/g, " ").trim();
       if (t) {
+        lastRawLeituraRef.current = null;
         setSearchInput(t);
         void executarBusca(0, { codigoOverride: t });
       }
     },
     [executarBusca]
   );
+
+  const handleSearchInputChange = useCallback((value: string) => {
+    lastRawLeituraRef.current = null;
+    setSearchInput(value);
+  }, []);
 
   const handleSubmitSearch = useCallback(() => {
     void executarBusca(0);
@@ -528,6 +632,25 @@ export default function ConsultaCodigosScreen() {
     void executarBusca(offset + 50);
   }, [buscaComCodigoExato, hasMore, loadingMore, executarBusca, offset]);
 
+  const carregarDetalhe = useCallback(async (idNum: number) => {
+    setDetailLoading(true);
+    setSelectedDetailId(idNum);
+    setSelectedDetail(null);
+    setSelectedHistorico([]);
+    try {
+      const [detail, historico] = await Promise.all([getSaidaDetail(idNum), getSaidaHistorico(idNum)]);
+      setSelectedDetail(detail);
+      setSelectedHistorico(historico);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Erro", "Falha ao carregar detalhes do registro.");
+      setDetailVisible(false);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
   const handleAbrirDetalhe = useCallback(
     async (item: SaidaListItem) => {
       const idNum = getIdSaidaFromItem(item);
@@ -536,33 +659,120 @@ export default function ConsultaCodigosScreen() {
         return;
       }
       setDetailVisible(true);
-      setDetailLoading(true);
-      setSelectedDetail(null);
-      setSelectedHistorico([]);
-      try {
-        const [detail, historico] = await Promise.all([
-          getSaidaDetail(idNum),
-          getSaidaHistorico(idNum),
-        ]);
-        setSelectedDetail(detail);
-        setSelectedHistorico(historico);
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Alert.alert("Erro", "Falha ao carregar detalhes do registro.");
-        setDetailVisible(false);
-      } finally {
-        setDetailLoading(false);
-      }
+      await carregarDetalhe(idNum);
     },
-    []
+    [carregarDetalhe]
   );
 
   const handleFecharDetalhe = useCallback(() => {
     setDetailVisible(false);
     setSelectedDetail(null);
     setSelectedHistorico([]);
+    setSelectedDetailId(null);
   }, []);
+
+  const fecharPreviewEtiqueta = useCallback(() => {
+    setPreviewEtiquetaVisible(false);
+  }, []);
+
+  const handleGerarEtiqueta = useCallback(async () => {
+    const codigo = String(selectedDetail?.codigo ?? "").trim();
+    const idSaida = selectedDetailId ?? getIdSaidaFromDetail(selectedDetail);
+    if (!podeGerarEtiqueta) {
+      Alert.alert("Sem permissão", "Seu perfil não possui acesso para gerar etiqueta.");
+      return;
+    }
+    if (!codigo) {
+      Alert.alert("Código inválido", "Não foi possível identificar o código deste registro.");
+      return;
+    }
+    setGerandoEtiqueta(true);
+    try {
+      const resp = await gerarEtiquetaArquivo({
+        codigo,
+        id_saida: idSaida ?? undefined,
+        servico: (selectedDetail?.servico as string | null | undefined) ?? undefined,
+        formato: "png",
+      });
+      const dir = FileSystem.cacheDirectory;
+      if (!dir) throw new Error("cache-indisponivel");
+      const safeCodigo = codigo.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const ext = resp.contentType.includes("png") ? "png" : "pdf";
+      const path = `${dir}etiqueta_${safeCodigo}_${Date.now()}.${ext}`;
+      await FileSystem.writeAsStringAsync(path, uint8ToBase64(resp.bytes), {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (etiquetaUri && etiquetaUri !== path) {
+        await FileSystem.deleteAsync(etiquetaUri, { idempotent: true });
+      }
+      setEtiquetaUri(path);
+      setEtiquetaCodigo(codigo);
+      setPreviewEtiquetaVisible(true);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Erro", formatApiError(err, "Não foi possível gerar a etiqueta."));
+    } finally {
+      setGerandoEtiqueta(false);
+    }
+  }, [etiquetaUri, podeGerarEtiqueta, selectedDetail, selectedDetailId]);
+
+  const handleCompartilharEtiqueta = useCallback(async () => {
+    if (!etiquetaUri) return;
+    const available = await Sharing.isAvailableAsync();
+    if (!available) {
+      Alert.alert("Indisponível", "Compartilhamento não está disponível neste dispositivo.");
+      return;
+    }
+    try {
+      const isPng = etiquetaUri.toLowerCase().endsWith(".png");
+      await Sharing.shareAsync(etiquetaUri, {
+        mimeType: isPng ? "image/png" : "application/pdf",
+        dialogTitle: etiquetaCodigo ? `Etiqueta ${etiquetaCodigo}` : "Etiqueta",
+      });
+    } catch (err) {
+      Alert.alert("Erro", formatApiError(err, "Falha ao compartilhar a etiqueta."));
+    }
+  }, [etiquetaUri, etiquetaCodigo]);
+
+  const performCancelarSaida = useCallback(async () => {
+    if (!selectedDetailId) return;
+    setCancelandoSaida(true);
+    try {
+      await updateSaidaAdmin(selectedDetailId, { status: "cancelado" });
+      await carregarDetalhe(selectedDetailId);
+      const codigoAtual = String(selectedDetail?.codigo ?? "").trim();
+      await executarBusca(0, codigoAtual ? { codigoOverride: codigoAtual } : undefined);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Sucesso", "Registro atualizado para cancelado.");
+    } catch (err) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Erro", formatApiError(err, "Não foi possível cancelar este registro."));
+    } finally {
+      setCancelandoSaida(false);
+    }
+  }, [carregarDetalhe, executarBusca, selectedDetail?.codigo, selectedDetailId]);
+
+  const handleCancelarSaida = useCallback(() => {
+    if (!podeCancelarSaida) {
+      Alert.alert("Sem permissão", "Apenas admin pode cancelar um registro.");
+      return;
+    }
+    if (!selectedDetailId) {
+      Alert.alert("Indisponível", "Não foi possível identificar este registro.");
+      return;
+    }
+    Alert.alert("Cancelar registro", "Deseja alterar o status para cancelado?", [
+      { text: "Voltar", style: "cancel" },
+      {
+        text: "Confirmar",
+        style: "destructive",
+        onPress: () => {
+          void performCancelarSaida();
+        },
+      },
+    ]);
+  }, [podeCancelarSaida, performCancelarSaida, selectedDetailId]);
 
   const parseLerError = (err: unknown) => {
     const ax = err as AxiosError<{
@@ -586,9 +796,14 @@ export default function ConsultaCodigosScreen() {
   const processarLer = useCallback(
     async (
       rawCodigo: string,
-      opts?: { registrarNaoColetado?: boolean; motoboy?: { id: number; nome: string } }
+      opts?: { registrarNaoColetado?: boolean; motoboy?: { id: number; nome: string }; rawScan?: string }
     ) => {
-      const cls = classifyCodigoParaOperacao(String(rawCodigo || ""));
+      const rawPreferencial = String(opts?.rawScan ?? rawCodigo ?? "").trim();
+      const rawFallback = String(rawCodigo ?? "").trim();
+      let cls = classifyCodigoParaOperacao(rawPreferencial);
+      if (!cls.ok && rawFallback && rawFallback !== rawPreferencial) {
+        cls = classifyCodigoParaOperacao(rawFallback);
+      }
       if (!cls.ok) {
         Alert.alert("Código inválido", cls.motivo);
         return;
@@ -632,7 +847,7 @@ export default function ConsultaCodigosScreen() {
         });
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert("Sucesso", "Leitura registrada.");
-        setPendingNaoColetadoCodigo(null);
+        setPendingNaoColetado(null);
         void executarBusca(0, { codigoOverride: c });
       } catch (err) {
         const { status, code, body } = parseLerError(err);
@@ -658,7 +873,10 @@ export default function ConsultaCodigosScreen() {
           return;
         }
         if (status === 422 && code === "NAO_COLETADO") {
-          setPendingNaoColetadoCodigo(c);
+          setPendingNaoColetado({
+            codigo: c,
+            rawScan: opts?.rawScan && opts.rawScan.trim() ? opts.rawScan.trim() : undefined,
+          });
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           return;
         }
@@ -696,13 +914,16 @@ export default function ConsultaCodigosScreen() {
       const result = "nativeEvent" in event ? event.nativeEvent : event;
       const data = result?.data ?? "";
       if (!data) return;
+      const rawScan = data.trim();
+      if (!rawScan) return;
       const now = Date.now();
       if (now - lastScanRef.current < SCAN_DEBOUNCE_MS) return;
       lastScanRef.current = now;
-      const parsed = parseCodigoQrRaw(data.trim());
+      const parsed = parseCodigoQrRaw(rawScan);
       const t = parsed.codigo.trim();
       if (!t) return;
       setCameraAtiva(false);
+      lastRawLeituraRef.current = rawScan;
       setSearchInput(t);
       void executarBusca(0, { codigoOverride: t });
     },
@@ -751,11 +972,21 @@ export default function ConsultaCodigosScreen() {
     const m = motoboys.find((x) => x.id_motoboy === motoboyId);
     if (!m) return;
     setRegistrarLeituraVisible(false);
-    void processarLer(searchInput, { motoboy: { id: m.id_motoboy, nome: m.nome } });
+    void processarLer(searchInput, {
+      motoboy: { id: m.id_motoboy, nome: m.nome },
+      rawScan: lastRawLeituraRef.current ?? undefined,
+    });
   }, [motoboys, motoboyId, searchInput, processarLer]);
 
   const statusVisual = (s?: string | null) => {
     const u = (s || "").toLowerCase().replace(/\s+/g, "_");
+    if (u.includes("cancelad")) {
+      return {
+        label: s || "Cancelado",
+        bg: "rgba(220,53,69,0.14)",
+        fg: "#dc3545",
+      };
+    }
     if (u.includes("entregue")) {
       return {
         label: s || "Entregue",
@@ -783,6 +1014,7 @@ export default function ConsultaCodigosScreen() {
 
   const timelineForDetail = (detail: SaidaDetail | null, historico: SaidaHistoricoItem[]) => {
     const st = (detail?.status || "").toLowerCase();
+    const cancelado = st.includes("cancelad");
     const entregue = st.includes("entregue");
     const rota =
       st.includes("saiu") || st.includes("rota") || st.includes("em_rota") || st.includes("entrega");
@@ -790,6 +1022,15 @@ export default function ConsultaCodigosScreen() {
 
     return (
       <View style={{ marginTop: 12, marginBottom: 8 }}>
+        {cancelado ? (
+          <View style={styles.timelineStep}>
+            <Ionicons style={styles.timelineIcon} name="close-circle" size={22} color="#dc3545" />
+            <View style={styles.timelineText}>
+              <Text style={styles.timelineLabel}>Cancelado</Text>
+              <Text style={styles.timelineSub}>Este registro foi cancelado.</Text>
+            </View>
+          </View>
+        ) : null}
         <View style={styles.timelineStep}>
           <Ionicons
             style={styles.timelineIcon}
@@ -853,6 +1094,9 @@ export default function ConsultaCodigosScreen() {
   const primeiro = results[0];
   const restantes = buscaComCodigoExato ? [] : results.slice(1);
   const VoiceModalResolved = voiceModalComp;
+  const detalheCancelado = String(selectedDetail?.status ?? "")
+    .toLowerCase()
+    .includes("cancelad");
 
   return (
     <>
@@ -893,7 +1137,7 @@ export default function ConsultaCodigosScreen() {
               placeholder="Código da saída"
               placeholderTextColor={colors.placeholder}
               value={searchInput}
-              onChangeText={setSearchInput}
+              onChangeText={handleSearchInputChange}
               onSubmitEditing={handleSubmitSearch}
               returnKeyType="search"
               autoCapitalize="characters"
@@ -923,7 +1167,13 @@ export default function ConsultaCodigosScreen() {
               <Text style={{ fontSize: 14, color: colors.textSecondary }}>
                 Não há saída com esse código nos filtros atuais.
               </Text>
-              <TouchableOpacity style={styles.btnPrimary} onPress={() => setSearchInput("")}>
+              <TouchableOpacity
+                style={styles.btnPrimary}
+                onPress={() => {
+                  lastRawLeituraRef.current = null;
+                  setSearchInput("");
+                }}
+              >
                 <Text style={styles.btnTextPrimary}>Tentar novamente</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -1275,6 +1525,34 @@ export default function ConsultaCodigosScreen() {
                   })()}
                 </View>
                 {timelineForDetail(selectedDetail, selectedHistorico)}
+                <View style={styles.detailActionsRow}>
+                  {podeGerarEtiqueta ? (
+                    <TouchableOpacity
+                      style={[styles.detailActionBtn, styles.detailActionPrimary]}
+                      onPress={() => void handleGerarEtiqueta()}
+                      disabled={gerandoEtiqueta || cancelandoSaida}
+                    >
+                      {gerandoEtiqueta ? (
+                        <ActivityIndicator color={colors.primaryContrast} />
+                      ) : (
+                        <Text style={styles.detailActionText}>Gerar etiqueta</Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
+                  {podeCancelarSaida && !detalheCancelado ? (
+                    <TouchableOpacity
+                      style={[styles.detailActionBtn, styles.detailActionDanger]}
+                      onPress={handleCancelarSaida}
+                      disabled={cancelandoSaida || gerandoEtiqueta}
+                    >
+                      {cancelandoSaida ? (
+                        <ActivityIndicator color={colors.primaryContrast} />
+                      ) : (
+                        <Text style={styles.detailActionText}>Cancelar</Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </ScrollView>
             )}
             <TouchableOpacity
@@ -1283,6 +1561,38 @@ export default function ConsultaCodigosScreen() {
             >
               <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 16 }}>Fechar</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={previewEtiquetaVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={fecharPreviewEtiqueta}
+      >
+        <View style={styles.detailModalOverlay}>
+          <View style={styles.previewCard}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewTitle}>
+                Pré-visualização da etiqueta{etiquetaCodigo ? ` · ${etiquetaCodigo}` : ""}
+              </Text>
+              <TouchableOpacity onPress={fecharPreviewEtiqueta} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            {etiquetaUri ? (
+              <Image source={{ uri: etiquetaUri }} style={{ flex: 1 }} resizeMode="contain" />
+            ) : (
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ color: colors.textSecondary }}>Arquivo não disponível.</Text>
+              </View>
+            )}
+            <View style={styles.previewFooter}>
+              <TouchableOpacity style={[styles.detailActionBtn, styles.detailActionPrimary]} onPress={() => void handleCompartilharEtiqueta()}>
+                <Text style={styles.detailActionText}>Compartilhar</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1319,10 +1629,10 @@ export default function ConsultaCodigosScreen() {
       </Modal>
 
       <Modal
-        visible={pendingNaoColetadoCodigo != null}
+        visible={pendingNaoColetado != null}
         transparent
         animationType="fade"
-        onRequestClose={() => setPendingNaoColetadoCodigo(null)}
+        onRequestClose={() => setPendingNaoColetado(null)}
       >
         <View style={styles.detailModalOverlay}>
           <View style={[styles.detailCard, { maxHeight: "70%" }]}>
@@ -1333,16 +1643,21 @@ export default function ConsultaCodigosScreen() {
             <TouchableOpacity
               style={styles.btnPrimary}
               onPress={() => {
-                const c = pendingNaoColetadoCodigo;
-                setPendingNaoColetadoCodigo(null);
-                if (c) void processarLer(c, { registrarNaoColetado: true });
+                const pending = pendingNaoColetado;
+                setPendingNaoColetado(null);
+                if (pending?.codigo) {
+                  void processarLer(pending.codigo, {
+                    registrarNaoColetado: true,
+                    rawScan: pending.rawScan,
+                  });
+                }
               }}
             >
               <Text style={styles.btnTextPrimary}>Registrar mesmo assim</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.btnOutline}
-              onPress={() => setPendingNaoColetadoCodigo(null)}
+              onPress={() => setPendingNaoColetado(null)}
             >
               <Text style={styles.btnOutlineText}>Cancelar</Text>
             </TouchableOpacity>

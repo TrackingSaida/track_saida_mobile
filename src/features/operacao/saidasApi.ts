@@ -200,6 +200,28 @@ export async function updateSaidaAdmin(idSaida: number, body: UpdateSaidaBody): 
   await client.patch(`/saidas/${idSaida}`, body);
 }
 
+export interface GerarEtiquetaBody {
+  codigo: string;
+  id_saida?: number;
+  servico?: string | null;
+  formato?: "pdf" | "png";
+}
+
+export interface EtiquetaArquivoResult {
+  bytes: Uint8Array;
+  contentType: string;
+}
+
+export async function gerarEtiquetaArquivo(body: GerarEtiquetaBody): Promise<EtiquetaArquivoResult> {
+  const { data, headers } = await client.post<ArrayBuffer>("/etiquetas/gerar", body, {
+    responseType: "arraybuffer",
+  });
+  return {
+    bytes: new Uint8Array(data),
+    contentType: String(headers["content-type"] ?? "application/pdf"),
+  };
+}
+
 export interface SaidaDetail {
   id?: number | string;
   codigo?: string;

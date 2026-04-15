@@ -185,9 +185,13 @@ export interface ScanConflict {
   id_saida: number;
 }
 
-export async function scanCodigo(codigo: string): Promise<ScanSuccess | ScanConflict> {
+/**
+ * Envia para /mobile/scan o valor bruto lido do scanner quando disponível.
+ * O backend faz normalize_codigo(...) e extrai codigo/servico/qr_payload_raw.
+ */
+export async function scanCodigo(codigoBrutoOuNormalizado: string): Promise<ScanSuccess | ScanConflict> {
   try {
-    const { data } = await client.post<ScanSuccess>("/mobile/scan", { codigo });
+    const { data } = await client.post<ScanSuccess>("/mobile/scan", { codigo: codigoBrutoOuNormalizado });
     return data;
   } catch (err) {
     const ax = err as AxiosError<ScanConflict>;

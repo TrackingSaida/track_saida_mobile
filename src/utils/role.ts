@@ -10,6 +10,11 @@ export function isStaffOperacaoRole(role: number | undefined): boolean {
   return role === 0 || role === 1 || role === 2 || role === 3;
 }
 
+/** Root/Admin no contexto do app (ações sensíveis). */
+export function isAdminRole(role: number | undefined): boolean {
+  return role === 0 || role === 1;
+}
+
 /**
  * Leitura de saídas / consulta: staff (0–3) sempre pode na UI; motoboy segue flag do token.
  */

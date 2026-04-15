@@ -395,6 +395,7 @@ export default function ScanScreen({ navigation }: Props) {
       }
       const c = String(cls.codigo || "").trim().toUpperCase();
       if (!c) return;
+      const codigoParaApi = cls.qr_payload_raw?.trim() ? cls.qr_payload_raw.trim() : c;
       if (codigosLidosSessao.has(c)) {
         if (shouldNotifyDuplicate(`sess:${c}`)) {
           playSound("warn");
@@ -416,7 +417,7 @@ export default function ScanScreen({ navigation }: Props) {
       setConflito(null);
 
       try {
-        const result = await scanCodigo(c);
+        const result = await scanCodigo(codigoParaApi);
         if (result.conflito) {
           playSound("warn");
           pushFeedback("info", "Conflito de atribuição detectado", c);
