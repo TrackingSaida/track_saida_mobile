@@ -340,7 +340,8 @@ export default function EntregasListScreen({ navigation }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = tab === "finalizadas" ? { dia: "hoje" as const, data: getTodayISO() } : undefined;
+      const shouldFilterToday = somenteHojePendentes && (tab === "finalizadas" || tab === "ausentes");
+      const params = shouldFilterToday ? { dia: "hoje" as const, data: getTodayISO() } : undefined;
       const data = await getEntregas(tab, params);
       setList(data);
     } catch {
@@ -348,7 +349,7 @@ export default function EntregasListScreen({ navigation }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [tab]);
+  }, [tab, somenteHojePendentes]);
 
   useFocusEffect(
     useCallback(() => {
@@ -406,9 +407,10 @@ export default function EntregasListScreen({ navigation }: Props) {
     loadMapListsRef.current = false;
     (async () => {
       try {
+        const params = somenteHojePendentes ? { dia: "hoje" as const, data: getTodayISO() } : undefined;
         const [fin, aus] = await Promise.all([
-          getEntregas("finalizadas", { dia: "hoje", data: getTodayISO() }),
-          getEntregas("ausentes", { dia: "hoje", data: getTodayISO() }),
+          getEntregas("finalizadas", params),
+          getEntregas("ausentes", params),
         ]);
         if (!loadMapListsRef.current) {
           setListFinalizadas(fin ?? []);
@@ -422,7 +424,7 @@ export default function EntregasListScreen({ navigation }: Props) {
       }
     })();
     return () => { loadMapListsRef.current = true; };
-  }, [mapMode, tab]);
+  }, [mapMode, tab, somenteHojePendentes]);
 
   const badgeColor = (exibicao: string) => {
     if (exibicao === "Pendente") return colors.warning;

@@ -165,8 +165,18 @@ export default function HomeScreen({
     try {
       const r = await getResumoEntregas();
       if (somenteHojePendentes) {
-        const pendentesHoje = await getEntregas("pendente", { dia: "hoje", data: getTodayISO() });
-        setResumo({ ...r, pendentes: pendentesHoje.length });
+        const hoje = getTodayISO();
+        const [pendentesHoje, ausentesHoje] = await Promise.all([
+          getEntregas("pendente", { dia: "hoje", data: hoje }),
+          getEntregas("ausentes", { dia: "hoje", data: hoje }),
+        ]);
+        setResumo({
+          ...r,
+          pendentes: pendentesHoje.length,
+          ausentes: ausentesHoje.length,
+          // Com filtro "somente hoje", não mostramos backlog D+1.
+          atraso_d1: 0,
+        });
       } else {
         setResumo(r);
       }
