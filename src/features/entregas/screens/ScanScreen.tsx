@@ -72,6 +72,15 @@ const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("wind
 const CORNER_LENGTH = 40;
 const CORNER_THICKNESS = 5;
 const CORNER_COLOR = "#00bfff"; // azul claro visível sobre a câmera
+const FEEDBACK_MS = 1100;
+
+type FeedbackTipo = "sucesso" | "duplicado" | "erro" | "info";
+
+interface FeedbackVisual {
+  tipo: FeedbackTipo;
+  mensagem: string;
+  codigo?: string;
+}
 
 function ScanFrameOverlay({ wrapStyle }: { wrapStyle: ViewStyle }) {
   const cornerStyle = {
@@ -271,10 +280,58 @@ export default function ScanScreen({ navigation }: Props) {
   const [listaExpandida, setListaExpandida] = useState(false);
   const [removendoId, setRemovendoId] = useState<number | null>(null);
   const [showPrepararRotaModal, setShowPrepararRotaModal] = useState(false);
+  const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   const scanLocked = useRef(false);
+  const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRoute = useDeliveryStore((s) => s.startRoute);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const [permission, requestPermission] = useCameraPermissions();
+
+  const pushFeedback = useCallback((tipo: FeedbackTipo, mensagem: string, codigoItem?: string) => {
+    if (feedbackClearRef.current) {
+      clearTimeout(feedbackClearRef.current);
+      feedbackClearRef.current = null;
+    }
+    setFeedbackVisual({ tipo, mensagem, codigo: codigoItem });
+    feedbackClearRef.current = setTimeout(() => {
+      setFeedbackVisual(null);
+      feedbackClearRef.current = null;
+    }, FEEDBACK_MS);
+  }, []);
+
+  const feedbackColors = useCallback((tipo: FeedbackTipo) => {
+    if (tipo === "sucesso") return { bg: "rgba(25,135,84,0.28)", border: "rgba(25,135,84,0.6)", fg: "#d7ffe7" };
+    if (tipo === "duplicado") return { bg: "rgba(255,193,7,0.26)", border: "rgba(255,193,7,0.6)", fg: "#fff3cd" };
+    if (tipo === "erro") return { bg: "rgba(220,53,69,0.26)", border: "rgba(220,53,69,0.6)", fg: "#f8d7da" };
+    return { bg: "rgba(13,110,253,0.26)", border: "rgba(13,110,253,0.55)", fg: "#cfe2ff" };
+  }, []);
+
+  const renderFeedback = useCallback(() => {
+    if (!feedbackVisual) return null;
+    const c = feedbackColors(feedbackVisual.tipo);
+    return (
+      <View
+        style={{
+          position: "absolute",
+          left: 16,
+          right: 16,
+          top: insets.top + 94,
+          zIndex: 12,
+          borderRadius: 10,
+          borderWidth: 1,
+          paddingVertical: 9,
+          paddingHorizontal: 12,
+          backgroundColor: c.bg,
+          borderColor: c.border,
+        }}
+      >
+        <Text style={{ color: c.fg, fontSize: 14, fontWeight: "700" }}>{feedbackVisual.mensagem}</Text>
+        {feedbackVisual.codigo ? (
+          <Text style={{ color: c.fg, fontSize: 13, marginTop: 2 }}>{feedbackVisual.codigo}</Text>
+        ) : null}
+      </View>
+    );
+  }, [feedbackVisual, feedbackColors, insets.top]);
 
   useFocusEffect(
     useCallback(() => {
@@ -312,11 +369,16 @@ export default function ScanScreen({ navigation }: Props) {
       const cls = classifyCodigoParaOperacao(rawTrim);
       if (!cls.ok) {
         playSound("error");
+        pushFeedback("erro", "Código inválido", rawTrim.slice(0, 60));
         Alert.alert("Código inválido", cls.motivo);
         return;
       }
       const c = cls.codigo;
-      if (isRecentlyScanned(c) || isRecentlyScanned(rawTrim)) return;
+      if (isRecentlyScanned(c) || isRecentlyScanned(rawTrim)) {
+        playSound("warn");
+        pushFeedback("duplicado", "Código já lido há poucos segundos", c);
+        return;
+      }
       markScanned(c);
       markScanned(rawTrim);
       scanLocked.current = true;
@@ -334,6 +396,7 @@ export default function ScanScreen({ navigation }: Props) {
           addLeitura(result.entrega);
           setCodigo("");
           playSound("success");
+          pushFeedback("sucesso", "Leitura registrada", c);
           setTimeout(() => (scanLocked.current = false), 400);
         }
       } catch (e: unknown) {
@@ -341,20 +404,21 @@ export default function ScanScreen({ navigation }: Props) {
         const msg =
           ax?.response?.data?.detail ?? "Código não encontrado ou erro ao processar.";
         playSound("error");
+        pushFeedback("erro", typeof msg === "string" ? msg : "Erro ao processar leitura", c);
         Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
         setTimeout(() => (scanLocked.current = false), 500);
       } finally {
         setLoading(false);
       }
     },
-    [navigation, addLeitura]
+    [addLeitura, pushFeedback]
   );
 
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult | { nativeEvent: BarcodeScanningResult }) => {
       const result = "nativeEvent" in event ? event.nativeEvent : event;
       const data = result?.data ?? "";
-      if (data && !scanLocked.current && !isRecentlyScanned(data)) {
+      if (data && !scanLocked.current) {
         processarCodigo(data);
       }
     },
@@ -380,10 +444,12 @@ export default function ScanScreen({ navigation }: Props) {
       setConflito(null);
       scanLocked.current = false;
       playSound("success");
+      pushFeedback("sucesso", "Leitura assumida", entrega.codigo ?? String(conflito.id_saida));
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
       const msg = ax?.response?.data?.detail ?? "Erro ao assumir.";
       playSound("error");
+      pushFeedback("erro", typeof msg === "string" ? msg : "Erro ao assumir");
       Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
     } finally {
       setAssumindo(false);
@@ -545,8 +611,10 @@ export default function ScanScreen({ navigation }: Props) {
         onBarcodeScanned={loading ? undefined : handleBarcodeScanned}
       />
 
+      {renderFeedback()}
+
       <View style={styles.scanFrameContainer} pointerEvents="none">
-        <ScanFrameOverlay />
+        <ScanFrameOverlay wrapStyle={styles.scanFrameWrap} />
       </View>
 
       {loading && (

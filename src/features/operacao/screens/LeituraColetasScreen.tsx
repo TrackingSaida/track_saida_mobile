@@ -33,6 +33,14 @@ interface ColetaItemLocal {
   is_grande?: boolean;
 }
 
+type FeedbackTipo = "sucesso" | "duplicado" | "erro" | "info";
+
+interface FeedbackVisual {
+  tipo: FeedbackTipo;
+  mensagem: string;
+  codigo?: string;
+}
+
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
   "qr",
   "ean13",
@@ -51,6 +59,7 @@ const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
 
 const SCAN_DEBOUNCE_MS = 1500;
 const recentCodes = new Map<string, number>();
+const FEEDBACK_MS = 1100;
 
 function isRecentlyScanned(data: string): boolean {
   const key = String(data || "").trim();
@@ -95,13 +104,35 @@ export default function LeituraColetasScreen() {
   const [loading, setLoading] = useState(false);
   const [cameraAtiva, setCameraAtiva] = useState(false);
   const [configExpanded, setConfigExpanded] = useState(true);
+  const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   const scanLocked = useRef(false);
+  const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 24, paddingBottom: 48 },
+        feedbackStrip: {
+          borderRadius: 12,
+          borderWidth: 1,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          marginBottom: 14,
+        },
+        feedbackTitulo: { fontSize: 14, fontWeight: "700" },
+        feedbackCodigo: { fontSize: 13, fontWeight: "600", marginTop: 4 },
+        cameraFeedbackAbs: {
+          position: "absolute",
+          top: insets.top + 92,
+          left: 16,
+          right: 16,
+          zIndex: 12,
+          borderRadius: 12,
+          borderWidth: 1,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+        },
         description: { fontSize: 15, color: colors.textSecondary, marginBottom: 16 },
         badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
         badge: {
@@ -301,6 +332,46 @@ export default function LeituraColetasScreen() {
     [colors, insets.bottom, insets.top]
   );
 
+  const pushFeedback = useCallback((tipo: FeedbackTipo, mensagem: string, codigo?: string) => {
+    if (feedbackClearRef.current) {
+      clearTimeout(feedbackClearRef.current);
+      feedbackClearRef.current = null;
+    }
+    setFeedbackVisual({ tipo, mensagem, codigo });
+    feedbackClearRef.current = setTimeout(() => {
+      setFeedbackVisual(null);
+      feedbackClearRef.current = null;
+    }, FEEDBACK_MS);
+  }, []);
+
+  const feedbackColors = useCallback((tipo: FeedbackTipo) => {
+    if (tipo === "sucesso") return { bg: "rgba(25,135,84,0.16)", border: "rgba(25,135,84,0.4)", fg: "#198754" };
+    if (tipo === "duplicado") return { bg: "rgba(255,193,7,0.18)", border: "rgba(200,150,0,0.4)", fg: "#856404" };
+    if (tipo === "erro") return { bg: "rgba(220,53,69,0.16)", border: "rgba(220,53,69,0.4)", fg: "#dc3545" };
+    return { bg: "rgba(13,110,253,0.16)", border: "rgba(13,110,253,0.36)", fg: "#0d6efd" };
+  }, []);
+
+  const renderFeedbackStrip = useCallback(
+    (variant: "main" | "camera") => {
+      if (!feedbackVisual) return null;
+      const c = feedbackColors(feedbackVisual.tipo);
+      return (
+        <View
+          style={[
+            variant === "camera" ? styles.cameraFeedbackAbs : styles.feedbackStrip,
+            { backgroundColor: c.bg, borderColor: c.border },
+          ]}
+        >
+          <Text style={[styles.feedbackTitulo, { color: c.fg }]}>{feedbackVisual.mensagem}</Text>
+          {feedbackVisual.codigo ? (
+            <Text style={[styles.feedbackCodigo, { color: c.fg }]}>{feedbackVisual.codigo}</Text>
+          ) : null}
+        </View>
+      );
+    },
+    [feedbackColors, feedbackVisual, styles.cameraFeedbackAbs, styles.feedbackCodigo, styles.feedbackStrip, styles.feedbackTitulo]
+  );
+
   const podeLerColeta = effectivePodeLerColeta(currentUser);
   const subBase = currentUser?.sub_base ?? "";
   const ignorarColeta = Boolean(currentUser?.ignorar_coleta);
@@ -333,10 +404,12 @@ export default function LeituraColetasScreen() {
     async (raw: string, origem: "camera" | "manual") => {
       const baseTrimmed = base.trim();
       if (!podeLerColeta) {
+        pushFeedback("info", "Sem permissão para leitura de coletas.");
         Alert.alert("Sem permissão", "Seu usuário não possui permissão para leitura de coletas.");
         return;
       }
       if (ignorarColeta) {
+        pushFeedback("info", "Fluxo de coletas desativado para este owner.");
         Alert.alert(
           "Coletas desativadas",
           "Este owner está configurado para não utilizar o fluxo de coletas."
@@ -344,13 +417,19 @@ export default function LeituraColetasScreen() {
         return;
       }
       if (!baseTrimmed) {
+        pushFeedback("info", "Informe a base antes de iniciar.");
         Alert.alert("Base obrigatória", "Informe a base para registrar as coletas.");
         return;
       }
 
       const c = String(raw || "").trim();
       if (!c || scanLocked.current) return;
-      if (isRecentlyScanned(c)) return;
+      if (isRecentlyScanned(c)) {
+        playSound("warn");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        pushFeedback("duplicado", "Código já lido há poucos segundos.", c);
+        return;
+      }
       markScanned(c);
       scanLocked.current = true;
 
@@ -358,6 +437,8 @@ export default function LeituraColetasScreen() {
       if (!classified.ok || !classified.codigo || !classified.servico) {
         scanLocked.current = false;
         playSound("warn");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        pushFeedback("erro", classified.motivo || "Código não reconhecido", c.slice(0, 80));
         Alert.alert(
           "Código não reconhecido",
           classified.motivo || "Este padrão de código não está configurado para coleta."
@@ -371,7 +452,8 @@ export default function LeituraColetasScreen() {
       if (leituras.some((l) => l.codigo === codigoNorm && l.status !== "erro")) {
         scanLocked.current = false;
         playSound("warn");
-        Alert.alert("Duplicado", "Este código já foi lido nesta sessão.");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        pushFeedback("duplicado", "Código já lido nesta sessão.", codigoNorm);
         return;
       }
 
@@ -404,6 +486,7 @@ export default function LeituraColetasScreen() {
         );
         playSound("success");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        pushFeedback("sucesso", "Coleta registrada com sucesso.", codigoNorm);
       } catch (err) {
         const ax = err as {
           response?: { status?: number; data?: { detail?: string } };
@@ -418,7 +501,8 @@ export default function LeituraColetasScreen() {
             )
           );
           playSound("warn");
-          Alert.alert("Código já coletado", String(detail || "Este código já foi coletado."));
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("duplicado", String(detail || "Código já coletado."), codigoNorm);
         } else {
           setLeituras((prev) =>
             prev.map((l) =>
@@ -426,6 +510,8 @@ export default function LeituraColetasScreen() {
             )
           );
           playSound("error");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          pushFeedback("erro", typeof detail === "string" && detail ? detail : "Falha ao registrar coleta.", codigoNorm);
           Alert.alert(
             "Erro ao enviar",
             typeof detail === "string" && detail ? detail : "Falha ao registrar a coleta."
@@ -438,7 +524,7 @@ export default function LeituraColetasScreen() {
         }, 400);
       }
     },
-    [base, ignorarColeta, leituras, podeLerColeta]
+    [base, ignorarColeta, leituras, podeLerColeta, pushFeedback]
   );
 
   const handleRegistrarManual = useCallback(async () => {
@@ -455,7 +541,7 @@ export default function LeituraColetasScreen() {
       if (loading) return;
       const result = "nativeEvent" in event ? event.nativeEvent : event;
       const data = result?.data ?? "";
-      if (data && !scanLocked.current && !isRecentlyScanned(data)) {
+      if (data && !scanLocked.current) {
         void processarLeitura(data, "camera");
       }
     },
@@ -474,6 +560,8 @@ export default function LeituraColetasScreen() {
       <Text style={styles.description}>
         Leia códigos Shopee, Mercado Livre ou avulsos; a base é obrigatória antes de registrar.
       </Text>
+
+      {feedbackVisual && !cameraAtiva ? renderFeedbackStrip("main") : null}
 
       <View style={styles.badgeRow}>
         {subBase ? (
@@ -658,6 +746,8 @@ export default function LeituraColetasScreen() {
               Aponte para o código de barras ou QR. As leituras serão enviadas em tempo real.
             </Text>
           </View>
+
+          {feedbackVisual ? renderFeedbackStrip("camera") : null}
 
           {!permission ? (
             <View style={[styles.cameraModalOverlay, { justifyContent: "center", alignItems: "center" }]}>

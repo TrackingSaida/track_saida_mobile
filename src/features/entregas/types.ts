@@ -35,11 +35,20 @@ export interface MotivoAusencia {
 
 export type ExtratoStatusFiltro = "todos" | "grupo_entregue";
 
+export interface ExtratoPedidoItem {
+  id_saida: number;
+  codigo: string | null;
+  status: string;
+  exibicao: string;
+  servico: string;
+}
+
 export interface ExtratoDiaItem {
   data: string;
   total_pacotes_associados: number;
   total_pacotes_filtrados: number;
   valor_dia: string;
+  itens: ExtratoPedidoItem[];
 }
 
 export interface ExtratoFinanceiro {

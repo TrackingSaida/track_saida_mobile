@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import {
   createAudioPlayer,
   setAudioModeAsync,
@@ -84,7 +84,12 @@ async function getBeepUri(type: SoundType): Promise<string> {
   const kind = BEEP_KIND[type];
   const wav = generateBeepWav(kind);
   const base64 = arrayBufferToBase64(wav);
-  const dir = FileSystem.cacheDirectory ?? "";
+  const dir = FileSystem.cacheDirectory;
+  if (!dir) {
+    const dataUri = `data:audio/wav;base64,${base64}`;
+    fileUris[type] = dataUri;
+    return dataUri;
+  }
   const filename = BEEP_FILES[type];
   const path = dir.endsWith("/") ? `${dir}${filename}` : `${dir}/${filename}`;
   await FileSystem.writeAsStringAsync(path, base64, {
@@ -110,7 +115,7 @@ export async function playSound(type: SoundType): Promise<void> {
     const uri = await getBeepUri(type);
     let player = cached[type];
     if (!player) {
-      // Para URI local (file://) não usar downloadFirst para carregar imediatamente
+      // Mantém player em cache para reduzir latência entre leituras consecutivas.
       player = createAudioPlayer(uri, { downloadFirst: false });
       cached[type] = player;
     }

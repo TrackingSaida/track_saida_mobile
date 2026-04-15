@@ -89,7 +89,13 @@ export async function getExtratoFinanceiro(params?: {
       status_filtro: params?.status_filtro ?? "grupo_entregue",
     },
   });
-  return data;
+  return {
+    ...data,
+    dias: (data.dias ?? []).map((d) => ({
+      ...d,
+      itens: d.itens ?? [],
+    })),
+  };
 }
 
 export async function getEntrega(idSaida: number): Promise<EntregaListItem> {

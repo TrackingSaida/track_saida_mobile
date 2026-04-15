@@ -739,7 +739,12 @@ export default function LeituraSaidasScreen() {
       const c = cls.codigo;
       if (!c) return;
 
-      if (isRecentlyScanned(rawStr) || isRecentlyScanned(c)) return;
+      if (isRecentlyScanned(rawStr) || isRecentlyScanned(c)) {
+        playSound("warn");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        pushFeedback("duplicado", "Código já lido há poucos segundos.", c);
+        return;
+      }
 
       markScanned(rawStr);
       markScanned(c);
@@ -842,6 +847,15 @@ export default function LeituraSaidasScreen() {
             motoboyId,
           });
           playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("info", "Já saiu com outro motoboy. Confirme a troca.", c);
+          return;
+        }
+
+        if (status === 409 && code === "DUPLICATE_SAIDA") {
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("duplicado", "Código já registrado.", c);
           return;
         }
 
@@ -894,7 +908,7 @@ export default function LeituraSaidasScreen() {
       if (!motoboyId) return;
       const result = "nativeEvent" in event ? event.nativeEvent : event;
       const data = result?.data ?? "";
-      if (data && !scanLocked.current && !isRecentlyScanned(data)) {
+      if (data && !scanLocked.current) {
         void processarLeitura(data, "camera");
       }
     },
