@@ -18,11 +18,10 @@ import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
-import { motoboyLogin, userLogin } from "../api/auth";
+import { motoboyLogin, normalizeAuthError, userLogin } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { offerBiometricAfterLogin } from "../utils/biometricOffer";
-import { formatApiError } from "../utils/formatApiError";
 
 const SAVED_IDENTIFIER_KEY = "saved_login_identifier";
 const SAVED_PASSWORD_KEY = "saved_login_password";
@@ -125,17 +124,28 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
         }
         return;
       } catch (err: unknown) {
-        const anyErr = err as { response?: { status?: number; data?: { detail?: unknown } } };
-        const status = anyErr.response?.status;
+        const authErr = normalizeAuthError(err, "Falha no login.");
+        const status = authErr.status;
+        const detail = (authErr.detail || "").toLowerCase();
 
         // 401: credenciais inválidas – não tenta outro tipo de login.
         if (status === 401) {
-          Alert.alert("Erro", formatApiError(err, "Login ou senha incorretos."));
+          Alert.alert("Erro", authErr.message || "Login ou senha incorretos.");
           return;
         }
 
-        // 403/404: não é motoboy ou sem perfil de motoboy → tenta login normal (Admin/Operador).
-        if (status === 403 || status === 404) {
+        // Timeout/rede: evita fallback e exibe erro técnico amigável.
+        if (authErr.code === "timeout" || authErr.code === "network") {
+          Alert.alert("Erro", authErr.message || "Falha de conexão. Tente novamente.");
+          return;
+        }
+
+        // 404 ou 403 de perfil não motoboy: tenta login normal (Admin/Operador).
+        // Para outros 403 do fluxo motoboy (ex.: sem sub-base/owner), mostra a causa real.
+        const shouldTryStaffFallback =
+          status === 404 || (status === 403 && detail.includes("acesso restrito a motoboys"));
+
+        if (shouldTryStaffFallback) {
           try {
             const userRes = await userLogin(id, pwd);
             if (userRes.access_token) {
@@ -152,17 +162,19 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
             Alert.alert("Erro", "Resposta inesperada do servidor.");
             return;
           } catch (errUser: unknown) {
-            Alert.alert("Erro", formatApiError(errUser, "Falha no login."));
+            const userAuthErr = normalizeAuthError(errUser, "Falha no login.");
+            Alert.alert("Erro", userAuthErr.message || "Falha no login.");
             return;
           }
         }
 
         // Outros erros inesperados do endpoint de motoboy.
-        Alert.alert("Erro", formatApiError(err, "Falha no login."));
+        Alert.alert("Erro", authErr.message || "Falha no login.");
         return;
       }
     } catch (e: unknown) {
-      Alert.alert("Erro", formatApiError(e, "Falha inesperada ao entrar. Tente novamente."));
+      const authErr = normalizeAuthError(e, "Falha inesperada ao entrar. Tente novamente.");
+      Alert.alert("Erro", authErr.message || "Falha inesperada ao entrar. Tente novamente.");
     } finally {
       setLoading(false);
     }

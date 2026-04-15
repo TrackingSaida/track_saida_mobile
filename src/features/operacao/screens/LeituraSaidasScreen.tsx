@@ -56,6 +56,8 @@ interface FeedbackVisual {
 
 const SCAN_DEBOUNCE_MS = 1500;
 const recentCodes = new Map<string, number>();
+const DUPLICATE_ALERT_THROTTLE_MS = 2800;
+const duplicateAlertAt = new Map<string, number>();
 
 function isRecentlyScanned(data: string): boolean {
   const key = String(data || "").trim();
@@ -67,6 +69,16 @@ function isRecentlyScanned(data: string): boolean {
 function markScanned(data: string): void {
   const key = String(data || "").trim();
   if (key) recentCodes.set(key, Date.now());
+}
+
+function shouldNotifyDuplicate(key: string): boolean {
+  const k = String(key || "").trim();
+  if (!k) return true;
+  const now = Date.now();
+  const last = duplicateAlertAt.get(k) ?? 0;
+  if (now - last < DUPLICATE_ALERT_THROTTLE_MS) return false;
+  duplicateAlertAt.set(k, now);
+  return true;
 }
 
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
@@ -714,6 +726,16 @@ export default function LeituraSaidasScreen() {
     },
     [ensurePermissionAndOpenCamera]
   );
+  const codigosLidosSessaoMotoboy = useMemo(() => {
+    const set = new Set<string>();
+    if (!motoboyId) return set;
+    leituras.forEach((l) => {
+      if (l.motoboyId !== motoboyId || l.status === "erro") return;
+      const code = String(l.codigo || "").trim().toUpperCase();
+      if (code) set.add(code);
+    });
+    return set;
+  }, [leituras, motoboyId]);
 
   const processarLeitura = useCallback(
     async (raw: string, origem: "camera" | "manual") => {
@@ -738,11 +760,23 @@ export default function LeituraSaidasScreen() {
       }
       const c = cls.codigo;
       if (!c) return;
+      const codeKey = String(c).trim().toUpperCase();
+
+      if (codigosLidosSessaoMotoboy.has(codeKey)) {
+        if (shouldNotifyDuplicate(`sess:${motoboyId}:${codeKey}`)) {
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("duplicado", "Já registrado para este motoboy nesta sessão.", codeKey);
+        }
+        return;
+      }
 
       if (isRecentlyScanned(rawStr) || isRecentlyScanned(c)) {
-        playSound("warn");
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        pushFeedback("duplicado", "Código já lido há poucos segundos.", c);
+        if (shouldNotifyDuplicate(`frame:${motoboyId}:${codeKey}`)) {
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("duplicado", "Código já está em processamento.", codeKey);
+        }
         return;
       }
 
@@ -890,7 +924,7 @@ export default function LeituraSaidasScreen() {
         }, 400);
       }
     },
-    [leituras, motoboyId, motoboyNome, podeLerSaida, pushFeedback]
+    [codigosLidosSessaoMotoboy, leituras, motoboyId, motoboyNome, podeLerSaida, pushFeedback]
   );
 
   const handleRegistrarManual = useCallback(async () => {

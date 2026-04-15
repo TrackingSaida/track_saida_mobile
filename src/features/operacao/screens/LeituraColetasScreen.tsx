@@ -60,6 +60,8 @@ const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
 const SCAN_DEBOUNCE_MS = 1500;
 const recentCodes = new Map<string, number>();
 const FEEDBACK_MS = 1100;
+const DUPLICATE_ALERT_THROTTLE_MS = 2800;
+const duplicateAlertAt = new Map<string, number>();
 
 function isRecentlyScanned(data: string): boolean {
   const key = String(data || "").trim();
@@ -71,6 +73,16 @@ function isRecentlyScanned(data: string): boolean {
 function markScanned(data: string): void {
   const key = String(data || "").trim();
   if (key) recentCodes.set(key, Date.now());
+}
+
+function shouldNotifyDuplicate(key: string): boolean {
+  const k = String(key || "").trim();
+  if (!k) return true;
+  const now = Date.now();
+  const last = duplicateAlertAt.get(k) ?? 0;
+  if (now - last < DUPLICATE_ALERT_THROTTLE_MS) return false;
+  duplicateAlertAt.set(k, now);
+  return true;
 }
 
 interface ClassifyResult {
@@ -385,6 +397,15 @@ export default function LeituraColetasScreen() {
     const total = ativos.length;
     return { shopee, ml, avulso, total };
   }, [leituras]);
+  const codigosLidosSessao = useMemo(() => {
+    const set = new Set<string>();
+    leituras.forEach((l) => {
+      if (l.status === "erro") return;
+      const code = String(l.codigo || "").trim().toUpperCase();
+      if (code) set.add(code);
+    });
+    return set;
+  }, [leituras]);
 
   const ensurePermissionAndOpenCamera = useCallback(async () => {
     if (!permission) {
@@ -424,10 +445,21 @@ export default function LeituraColetasScreen() {
 
       const c = String(raw || "").trim();
       if (!c || scanLocked.current) return;
+      const codeKey = c.toUpperCase();
+      if (codigosLidosSessao.has(codeKey)) {
+        if (shouldNotifyDuplicate(`sess:${codeKey}`)) {
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("duplicado", "Código já lido nesta sessão.", codeKey);
+        }
+        return;
+      }
       if (isRecentlyScanned(c)) {
-        playSound("warn");
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        pushFeedback("duplicado", "Código já lido há poucos segundos.", c);
+        if (shouldNotifyDuplicate(`frame:${codeKey}`)) {
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("duplicado", "Código já está em processamento.", codeKey);
+        }
         return;
       }
       markScanned(c);
@@ -524,7 +556,7 @@ export default function LeituraColetasScreen() {
         }, 400);
       }
     },
-    [base, ignorarColeta, leituras, podeLerColeta, pushFeedback]
+    [base, codigosLidosSessao, ignorarColeta, leituras, podeLerColeta, pushFeedback]
   );
 
   const handleRegistrarManual = useCallback(async () => {

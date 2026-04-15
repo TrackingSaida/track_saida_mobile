@@ -1,6 +1,6 @@
 import "./src/services/location/backgroundLocationTask";
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { StyleSheet } from "react-native";
+import { ActivityIndicator, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -200,7 +200,24 @@ export default function App() {
   }, []);
 
   if (isLoading) {
-    return null;
+    const loadingColors = getColors(theme);
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <SafeAreaView
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: loadingColors.background,
+            }}
+            edges={["top", "bottom"]}
+          >
+            <ActivityIndicator size="large" color={loadingColors.primary} />
+          </SafeAreaView>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
   }
 
   const showMainApp = token != null && !requiresBiometricUnlock;

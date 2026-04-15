@@ -8,11 +8,10 @@ import {
   Alert,
   FlatList,
 } from "react-native";
-import { motoboySelectSubBase } from "../api/auth";
+import { motoboySelectSubBase, normalizeAuthError } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { offerBiometricAfterLogin } from "../utils/biometricOffer";
-import { formatApiError } from "../utils/formatApiError";
 
 type Props = {
   identifier: string;
@@ -71,9 +70,12 @@ export default function SelectSubBaseScreen({
           return;
         }
         await offerBiometricAfterLogin(setBiometricEnabled, onSuccess);
+        return;
       }
+      Alert.alert("Erro", "Resposta inválida ao selecionar a base. Tente novamente.");
     } catch (err: unknown) {
-      Alert.alert("Erro", formatApiError(err, "Não foi possível selecionar a base. Tente novamente."));
+      const authErr = normalizeAuthError(err, "Não foi possível selecionar a base. Tente novamente.");
+      Alert.alert("Erro", authErr.message || "Não foi possível selecionar a base. Tente novamente.");
     } finally {
       setLoading(false);
     }

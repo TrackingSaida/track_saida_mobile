@@ -38,6 +38,8 @@ function classifyServico(serv?: string | null): "Shopee" | "Flex" | "Avulso" {
 // Debounce: evita processar o mesmo código várias vezes (performance igual/superior ao painel web)
 const SCAN_DEBOUNCE_MS = 1500;
 const recentCodes = new Map<string, number>();
+const DUPLICATE_ALERT_THROTTLE_MS = 2800;
+const duplicateAlertAt = new Map<string, number>();
 
 function isRecentlyScanned(data: string): boolean {
   const key = String(data || "").trim();
@@ -49,6 +51,16 @@ function isRecentlyScanned(data: string): boolean {
 function markScanned(data: string): void {
   const key = String(data || "").trim();
   if (key) recentCodes.set(key, Date.now());
+}
+
+function shouldNotifyDuplicate(key: string): boolean {
+  const k = String(key || "").trim();
+  if (!k) return true;
+  const now = Date.now();
+  const last = duplicateAlertAt.get(k) ?? 0;
+  if (now - last < DUPLICATE_ALERT_THROTTLE_MS) return false;
+  duplicateAlertAt.set(k, now);
+  return true;
 }
 
 // Formatos compatíveis com leituras de saídas (painel web)
@@ -361,6 +373,14 @@ export default function ScanScreen({ navigation }: Props) {
     Flex: leiturasSession.filter((l) => l.servico === "Flex").length,
     Avulso: leiturasSession.filter((l) => l.servico === "Avulso").length,
   };
+  const codigosLidosSessao = useMemo(() => {
+    const set = new Set<string>();
+    leiturasSession.forEach((l) => {
+      const code = String(l.codigo || "").trim().toUpperCase();
+      if (code) set.add(code);
+    });
+    return set;
+  }, [leiturasSession]);
 
   const processarCodigo = useCallback(
     async (raw: string) => {
@@ -373,10 +393,20 @@ export default function ScanScreen({ navigation }: Props) {
         Alert.alert("Código inválido", cls.motivo);
         return;
       }
-      const c = cls.codigo;
+      const c = String(cls.codigo || "").trim().toUpperCase();
+      if (!c) return;
+      if (codigosLidosSessao.has(c)) {
+        if (shouldNotifyDuplicate(`sess:${c}`)) {
+          playSound("warn");
+          pushFeedback("duplicado", "Código já lido nesta sessão", c);
+        }
+        return;
+      }
       if (isRecentlyScanned(c) || isRecentlyScanned(rawTrim)) {
-        playSound("warn");
-        pushFeedback("duplicado", "Código já lido há poucos segundos", c);
+        if (shouldNotifyDuplicate(`frame:${c}`)) {
+          playSound("warn");
+          pushFeedback("duplicado", "Código já está em processamento", c);
+        }
         return;
       }
       markScanned(c);
@@ -388,6 +418,8 @@ export default function ScanScreen({ navigation }: Props) {
       try {
         const result = await scanCodigo(c);
         if (result.conflito) {
+          playSound("warn");
+          pushFeedback("info", "Conflito de atribuição detectado", c);
           setConflito({
             motoboy_atual: result.motoboy_atual ?? "outro motoboy",
             id_saida: result.id_saida ?? 0,
@@ -411,7 +443,7 @@ export default function ScanScreen({ navigation }: Props) {
         setLoading(false);
       }
     },
-    [addLeitura, pushFeedback]
+    [addLeitura, codigosLidosSessao, pushFeedback]
   );
 
   const handleBarcodeScanned = useCallback(
