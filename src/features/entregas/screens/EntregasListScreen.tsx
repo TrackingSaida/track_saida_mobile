@@ -24,6 +24,7 @@ import FormEntregaConcluida from "../components/FormEntregaConcluida";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { geocodeAddress } from "../utils/geocode";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
+import { useThemeStore } from "../../../store/themeStore";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregasList">;
 
@@ -51,6 +52,16 @@ const SERVICO_COLORS: Record<string, string> = {
   Avulso: "#6366f1",
 };
 
+function hexToRgba(hex: string, alpha: number): string {
+  const normalized = hex.replace("#", "");
+  const full = normalized.length === 3 ? normalized.split("").map((c) => c + c).join("") : normalized;
+  const value = Number.parseInt(full, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 const SERVICO_INICIAL: Record<string, string> = {
   Shopee: "S",
   Flex: "F",
@@ -64,6 +75,7 @@ const DEFAULT_REGION = { latitude: -23.55, longitude: -46.63, latitudeDelta: 0.0
 export default function EntregasListScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
+  const themeMode = useThemeStore((s) => s.theme);
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -225,18 +237,41 @@ export default function EntregasListScreen({ navigation }: Props) {
           justifyContent: "space-between",
           marginTop: 12,
           marginBottom: 6,
-          paddingVertical: 8,
-          paddingHorizontal: 4,
+          paddingVertical: 10,
+          paddingHorizontal: 10,
+          borderWidth: 1,
+          borderRadius: 10,
         },
+        sectionHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+        sectionChevron: { fontSize: 15, color: colors.textSecondary, fontWeight: "700" },
         sectionHeader: { fontSize: 14, fontWeight: "600", color: colors.text },
-        sectionCount: { fontSize: 13, color: colors.textSecondary },
+        sectionCount: { fontSize: 16, color: colors.text, fontWeight: "700" },
+        sectionServiceBadge: {
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+          borderRadius: 8,
+          borderWidth: 2,
+        },
+        sectionServiceBadgeText: { fontSize: 15, fontWeight: "700" },
+        sectionCountBadge: {
+          minWidth: 38,
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 8,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.backgroundCard,
+          borderWidth: 2,
+        },
         badgesRow: { flexDirection: "row", gap: 6, alignItems: "center" },
         servicoBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-        servicoBadgeText: { fontSize: 11, color: "#fff", fontWeight: "600" },
+        servicoBadgeText: { fontSize: 11, fontWeight: "600" },
         item: {
           backgroundColor: colors.backgroundCard,
           padding: 16,
           borderRadius: 12,
+          borderLeftWidth: 4,
+          borderLeftColor: "transparent",
           marginBottom: 12,
           shadowColor: colors.shadowColor,
           shadowOffset: { width: 0, height: 1 },
@@ -562,6 +597,43 @@ export default function EntregasListScreen({ navigation }: Props) {
   const totalNoEndereco = listaPedidosNoEndereco.length;
   const finalizadosNoEndereco = listaPedidosNoEndereco.filter((i) => i.mapStatus !== "pendente").length;
   const pendentesNoEndereco = listaPedidosNoEndereco.filter((i) => i.mapStatus === "pendente").length;
+  const getServiceRowStyle = useCallback(
+    (servico?: string | null) => {
+      const tipo = servicoTipo(servico);
+      const color = SERVICO_COLORS[tipo] || colors.placeholder;
+      const bgAlpha = themeMode === "dark" ? 0.22 : 0.12;
+      return {
+        backgroundColor: hexToRgba(color, bgAlpha),
+        borderLeftColor: color,
+      };
+    },
+    [colors.placeholder, themeMode]
+  );
+  const getServiceHeaderBadgeStyle = useCallback(
+    (servico?: string | null) => {
+      const tipo = servicoTipo(servico);
+      const color = SERVICO_COLORS[tipo] || colors.placeholder;
+      const bgAlpha = themeMode === "dark" ? 0.28 : 0.16;
+      return {
+        backgroundColor: hexToRgba(color, bgAlpha),
+        borderColor: color,
+      };
+    },
+    [colors.placeholder, themeMode]
+  );
+  const getServiceHeaderRowStyle = useCallback(
+    (servico?: string | null) => {
+      const tipo = servicoTipo(servico);
+      const color = SERVICO_COLORS[tipo] || colors.placeholder;
+      const bgAlpha = themeMode === "dark" ? 0.2 : 0.08;
+      return {
+        backgroundColor: hexToRgba(color, bgAlpha),
+        borderColor: color,
+      };
+    },
+    [colors.placeholder, themeMode]
+  );
+  const badgeTextColor = themeMode === "dark" ? "#ffffff" : "#111111";
 
   useEffect(() => {
     if (mapMode !== "map" || tab !== "pendente") return;
@@ -1047,29 +1119,40 @@ export default function EntregasListScreen({ navigation }: Props) {
               <View>
                 {section.section ? (
                   <TouchableOpacity
-                    style={styles.sectionHeaderWrap}
+                    style={[styles.sectionHeaderWrap, getServiceHeaderRowStyle(section.section)]}
                     onPress={() => toggleServico(section.section)}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.sectionHeader}>
-                      {isExpanded ? "▼ " : "▶ "}
-                      {section.section}
-                    </Text>
-                    <Text style={styles.sectionCount}>{section.data.length}</Text>
+                    <View style={styles.sectionHeaderLeft}>
+                      <Text style={styles.sectionChevron}>{isExpanded ? "▼" : "▶"}</Text>
+                      <View style={[styles.sectionServiceBadge, getServiceHeaderBadgeStyle(section.section)]}>
+                        <Text
+                          style={[
+                            styles.sectionServiceBadgeText,
+                            { color: badgeTextColor },
+                          ]}
+                        >
+                          {section.section}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={[styles.sectionCountBadge, getServiceHeaderBadgeStyle(section.section)]}>
+                      <Text style={[styles.sectionCount, { color: badgeTextColor }]}>{section.data.length}</Text>
+                    </View>
                   </TouchableOpacity>
                 ) : null}
                 {isExpanded &&
                   section.data.map((item) => (
                     <TouchableOpacity
                       key={item.id_saida}
-                      style={styles.item}
+                      style={[styles.item, getServiceRowStyle(section.section)]}
                       onPress={() => navigation.navigate("EntregaDetail", { idSaida: item.id_saida })}
                     >
                       <View style={styles.itemRow}>
                         <Text style={styles.itemCodigo}>{item.codigo || "—"}</Text>
                         <View style={styles.badgesRow}>
                           <View style={[styles.servicoBadge, { backgroundColor: SERVICO_COLORS[servicoTipo(item.servico)] || colors.placeholder }]}>
-                            <Text style={styles.servicoBadgeText}>{servicoTipo(item.servico)}</Text>
+                            <Text style={[styles.servicoBadgeText, { color: badgeTextColor }]}>{servicoTipo(item.servico)}</Text>
                           </View>
                           <View style={[styles.badge, { backgroundColor: badgeColor(item.exibicao) }]}>
                             <Text style={styles.badgeText}>{item.exibicao}</Text>
