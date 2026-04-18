@@ -6,10 +6,12 @@ import {
   StyleSheet,
   FlatList,
   ActivityIndicator,
-  TextInput,
+  Alert,
   Modal,
   Pressable,
+  Platform,
 } from "react-native";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
@@ -32,6 +34,48 @@ function normalizeServico(servico: string): "Shopee" | "Flex" | "Avulso" {
   if (s.includes("shopee")) return "Shopee";
   if (s.includes("flex") || s.includes("mercado") || s.includes("ml")) return "Flex";
   return "Avulso";
+}
+
+function parseIsoDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const d = new Date(year, month - 1, day);
+  if (Number.isNaN(d.getTime())) return null;
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+  return d;
+}
+
+function toIsoDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateBR(value: string): string {
+  const parsed = parseIsoDate(value);
+  if (!parsed) return "--/--/----";
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${parsed.getFullYear()}`;
+}
+
+function formatRealStatus(status: string, fallback: string): string {
+  const raw = String(status || "").trim();
+  if (!raw) return fallback;
+  const normalized = raw
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .trim();
+  if (!normalized) return fallback;
+  return normalized
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export default function MinhasEntregasScreen({ navigation }: Props) {
@@ -137,16 +181,17 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
         },
         filterLabel: { color: colors.textSecondary, fontSize: 13, marginBottom: 6 },
         filterRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
-        input: {
+        dateField: {
           flex: 1,
           borderWidth: 1,
           borderColor: colors.separator,
           borderRadius: 8,
           paddingHorizontal: 10,
           paddingVertical: 8,
-          color: colors.text,
           backgroundColor: colors.background,
         },
+        dateFieldLabel: { color: colors.textSecondary, fontSize: 12, marginBottom: 4 },
+        dateFieldValue: { color: colors.text, fontSize: 16, fontWeight: "600" },
         actionsRow: { flexDirection: "row", gap: 8 },
         chip: {
           flex: 1,
@@ -170,14 +215,15 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
         modalOverlay: {
           flex: 1,
           backgroundColor: colors.overlay,
-          justifyContent: "flex-end",
+          justifyContent: "flex-start",
         },
         modalSheet: {
           backgroundColor: colors.background,
-          borderTopLeftRadius: 16,
-          borderTopRightRadius: 16,
+          borderBottomLeftRadius: 16,
+          borderBottomRightRadius: 16,
           paddingHorizontal: 16,
           paddingTop: 10,
+          marginHorizontal: 12,
         },
         modalHeader: {
           flexDirection: "row",
@@ -196,6 +242,8 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
   const [statusFiltro, setStatusFiltro] = useState<ExtratoStatusFiltro>("grupo_entregue");
   const [extrato, setExtrato] = useState<ExtratoFinanceiro | null>(null);
   const [showFiltros, setShowFiltros] = useState(false);
+  const [pickerCampoAtivo, setPickerCampoAtivo] = useState<"inicio" | "fim" | null>(null);
+  const [pickerData, setPickerData] = useState<Date>(parseIsoDate(quinzena.inicio) ?? new Date());
   const [expandedByDay, setExpandedByDay] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async (custom?: { dataInicio?: string; dataFim?: string; statusFiltro?: ExtratoStatusFiltro }) => {
@@ -220,10 +268,47 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
     }, [load])
   );
 
+  const abrirPicker = useCallback((campo: "inicio" | "fim") => {
+    const valorAtual = campo === "inicio" ? dataInicio : dataFim;
+    setPickerData(parseIsoDate(valorAtual) ?? new Date());
+    setPickerCampoAtivo(campo);
+  }, [dataFim, dataInicio]);
+
+  const onChangeData = useCallback((event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (event.type === "dismissed") {
+      if (Platform.OS === "android") {
+        setPickerCampoAtivo(null);
+      }
+      return;
+    }
+    if (!selectedDate || !pickerCampoAtivo) return;
+    const iso = toIsoDate(selectedDate);
+    if (pickerCampoAtivo === "inicio") {
+      setDataInicio(iso);
+    } else {
+      setDataFim(iso);
+    }
+    setPickerData(selectedDate);
+    if (Platform.OS === "android") {
+      setPickerCampoAtivo(null);
+    }
+  }, [pickerCampoAtivo]);
+
   const handleAplicar = useCallback(() => {
+    const inicio = parseIsoDate(dataInicio);
+    const fim = parseIsoDate(dataFim);
+    if (!inicio || !fim) {
+      Alert.alert("Data inválida", "Selecione uma data inicial e final válidas.");
+      return;
+    }
+    if (inicio.getTime() > fim.getTime()) {
+      Alert.alert("Período inválido", "A data inicial não pode ser maior que a data final.");
+      return;
+    }
+    setPickerCampoAtivo(null);
     setShowFiltros(false);
     void load();
-  }, [load]);
+  }, [dataFim, dataInicio, load]);
 
   const toggleDia = useCallback((dia: string) => {
     setExpandedByDay((prev) => ({ ...prev, [dia]: !prev[dia] }));
@@ -330,14 +415,17 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
 
               {expanded ? (
                 <View style={styles.itensWrap}>
-                  {item.itens.map((it) => (
-                    <View key={`${item.data}-${it.id_saida}`} style={styles.itemRow}>
-                      <Text style={styles.itemCodigo}>{it.codigo || "—"}</Text>
-                      <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(it.exibicao)}22` }]}>
-                        <Text style={[styles.statusText, { color: getStatusColor(it.exibicao) }]}>{it.exibicao}</Text>
+                  {item.itens.map((it) => {
+                    const statusReal = formatRealStatus(it.status, it.exibicao);
+                    return (
+                      <View key={`${item.data}-${it.id_saida}`} style={styles.itemRow}>
+                        <Text style={styles.itemCodigo}>{it.codigo || "—"}</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(statusReal)}22` }]}>
+                          <Text style={[styles.statusText, { color: getStatusColor(statusReal) }]}>{statusReal}</Text>
+                        </View>
                       </View>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               ) : null}
             </View>
@@ -346,7 +434,7 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
       />
 
       <Modal visible={showFiltros} transparent animationType="slide" onRequestClose={() => setShowFiltros(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setShowFiltros(false)}>
+        <Pressable style={[styles.modalOverlay, { paddingTop: Math.max(10, insets.top + 6) }]} onPress={() => setShowFiltros(false)}>
           <Pressable
             style={[styles.modalSheet, { paddingBottom: Math.max(20, insets.bottom + 10) }]}
             onPress={(e) => e.stopPropagation()}
@@ -359,23 +447,35 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
             </View>
 
             <View style={styles.filtersCard}>
-              <Text style={styles.filterLabel}>Período (YYYY-MM-DD)</Text>
+              <Text style={styles.filterLabel}>Período</Text>
               <View style={styles.filterRow}>
-                <TextInput
-                  style={styles.input}
-                  value={dataInicio}
-                  onChangeText={setDataInicio}
-                  placeholder="2026-04-01"
-                  placeholderTextColor={colors.placeholder}
-                />
-                <TextInput
-                  style={styles.input}
-                  value={dataFim}
-                  onChangeText={setDataFim}
-                  placeholder="2026-04-15"
-                  placeholderTextColor={colors.placeholder}
-                />
+                <TouchableOpacity style={styles.dateField} activeOpacity={0.8} onPress={() => abrirPicker("inicio")}>
+                  <Text style={styles.dateFieldLabel}>Data inicial</Text>
+                  <Text style={styles.dateFieldValue}>{formatDateBR(dataInicio)}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.dateField} activeOpacity={0.8} onPress={() => abrirPicker("fim")}>
+                  <Text style={styles.dateFieldLabel}>Data final</Text>
+                  <Text style={styles.dateFieldValue}>{formatDateBR(dataFim)}</Text>
+                </TouchableOpacity>
               </View>
+              {pickerCampoAtivo ? (
+                <View style={{ marginBottom: 10 }}>
+                  <DateTimePicker
+                    value={pickerData}
+                    mode="date"
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    onChange={onChangeData}
+                  />
+                  {Platform.OS === "ios" ? (
+                    <TouchableOpacity
+                      style={[styles.chip, { marginTop: 6, borderWidth: 1, borderColor: colors.border }]}
+                      onPress={() => setPickerCampoAtivo(null)}
+                    >
+                      <Text style={styles.chipText}>Concluir data</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : null}
               <Text style={styles.filterLabel}>Status</Text>
               <View style={styles.actionsRow}>
                 <TouchableOpacity

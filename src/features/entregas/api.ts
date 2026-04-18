@@ -176,6 +176,7 @@ export async function putEndereco(idSaida: number, body: EnderecoBody): Promise<
 export interface ScanSuccess {
   ok: true;
   conflito: false;
+  ja_existia?: boolean;
   entrega: EntregaListItem;
 }
 
@@ -189,9 +190,15 @@ export interface ScanConflict {
  * Envia para /mobile/scan o valor bruto lido do scanner quando disponível.
  * O backend faz normalize_codigo(...) e extrai codigo/servico/qr_payload_raw.
  */
-export async function scanCodigo(codigoBrutoOuNormalizado: string): Promise<ScanSuccess | ScanConflict> {
+export async function scanCodigo(
+  codigoBrutoOuNormalizado: string,
+  origem: "camera" | "manual" = "camera"
+): Promise<ScanSuccess | ScanConflict> {
   try {
-    const { data } = await client.post<ScanSuccess>("/mobile/scan", { codigo: codigoBrutoOuNormalizado });
+    const { data } = await client.post<ScanSuccess>("/mobile/scan", {
+      codigo: codigoBrutoOuNormalizado,
+      origem,
+    });
     return data;
   } catch (err) {
     const ax = err as AxiosError<ScanConflict>;
@@ -206,8 +213,8 @@ export async function assumirEntrega(idSaida: number): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/assumir`);
 }
 
-export async function desatribuirEntrega(idSaida: number): Promise<void> {
-  await client.post(`/mobile/entrega/${idSaida}/desatribuir`);
+export async function removerEntrega(idSaida: number): Promise<void> {
+  await client.delete(`/mobile/entrega/${idSaida}`);
 }
 
 export async function postNovaTentativa(idSaida: number): Promise<{ tentativa: number }> {

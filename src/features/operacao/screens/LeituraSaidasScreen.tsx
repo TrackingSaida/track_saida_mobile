@@ -83,18 +83,6 @@ function shouldNotifyDuplicate(key: string): boolean {
 
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
   "qr",
-  "ean13",
-  "ean8",
-  "code128",
-  "code39",
-  "code93",
-  "itf14",
-  "codabar",
-  "upc_a",
-  "upc_e",
-  "pdf417",
-  "datamatrix",
-  "aztec",
 ];
 
 function ScanFrameOverlay({ wrapStyle }: { wrapStyle: ViewStyle }) {
@@ -941,6 +929,8 @@ export default function LeituraSaidasScreen() {
       if (loading) return;
       if (!motoboyId) return;
       const result = "nativeEvent" in event ? event.nativeEvent : event;
+      const type = String(result?.type || "").toLowerCase();
+      if (type && type !== "qr") return;
       const data = result?.data ?? "";
       if (data && !scanLocked.current) {
         void processarLeitura(data, "camera");

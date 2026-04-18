@@ -19,7 +19,7 @@ import { useThemeColors } from "../../../theme/colors";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect } from "@react-navigation/native";
-import { scanCodigo, assumirEntrega, desatribuirEntrega, getEntrega } from "../api";
+import { scanCodigo, assumirEntrega, removerEntrega, getEntrega } from "../api";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -63,21 +63,9 @@ function shouldNotifyDuplicate(key: string): boolean {
   return true;
 }
 
-// Formatos compatíveis com leituras de saídas (painel web)
+// Mobile motoboy: leitura por câmera somente via QRCode.
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
   "qr",
-  "ean13",
-  "ean8",
-  "code128",
-  "code39",
-  "code93",
-  "itf14",
-  "codabar",
-  "upc_a",
-  "upc_e",
-  "pdf417",
-  "datamatrix",
-  "aztec",
 ];
 
 const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
@@ -92,6 +80,35 @@ interface FeedbackVisual {
   tipo: FeedbackTipo;
   mensagem: string;
   codigo?: string;
+}
+
+type ApiErroDetalhe = {
+  code?: string;
+  message?: string;
+};
+
+function extrairErroApi(error: unknown): { code?: string; message: string } {
+  const fallback = "Não foi possível remover a leitura.";
+  if (!error || typeof error !== "object") {
+    return { message: fallback };
+  }
+  const maybe = error as {
+    response?: {
+      data?: {
+        detail?: string | ApiErroDetalhe;
+      };
+    };
+  };
+  const detail = maybe.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return { message: detail };
+  }
+  if (detail && typeof detail === "object") {
+    const code = typeof detail.code === "string" ? detail.code : undefined;
+    const message = typeof detail.message === "string" && detail.message.trim() ? detail.message : fallback;
+    return { code, message };
+  }
+  return { message: fallback };
 }
 
 function ScanFrameOverlay({ wrapStyle }: { wrapStyle: ViewStyle }) {
@@ -359,10 +376,15 @@ export default function ScanScreen({ navigation }: Props) {
   const removerLeitura = useCallback(async (id_saida: number) => {
     setRemovendoId(id_saida);
     try {
-      await desatribuirEntrega(id_saida);
+      await removerEntrega(id_saida);
       removeLeituraStore(id_saida);
-    } catch {
-      Alert.alert("Erro", "Não foi possível remover a leitura.");
+    } catch (error: unknown) {
+      const apiErro = extrairErroApi(error);
+      if (apiErro.code === "DELETE_WINDOW_EXPIRED") {
+        Alert.alert("Exclusão indisponível", "Esse registro passou da janela de 24h e não pode ser removido.");
+      } else {
+        Alert.alert("Erro", apiErro.message);
+      }
     } finally {
       setRemovendoId(null);
     }
@@ -383,7 +405,7 @@ export default function ScanScreen({ navigation }: Props) {
   }, [leiturasSession]);
 
   const processarCodigo = useCallback(
-    async (raw: string) => {
+    async (raw: string, origem: "camera" | "manual" = "camera") => {
       const rawTrim = String(raw || "").trim();
       if (!rawTrim || scanLocked.current) return;
       const cls = classifyCodigoParaOperacao(rawTrim);
@@ -417,7 +439,7 @@ export default function ScanScreen({ navigation }: Props) {
       setConflito(null);
 
       try {
-        const result = await scanCodigo(codigoParaApi);
+        const result = await scanCodigo(codigoParaApi, origem);
         if (result.conflito) {
           playSound("warn");
           pushFeedback("info", "Conflito de atribuição detectado", c);
@@ -426,6 +448,13 @@ export default function ScanScreen({ navigation }: Props) {
             id_saida: result.id_saida ?? 0,
           });
         } else if (result.entrega) {
+          if (result.ja_existia) {
+            playSound("warn");
+            pushFeedback("duplicado", "Código já registrado anteriormente", c);
+            setCodigo("");
+            setTimeout(() => (scanLocked.current = false), 250);
+            return;
+          }
           addLeitura(result.entrega);
           setCodigo("");
           playSound("success");
@@ -450,9 +479,11 @@ export default function ScanScreen({ navigation }: Props) {
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult | { nativeEvent: BarcodeScanningResult }) => {
       const result = "nativeEvent" in event ? event.nativeEvent : event;
+      const type = String(result?.type || "").toLowerCase();
+      if (type && type !== "qr") return;
       const data = result?.data ?? "";
       if (data && !scanLocked.current) {
-        processarCodigo(data);
+        processarCodigo(data, "camera");
       }
     },
     [processarCodigo]
@@ -464,7 +495,7 @@ export default function ScanScreen({ navigation }: Props) {
       Alert.alert("Atenção", "Digite o código.");
       return;
     }
-    await processarCodigo(c);
+    await processarCodigo(c, "manual");
   };
 
   const handleAssumir = async () => {
@@ -632,7 +663,7 @@ export default function ScanScreen({ navigation }: Props) {
           <Text style={styles.backTextWhite}>← Voltar</Text>
         </TouchableOpacity>
         <Text style={styles.titleWhite}>Escanear</Text>
-        <Text style={styles.subtitleWhite}>Aponte para o código de barras ou QR</Text>
+        <Text style={styles.subtitleWhite}>Aponte para o QRCode da etiqueta</Text>
       </View>
 
       <CameraView

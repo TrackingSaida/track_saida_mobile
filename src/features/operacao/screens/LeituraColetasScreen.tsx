@@ -43,18 +43,6 @@ interface FeedbackVisual {
 
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
   "qr",
-  "ean13",
-  "ean8",
-  "code128",
-  "code39",
-  "code93",
-  "itf14",
-  "codabar",
-  "upc_a",
-  "upc_e",
-  "pdf417",
-  "datamatrix",
-  "aztec",
 ];
 
 const SCAN_DEBOUNCE_MS = 1500;
@@ -572,6 +560,8 @@ export default function LeituraColetasScreen() {
     (event: BarcodeScanningResult | { nativeEvent: BarcodeScanningResult }) => {
       if (loading) return;
       const result = "nativeEvent" in event ? event.nativeEvent : event;
+      const type = String(result?.type || "").toLowerCase();
+      if (type && type !== "qr") return;
       const data = result?.data ?? "";
       if (data && !scanLocked.current) {
         void processarLeitura(data, "camera");
@@ -775,7 +765,7 @@ export default function LeituraColetasScreen() {
             </TouchableOpacity>
             <Text style={styles.cameraTitle}>Escanear código de coleta</Text>
             <Text style={styles.cameraSubtitle}>
-              Aponte para o código de barras ou QR. As leituras serão enviadas em tempo real.
+              Aponte para o QRCode. As leituras serão enviadas em tempo real.
             </Text>
           </View>
 
