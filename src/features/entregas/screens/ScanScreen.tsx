@@ -295,6 +295,7 @@ export default function ScanScreen({ navigation }: Props) {
   );
   const leiturasSession = useScanSessionStore((s) => s.leituras);
   const addLeituraStore = useScanSessionStore((s) => s.addLeitura);
+  const setLeiturasStore = useScanSessionStore((s) => s.setLeituras);
   const removeLeituraStore = useScanSessionStore((s) => s.removeLeitura);
   const clearLeituras = useScanSessionStore((s) => s.clearLeituras);
   const setRotaIniciada = useScanSessionStore((s) => s.setRotaIniciada);
@@ -374,11 +375,13 @@ export default function ScanScreen({ navigation }: Props) {
   }, [addLeituraStore]);
 
   const removerLeitura = useCallback(async (id_saida: number) => {
+    const snapshot = leiturasSession;
     setRemovendoId(id_saida);
+    removeLeituraStore(id_saida); // atualização otimista para refletir no contador na hora
     try {
       await removerEntrega(id_saida);
-      removeLeituraStore(id_saida);
     } catch (error: unknown) {
+      setLeiturasStore(snapshot); // rollback se a API falhar
       const apiErro = extrairErroApi(error);
       if (apiErro.code === "DELETE_WINDOW_EXPIRED") {
         Alert.alert("Exclusão indisponível", "Esse registro passou da janela de 24h e não pode ser removido.");
@@ -388,7 +391,7 @@ export default function ScanScreen({ navigation }: Props) {
     } finally {
       setRemovendoId(null);
     }
-  }, [removeLeituraStore]);
+  }, [leiturasSession, removeLeituraStore, setLeiturasStore]);
 
   const contadores = {
     Shopee: leiturasSession.filter((l) => l.servico === "Shopee").length,
