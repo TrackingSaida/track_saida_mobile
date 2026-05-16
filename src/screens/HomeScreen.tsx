@@ -174,8 +174,8 @@ export default function HomeScreen({
           ...r,
           pendentes: pendentesHoje.length,
           ausentes: ausentesHoje.length,
-          // Com filtro "somente hoje", não mostramos backlog D+1.
-          atraso_d1: 0,
+          // Mesmo com filtro de hoje, atraso_d1 vem do backend com base em data operacional.
+          atraso_d1: r.atraso_d1 ?? 0,
         });
       } else {
         setResumo(r);
