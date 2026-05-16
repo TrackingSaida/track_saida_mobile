@@ -2,7 +2,7 @@ changelog:
   categories:
     - title: 🚀 Novidades e melhorias
       labels:
-        - enhancement
+        - feature
 
     - title: 🐛 Correções
       labels:
