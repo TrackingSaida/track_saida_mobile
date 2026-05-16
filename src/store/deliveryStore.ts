@@ -230,10 +230,12 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   },
 
   restoreActiveRoute: async (payload) => {
+    const prefOnlyToday = useMotoboyPrefsStore.getState().somenteHojePendentes;
+    const paramsHoje = prefOnlyToday ? { dia: "hoje" as const, data: getTodayISO() } : undefined;
     const [pendentes, finalizadas, ausentes] = await Promise.all([
-      getEntregas("pendente"),
-      getEntregas("finalizadas"),
-      getEntregas("ausentes"),
+      getEntregas("pendente", paramsHoje),
+      getEntregas("finalizadas", paramsHoje),
+      getEntregas("ausentes", paramsHoje),
     ]);
     const byId = new Map<number, EntregaListItem>();
     [...pendentes, ...finalizadas, ...ausentes].forEach((d) => byId.set(d.id_saida, d));
