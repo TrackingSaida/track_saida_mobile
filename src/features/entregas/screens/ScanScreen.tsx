@@ -446,8 +446,9 @@ export default function ScanScreen({ navigation }: Props) {
         if (result.conflito) {
           playSound("warn");
           pushFeedback("info", "Conflito de atribuição detectado", c);
+          const nomeMotoboy = String(result.motoboy_atual || "").trim();
           setConflito({
-            motoboy_atual: result.motoboy_atual ?? "outro motoboy",
+            motoboy_atual: nomeMotoboy || "outro motoboy",
             id_saida: result.id_saida ?? 0,
           });
         } else if (result.entrega) {
