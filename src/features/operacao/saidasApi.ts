@@ -173,6 +173,11 @@ export interface LerSaidaApiRow {
   motoboy_id?: number | null;
   entregador?: string | null;
   username?: string | null;
+  data_operacional_anterior?: string | null;
+  status_atual?: string | null;
+  motoboy_nome?: string | null;
+  code?: string;
+  message?: string;
 }
 
 /**
@@ -198,6 +203,21 @@ export interface UpdateSaidaBody {
 
 export async function updateSaidaAdmin(idSaida: number, body: UpdateSaidaBody): Promise<void> {
   await client.patch(`/saidas/${idSaida}`, body);
+}
+
+export interface ConfirmarNovaSaidaMesmoEntregadorAdminBody {
+  id_saida: number;
+  motoboy_id?: number;
+  entregador_id?: number;
+  entregador?: string;
+  origem?: "web" | "mobile";
+}
+
+export async function confirmarNovaSaidaMesmoEntregadorAdmin(
+  body: ConfirmarNovaSaidaMesmoEntregadorAdminBody
+): Promise<LerSaidaApiRow> {
+  const { data } = await client.post<LerSaidaApiRow>("/saidas/confirmar-nova-saida-mesmo-entregador", body);
+  return data;
 }
 
 export interface GerarEtiquetaBody {

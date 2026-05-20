@@ -19,7 +19,7 @@ import { useThemeColors } from "../../../theme/colors";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect } from "@react-navigation/native";
-import { scanCodigo, assumirEntrega, removerEntrega, getEntrega } from "../api";
+import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador } from "../api";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -305,7 +305,14 @@ export default function ScanScreen({ navigation }: Props) {
   const [codigo, setCodigo] = useState("");
   const [loading, setLoading] = useState(false);
   const [conflito, setConflito] = useState<{ motoboy_atual: string; id_saida: number } | null>(null);
+  const [conflitoDiaAnterior, setConflitoDiaAnterior] = useState<{
+    id_saida: number;
+    data_operacional_anterior: string;
+    motoboy_nome: string;
+    codigo: string;
+  } | null>(null);
   const [assumindo, setAssumindo] = useState(false);
+  const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
   const [iniciandoRota, setIniciandoRota] = useState(false);
   const [listaExpandida, setListaExpandida] = useState(false);
   const [removendoId, setRemovendoId] = useState<number | null>(null);
@@ -440,10 +447,34 @@ export default function ScanScreen({ navigation }: Props) {
       scanLocked.current = true;
       setLoading(true);
       setConflito(null);
+      setConflitoDiaAnterior(null);
 
       try {
         const result = await scanCodigo(codigoParaApi, origem);
-        if (result.conflito) {
+        if ((result as { code?: string }).code === "STATUS_FINALIZADO") {
+          const statusAtual = String((result as { status_atual?: string }).status_atual ?? "FINALIZADO");
+          playSound("warn");
+          pushFeedback("erro", `Pedido bloqueado: status ${statusAtual}.`, c);
+          setTimeout(() => (scanLocked.current = false), 400);
+          return;
+        }
+        if ((result as { code?: string }).code === "LEITURA_DIA_ANTERIOR") {
+          const r = result as {
+            id_saida: number;
+            data_operacional_anterior: string;
+            motoboy_nome?: string | null;
+          };
+          setConflitoDiaAnterior({
+            id_saida: Number(r.id_saida ?? 0),
+            data_operacional_anterior: String(r.data_operacional_anterior ?? ""),
+            motoboy_nome: String(r.motoboy_nome ?? "Motoboy"),
+            codigo: c,
+          });
+          playSound("warn");
+          pushFeedback("info", "Pedido já lido em data anterior. Confirme saída hoje.", c);
+          return;
+        }
+        if ((result as { conflito?: boolean }).conflito) {
           playSound("warn");
           pushFeedback("info", "Conflito de atribuição detectado", c);
           const nomeMotoboy = String(result.motoboy_atual || "").trim();
@@ -523,6 +554,39 @@ export default function ScanScreen({ navigation }: Props) {
       setAssumindo(false);
     }
   };
+
+  const formatDatePtBr = useCallback((iso: string) => {
+    const p = String(iso || "").split("-");
+    if (p.length !== 3) return iso;
+    return `${p[2]}/${p[1]}/${p[0]}`;
+  }, []);
+
+  const handleConfirmarDiaAnterior = useCallback(async () => {
+    if (!conflitoDiaAnterior) return;
+    setConfirmandoDiaAnterior(true);
+    try {
+      await confirmarNovaSaidaMesmoEntregador(conflitoDiaAnterior.id_saida);
+      const entrega = await getEntrega(conflitoDiaAnterior.id_saida);
+      addLeitura(entrega);
+      playSound("success");
+      pushFeedback("sucesso", "Nova saída confirmada", entrega.codigo ?? conflitoDiaAnterior.codigo);
+      setConflitoDiaAnterior(null);
+      scanLocked.current = false;
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string; message?: string } } };
+      const msg = ax?.response?.data?.detail ?? ax?.response?.data?.message ?? "Erro ao confirmar nova saída.";
+      playSound("error");
+      pushFeedback("erro", typeof msg === "string" ? msg : "Erro ao confirmar nova saída", conflitoDiaAnterior.codigo);
+      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+    } finally {
+      setConfirmandoDiaAnterior(false);
+    }
+  }, [addLeitura, conflitoDiaAnterior, pushFeedback]);
+
+  const handleCancelarDiaAnterior = useCallback(() => {
+    setConflitoDiaAnterior(null);
+    scanLocked.current = false;
+  }, []);
 
   const handleComecarEntregar = async () => {
     if (leiturasSession.length === 0) return;
@@ -800,6 +864,32 @@ export default function ScanScreen({ navigation }: Props) {
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
                   <Text style={styles.modalBtnOkText}>Sim, assumir</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!conflitoDiaAnterior} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Pedido já lido em data anterior</Text>
+            <Text style={styles.modalMessage}>
+              Este pedido já foi lido em {formatDatePtBr(conflitoDiaAnterior?.data_operacional_anterior ?? "")} para o motoboy{" "}
+              {conflitoDiaAnterior?.motoboy_nome ?? "Motoboy"}.
+              {"\n\n"}
+              Deseja confirmar que ele está saindo novamente para entrega hoje?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={handleCancelarDiaAnterior} disabled={confirmandoDiaAnterior}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnOk} onPress={handleConfirmarDiaAnterior} disabled={confirmandoDiaAnterior}>
+                {confirmandoDiaAnterior ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.modalBtnOkText}>Confirmar saída hoje</Text>
                 )}
               </TouchableOpacity>
             </View>

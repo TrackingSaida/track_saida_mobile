@@ -186,6 +186,23 @@ export interface ScanConflict {
   id_saida: number;
 }
 
+export interface ScanLeituraDiaAnterior {
+  code: "LEITURA_DIA_ANTERIOR";
+  conflito?: false;
+  id_saida: number;
+  data_operacional_anterior: string;
+  status_atual?: string;
+  motoboy_id?: number | null;
+  motoboy_nome?: string | null;
+}
+
+export interface ScanStatusFinalizado {
+  code: "STATUS_FINALIZADO";
+  id_saida?: number;
+  status_atual?: string;
+  message?: string;
+}
+
 /**
  * Envia para /mobile/scan o valor bruto lido do scanner quando disponível.
  * O backend faz normalize_codigo(...) e extrai codigo/servico/qr_payload_raw.
@@ -193,7 +210,7 @@ export interface ScanConflict {
 export async function scanCodigo(
   codigoBrutoOuNormalizado: string,
   origem: "camera" | "manual" = "camera"
-): Promise<ScanSuccess | ScanConflict> {
+): Promise<ScanSuccess | ScanConflict | ScanLeituraDiaAnterior | ScanStatusFinalizado> {
   try {
     const { data } = await client.post<ScanSuccess>("/mobile/scan", {
       codigo: codigoBrutoOuNormalizado,
@@ -201,9 +218,12 @@ export async function scanCodigo(
     });
     return data;
   } catch (err) {
-    const ax = err as AxiosError<ScanConflict>;
-    if (ax.response?.status === 409 && ax.response?.data?.conflito) {
+    const ax = err as AxiosError<ScanConflict | ScanLeituraDiaAnterior | ScanStatusFinalizado>;
+    if (ax.response?.status === 409 && ax.response?.data) {
       return ax.response.data;
+    }
+    if (ax.response?.status === 422 && ax.response?.data && (ax.response.data as ScanStatusFinalizado).code === "STATUS_FINALIZADO") {
+      return ax.response.data as ScanStatusFinalizado;
     }
     throw err;
   }
@@ -211,6 +231,10 @@ export async function scanCodigo(
 
 export async function assumirEntrega(idSaida: number): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/assumir`);
+}
+
+export async function confirmarNovaSaidaMesmoEntregador(idSaida: number): Promise<void> {
+  await client.post(`/mobile/entrega/${idSaida}/confirmar-nova-saida-mesmo-entregador`, { origem: "mobile" });
 }
 
 export async function removerEntrega(idSaida: number): Promise<void> {

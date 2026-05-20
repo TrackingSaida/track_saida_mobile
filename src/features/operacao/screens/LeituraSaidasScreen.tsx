@@ -25,7 +25,13 @@ import { playSound } from "../../../utils/sound";
 import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
 import { effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
-import { lerSaidaAdmin, listMotoboysOperacao, updateSaidaAdmin, type MotoboyItem } from "../saidasApi";
+import {
+  lerSaidaAdmin,
+  listMotoboysOperacao,
+  updateSaidaAdmin,
+  confirmarNovaSaidaMesmoEntregadorAdmin,
+  type MotoboyItem,
+} from "../saidasApi";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
 
 const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
@@ -136,6 +142,15 @@ interface ConflitoTrocaEntregador {
   motoboyId: number;
 }
 
+interface ConflitoLeituraDiaAnterior {
+  codigo: string;
+  idSaida: number;
+  dataAnterior: string;
+  motoboyNome: string;
+  novoEntregador: string;
+  motoboyId: number;
+}
+
 function labelResumoStatus(status: StatusLeituraSaida): string {
   switch (status) {
     case "sucesso":
@@ -220,7 +235,9 @@ export default function LeituraSaidasScreen() {
   const [cameraAtiva, setCameraAtiva] = useState(false);
   const [carregandoMotoboys, setCarregandoMotoboys] = useState(false);
   const [conflito, setConflito] = useState<ConflitoTrocaEntregador | null>(null);
+  const [conflitoDiaAnterior, setConflitoDiaAnterior] = useState<ConflitoLeituraDiaAnterior | null>(null);
   const [confirmandoTroca, setConfirmandoTroca] = useState(false);
+  const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
   const [modalSelecaoMotoboyVisible, setModalSelecaoMotoboyVisible] = useState(false);
   const [manualExpanded, setManualExpanded] = useState(false);
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
@@ -874,6 +891,26 @@ export default function LeituraSaidasScreen() {
           return;
         }
 
+        if (status === 409 && code === "LEITURA_DIA_ANTERIOR") {
+          const idSaida = Number(body?.id_saida ?? 0);
+          const dataAnterior = String(body?.data_operacional_anterior ?? "").trim();
+          const motoboyNomeAnterior = String(body?.motoboy_nome ?? motoboyNome ?? "Motoboy");
+          if (idSaida > 0 && dataAnterior) {
+            setConflitoDiaAnterior({
+              codigo: c,
+              idSaida,
+              dataAnterior,
+              motoboyNome: motoboyNomeAnterior,
+              novoEntregador: motoboyNome,
+              motoboyId,
+            });
+            playSound("warn");
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            pushFeedback("info", "Pedido já lido em data anterior. Confirme saída hoje.", c);
+            return;
+          }
+        }
+
         if (status === 409 && code === "DUPLICATE_SAIDA") {
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -896,6 +933,11 @@ export default function LeituraSaidasScreen() {
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           pushFeedback("nao_coletado", "Código não coletado", c);
+        } else if (status === 422 && code === "STATUS_FINALIZADO") {
+          const statusAtual = String(body?.status_atual ?? "FINALIZADO");
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("erro", `Pedido bloqueado: status ${statusAtual}.`, c);
         } else {
           setLeituras((prev) => [
             ...prev,
@@ -974,6 +1016,51 @@ export default function LeituraSaidasScreen() {
 
   const handleCancelarTroca = useCallback(() => {
     setConflito(null);
+    scanLocked.current = false;
+  }, []);
+
+  const formatDatePtBr = useCallback((iso: string) => {
+    const p = String(iso || "").split("-");
+    if (p.length !== 3) return iso;
+    return `${p[2]}/${p[1]}/${p[0]}`;
+  }, []);
+
+  const handleConfirmarDiaAnterior = useCallback(async () => {
+    if (!conflitoDiaAnterior) return;
+    const codigoRef = conflitoDiaAnterior.codigo;
+    setConfirmandoDiaAnterior(true);
+    try {
+      const res = await confirmarNovaSaidaMesmoEntregadorAdmin({
+        id_saida: conflitoDiaAnterior.idSaida,
+        motoboy_id: conflitoDiaAnterior.motoboyId,
+        entregador: conflitoDiaAnterior.novoEntregador,
+        origem: "mobile",
+      });
+      setLeituras((prev) => [
+        ...prev,
+        {
+          codigo: conflitoDiaAnterior.codigo,
+          servico: (res.servico ?? null) as string | null,
+          entregador: conflitoDiaAnterior.novoEntregador,
+          motoboyId: conflitoDiaAnterior.motoboyId,
+          status: "sucesso",
+        },
+      ]);
+      playSound("success");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setConflitoDiaAnterior(null);
+      pushFeedback("sucesso", "Nova saída confirmada para hoje", codigoRef);
+    } catch (err) {
+      playSound("error");
+      Alert.alert("Erro", formatApiError(err, "Erro ao confirmar nova saída."));
+    } finally {
+      setConfirmandoDiaAnterior(false);
+      scanLocked.current = false;
+    }
+  }, [conflitoDiaAnterior, pushFeedback]);
+
+  const handleCancelarDiaAnterior = useCallback(() => {
+    setConflitoDiaAnterior(null);
     scanLocked.current = false;
   }, []);
 
@@ -1352,6 +1439,37 @@ export default function LeituraSaidasScreen() {
                   <ActivityIndicator size="small" color={colors.primaryContrast} />
                 ) : (
                   <Text style={styles.modalBtnPrimaryText}>Trocar entregador</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!conflitoDiaAnterior}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelarDiaAnterior}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Pedido já lido em data anterior</Text>
+            <Text style={styles.modalMessage}>
+              Este pedido já foi lido em {formatDatePtBr(conflitoDiaAnterior?.dataAnterior ?? "")} para o motoboy{" "}
+              {conflitoDiaAnterior?.motoboyNome ?? "Motoboy"}.
+              {"\n\n"}
+              Deseja confirmar que ele está saindo novamente para entrega hoje?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={handleCancelarDiaAnterior} disabled={confirmandoDiaAnterior}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnOk} onPress={handleConfirmarDiaAnterior} disabled={confirmandoDiaAnterior}>
+                {confirmandoDiaAnterior ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.modalBtnOkText}>Confirmar saída hoje</Text>
                 )}
               </TouchableOpacity>
             </View>
