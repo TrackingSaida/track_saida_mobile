@@ -23,6 +23,7 @@ import type { EntregaListItem } from "../types";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { geocodeAddress } from "../utils/geocode";
+import { SERVICO_ORDER, servicoTipo, type ServicoTipo } from "../utils/servico";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useThemeStore } from "../../../store/themeStore";
 
@@ -37,15 +38,6 @@ const TAB_LABELS: Record<Tab, string> = {
 };
 
 const TAB_ORDER: Tab[] = ["pendente", "ausentes", "finalizadas"];
-
-function servicoTipo(serv?: string | null): "Shopee" | "Flex" | "Avulso" {
-  const s = (serv || "").trim().toLowerCase();
-  if (s.includes("shopee")) return "Shopee";
-  if (s.includes("mercado") || s.includes("ml") || s.includes("flex")) return "Flex";
-  return "Avulso";
-}
-
-const SERVICO_ORDER: ("Shopee" | "Flex" | "Avulso")[] = ["Shopee", "Flex", "Avulso"];
 const SERVICO_COLORS: Record<string, string> = {
   Shopee: "#ee4d2d",
   Flex: "#ffe066",
@@ -71,6 +63,7 @@ const SERVICO_INICIAL: Record<string, string> = {
 const defaultExpanded: Record<string, boolean> = { Shopee: false, Flex: false, Avulso: false };
 
 const DEFAULT_REGION = { latitude: -23.55, longitude: -46.63, latitudeDelta: 0.05, longitudeDelta: 0.05 };
+type ServiceSection = { section: ServicoTipo; data: EntregaListItem[] };
 
 export default function EntregasListScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -468,15 +461,6 @@ export default function EntregasListScreen({ navigation }: Props) {
     return colors.textSecondary;
   };
 
-  const contagemPorServico = React.useMemo(() => {
-    const c: Record<string, number> = { Shopee: 0, Flex: 0, Avulso: 0 };
-    (listForTab ?? []).forEach((item) => {
-      const t = servicoTipo(item.servico);
-      c[t]++;
-    });
-    return c;
-  }, [listForTab]);
-
   const orderedPendentes = useMemo(() => {
     const source = listForTab ?? [];
     if (tab !== "pendente" || !suggestedOrder || suggestedOrder.length === 0) return source;
@@ -484,14 +468,30 @@ export default function EntregasListScreen({ navigation }: Props) {
     return [...source].sort((a, b) => (orderMap.get(a.id_saida) ?? 999) - (orderMap.get(b.id_saida) ?? 999));
   }, [tab, listForTab, suggestedOrder]);
 
-  const listWithSections: { section: string; data: EntregaListItem[] }[] =
-    SERVICO_ORDER.filter((s) => contagemPorServico[s] > 0).map((section) => ({
+  const listWithSections = useMemo<ServiceSection[]>(() => {
+    const source = tab === "pendente" ? orderedPendentes : listForTab;
+    return SERVICO_ORDER.map((section) => ({
       section,
-      data:
-        tab === "pendente"
-          ? (orderedPendentes ?? []).filter((item) => servicoTipo(item.servico) === section)
-          : (listForTab ?? []).filter((item) => servicoTipo(item.servico) === section),
-    }));
+      data: source.filter((item) => servicoTipo(item.servico) === section),
+    })).filter((group) => group.data.length > 0);
+  }, [tab, orderedPendentes, listForTab]);
+
+  const totalByService = useMemo<Record<ServicoTipo, number>>(
+    () =>
+      listWithSections.reduce(
+        (acc, section) => {
+          acc[section.section] = section.data.length;
+          return acc;
+        },
+        { Shopee: 0, Flex: 0, Avulso: 0 }
+      ),
+    [listWithSections]
+  );
+
+  const totalGeral = useMemo(
+    () => totalByService.Shopee + totalByService.Flex + totalByService.Avulso,
+    [totalByService]
+  );
 
   const entregasComCoords = useMemo(
     () => (listForTab ?? []).filter((d) => d.latitude != null && d.longitude != null),
@@ -898,7 +898,7 @@ export default function EntregasListScreen({ navigation }: Props) {
         <View style={styles.cardsRow}>
           <View style={styles.cardTotal}>
             <Text style={styles.servicoCardLabel}>{TAB_LABELS[tab]}</Text>
-            <Text style={styles.servicoCardValue}>{(listForTab ?? []).length}</Text>
+            <Text style={styles.servicoCardValue}>{totalGeral}</Text>
           </View>
         </View>
       )}
