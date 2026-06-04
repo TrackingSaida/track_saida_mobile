@@ -16,10 +16,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
-import { API_BASE_URL } from "../../../config/api";
 import * as ImagePicker from "expo-image-picker";
-import { getEntrega, getMotivosAusencia, marcarEntregue, marcarAusente } from "../api";
-import { getComprovanteWatermark } from "../api";
+import { getEntrega, getMotivosAusencia, marcarEntregue, marcarAusente, fetchComprovanteImageDataUri } from "../api";
 import {
   selectOrTakePhoto,
   preparePhoto,
@@ -32,8 +30,18 @@ import AddressForm, { type AddressFormValues, type AddressOrigem } from "../comp
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
 import { parseOcrToAddress, parseVoiceToAddress } from "../utils/ocrAddress";
 import VoiceAddressModal from "../components/VoiceAddressModal";
+import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregaDetail">;
+
+function FieldRow({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof StyleSheet.create> }) {
+  return (
+    <>
+      <Text style={styles.label}>{label}</Text>
+      <Text style={styles.value}>{value}</Text>
+    </>
+  );
+}
 
 export default function EntregaDetailScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -160,7 +168,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
   const novaTentativa = useDeliveryStore((s) => s.novaTentativa);
-
   const load = async () => {
     setLoading(true);
     try {
@@ -168,15 +175,13 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       setEntrega(e);
       setMotivos(m);
       if (m.length) setMotivoId(m[0].id);
-      if (e?.tem_comprovante) {
+      const exibirComprovante =
+        !!e?.tem_comprovante || e?.exibicao === "Entregue" || e?.exibicao === "Ausente";
+      if (exibirComprovante) {
         setLoadingComprovante(true);
         try {
-          const data = await getComprovanteWatermark(idSaida);
-          const raw = (data?.image_url || "").trim();
-          const full = raw
-            ? (raw.startsWith("http") ? raw : `${API_BASE_URL.replace(/\/api$/, "")}${raw}`)
-            : null;
-          setComprovanteThumb(data?.tem_comprovante ? full : null);
+          const dataUri = await fetchComprovanteImageDataUri(idSaida);
+          setComprovanteThumb(dataUri);
         } catch {
           setComprovanteThumb(null);
         } finally {
@@ -376,6 +381,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             uri: item.uri,
             mimeType: "image/jpeg",
             filename: "foto.jpg",
+            validarCamposObrigatorios: false,
+            alterarStatus: false,
           });
           setAusentePhotos((prev) =>
             prev.map((p, j) => (j === idx ? { ...p, status: "sent" as const } : p))
@@ -393,9 +400,11 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       setModalAusente(false);
       setObservacao("");
       setAusentePhotos([]);
-      Alert.alert("Sucesso", "Entrega marcada como ausente.", [
-        { text: "OK", onPress: () => navigation.goBack() },
-      ]);
+      runPostFinalizeFeedback({
+        tipo: "ausente",
+        codigo: entrega?.codigo,
+        onAfterIndividualAlert: () => navigation.goBack(),
+      });
     } catch (e: unknown) {
       const msg = e && typeof e === "object" && "response" in e
         ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
@@ -419,6 +428,37 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const statusNorm = (entrega.status || "").toUpperCase();
   const podeFinalizar = statusNorm === "EM_ROTA";
   const isAusente = entrega.exibicao === "Ausente";
+  const isEntregue = entrega.exibicao === "Entregue";
+  const isCancelado = entrega.exibicao === "Cancelado" || statusNorm === "CANCELADO";
+  const isFinalizado = isEntregue || isAusente || isCancelado;
+  const mostrarAvisoRota = !isFinalizado && !podeFinalizar && !isAusente;
+  const statusLabel = (entrega.exibicao || entrega.status || "—").trim() || "—";
+
+  const temCliente = !!(entrega.cliente || "").trim();
+  const temEndereco = !!(entrega.endereco || "").trim();
+  const temBairro = !!(entrega.bairro || "").trim();
+  const temTelefone = telefone.length >= 10;
+  const temTipoRecebedor = !!(entrega.tipo_recebedor || "").trim();
+  const temNomeRecebedor = !!(entrega.nome_recebedor || "").trim();
+  const temDocumento =
+    !!(entrega.tipo_documento || "").trim() || !!(entrega.numero_documento || "").trim();
+  const documentoTexto = [entrega.tipo_documento, entrega.numero_documento].filter(Boolean).join(" ").trim();
+  const temObsEntrega = !!(entrega.observacao_entrega || "").trim();
+  const temObsAusencia = !!(entrega.observacao_ocorrencia || "").trim();
+  const exibirComprovante =
+    !isCancelado &&
+    (!!entrega.tem_comprovante || isEntregue || isAusente || !!comprovanteThumb || loadingComprovante);
+  const temDadosEntrega =
+    temTipoRecebedor ||
+    temNomeRecebedor ||
+    temDocumento ||
+    temObsEntrega ||
+    temObsAusencia ||
+    exibirComprovante;
+  const temDadosEndereco = temCliente || temEndereco || temBairro || temTelefone;
+  const mostrarBlocoEndereco = temDadosEndereco;
+  const mostrarBotaoEndereco = !isFinalizado;
+  const visaoMinima = !temDadosEntrega && !mostrarBlocoEndereco;
   const tentativaNum = entrega.tentativa ?? 1;
   const tentativaLabel = tentativaNum >= 2 ? `${tentativaNum}ª tentativa` : null;
 
@@ -435,60 +475,101 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         {tentativaLabel ? <Text style={styles.tentativaLabel}>{tentativaLabel}</Text> : null}
       </View>
 
-      {!isAusente && !podeFinalizar && (
+      {mostrarAvisoRota ? (
         <View style={styles.avisoRota}>
           <Text style={styles.avisoRotaText}>
             Inicie a rota na tela de escaneamento para poder finalizar esta entrega.
           </Text>
         </View>
-      )}
+      ) : null}
 
       <View style={styles.card}>
-        <Text style={styles.label}>Código</Text>
-        <Text style={styles.value}>{entrega.codigo || "—"}</Text>
+        <FieldRow label="Código" value={entrega.codigo || "—"} styles={styles} />
+        {visaoMinima ? <FieldRow label="Status" value={statusLabel} styles={styles} /> : null}
 
-        <Text style={styles.label}>Cliente</Text>
-        <Text style={styles.value}>{entrega.cliente || "—"}</Text>
+        {temDadosEntrega ? (
+          <>
+            {temTipoRecebedor ? (
+              <FieldRow label="Tipo do recebedor" value={entrega.tipo_recebedor!.trim()} styles={styles} />
+            ) : null}
+            {temNomeRecebedor ? (
+              <FieldRow label="Recebedor" value={entrega.nome_recebedor!.trim()} styles={styles} />
+            ) : null}
+            {temDocumento ? <FieldRow label="Documento" value={documentoTexto} styles={styles} /> : null}
+            {temObsEntrega ? (
+              <FieldRow label="Observação da entrega" value={entrega.observacao_entrega!.trim()} styles={styles} />
+            ) : null}
+            {temObsAusencia ? (
+              <FieldRow label="Observação (ausência)" value={entrega.observacao_ocorrencia!.trim()} styles={styles} />
+            ) : null}
+            {exibirComprovante ? (
+              <View style={{ marginTop: 14 }}>
+                <Text style={styles.label}>Comprovante</Text>
+                <TouchableOpacity
+                  style={{ marginTop: 6, borderRadius: 8, overflow: "hidden", alignSelf: "flex-start" }}
+                  onPress={() => comprovanteThumb && setShowComprovanteViewer(true)}
+                  disabled={!comprovanteThumb}
+                >
+                  {loadingComprovante ? (
+                    <View
+                      style={{
+                        width: 110,
+                        height: 110,
+                        justifyContent: "center",
+                        alignItems: "center",
+                        backgroundColor: colors.inputBackground,
+                      }}
+                    >
+                      <ActivityIndicator />
+                    </View>
+                  ) : comprovanteThumb ? (
+                    <Image source={{ uri: comprovanteThumb }} style={{ width: 110, height: 110, borderRadius: 8 }} />
+                  ) : (
+                    <View
+                      style={{
+                        width: 110,
+                        height: 110,
+                        justifyContent: "center",
+                        alignItems: "center",
+                        backgroundColor: colors.inputBackground,
+                      }}
+                    >
+                      <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Sem preview</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {comprovanteThumb ? (
+                  <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>Toque para ampliar</Text>
+                ) : null}
+              </View>
+            ) : null}
+          </>
+        ) : null}
 
-        <Text style={styles.label}>Endereço</Text>
-        <Text style={styles.value}>{entrega.endereco || "—"}</Text>
-        {entrega.bairro ? <Text style={styles.valueSec}>{entrega.bairro}</Text> : null}
+        {!visaoMinima ? <FieldRow label="Status" value={statusLabel} styles={styles} /> : null}
 
-        <Text style={styles.label}>Telefone</Text>
-        {linkTel ? (
-          <TouchableOpacity onPress={() => Linking.openURL(linkTel)}>
-            <Text style={styles.link}>{entrega.contato || "—"}</Text>
+        {mostrarBlocoEndereco ? (
+          <>
+            {temCliente ? <FieldRow label="Cliente" value={entrega.cliente!.trim()} styles={styles} /> : null}
+            {temEndereco ? <FieldRow label="Endereço" value={entrega.endereco!.trim()} styles={styles} /> : null}
+            {temBairro ? <Text style={styles.valueSec}>{entrega.bairro!.trim()}</Text> : null}
+            {temTelefone ? (
+              <>
+                <Text style={styles.label}>Telefone</Text>
+                <TouchableOpacity onPress={() => Linking.openURL(linkTel!)}>
+                  <Text style={styles.link}>{entrega.contato!.trim()}</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+          </>
+        ) : null}
+
+        {mostrarBotaoEndereco ? (
+          <TouchableOpacity style={styles.btnEndereco} onPress={handleAbrirEndereco}>
+            <Text style={styles.btnEnderecoText}>
+              {entrega.possui_endereco ? "Editar Endereço" : "Adicionar Endereço"}
+            </Text>
           </TouchableOpacity>
-        ) : (
-          <Text style={styles.value}>{entrega.contato || "—"}</Text>
-        )}
-
-        <TouchableOpacity style={styles.btnEndereco} onPress={handleAbrirEndereco}>
-          <Text style={styles.btnEnderecoText}>
-            {entrega.possui_endereco ? "Editar Endereço" : "Adicionar Endereço"}
-          </Text>
-        </TouchableOpacity>
-        {entrega.tem_comprovante ? (
-          <View style={{ marginTop: 14 }}>
-            <Text style={styles.label}>Comprovante</Text>
-            <TouchableOpacity
-              style={{ marginTop: 6, borderRadius: 8, overflow: "hidden", alignSelf: "flex-start" }}
-              onPress={() => setShowComprovanteViewer(true)}
-            >
-              {loadingComprovante ? (
-                <View style={{ width: 110, height: 110, justifyContent: "center", alignItems: "center", backgroundColor: colors.inputBackground }}>
-                  <ActivityIndicator />
-                </View>
-              ) : comprovanteThumb ? (
-                <Image source={{ uri: comprovanteThumb }} style={{ width: 110, height: 110, borderRadius: 8 }} />
-              ) : (
-                <View style={{ width: 110, height: 110, justifyContent: "center", alignItems: "center", backgroundColor: colors.inputBackground }}>
-                  <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Sem preview</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>Toque para ampliar</Text>
-          </View>
         ) : null}
       </View>
 
@@ -515,25 +596,21 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         >
           <Text style={styles.btnNovaTentativaText}>Nova Tentativa</Text>
         </TouchableOpacity>
-      ) : (
+      ) : podeFinalizar ? (
         <>
-          <TouchableOpacity
-            style={[styles.btnEntregue, !podeFinalizar && styles.btnDisabled]}
-            onPress={handleAbrirEntregueModal}
-            disabled={!podeFinalizar}
-          >
+          <TouchableOpacity style={styles.btnEntregue} onPress={handleAbrirEntregueModal}>
             <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.btnAusente, (saving || !podeFinalizar) && styles.btnDisabled]}
+            style={[styles.btnAusente, saving && styles.btnDisabled]}
             onPress={handleAbrirAusente}
-            disabled={saving || !podeFinalizar}
+            disabled={saving}
           >
             <Text style={styles.btnAusenteText}>Marcar como ausente</Text>
           </TouchableOpacity>
         </>
-      )}
+      ) : null}
 
       <Modal visible={modalEnderecoOpcoes} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -618,10 +695,13 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         requiredFields={entrega?.campos_obrigatorios_entregue || []}
         onConfirm={async (body) => marcarEntregue(idSaida, body)}
         onClose={() => setShowEntregueModal(false)}
-        onSuccess={() => {
-          Alert.alert("Sucesso", "Entrega marcada como entregue.", [
-            { text: "OK", onPress: () => navigation.goBack() },
-          ]);
+        onSuccess={async () => {
+          await load();
+          runPostFinalizeFeedback({
+            tipo: "entregue",
+            codigo: entrega?.codigo,
+            onAfterIndividualAlert: () => navigation.goBack(),
+          });
         }}
       />
 

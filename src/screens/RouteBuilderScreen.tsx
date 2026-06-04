@@ -11,7 +11,6 @@ import {
   FlatList,
   Animated,
 } from "react-native";
-import LottieView from "lottie-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Linking } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
@@ -27,6 +26,8 @@ import { useDeliveryStore } from "../store/deliveryStore";
 import { getMotivosAusencia } from "../features/entregas/api";
 import { getOrderedRouteDeliveries, computeRouteStats, groupOrderedByAddress, computeRouteStatsFromGroups, addressAndRecipientKey, servicoTipo, type GroupedStop } from "../features/entregas/utils/routeUtils";
 import { playSound } from "../utils/sound";
+import { runPostFinalizeFeedback } from "../features/entregas/utils/finalizeEntregaFeedback";
+import SuccessLottie from "../components/SuccessLottie";
 import { formatApiError } from "../utils/formatApiError";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
 import { fetchOsrmRoutePolyline } from "../features/entregas/utils/osrm";
@@ -41,35 +42,6 @@ function getGoogleMapsUrl(lat: number, lon: number): string {
 
 function getWazeUrl(lat: number, lon: number): string {
   return `https://waze.com/ul?ll=${lat},${lon}&navigate=yes`;
-}
-
-const LOTTIE_SUCCESS_URL =
-  "https://lottie.host/65fe40cc-cd6f-46e7-b45b-1afec1539923/bXroAwf17P.json";
-
-function RotaFinalizadaLottie({ visible }: { visible: boolean }) {
-  const [source, setSource] = useState<object | null>(null);
-  useEffect(() => {
-    if (!visible) return;
-    let cancelled = false;
-    fetch(LOTTIE_SUCCESS_URL)
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) setSource(data);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [visible]);
-  if (!source) return <View style={{ width: 120, height: 120, marginVertical: 8 }} />;
-  return (
-    <LottieView
-      source={source}
-      autoPlay
-      loop
-      style={{ width: 120, height: 120, alignSelf: "center", marginVertical: 8 }}
-    />
-  );
 }
 
 export default function RouteBuilderScreen({ navigation }: Props) {
@@ -279,6 +251,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const handleConfirmarEntregueBatch = useCallback(
     async (body: EntregueBody) => {
       if (!pendingEntregueIds || pendingEntregueIds.length === 0) return;
+      const codigoFeedback = selectedDelivery?.codigo ?? null;
       for (let i = 0; i < pendingEntregueIds.length; i++) {
         await markDelivered(pendingEntregueIds[i], body);
       }
@@ -300,8 +273,9 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       }
       setPendingEntregueIds(null);
       setSelectedDelivery(null);
+      runPostFinalizeFeedback({ tipo: "entregue", codigo: codigoFeedback });
     },
-    [pendingEntregueIds, markDelivered, isRouteActive, activeRouteId, completeStop, finishRoute]
+    [pendingEntregueIds, markDelivered, isRouteActive, activeRouteId, completeStop, finishRoute, selectedDelivery]
   );
 
   const openAusenteModal = useCallback(() => {
@@ -378,9 +352,11 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       } else {
         playSound("warn");
       }
+      const codigoFeedback = deliveryForAusente.codigo;
       setShowAusenteModal(false);
       setDeliveryForAusente(null);
       setSelectedDelivery(null);
+      runPostFinalizeFeedback({ tipo: "ausente", codigo: codigoFeedback });
     } catch (e: unknown) {
       Alert.alert("Erro", formatApiError(e, "Erro ao salvar."));
     } finally {
@@ -579,7 +555,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       <View style={styles.modalOverlay}>
         <View style={styles.modalBox}>
           <Text style={styles.modalTitle}>Rota finalizada</Text>
-          <RotaFinalizadaLottie visible={showRotaFinalizadaModal} />
+          <SuccessLottie visible={showRotaFinalizadaModal} />
           <Text style={styles.modalRotaFinalizadaPhrase}>Parabéns! Você concluiu sua rota.</Text>
           {rotaFinalizadaTotalParadas > 0 && (
             <Text style={styles.modalRotaFinalizadaResumo}>

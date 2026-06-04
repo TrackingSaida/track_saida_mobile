@@ -20,7 +20,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
-import { getEntregas, getTodayISO } from "../api";
+import { getEntregas, getTodayISO, type FinalizadasSubtipo } from "../api";
+import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
 import type { EntregaListItem } from "../types";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -71,7 +72,7 @@ const defaultExpanded: Record<string, boolean> = { Shopee: false, Flex: false, A
 const DEFAULT_REGION = { latitude: -23.55, longitude: -46.63, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 type ServiceSection = { section: ServicoTipo; data: EntregaListItem[] };
 
-export default function EntregasListScreen({ navigation }: Props) {
+export default function EntregasListScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const themeMode = useThemeStore((s) => s.theme);
@@ -400,6 +401,7 @@ export default function EntregasListScreen({ navigation }: Props) {
     [colors]
   );
   const [tab, setTab] = useState<Tab>("pendente");
+  const [finalizadasSubtipo, setFinalizadasSubtipo] = useState<FinalizadasSubtipo>("entregue");
   const [list, setList] = useState<EntregaListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedServico, setExpandedServico] = useState<Record<string, boolean>>(defaultExpanded);
@@ -440,6 +442,16 @@ export default function EntregasListScreen({ navigation }: Props) {
   const setSomenteHojePendentes = useMotoboyPrefsStore((s) => s.setSomenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
 
+  useEffect(() => {
+    const params = route.params;
+    if (!params) return;
+    if (params.initialTab) setTab(params.initialTab);
+    if (params.somenteHoje === true) {
+      void setSomenteHojePendentes(true);
+    }
+    navigation.setParams(undefined);
+  }, [route.params, navigation, setSomenteHojePendentes]);
+
   const listForTab = (tab === "pendente" ? pendingDeliveries : list) ?? [];
   const loadingForTab = tab === "pendente" ? storeLoading : loading;
 
@@ -448,14 +460,17 @@ export default function EntregasListScreen({ navigation }: Props) {
     try {
       const shouldFilterToday = somenteHojePendentes && (tab === "finalizadas" || tab === "ausentes");
       const params = shouldFilterToday ? { dia: "hoje" as const, data: getTodayISO() } : undefined;
-      const data = await getEntregas(tab, params);
+      const data = await getEntregas(tab, {
+        ...params,
+        ...(tab === "finalizadas" ? { subtipo: finalizadasSubtipo } : {}),
+      });
       setList(data);
     } catch {
       setList([]);
     } finally {
       setLoading(false);
     }
-  }, [tab, somenteHojePendentes]);
+  }, [tab, somenteHojePendentes, finalizadasSubtipo]);
 
   useFocusEffect(
     useCallback(() => {
@@ -906,6 +921,7 @@ export default function EntregasListScreen({ navigation }: Props) {
 
   const handleEntregueModalSuccess = useCallback(() => {
     if (!selectedDelivery) return;
+    const codigo = selectedDelivery.codigo;
     const lat = selectedDelivery.latitude ?? geocodedCoords[selectedDelivery.id_saida]?.latitude;
     const lon = selectedDelivery.longitude ?? geocodedCoords[selectedDelivery.id_saida]?.longitude;
     if (lat != null && lon != null) {
@@ -913,7 +929,23 @@ export default function EntregasListScreen({ navigation }: Props) {
     }
     setShowEntregueModal(false);
     fecharSheetERestaurarLista();
-  }, [selectedDelivery, geocodedCoords, fecharSheetERestaurarLista]);
+    void load();
+    runPostFinalizeFeedback({
+      tipo: "entregue",
+      codigo,
+      onAfterIndividualAlert: () => {
+        if (tab === "pendente") void loadDeliveries({ onlyToday: somenteHojePendentes });
+      },
+    });
+  }, [
+    selectedDelivery,
+    geocodedCoords,
+    fecharSheetERestaurarLista,
+    load,
+    tab,
+    loadDeliveries,
+    somenteHojePendentes,
+  ]);
 
   const handleMarcarAusente = useCallback(
     (item: EntregaListItem) => {
@@ -1078,6 +1110,48 @@ export default function EntregasListScreen({ navigation }: Props) {
           >
             <Text style={[styles.toggleText, !somenteHojePendentes && styles.toggleTextActive]}>
               Todos pendentes
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {tab === "finalizadas" && (
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={[styles.toggleBtn, finalizadasSubtipo === "entregue" && styles.toggleBtnActive]}
+            onPress={() => setFinalizadasSubtipo("entregue")}
+          >
+            <Text style={[styles.toggleText, finalizadasSubtipo === "entregue" && styles.toggleTextActive]}>
+              Entregues
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.toggleBtn, finalizadasSubtipo === "cancelado" && styles.toggleBtnActive]}
+            onPress={() => setFinalizadasSubtipo("cancelado")}
+          >
+            <Text style={[styles.toggleText, finalizadasSubtipo === "cancelado" && styles.toggleTextActive]}>
+              Cancelados
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {(tab === "finalizadas" || tab === "ausentes") && (
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={[styles.toggleBtn, somenteHojePendentes && styles.toggleBtnActive]}
+            onPress={() => void handleToggleSomenteHoje(true)}
+          >
+            <Text style={[styles.toggleText, somenteHojePendentes && styles.toggleTextActive]}>
+              Somente hoje
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.toggleBtn, !somenteHojePendentes && styles.toggleBtnActive]}
+            onPress={() => void handleToggleSomenteHoje(false)}
+          >
+            <Text style={[styles.toggleText, !somenteHojePendentes && styles.toggleTextActive]}>
+              Todos
             </Text>
           </TouchableOpacity>
         </View>

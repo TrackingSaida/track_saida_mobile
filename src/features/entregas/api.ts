@@ -57,9 +57,11 @@ export function getTodayISO(): string {
   return `${year}-${month}-${day}`;
 }
 
+export type FinalizadasSubtipo = "entregue" | "cancelado";
+
 export async function getEntregas(
   status: "pendente" | "finalizadas" | "ausentes",
-  params?: { dia?: "hoje"; data?: string }
+  params?: { dia?: "hoje"; data?: string; subtipo?: FinalizadasSubtipo }
 ): Promise<EntregaListItem[]> {
   const dataHoje = getTodayISO();
   const useHoje = params?.dia === "hoje";
@@ -70,6 +72,9 @@ export async function getEntregas(
   if (useHoje) {
     query.dia = "hoje";
     query.data = params?.data ?? dataHoje;
+  }
+  if (status === "finalizadas" && params?.subtipo) {
+    query.subtipo = params.subtipo;
   }
   const { data } = await client.get<EntregaListItem[]>("/mobile/entregas", {
     params: query,
@@ -151,12 +156,14 @@ export async function patchFotoSaida(
   idSaida: number,
   fotoUrl: string,
   status: "entregue" | "ausente",
-  validarCamposObrigatorios = true
+  validarCamposObrigatorios = true,
+  alterarStatus = true
 ): Promise<void> {
   await client.patch(`/saidas/${idSaida}/foto`, {
     foto_url: fotoUrl,
     status,
     validar_campos_obrigatorios: !!validarCamposObrigatorios,
+    alterar_status: !!alterarStatus,
   });
 }
 
@@ -287,6 +294,38 @@ export interface ComprovanteWatermarkResponse {
 export async function getComprovanteWatermark(idSaida: number): Promise<ComprovanteWatermarkResponse> {
   const { data } = await client.get<ComprovanteWatermarkResponse>(`/upload/saida/${idSaida}/comprovante-watermark`);
   return data;
+}
+
+const BASE64_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    out += BASE64_ALPHABET[a >>> 2];
+    out += BASE64_ALPHABET[((a & 3) << 4) | (b >>> 4)];
+    out += i + 1 < bytes.length ? BASE64_ALPHABET[((b & 15) << 2) | (c >>> 6)] : "=";
+    out += i + 2 < bytes.length ? BASE64_ALPHABET[c & 63] : "=";
+  }
+  return out;
+}
+
+/** Baixa o JPEG com watermark via axios (auth) e retorna data URI para <Image>. */
+export async function fetchComprovanteImageDataUri(idSaida: number): Promise<string | null> {
+  const meta = await getComprovanteWatermark(idSaida);
+  if (!meta?.tem_comprovante) return null;
+  try {
+    const { data } = await client.get<ArrayBuffer>(`/upload/saida/${idSaida}/comprovante-watermark/image`, {
+      responseType: "arraybuffer",
+    });
+    return `data:image/jpeg;base64,${arrayBufferToBase64(data)}`;
+  } catch {
+    return null;
+  }
 }
 
 // --- Rotas ativas persistidas ---

@@ -418,12 +418,17 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
                   {item.itens.map((it) => {
                     const statusReal = formatRealStatus(it.status, it.exibicao);
                     return (
-                      <View key={`${item.data}-${it.id_saida}`} style={styles.itemRow}>
+                      <TouchableOpacity
+                        key={`${item.data}-${it.id_saida}`}
+                        style={styles.itemRow}
+                        activeOpacity={0.7}
+                        onPress={() => navigation.navigate("EntregaDetail", { idSaida: it.id_saida })}
+                      >
                         <Text style={styles.itemCodigo}>{it.codigo || "—"}</Text>
                         <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(statusReal)}22` }]}>
                           <Text style={[styles.statusText, { color: getStatusColor(statusReal) }]}>{statusReal}</Text>
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     );
                   })}
                 </View>
@@ -492,6 +497,16 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
                 >
                   <Text style={[styles.chipText, statusFiltro === "todos" && styles.chipTextActive]}>
                     Todos
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.actionsRow, { marginTop: 8 }]}>
+                <TouchableOpacity
+                  style={[styles.chip, statusFiltro === "cancelados" && styles.chipActive]}
+                  onPress={() => setStatusFiltro("cancelados")}
+                >
+                  <Text style={[styles.chipText, statusFiltro === "cancelados" && styles.chipTextActive]}>
+                    Cancelados
                   </Text>
                 </TouchableOpacity>
               </View>

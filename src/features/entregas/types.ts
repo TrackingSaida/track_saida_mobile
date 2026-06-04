@@ -19,6 +19,12 @@ export interface EntregaListItem {
   possui_endereco?: boolean;
   tentativa?: number | null;
   tem_comprovante?: boolean;
+  tipo_recebedor?: string | null;
+  nome_recebedor?: string | null;
+  tipo_documento?: string | null;
+  numero_documento?: string | null;
+  observacao_entrega?: string | null;
+  observacao_ocorrencia?: string | null;
   campos_obrigatorios?: string[];
   campos_obrigatorios_entregue?: string[];
   campos_obrigatorios_ausente?: string[];
@@ -27,6 +33,8 @@ export interface EntregaListItem {
 export interface ResumoEntregas {
   pendentes: number;
   finalizadas_hoje: number;
+  ausentes_hoje?: number;
+  total_finalizado_hoje?: number;
   pode_iniciar_rota: boolean;
   ausentes?: number;
   atraso_d1?: number;
@@ -37,7 +45,7 @@ export interface MotivoAusencia {
   descricao: string;
 }
 
-export type ExtratoStatusFiltro = "todos" | "grupo_entregue";
+export type ExtratoStatusFiltro = "todos" | "grupo_entregue" | "cancelados";
 
 export interface ExtratoPedidoItem {
   id_saida: number;

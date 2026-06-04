@@ -29,12 +29,18 @@ import PrepareDeliveriesScreen from "./src/features/entregas/screens/PrepareDeli
 import RouteBuilderScreen from "./src/screens/RouteBuilderScreen";
 import MinhasEntregasScreen from "./src/features/entregas/screens/MinhasEntregasScreen";
 import MinhasEntregasDiaScreen from "./src/features/entregas/screens/MinhasEntregasDiaScreen";
+import DiaRotaConcluidaModal from "./src/features/entregas/components/DiaRotaConcluidaModal";
 import StaffHomeStack from "./src/navigation/StaffHomeStack";
 import { isMotoboyRole } from "./src/utils/role";
 
 export type RootStackParamList = {
   HomeInicio: undefined;
-  EntregasList: undefined;
+  EntregasList:
+    | {
+        initialTab?: "pendente" | "finalizadas" | "ausentes";
+        somenteHoje?: boolean;
+      }
+    | undefined;
   EntregaDetail: { idSaida: number };
   Scan: undefined;
   PrepareDeliveries: undefined;
@@ -230,7 +236,10 @@ export default function App() {
         {pendingChangePassword ? (
           <ChangePasswordRequiredScreen onDone={() => setPendingChangePassword(false)} />
         ) : showMainApp ? (
-          <MainTabs onLogout={logout} />
+          <>
+            <MainTabs onLogout={logout} />
+            <DiaRotaConcluidaModal />
+          </>
         ) : (
           <AuthStack.Navigator screenOptions={{ headerShown: false }}>
             <AuthStack.Screen name="Login">
