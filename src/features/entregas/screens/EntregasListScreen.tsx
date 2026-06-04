@@ -11,8 +11,8 @@ import {
   Linking,
   Alert,
   TextInput,
-  Image,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import MapView, { Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,8 +20,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
-import { API_BASE_URL } from "../../../config/api";
-import { getComprovanteWatermark, getEntregas, getTodayISO } from "../api";
+import { getEntregas, getTodayISO } from "../api";
 import type { EntregaListItem } from "../types";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -29,10 +28,10 @@ import { geocodeAddress } from "../utils/geocode";
 import { SERVICO_ORDER, servicoTipo, type ServicoTipo } from "../utils/servico";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useThemeStore } from "../../../store/themeStore";
-import { useAuthStore } from "../../../store/authStore";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
+import { ScanFrameOverlay } from "../../operacao/components/ScanFrameOverlay";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregasList">;
 
@@ -120,13 +119,14 @@ export default function EntregasListScreen({ navigation }: Props) {
           paddingVertical: 10,
           color: colors.text,
         },
-        searchBtn: {
-          backgroundColor: colors.primary,
+        searchIconBtn: {
+          width: 42,
+          height: 42,
           borderRadius: 10,
-          paddingHorizontal: 12,
-          paddingVertical: 10,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+          justifyContent: "center",
         },
-        searchBtnText: { color: colors.primaryContrast, fontWeight: "700" },
         searchResultsWrap: {
           marginHorizontal: 16,
           marginTop: 8,
@@ -144,34 +144,38 @@ export default function EntregasListScreen({ navigation }: Props) {
         },
         searchResultCodigo: { fontSize: 14, fontWeight: "700", color: colors.text },
         searchResultCliente: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-        thumbWrap: { marginTop: 10, borderRadius: 8, overflow: "hidden", alignSelf: "flex-start" },
-        thumbImage: { width: 92, height: 92, borderRadius: 8, backgroundColor: colors.background },
-        thumbHint: { marginTop: 6, fontSize: 12, color: colors.textSecondary },
         imageViewerOverlay: { flex: 1, backgroundColor: "#000" },
-        imageViewerHeader: {
+        cameraOverlay: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: "rgba(0,0,0,0.25)",
+          justifyContent: "center",
+          alignItems: "center",
+          pointerEvents: "none",
+        },
+        scannerHeader: {
           position: "absolute",
           top: 0,
           left: 0,
           right: 0,
           zIndex: 2,
           paddingHorizontal: 16,
-          paddingBottom: 12,
-          backgroundColor: "rgba(0,0,0,0.3)",
+          backgroundColor: "rgba(0,0,0,0.35)",
         },
-        imageViewerClose: { color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 6 },
-        imageViewerTitle: { color: "#fff", fontSize: 14 },
-        imageViewerImage: { flex: 1, resizeMode: "contain" },
-        scanOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
-        scanPanel: {
-          backgroundColor: colors.backgroundCard,
-          borderTopLeftRadius: 16,
-          borderTopRightRadius: 16,
-          padding: 16,
+        scannerClose: { color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 6 },
+        scannerTitle: { color: "#fff", fontSize: 16, fontWeight: "700" },
+        scannerSubtitle: { color: "#d5e6ff", fontSize: 13, marginTop: 2, marginBottom: 10 },
+        scannerFooter: {
+          position: "absolute",
+          left: 16,
+          right: 16,
+          bottom: 14,
+          zIndex: 2,
+          borderRadius: 10,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          backgroundColor: "rgba(0,0,0,0.4)",
         },
-        scanTitle: { fontSize: 16, fontWeight: "700", color: colors.text, marginBottom: 6 },
-        scanSubtitle: { fontSize: 13, color: colors.textSecondary, marginBottom: 10 },
-        scanCloseBtn: { alignSelf: "center", paddingVertical: 8, paddingHorizontal: 12 },
-        scanCloseText: { color: colors.primary, fontWeight: "600" },
+        scannerFooterText: { color: "#fff", fontSize: 13, textAlign: "center" as const },
         modalOverlay: {
           flex: 1,
           backgroundColor: colors.overlay,
@@ -428,13 +432,6 @@ export default function EntregasListScreen({ navigation }: Props) {
   const [listAusentes, setListAusentes] = useState<EntregaListItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [scannerVisible, setScannerVisible] = useState(false);
-  const [visualizadorImagem, setVisualizadorImagem] = useState<{ visible: boolean; codigo: string; uri: string | null }>({
-    visible: false,
-    codigo: "",
-    uri: null,
-  });
-  const [thumbBySaida, setThumbBySaida] = useState<Record<number, string>>({});
-  const [loadingThumb, setLoadingThumb] = useState<Record<number, boolean>>({});
   const scanLockedRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const geocodedIdsRef = useRef<Set<number>>(new Set());
@@ -442,7 +439,6 @@ export default function EntregasListScreen({ navigation }: Props) {
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
   const setSomenteHojePendentes = useMotoboyPrefsStore((s) => s.setSomenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
-  const token = useAuthStore((s) => s.token);
 
   const listForTab = (tab === "pendente" ? pendingDeliveries : list) ?? [];
   const loadingForTab = tab === "pendente" ? storeLoading : loading;
@@ -565,15 +561,17 @@ export default function EntregasListScreen({ navigation }: Props) {
   }, [tab, pendentesFiltrados, listForTab]);
 
   const totalByService = useMemo<Record<ServicoTipo, number>>(
-    () =>
-      listWithSections.reduce(
+    () => {
+      const source = tab === "pendente" ? orderedPendentes : listForTab;
+      return SERVICO_ORDER.reduce(
         (acc, section) => {
-          acc[section.section] = section.data.length;
+          acc[section] = source.filter((item) => servicoTipo(item.servico) === section).length;
           return acc;
         },
         { Shopee: 0, Flex: 0, Avulso: 0 }
-      ),
-    [listWithSections]
+      );
+    },
+    [tab, orderedPendentes, listForTab]
   );
 
   const totalGeral = useMemo(
@@ -761,17 +759,25 @@ export default function EntregasListScreen({ navigation }: Props) {
   );
 
   const abrirAcoesOuBloquear = useCallback(
-    (item: EntregaListItem) => {
+    (item: EntregaListItem, opts?: { abrirDetailDireto?: boolean }) => {
       const statusNorm = String(item.status || item.exibicao || "").trim().toLowerCase();
       if (statusNorm.includes("entreg") || statusNorm.includes("cancel")) {
         Alert.alert("Bloqueado", `Pedido ${item.codigo ?? ""} está com status final (${item.exibicao || item.status}).`);
         return;
       }
+      if (opts?.abrirDetailDireto) {
+        navigation.navigate("EntregaDetail", { idSaida: item.id_saida });
+        return;
+      }
       setSelectedGroup(null);
+      if (mapMode === "list") {
+        navigation.navigate("EntregaDetail", { idSaida: item.id_saida });
+        return;
+      }
       setSelectedDelivery(item);
       setSelectedMarkerCount(1);
     },
-    [setSelectedDelivery]
+    [setSelectedDelivery, mapMode, navigation]
   );
 
   const processarBuscaOuScan = useCallback(
@@ -796,14 +802,15 @@ export default function EntregasListScreen({ navigation }: Props) {
         Alert.alert("Não encontrado", "Código não está nos pendentes carregados ou já está finalizado/cancelado.");
         return;
       }
-      abrirAcoesOuBloquear(item);
+      abrirAcoesOuBloquear(item, { abrirDetailDireto: true });
+      setSearchQuery("");
     },
     [pendingDeliveries, listFinalizadas, listAusentes, abrirAcoesOuBloquear]
   );
 
   const handleSelectBuscaDigitada = useCallback(
     (item: EntregaListItem) => {
-      abrirAcoesOuBloquear(item);
+      abrirAcoesOuBloquear(item, { abrirDetailDireto: true });
     },
     [abrirAcoesOuBloquear]
   );
@@ -833,34 +840,6 @@ export default function EntregasListScreen({ navigation }: Props) {
     }
     setScannerVisible(true);
   }, [cameraPermission?.granted, requestCameraPermission]);
-
-  const loadThumbIfNeeded = useCallback(
-    async (idSaida: number) => {
-      if (thumbBySaida[idSaida] || loadingThumb[idSaida]) return;
-      setLoadingThumb((prev) => ({ ...prev, [idSaida]: true }));
-      try {
-        const data = await getComprovanteWatermark(idSaida);
-        const relative = data.image_url?.trim();
-        if (data.tem_comprovante && relative) {
-          const full = relative.startsWith("http") ? relative : `${API_BASE_URL.replace(/\/api$/, "")}${relative}`;
-          setThumbBySaida((prev) => ({ ...prev, [idSaida]: full }));
-        }
-      } catch {
-        // não bloqueia listagem
-      } finally {
-        setLoadingThumb((prev) => ({ ...prev, [idSaida]: false }));
-      }
-    },
-    [thumbBySaida, loadingThumb]
-  );
-
-  useEffect(() => {
-    if (tab !== "finalizadas") return;
-    const target = (listForTab ?? []).filter((i) => !!i.tem_comprovante).slice(0, 20);
-    target.forEach((item) => {
-      void loadThumbIfNeeded(item.id_saida);
-    });
-  }, [tab, listForTab, loadThumbIfNeeded]);
 
   const openGoogleMaps = useCallback(() => {
     if (!firstDestWithCoords?.latitude || !firstDestWithCoords?.longitude) {
@@ -957,9 +936,8 @@ export default function EntregasListScreen({ navigation }: Props) {
   const handleToggleSomenteHoje = useCallback(
     async (value: boolean) => {
       await setSomenteHojePendentes(value);
-      await loadDeliveries({ onlyToday: value });
     },
-    [setSomenteHojePendentes, loadDeliveries]
+    [setSomenteHojePendentes]
   );
 
   return (
@@ -1050,7 +1028,7 @@ export default function EntregasListScreen({ navigation }: Props) {
         <View style={styles.searchRow}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Buscar código pendente"
+            placeholder="Buscar/escanear código"
             placeholderTextColor={colors.placeholder}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -1059,11 +1037,8 @@ export default function EntregasListScreen({ navigation }: Props) {
             returnKeyType="search"
             onSubmitEditing={() => processarBuscaOuScan(searchQuery)}
           />
-          <TouchableOpacity style={styles.searchBtn} onPress={() => processarBuscaOuScan(searchQuery)}>
-            <Text style={styles.searchBtnText}>Ir</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.searchBtn} onPress={() => void openScanner()}>
-            <Text style={styles.searchBtnText}>Scan</Text>
+          <TouchableOpacity style={styles.searchIconBtn} onPress={() => void openScanner()}>
+            <Ionicons name="scan-outline" size={22} color={colors.primaryContrast} />
           </TouchableOpacity>
         </View>
       )}
@@ -1376,11 +1351,7 @@ export default function EntregasListScreen({ navigation }: Props) {
                     <TouchableOpacity
                       key={item.id_saida}
                       style={[styles.item, getServiceRowStyle(section.section)]}
-                      onPress={() =>
-                        tab === "pendente"
-                          ? handleSelectBuscaDigitada(item)
-                          : navigation.navigate("EntregaDetail", { idSaida: item.id_saida })
-                      }
+                      onPress={() => navigation.navigate("EntregaDetail", { idSaida: item.id_saida })}
                     >
                       <View style={styles.itemRow}>
                         <Text style={styles.itemCodigo}>{item.codigo || "—"}</Text>
@@ -1407,39 +1378,6 @@ export default function EntregasListScreen({ navigation }: Props) {
                           <Text style={styles.enderecoFalta}>Sem endereço</Text>
                         )}
                       </View>
-                      {tab === "finalizadas" && item.tem_comprovante && (
-                        <TouchableOpacity
-                          style={styles.thumbWrap}
-                          onPress={() => {
-                            const uri = thumbBySaida[item.id_saida] ?? null;
-                            if (!uri) {
-                              void loadThumbIfNeeded(item.id_saida);
-                              Alert.alert("Aguarde", "Carregando comprovante...");
-                              return;
-                            }
-                            setVisualizadorImagem({ visible: true, codigo: item.codigo ?? "", uri });
-                          }}
-                        >
-                          {thumbBySaida[item.id_saida] ? (
-                            <Image
-                              source={{
-                                uri: thumbBySaida[item.id_saida],
-                                headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-                              }}
-                              style={styles.thumbImage}
-                            />
-                          ) : (
-                            <View style={[styles.thumbImage, { justifyContent: "center", alignItems: "center" }]}>
-                              {loadingThumb[item.id_saida] ? (
-                                <ActivityIndicator />
-                              ) : (
-                                <Text style={styles.thumbHint}>Sem preview</Text>
-                              )}
-                            </View>
-                          )}
-                          <Text style={styles.thumbHint}>Toque para ampliar</Text>
-                        </TouchableOpacity>
-                      )}
                     </TouchableOpacity>
                   ))}
               </View>
@@ -1447,54 +1385,30 @@ export default function EntregasListScreen({ navigation }: Props) {
           }}
         />
       )}
-      <Modal visible={scannerVisible} transparent animationType="slide" onRequestClose={() => setScannerVisible(false)}>
+      <Modal visible={scannerVisible} transparent={false} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
         <View style={styles.imageViewerOverlay}>
+          <View style={[styles.scannerHeader, { paddingTop: Math.max(14, insets.top), paddingBottom: 10 }]}>
+            <TouchableOpacity onPress={() => setScannerVisible(false)}>
+              <Text style={styles.scannerClose}>← Fechar</Text>
+            </TouchableOpacity>
+            <Text style={styles.scannerTitle}>Escanear pedido pendente</Text>
+            <Text style={styles.scannerSubtitle}>Aponte para o QR Code da etiqueta</Text>
+          </View>
           <CameraView
-            style={{ flex: 1 }}
+            style={StyleSheet.absoluteFill}
             facing="back"
             barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-            onBarcodeScanned={handleBarcodeScanned}
+            onBarcodeScanned={scanLockedRef.current ? undefined : handleBarcodeScanned}
           />
-          <View style={styles.scanOverlay}>
-            <View style={[styles.scanPanel, { paddingBottom: Math.max(16, insets.bottom) }]}>
-              <Text style={styles.scanTitle}>Escanear pedido pendente</Text>
-              <Text style={styles.scanSubtitle}>Aponte para o QR Code da etiqueta.</Text>
-              <TouchableOpacity style={styles.scanCloseBtn} onPress={() => setScannerVisible(false)}>
-                <Text style={styles.scanCloseText}>Fechar</Text>
-              </TouchableOpacity>
-            </View>
+          <View style={styles.cameraOverlay}>
+            <ScanFrameOverlay wrapStyle={{}} />
+          </View>
+          <View style={[styles.scannerFooter, { bottom: Math.max(14, insets.bottom) }]}>
+            <Text style={styles.scannerFooterText}>Escaneie um código pendente para abrir a entrega</Text>
           </View>
         </View>
       </Modal>
 
-      <Modal
-        visible={visualizadorImagem.visible}
-        transparent={false}
-        animationType="fade"
-        onRequestClose={() => setVisualizadorImagem({ visible: false, codigo: "", uri: null })}
-      >
-        <View style={styles.imageViewerOverlay}>
-          <View style={[styles.imageViewerHeader, { paddingTop: Math.max(14, insets.top) }]}>
-            <TouchableOpacity onPress={() => setVisualizadorImagem({ visible: false, codigo: "", uri: null })}>
-              <Text style={styles.imageViewerClose}>Fechar</Text>
-            </TouchableOpacity>
-            <Text style={styles.imageViewerTitle}>Comprovante {visualizadorImagem.codigo ? `- ${visualizadorImagem.codigo}` : ""}</Text>
-          </View>
-          {visualizadorImagem.uri ? (
-            <Image
-              source={{
-                uri: visualizadorImagem.uri,
-                headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-              }}
-              style={styles.imageViewerImage}
-            />
-          ) : (
-            <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-              <ActivityIndicator color="#fff" />
-            </View>
-          )}
-        </View>
-      </Modal>
     </View>
   );
 }

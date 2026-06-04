@@ -16,8 +16,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
+import { API_BASE_URL } from "../../../config/api";
 import * as ImagePicker from "expo-image-picker";
 import { getEntrega, getMotivosAusencia, marcarEntregue, marcarAusente } from "../api";
+import { getComprovanteWatermark } from "../api";
 import {
   selectOrTakePhoto,
   preparePhoto,
@@ -153,6 +155,9 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [observacao, setObservacao] = useState("");
   type PhotoItem = { uri: string; status: "idle" | "uploading" | "sent" | "error"; object_key?: string };
   const [ausentePhotos, setAusentePhotos] = useState<PhotoItem[]>([]);
+  const [comprovanteThumb, setComprovanteThumb] = useState<string | null>(null);
+  const [loadingComprovante, setLoadingComprovante] = useState(false);
+  const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
   const novaTentativa = useDeliveryStore((s) => s.novaTentativa);
 
@@ -163,6 +168,23 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       setEntrega(e);
       setMotivos(m);
       if (m.length) setMotivoId(m[0].id);
+      if (e?.tem_comprovante) {
+        setLoadingComprovante(true);
+        try {
+          const data = await getComprovanteWatermark(idSaida);
+          const raw = (data?.image_url || "").trim();
+          const full = raw
+            ? (raw.startsWith("http") ? raw : `${API_BASE_URL.replace(/\/api$/, "")}${raw}`)
+            : null;
+          setComprovanteThumb(data?.tem_comprovante ? full : null);
+        } catch {
+          setComprovanteThumb(null);
+        } finally {
+          setLoadingComprovante(false);
+        }
+      } else {
+        setComprovanteThumb(null);
+      }
     } catch {
       setEntrega(null);
     } finally {
@@ -446,6 +468,28 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             {entrega.possui_endereco ? "Editar Endereço" : "Adicionar Endereço"}
           </Text>
         </TouchableOpacity>
+        {entrega.tem_comprovante ? (
+          <View style={{ marginTop: 14 }}>
+            <Text style={styles.label}>Comprovante</Text>
+            <TouchableOpacity
+              style={{ marginTop: 6, borderRadius: 8, overflow: "hidden", alignSelf: "flex-start" }}
+              onPress={() => setShowComprovanteViewer(true)}
+            >
+              {loadingComprovante ? (
+                <View style={{ width: 110, height: 110, justifyContent: "center", alignItems: "center", backgroundColor: colors.inputBackground }}>
+                  <ActivityIndicator />
+                </View>
+              ) : comprovanteThumb ? (
+                <Image source={{ uri: comprovanteThumb }} style={{ width: 110, height: 110, borderRadius: 8 }} />
+              ) : (
+                <View style={{ width: 110, height: 110, justifyContent: "center", alignItems: "center", backgroundColor: colors.inputBackground }}>
+                  <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Sem preview</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>Toque para ampliar</Text>
+          </View>
+        ) : null}
       </View>
 
       {isAusente ? (
@@ -638,6 +682,24 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showComprovanteViewer} transparent={false} animationType="fade" onRequestClose={() => setShowComprovanteViewer(false)}>
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          <View style={{ paddingTop: Math.max(14, insets.top), paddingHorizontal: 16, paddingBottom: 12, backgroundColor: "rgba(0,0,0,0.3)" }}>
+            <TouchableOpacity onPress={() => setShowComprovanteViewer(false)}>
+              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 6 }}>Fechar</Text>
+            </TouchableOpacity>
+            <Text style={{ color: "#fff", fontSize: 14 }}>Comprovante {entrega?.codigo ? `- ${entrega.codigo}` : ""}</Text>
+          </View>
+          {comprovanteThumb ? (
+            <Image source={{ uri: comprovanteThumb }} style={{ flex: 1, resizeMode: "contain" }} />
+          ) : (
+            <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+              <ActivityIndicator color="#fff" />
+            </View>
+          )}
         </View>
       </Modal>
     </ScrollView>

@@ -998,16 +998,17 @@ export default function LeituraSaidasScreen() {
       if (novos.length > 0) {
         setLeituras((prev) => [...prev, ...novos]);
       }
-      pushFeedback("sucesso", res.mensagem);
+      pushFeedback("sucesso", res.mensagem || "Avulsos lançados com sucesso.");
       setAvulsoModalVisible(false);
       setAvulsoIdentificacao("");
       setAvulsoQuantidade("1");
+      abrirCameraExplicito();
     } catch (err) {
       pushFeedback("erro", formatApiError(err, "Erro ao lançar avulso."));
     } finally {
       setLoading(false);
     }
-  }, [motoboyId, motoboyNome, avulsoQuantidade, avulsoIdentificacao, pushFeedback]);
+  }, [motoboyId, motoboyNome, avulsoQuantidade, avulsoIdentificacao, pushFeedback, abrirCameraExplicito]);
 
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult | { nativeEvent: BarcodeScanningResult }) => {

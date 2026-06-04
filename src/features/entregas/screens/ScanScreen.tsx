@@ -560,10 +560,11 @@ export default function ScanScreen({ navigation }: Props) {
         addLeitura({ id_saida: s.id_saida, codigo: s.codigo, servico: "Avulso" });
       });
       playSound("success");
-      pushFeedback("sucesso", res.mensagem);
+      pushFeedback("sucesso", res.mensagem || "Avulsos lançados com sucesso.");
       setShowAvulsoModal(false);
       setAvulsoIdentificacao("");
       setAvulsoQuantidade("1");
+      setModoManual(false);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
       const msg = ax?.response?.data?.detail ?? "Erro ao lançar avulso.";
