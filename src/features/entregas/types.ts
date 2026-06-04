@@ -19,6 +19,9 @@ export interface EntregaListItem {
   possui_endereco?: boolean;
   tentativa?: number | null;
   tem_comprovante?: boolean;
+  campos_obrigatorios?: string[];
+  campos_obrigatorios_entregue?: string[];
+  campos_obrigatorios_ausente?: string[];
 }
 
 export interface ResumoEntregas {

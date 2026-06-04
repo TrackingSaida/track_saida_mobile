@@ -330,6 +330,14 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       Alert.alert("Atenção", "Informe a observação quando o motivo for 'Outro'.");
       return;
     }
+    const required = new Set((entrega?.campos_obrigatorios_ausente || []).map((f) => String(f || "").trim().toLowerCase()));
+    const missing: string[] = [];
+    if (required.has("foto") && ausentePhotos.length === 0) missing.push("Foto");
+    if (required.has("observacao") && !observacao.trim()) missing.push("Observação");
+    if (missing.length) {
+      Alert.alert("Atenção", `Preencha os campos obrigatórios para concluir este pedido: ${missing.join(", ")}.`);
+      return;
+    }
     setSaving(true);
     try {
       const idleIndexes = ausentePhotos.map((p, i) => (p.status === "idle" ? i : -1)).filter((i) => i >= 0);
@@ -563,6 +571,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         visible={showEntregueModal}
         idSaida={idSaida}
         destinatarioPreenchido={entrega?.cliente ?? undefined}
+        requiredFields={entrega?.campos_obrigatorios_entregue || []}
         onConfirm={async (body) => marcarEntregue(idSaida, body)}
         onClose={() => setShowEntregueModal(false)}
         onSuccess={() => {

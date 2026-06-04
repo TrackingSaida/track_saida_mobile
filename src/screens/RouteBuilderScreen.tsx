@@ -334,6 +334,14 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       Alert.alert("Atenção", "Informe a observação quando o motivo for 'Outro'.");
       return;
     }
+    const required = new Set((deliveryForAusente?.campos_obrigatorios_ausente || []).map((f) => String(f || "").trim().toLowerCase()));
+    const missing: string[] = [];
+    if (required.has("observacao") && !observacao.trim()) missing.push("Observação");
+    if (required.has("foto")) missing.push("Foto (use tela de detalhe)");
+    if (missing.length) {
+      Alert.alert("Atenção", `Preencha os campos obrigatórios para concluir este pedido: ${missing.join(", ")}.`);
+      return;
+    }
     const pending = getPendingSameAddressRecipient(deliveryForAusente);
     const idsToMark =
       pending.length > 1
@@ -833,6 +841,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         visible={pendingEntregueIds != null && pendingEntregueIds.length > 0}
         idSaida={pendingEntregueIds?.[0] ?? 0}
         destinatarioPreenchido={selectedDelivery?.cliente ?? undefined}
+        requiredFields={selectedDelivery?.campos_obrigatorios_entregue || []}
         onConfirm={handleConfirmarEntregueBatch}
         onClose={() => setPendingEntregueIds(null)}
         onSuccess={() => {}}

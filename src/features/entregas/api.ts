@@ -117,6 +117,12 @@ export interface EntregueBody {
   observacao_entrega?: string | null;
 }
 
+export interface CamposObrigatoriosValidationError {
+  code?: string;
+  campos_faltantes?: string[];
+  message?: string;
+}
+
 export async function marcarEntregue(idSaida: number, body?: EntregueBody): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/entregue`, body ?? {});
 }
@@ -144,9 +150,14 @@ export async function getPresignUpload(params: {
 export async function patchFotoSaida(
   idSaida: number,
   fotoUrl: string,
-  status: "entregue" | "ausente"
+  status: "entregue" | "ausente",
+  validarCamposObrigatorios = true
 ): Promise<void> {
-  await client.patch(`/saidas/${idSaida}/foto`, { foto_url: fotoUrl, status });
+  await client.patch(`/saidas/${idSaida}/foto`, {
+    foto_url: fotoUrl,
+    status,
+    validar_campos_obrigatorios: !!validarCamposObrigatorios,
+  });
 }
 
 export async function getMotivosAusencia(): Promise<MotivoAusencia[]> {

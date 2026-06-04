@@ -30,6 +30,7 @@ export interface FormEntregaConcluidaProps {
   visible: boolean;
   idSaida: number;
   destinatarioPreenchido?: string;
+  requiredFields?: string[];
   onConfirm: (body: EntregueBody) => Promise<void>;
   onClose: () => void;
   onSuccess: () => void;
@@ -39,6 +40,7 @@ export default function FormEntregaConcluida({
   visible,
   idSaida,
   destinatarioPreenchido,
+  requiredFields = [],
   onConfirm,
   onClose,
   onSuccess,
@@ -110,6 +112,7 @@ export default function FormEntregaConcluida({
   const [observacao, setObservacao] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const required = useMemo(() => new Set((requiredFields || []).map((f) => String(f || "").trim().toLowerCase())), [requiredFields]);
 
   type PhotoItem = { uri: string; status: "idle" | "uploading" | "sent" | "error"; object_key?: string };
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
@@ -184,6 +187,16 @@ export default function FormEntregaConcluida({
 
   const handleConfirmar = async () => {
     setError(null);
+    const missing: string[] = [];
+    if (required.has("recebedor") && !nomeRecebedor.trim()) missing.push("Recebedor");
+    if (required.has("tipo_recebedor") && !tipoRecebedor.trim()) missing.push("Tipo Recebedor");
+    if (required.has("documento") && !numeroDocumento.trim()) missing.push("Documento");
+    if (required.has("observacao") && !observacao.trim()) missing.push("Observação");
+    if (required.has("foto") && photos.length === 0) missing.push("Foto");
+    if (missing.length) {
+      setError(`Preencha os campos obrigatórios para concluir este pedido: ${missing.join(", ")}.`);
+      return;
+    }
     setSaving(true);
     try {
       // Capturar lista de fotos pendentes no início (evita state desatualizado durante o async)
@@ -214,9 +227,13 @@ export default function FormEntregaConcluida({
     } catch (e: unknown) {
       const msg =
         e && typeof e === "object" && "response" in e
-          ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          ? (e as { response?: { data?: { detail?: string | { message?: string } } } }).response?.data?.detail
           : "Erro ao marcar como entregue.";
-      setError(String(msg));
+      if (msg && typeof msg === "object" && "message" in msg && typeof msg.message === "string") {
+        setError(msg.message);
+      } else {
+        setError(String(msg));
+      }
     } finally {
       setSaving(false);
     }
@@ -238,7 +255,7 @@ export default function FormEntregaConcluida({
         <View style={styles.box}>
           <Text style={styles.title}>Dados do recebedor</Text>
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <Text style={styles.label}>Tipo do recebedor</Text>
+            <Text style={styles.label}>Tipo do recebedor {required.has("tipo_recebedor") ? "*" : ""}</Text>
             <View style={styles.opcoesRow}>
               {TIPOS_RECEBEDOR.map((op) => (
                 <TouchableOpacity
@@ -256,7 +273,7 @@ export default function FormEntregaConcluida({
               ))}
             </View>
 
-            <Text style={styles.label}>Nome do recebedor</Text>
+            <Text style={styles.label}>Nome do recebedor {required.has("recebedor") ? "*" : ""}</Text>
             <TextInput
               style={styles.input}
               value={nomeRecebedor}
@@ -278,7 +295,7 @@ export default function FormEntregaConcluida({
               ))}
             </View>
 
-            <Text style={styles.label}>Número do documento</Text>
+            <Text style={styles.label}>Número do documento {required.has("documento") ? "*" : ""}</Text>
             <TextInput
               style={styles.input}
               value={numeroDocumento}
@@ -288,7 +305,7 @@ export default function FormEntregaConcluida({
               keyboardType={tipoDocumento === "CPF" ? "numeric" : "default"}
             />
 
-            <Text style={styles.label}>Comprovante (opcional, até {MAX_PHOTOS} fotos)</Text>
+            <Text style={styles.label}>Comprovante {required.has("foto") ? "*" : "(opcional)"} (até {MAX_PHOTOS} fotos)</Text>
             <View style={styles.photoRow}>
               {photos.map((p, idx) => (
                 <View key={idx} style={styles.photoWrap}>
@@ -324,7 +341,7 @@ export default function FormEntregaConcluida({
               )}
             </View>
 
-            <Text style={styles.label}>Observação (opcional)</Text>
+            <Text style={styles.label}>Observação {required.has("observacao") ? "*" : "(opcional)"}</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
               value={observacao}
