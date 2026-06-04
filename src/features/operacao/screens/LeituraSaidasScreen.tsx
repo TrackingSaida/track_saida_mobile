@@ -27,6 +27,7 @@ import { formatApiError } from "../../../utils/formatApiError";
 import { effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
 import {
   lerSaidaAdmin,
+  lancarAvulso,
   listMotoboysOperacao,
   updateSaidaAdmin,
   confirmarNovaSaidaMesmoEntregadorAdmin,
@@ -240,6 +241,9 @@ export default function LeituraSaidasScreen() {
   const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
   const [modalSelecaoMotoboyVisible, setModalSelecaoMotoboyVisible] = useState(false);
   const [manualExpanded, setManualExpanded] = useState(false);
+  const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
+  const [avulsoIdentificacao, setAvulsoIdentificacao] = useState("");
+  const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
 
   const scanLocked = useRef(false);
@@ -612,6 +616,7 @@ export default function LeituraSaidasScreen() {
           alignItems: "center",
         },
         modalBtnPrimaryText: { fontSize: 15, fontWeight: "700", color: colors.primaryContrast },
+        modalMessage: { fontSize: 14, color: colors.textSecondary, marginBottom: 10 },
       }),
     [colors, insets.bottom, insets.top]
   );
@@ -966,6 +971,44 @@ export default function LeituraSaidasScreen() {
     await processarLeitura(c, "manual");
   }, [codigoInput, processarLeitura]);
 
+  const handleLancarAvulso = useCallback(async () => {
+    if (!motoboyId || !motoboyNome) {
+      pushFeedback("info", "Selecione um motoboy.");
+      return;
+    }
+    const qtd = Number(avulsoQuantidade);
+    if (!Number.isFinite(qtd) || qtd < 1) {
+      pushFeedback("erro", "Quantidade mínima é 1.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await lancarAvulso({
+        identificacao: avulsoIdentificacao.trim() || null,
+        quantidade: Math.floor(qtd),
+        motoboy_id: motoboyId,
+      });
+      const novos = (res.saidas ?? []).map((s) => ({
+        codigo: String(s.codigo ?? ""),
+        servico: String(s.servico ?? "Avulso"),
+        entregador: motoboyNome,
+        motoboyId,
+        status: "sucesso" as StatusLeituraSaida,
+      }));
+      if (novos.length > 0) {
+        setLeituras((prev) => [...prev, ...novos]);
+      }
+      pushFeedback("sucesso", res.mensagem);
+      setAvulsoModalVisible(false);
+      setAvulsoIdentificacao("");
+      setAvulsoQuantidade("1");
+    } catch (err) {
+      pushFeedback("erro", formatApiError(err, "Erro ao lançar avulso."));
+    } finally {
+      setLoading(false);
+    }
+  }, [motoboyId, motoboyNome, avulsoQuantidade, avulsoIdentificacao, pushFeedback]);
+
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult | { nativeEvent: BarcodeScanningResult }) => {
       if (loading) return;
@@ -1261,6 +1304,13 @@ export default function LeituraSaidasScreen() {
                 <Text style={styles.btnTextOutline}>Registrar</Text>
               )}
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btnOutline, { marginTop: 8 }]}
+              onPress={() => setAvulsoModalVisible(true)}
+              disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+            >
+              <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
 
@@ -1414,6 +1464,47 @@ export default function LeituraSaidasScreen() {
         </Pressable>
       </Modal>
 
+      <Modal visible={avulsoModalVisible} transparent animationType="fade" onRequestClose={() => setAvulsoModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Lançar Avulso</Text>
+            <Text style={styles.modalMessage}>Identificação do avulso (opcional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex.: Cliente João"
+              placeholderTextColor={colors.placeholder}
+              value={avulsoIdentificacao}
+              onChangeText={setAvulsoIdentificacao}
+              autoCapitalize="words"
+              autoCorrect={false}
+              editable={!loading}
+            />
+            <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="1"
+              placeholderTextColor={colors.placeholder}
+              value={avulsoQuantidade}
+              onChangeText={setAvulsoQuantidade}
+              keyboardType="number-pad"
+              editable={!loading}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setAvulsoModalVisible(false)} disabled={loading}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnPrimary} onPress={() => void handleLancarAvulso()} disabled={loading}>
+                {loading ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.modalBtnPrimaryText}>Confirmar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={!!conflito} transparent animationType="fade" onRequestClose={handleCancelarTroca}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -1468,7 +1559,7 @@ export default function LeituraSaidasScreen() {
         onRequestClose={handleCancelarDiaAnterior}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
+          <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Pedido já lido em data anterior</Text>
             <Text style={styles.modalMessage}>
               Este pedido já foi lido em {formatDatePtBr(conflitoDiaAnterior?.dataAnterior ?? "")} para o motoboy{" "}
@@ -1480,11 +1571,11 @@ export default function LeituraSaidasScreen() {
               <TouchableOpacity style={styles.modalBtnCancel} onPress={handleCancelarDiaAnterior} disabled={confirmandoDiaAnterior}>
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalBtnOk} onPress={handleConfirmarDiaAnterior} disabled={confirmandoDiaAnterior}>
+              <TouchableOpacity style={styles.modalBtnPrimary} onPress={handleConfirmarDiaAnterior} disabled={confirmandoDiaAnterior}>
                 {confirmandoDiaAnterior ? (
                   <ActivityIndicator color={colors.primaryContrast} />
                 ) : (
-                  <Text style={styles.modalBtnOkText}>Confirmar saída hoje</Text>
+                  <Text style={styles.modalBtnPrimaryText}>Confirmar saída hoje</Text>
                 )}
               </TouchableOpacity>
             </View>

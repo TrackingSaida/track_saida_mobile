@@ -19,7 +19,7 @@ import { useThemeColors } from "../../../theme/colors";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect } from "@react-navigation/native";
-import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador } from "../api";
+import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, lancarAvulsoMobile } from "../api";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -75,6 +75,12 @@ const CORNER_COLOR = "#00bfff"; // azul claro visível sobre a câmera
 const FEEDBACK_MS = 1100;
 
 type FeedbackTipo = "sucesso" | "duplicado" | "erro" | "info";
+type ScanConflictLocal = { conflito: true; motoboy_atual: string; id_saida: number };
+type ScanSuccessLocal = {
+  conflito: false;
+  ja_existia?: boolean;
+  entrega: { id_saida: number; codigo?: string | null; servico?: string | null };
+};
 
 interface FeedbackVisual {
   tipo: FeedbackTipo;
@@ -303,6 +309,9 @@ export default function ScanScreen({ navigation }: Props) {
 
   const [modoManual, setModoManual] = useState(false);
   const [codigo, setCodigo] = useState("");
+  const [avulsoIdentificacao, setAvulsoIdentificacao] = useState("");
+  const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
+  const [showAvulsoModal, setShowAvulsoModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [conflito, setConflito] = useState<{ motoboy_atual: string; id_saida: number } | null>(null);
   const [conflitoDiaAnterior, setConflitoDiaAnterior] = useState<{
@@ -475,22 +484,24 @@ export default function ScanScreen({ navigation }: Props) {
           return;
         }
         if ((result as { conflito?: boolean }).conflito) {
+          const conflitoResult = result as ScanConflictLocal;
           playSound("warn");
           pushFeedback("info", "Conflito de atribuição detectado", c);
-          const nomeMotoboy = String(result.motoboy_atual || "").trim();
+          const nomeMotoboy = String(conflitoResult.motoboy_atual || "").trim();
           setConflito({
             motoboy_atual: nomeMotoboy || "outro motoboy",
-            id_saida: result.id_saida ?? 0,
+            id_saida: conflitoResult.id_saida ?? 0,
           });
-        } else if (result.entrega) {
-          if (result.ja_existia) {
+        } else if ((result as ScanSuccessLocal).entrega) {
+          const sucessoResult = result as ScanSuccessLocal;
+          if (sucessoResult.ja_existia) {
             playSound("warn");
             pushFeedback("duplicado", "Código já registrado anteriormente", c);
             setCodigo("");
             setTimeout(() => (scanLocked.current = false), 250);
             return;
           }
-          addLeitura(result.entrega);
+          addLeitura(sucessoResult.entrega);
           setCodigo("");
           playSound("success");
           pushFeedback("sucesso", "Leitura registrada", c);
@@ -532,6 +543,36 @@ export default function ScanScreen({ navigation }: Props) {
     }
     await processarCodigo(c, "manual");
   };
+
+  const handleLancarAvulso = useCallback(async () => {
+    const qtd = Number(avulsoQuantidade);
+    if (!Number.isFinite(qtd) || qtd < 1) {
+      Alert.alert("Atenção", "Quantidade mínima é 1.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await lancarAvulsoMobile({
+        identificacao: avulsoIdentificacao.trim() || null,
+        quantidade: Math.floor(qtd),
+      });
+      (res.saidas ?? []).forEach((s) => {
+        addLeitura({ id_saida: s.id_saida, codigo: s.codigo, servico: "Avulso" });
+      });
+      playSound("success");
+      pushFeedback("sucesso", res.mensagem);
+      setShowAvulsoModal(false);
+      setAvulsoIdentificacao("");
+      setAvulsoQuantidade("1");
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string } } };
+      const msg = ax?.response?.data?.detail ?? "Erro ao lançar avulso.";
+      playSound("error");
+      Alert.alert("Erro", String(msg));
+    } finally {
+      setLoading(false);
+    }
+  }, [avulsoQuantidade, avulsoIdentificacao, addLeitura, pushFeedback]);
 
   const handleAssumir = async () => {
     if (!conflito) return;
@@ -655,6 +696,13 @@ export default function ScanScreen({ navigation }: Props) {
             <Text style={styles.btnScanText}>Confirmar</Text>
           )}
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
+          onPress={() => setShowAvulsoModal(true)}
+          disabled={loading}
+        >
+          <Text style={styles.btnScanText}>Lançar Avulso</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.linkManual}
@@ -692,6 +740,40 @@ export default function ScanScreen({ navigation }: Props) {
                   ) : (
                     <Text style={styles.modalBtnOkText}>Sim, assumir</Text>
                   )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+        <Modal visible={showAvulsoModal} transparent animationType="fade" onRequestClose={() => setShowAvulsoModal(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalBox}>
+              <Text style={styles.modalTitle}>Lançar Avulso</Text>
+              <Text style={styles.modalMessage}>Identificação (opcional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex.: Empresa ABC"
+                placeholderTextColor={colors.placeholder}
+                value={avulsoIdentificacao}
+                onChangeText={setAvulsoIdentificacao}
+                editable={!loading}
+              />
+              <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="1"
+                placeholderTextColor={colors.placeholder}
+                value={avulsoQuantidade}
+                onChangeText={setAvulsoQuantidade}
+                keyboardType="number-pad"
+                editable={!loading}
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAvulsoModal(false)} disabled={loading}>
+                  <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.modalBtnOk, loading && styles.btnDisabled]} onPress={() => void handleLancarAvulso()} disabled={loading}>
+                  {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalBtnOkText}>Confirmar</Text>}
                 </TouchableOpacity>
               </View>
             </View>

@@ -237,6 +237,26 @@ export async function confirmarNovaSaidaMesmoEntregador(idSaida: number): Promis
   await client.post(`/mobile/entrega/${idSaida}/confirmar-nova-saida-mesmo-entregador`, { origem: "mobile" });
 }
 
+export interface LancarAvulsoResult {
+  quantidade_criada: number;
+  codigos: string[];
+  saidas: Array<{
+    id_saida: number;
+    codigo: string;
+    servico: string;
+    status: string;
+  }>;
+  mensagem: string;
+}
+
+export async function lancarAvulsoMobile(body: {
+  identificacao?: string | null;
+  quantidade: number;
+}): Promise<LancarAvulsoResult> {
+  const { data } = await client.post<LancarAvulsoResult>("/pedidos/lancar-avulso", body);
+  return data;
+}
+
 export async function removerEntrega(idSaida: number): Promise<void> {
   await client.delete(`/mobile/entrega/${idSaida}`);
 }

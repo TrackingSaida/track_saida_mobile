@@ -180,6 +180,26 @@ export interface LerSaidaApiRow {
   message?: string;
 }
 
+export interface LancarAvulsoBody {
+  identificacao?: string | null;
+  quantidade: number;
+  entregador_id?: number;
+  entregador?: string;
+  motoboy_id?: number;
+}
+
+export interface LancarAvulsoResult {
+  quantidade_criada: number;
+  codigos: string[];
+  saidas: Array<{
+    id_saida: number;
+    codigo: string;
+    servico: string;
+    status: string;
+  }>;
+  mensagem: string;
+}
+
 /**
  * Wrapper para POST /saidas/ler usado pela leitura administrativa.
  *
@@ -192,6 +212,11 @@ export async function lerSaidaAdmin(body: LerSaidaAdminBody): Promise<LerSaidaAp
     return (data as { data?: LerSaidaApiRow }).data ?? {};
   }
   return data as LerSaidaApiRow;
+}
+
+export async function lancarAvulso(body: LancarAvulsoBody): Promise<LancarAvulsoResult> {
+  const { data } = await client.post<LancarAvulsoResult>("/pedidos/lancar-avulso", body);
+  return data;
 }
 
 export interface UpdateSaidaBody {
