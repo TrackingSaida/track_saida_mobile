@@ -746,8 +746,21 @@ export default function ConsultaCodigosScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert("Sucesso", "Registro atualizado para cancelado.");
     } catch (err) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Erro", formatApiError(err, "Não foi possível cancelar este registro."));
+      const ax = err as AxiosError<{ code?: string; status_atual?: string; detail?: { code?: string; status_atual?: string } | string }>;
+      const body = ax.response?.data;
+      const detailObj =
+        body && typeof body.detail === "object" && body.detail
+          ? (body.detail as { code?: string; status_atual?: string })
+          : null;
+      const code = body?.code ?? detailObj?.code;
+      if (ax.response?.status === 422 && code === "STATUS_FINALIZADO") {
+        const statusAtual = String(body?.status_atual ?? detailObj?.status_atual ?? "FINALIZADO");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert("Bloqueado", `Pedido com status final (${statusAtual}).`);
+      } else {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert("Erro", formatApiError(err, "Não foi possível cancelar este registro."));
+      }
     } finally {
       setCancelandoSaida(false);
     }
@@ -902,7 +915,21 @@ export default function ConsultaCodigosScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       void executarBusca(0, { codigoOverride: conflito.codigo });
     } catch (err) {
-      Alert.alert("Erro", formatApiError(err, "Erro ao trocar entregador."));
+      const ax = err as AxiosError<{ code?: string; status_atual?: string; detail?: { code?: string; status_atual?: string } | string }>;
+      const body = ax.response?.data;
+      const detailObj =
+        body && typeof body.detail === "object" && body.detail
+          ? (body.detail as { code?: string; status_atual?: string })
+          : null;
+      const code = body?.code ?? detailObj?.code;
+      if (ax.response?.status === 422 && code === "STATUS_FINALIZADO") {
+        const statusAtual = String(body?.status_atual ?? detailObj?.status_atual ?? "FINALIZADO");
+        setConflito(null);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert("Bloqueado", `Pedido com status final (${statusAtual}).`);
+      } else {
+        Alert.alert("Erro", formatApiError(err, "Erro ao trocar entregador."));
+      }
     } finally {
       setConfirmandoTroca(false);
     }

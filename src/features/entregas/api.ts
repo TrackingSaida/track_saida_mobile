@@ -248,6 +248,16 @@ export async function postNovaTentativa(idSaida: number): Promise<{ tentativa: n
   return { tentativa: data.tentativa };
 }
 
+export interface ComprovanteWatermarkResponse {
+  tem_comprovante: boolean;
+  image_url?: string | null;
+}
+
+export async function getComprovanteWatermark(idSaida: number): Promise<ComprovanteWatermarkResponse> {
+  const { data } = await client.get<ComprovanteWatermarkResponse>(`/upload/saida/${idSaida}/comprovante-watermark`);
+  return data;
+}
+
 // --- Rotas ativas persistidas ---
 
 export interface RotasAtivaResponse {

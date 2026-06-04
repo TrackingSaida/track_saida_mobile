@@ -1006,8 +1006,23 @@ export default function LeituraSaidasScreen() {
       setConflito(null);
       pushFeedback("alterado", "Entregador alterado", codigoRef);
     } catch (err) {
-      playSound("error");
-      Alert.alert("Erro", formatApiError(err, "Erro ao alterar entregador."));
+      const ax = err as AxiosError<{ code?: string; status_atual?: string; detail?: { code?: string; status_atual?: string } | string }>;
+      const body = ax.response?.data;
+      const detailObj =
+        body && typeof body.detail === "object" && body.detail
+          ? (body.detail as { code?: string; status_atual?: string })
+          : null;
+      const code = body?.code ?? detailObj?.code;
+      if (ax.response?.status === 422 && code === "STATUS_FINALIZADO") {
+        const statusAtual = String(body?.status_atual ?? detailObj?.status_atual ?? "FINALIZADO");
+        playSound("warn");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        setConflito(null);
+        pushFeedback("erro", `Pedido bloqueado: status ${statusAtual}.`, codigoRef);
+      } else {
+        playSound("error");
+        Alert.alert("Erro", formatApiError(err, "Erro ao alterar entregador."));
+      }
     } finally {
       setConfirmandoTroca(false);
       scanLocked.current = false;
