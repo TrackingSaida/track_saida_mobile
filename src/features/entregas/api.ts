@@ -59,6 +59,36 @@ export function getTodayISO(): string {
 
 export type FinalizadasSubtipo = "entregue" | "cancelado";
 
+export type FinalizadasListParams = { dia?: "hoje"; data?: string };
+
+function sortEntregasDesc(items: EntregaListItem[]): EntregaListItem[] {
+  return [...items].sort((a, b) => {
+    const da = String(a.data_hora_entrega || a.data || "");
+    const db = String(b.data_hora_entrega || b.data || "");
+    return db.localeCompare(da);
+  });
+}
+
+/** Lista finalizadas conforme filtros independentes (entregue / cancelado). */
+export async function fetchFinalizadasFiltradas(
+  params: FinalizadasListParams | undefined,
+  filtros: { entregue: boolean; cancelado: boolean }
+): Promise<EntregaListItem[]> {
+  const { entregue, cancelado } = filtros;
+  if (entregue && cancelado) {
+    const [entregues, cancelados] = await Promise.all([
+      getEntregas("finalizadas", { ...params, subtipo: "entregue" }),
+      getEntregas("finalizadas", { ...params, subtipo: "cancelado" }),
+    ]);
+    const byId = new Map<number, EntregaListItem>();
+    [...entregues, ...cancelados].forEach((d) => byId.set(d.id_saida, d));
+    return sortEntregasDesc(Array.from(byId.values()));
+  }
+  if (entregue) return getEntregas("finalizadas", { ...params, subtipo: "entregue" });
+  if (cancelado) return getEntregas("finalizadas", { ...params, subtipo: "cancelado" });
+  return [];
+}
+
 export async function getEntregas(
   status: "pendente" | "finalizadas" | "ausentes",
   params?: { dia?: "hoje"; data?: string; subtipo?: FinalizadasSubtipo }
@@ -328,7 +358,29 @@ export async function fetchComprovanteImageDataUri(idSaida: number): Promise<str
   }
 }
 
-// --- Rotas ativas persistidas ---
+// --- Otimização e rotas ativas persistidas ---
+
+export type RotasOtimizarModo = "osrm_trip" | "nearest_fallback";
+
+export interface RotasOtimizarResponse {
+  ordem: number[];
+  modo: RotasOtimizarModo;
+  sem_coordenadas: number[];
+  distancia_total_m?: number | null;
+  duracao_total_s?: number | null;
+}
+
+export async function postRotasOtimizar(
+  deliveryIds: number[],
+  start?: { latitude: number; longitude: number }
+): Promise<RotasOtimizarResponse> {
+  const body: { delivery_ids: number[]; start?: { latitude: number; longitude: number } } = {
+    delivery_ids: deliveryIds,
+  };
+  if (start) body.start = start;
+  const { data } = await client.post<RotasOtimizarResponse>("/mobile/rotas/otimizar", body);
+  return data;
+}
 
 export interface RotasAtivaResponse {
   rota_id: string;

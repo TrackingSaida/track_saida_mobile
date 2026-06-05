@@ -30,6 +30,15 @@ export interface EntregaListItem {
   campos_obrigatorios_ausente?: string[];
 }
 
+export type EntregasListInitialTab = "pendente" | "finalizadas" | "ausentes";
+
+export type FinalizadasFiltros = { entregue: boolean; cancelado: boolean };
+
+export const FINALIZADAS_FILTROS_PADRAO: FinalizadasFiltros = {
+  entregue: true,
+  cancelado: false,
+};
+
 export interface ResumoEntregas {
   pendentes: number;
   finalizadas_hoje: number;

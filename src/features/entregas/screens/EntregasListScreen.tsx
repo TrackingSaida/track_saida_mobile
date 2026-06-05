@@ -20,7 +20,12 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
-import { getEntregas, getTodayISO, type FinalizadasSubtipo } from "../api";
+import { fetchFinalizadasFiltradas, getEntregas, getTodayISO } from "../api";
+import {
+  FINALIZADAS_FILTROS_PADRAO,
+  type EntregasListInitialTab,
+  type FinalizadasFiltros,
+} from "../types";
 import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
 import type { EntregaListItem } from "../types";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
@@ -400,8 +405,10 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       }),
     [colors]
   );
-  const [tab, setTab] = useState<Tab>("pendente");
-  const [finalizadasSubtipo, setFinalizadasSubtipo] = useState<FinalizadasSubtipo>("entregue");
+  const [tab, setTab] = useState<Tab>(() => route.params?.initialTab ?? "pendente");
+  const [finalizadasFiltros, setFinalizadasFiltros] = useState<FinalizadasFiltros>(
+    FINALIZADAS_FILTROS_PADRAO
+  );
   const [list, setList] = useState<EntregaListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedServico, setExpandedServico] = useState<Record<string, boolean>>(defaultExpanded);
@@ -409,19 +416,15 @@ export default function EntregasListScreen({ navigation, route }: Props) {
 
   const {
     pendingDeliveries,
-    deliveriesWithAddress,
-    deliveriesWithoutAddress,
     mapMode,
     setMapMode,
-    setRouteDeliveries,
-    activeRouteId,
-    clearActiveRouteState,
     selectedDelivery,
     setSelectedDelivery,
     loadDeliveries,
     markDelivered,
     suggestedOrder,
     loading: storeLoading,
+    routeStarted,
   } = useDeliveryStore();
   const [showNavegarModal, setShowNavegarModal] = useState(false);
   const [showEntregueModal, setShowEntregueModal] = useState(false);
@@ -441,18 +444,13 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
   const setSomenteHojePendentes = useMotoboyPrefsStore((s) => s.setSomenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
-
-  useEffect(() => {
-    const params = route.params;
-    if (!params) return;
-    if (params.initialTab) setTab(params.initialTab);
-    if (params.somenteHoje === true) {
-      void setSomenteHojePendentes(true);
-    }
-    navigation.setParams(undefined);
-  }, [route.params, navigation, setSomenteHojePendentes]);
+  const [totalPendentesCount, setTotalPendentesCount] = useState(0);
 
   const listForTab = (tab === "pendente" ? pendingDeliveries : list) ?? [];
+  const showPrepararRotaBtn =
+    roteirizacaoHabilitada &&
+    tab === "pendente" &&
+    (listForTab.length > 0 || totalPendentesCount > 0 || routeStarted);
   const loadingForTab = tab === "pendente" ? storeLoading : loading;
 
   const load = useCallback(async () => {
@@ -460,27 +458,53 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     try {
       const shouldFilterToday = somenteHojePendentes && (tab === "finalizadas" || tab === "ausentes");
       const params = shouldFilterToday ? { dia: "hoje" as const, data: getTodayISO() } : undefined;
-      const data = await getEntregas(tab, {
-        ...params,
-        ...(tab === "finalizadas" ? { subtipo: finalizadasSubtipo } : {}),
-      });
+      const data =
+        tab === "finalizadas"
+          ? await fetchFinalizadasFiltradas(params, finalizadasFiltros)
+          : await getEntregas(tab, params);
       setList(data);
     } catch {
       setList([]);
     } finally {
       setLoading(false);
     }
-  }, [tab, somenteHojePendentes, finalizadasSubtipo]);
+  }, [tab, somenteHojePendentes, finalizadasFiltros]);
+
+  const toggleFinalizadasFiltro = useCallback((key: keyof FinalizadasFiltros) => {
+    setFinalizadasFiltros((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (!next.entregue && !next.cancelado) return prev;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const initialTab = route.params?.initialTab as EntregasListInitialTab | undefined;
+    if (!initialTab) return;
+    setTab(initialTab);
+    navigation.setParams({ initialTab: undefined });
+  }, [route.params?.initialTab, navigation]);
 
   useFocusEffect(
     useCallback(() => {
       if (tab === "pendente") {
         loadDeliveries({ onlyToday: somenteHojePendentes });
+        if (roteirizacaoHabilitada) {
+          getEntregas("pendente")
+            .then((all) => setTotalPendentesCount(all.length))
+            .catch(() => setTotalPendentesCount(0));
+        } else {
+          setTotalPendentesCount(0);
+        }
       } else {
-        load();
+        void load();
       }
-    }, [tab, loadDeliveries, load, somenteHojePendentes])
+    }, [tab, loadDeliveries, load, somenteHojePendentes, roteirizacaoHabilitada])
   );
+
+  useEffect(() => {
+    if (tab === "finalizadas") void load();
+  }, [tab, finalizadasFiltros, load]);
 
   useEffect(() => {
     if (mapMode !== "map" || tab !== "pendente") return;
@@ -995,64 +1019,12 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         ))}
       </View>
 
-      {tab === "pendente" && listForTab.length > 0 && roteirizacaoHabilitada && (
+      {showPrepararRotaBtn && (
         <TouchableOpacity
           style={styles.btnSugerirRota}
-          onPress={() => {
-            if (deliveriesWithAddress.length === 0) {
-              Alert.alert("Atenção", "Nenhuma entrega possui endereço válido.", [
-                { text: "OK", style: "cancel" },
-                { text: "Adicionar endereços", onPress: () => navigation.navigate("PrepareDeliveries") },
-              ]);
-              return;
-            }
-            if (deliveriesWithoutAddress.length > 0) {
-              const x = deliveriesWithoutAddress.length;
-              Alert.alert(
-                "Criar Rota",
-                `${x} entrega${x !== 1 ? "s" : ""} não possuem endereço e não entrarão na rota.`,
-                [
-                  { text: "Cancelar", style: "cancel" },
-                  {
-                    text: "Criar rota parcial",
-                    onPress: () => {
-                      try {
-                        if (activeRouteId === null) clearActiveRouteState();
-                        setRouteDeliveries(deliveriesWithAddress);
-                        navigation.navigate("RouteBuilder");
-                      } catch (e) {
-                        console.error("[Criar rota parcial] crash:", e);
-                        Alert.alert(
-                          "Erro",
-                          `Erro ao criar rota parcial: ${e instanceof Error ? e.message : String(e)}. Conecte o celular ao PC e use "adb logcat" para ver o log completo.`
-                        );
-                      }
-                    },
-                  },
-                  {
-                    text: "Adicionar endereços",
-                    onPress: () => navigation.navigate("PrepareDeliveries"),
-                  },
-                ]
-              );
-            } else {
-              try {
-                if (activeRouteId === null) clearActiveRouteState();
-                setRouteDeliveries(deliveriesWithAddress);
-                navigation.navigate("RouteBuilder");
-              } catch (e) {
-                console.error("[Sugerir Rota] crash:", e);
-                Alert.alert(
-                  "Erro",
-                  `Erro ao sugerir rota: ${e instanceof Error ? e.message : String(e)}. Conecte o celular ao PC e use "adb logcat" para ver o log completo.`
-                );
-              }
-            }
-          }}
+          onPress={() => navigation.navigate("PrepareDeliveries")}
         >
-          <Text style={styles.btnSugerirRotaText}>
-            {deliveriesWithoutAddress.length > 0 ? "🧭 Criar Rota" : "🧭 Sugerir Rota"}
-          </Text>
+          <Text style={styles.btnSugerirRotaText}>🧭 Preparar Rota</Text>
         </TouchableOpacity>
       )}
 
@@ -1118,18 +1090,18 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       {tab === "finalizadas" && (
         <View style={styles.filterRow}>
           <TouchableOpacity
-            style={[styles.toggleBtn, finalizadasSubtipo === "entregue" && styles.toggleBtnActive]}
-            onPress={() => setFinalizadasSubtipo("entregue")}
+            style={[styles.toggleBtn, finalizadasFiltros.entregue && styles.toggleBtnActive]}
+            onPress={() => toggleFinalizadasFiltro("entregue")}
           >
-            <Text style={[styles.toggleText, finalizadasSubtipo === "entregue" && styles.toggleTextActive]}>
+            <Text style={[styles.toggleText, finalizadasFiltros.entregue && styles.toggleTextActive]}>
               Entregues
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.toggleBtn, finalizadasSubtipo === "cancelado" && styles.toggleBtnActive]}
-            onPress={() => setFinalizadasSubtipo("cancelado")}
+            style={[styles.toggleBtn, finalizadasFiltros.cancelado && styles.toggleBtnActive]}
+            onPress={() => toggleFinalizadasFiltro("cancelado")}
           >
-            <Text style={[styles.toggleText, finalizadasSubtipo === "cancelado" && styles.toggleTextActive]}>
+            <Text style={[styles.toggleText, finalizadasFiltros.cancelado && styles.toggleTextActive]}>
               Cancelados
             </Text>
           </TouchableOpacity>

@@ -38,23 +38,15 @@ export function navigateToHomeInicio(navigation: NavigationProp<ParamListBase>):
   );
 }
 
-/** Abre lista de entregas na aba finalizadas com filtro somente hoje (stack Home). */
-export function navigateToEntregasResumo(navigation: NavigationProp<ParamListBase>): void {
+/** Abre Minhas Entregas (tab Mais) com período filtrado para hoje. */
+export function navigateToMinhasEntregasHoje(navigation: NavigationProp<ParamListBase>): void {
   const tabNav = getTabNavigator(navigation);
-  if (tabNav?.dispatch) {
-    tabNav.dispatch(
-      CommonActions.navigate({
-        name: "Home",
-        params: {
-          screen: "EntregasList",
-          params: { initialTab: "finalizadas", somenteHoje: true },
-        },
-      })
-    );
+  if (tabNav?.navigate) {
+    tabNav.navigate("Mais", {
+      screen: "MinhasEntregas",
+      params: { presetPeriodoHoje: true },
+    });
     return;
   }
-  navigation.navigate("EntregasList" as never, {
-    initialTab: "finalizadas",
-    somenteHoje: true,
-  } as never);
+  navigation.navigate("MinhasEntregas", { presetPeriodoHoje: true });
 }

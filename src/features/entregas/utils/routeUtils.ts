@@ -133,3 +133,135 @@ export function computeRouteStatsFromGroups(
   });
   return computeRouteStats(onePerGroup);
 }
+
+export type AddressReviewIssue =
+  | "sem_endereco"
+  | "rua_incompleta"
+  | "sem_numero"
+  | "cep_invalido"
+  | "sem_coordenadas";
+
+export const ADDRESS_REVIEW_LABELS: Record<AddressReviewIssue, string> = {
+  sem_endereco: "Sem endereço",
+  rua_incompleta: "Endereço incompleto",
+  sem_numero: "Sem número",
+  cep_invalido: "CEP inválido",
+  sem_coordenadas: "Sem coordenadas no mapa",
+};
+
+export function getAddressReviewIssue(
+  d: EntregaListItem,
+  geocodedCoords?: Record<number, { latitude: number; longitude: number }>
+): AddressReviewIssue | null {
+  if (!d.possui_endereco) {
+    const rua = (d.endereco ?? "").trim();
+    if (!rua) return "sem_endereco";
+    return "rua_incompleta";
+  }
+  if (!(d.numero ?? "").trim()) return "sem_numero";
+  const cep = (d.cep ?? "").replace(/\D/g, "");
+  if (!cep || cep.length !== 8) return "cep_invalido";
+  const hasCoords =
+    (d.latitude != null && d.longitude != null) ||
+    (geocodedCoords?.[d.id_saida]?.latitude != null &&
+      geocodedCoords?.[d.id_saida]?.longitude != null);
+  if (!hasCoords) return "sem_coordenadas";
+  return null;
+}
+
+export function getStopPrimaryCodigo(group: GroupedStop): string {
+  const first = group.deliveries[0];
+  return (first?.codigo ?? "").trim() || "—";
+}
+
+export function getStopPedidoLabel(d: EntregaListItem): string {
+  return `Pedido ${d.id_saida}`;
+}
+
+export function getStopAddressLine(d: EntregaListItem): string {
+  const parts = [d.endereco, d.numero, d.bairro].filter(Boolean);
+  if (parts.length === 0) return d.endereco_formatado || "—";
+  return parts.join(", ");
+}
+
+export function countRoutePedidos(groupedStops: GroupedStop[]): number {
+  return groupedStops.reduce((sum, g) => sum + g.deliveries.length, 0);
+}
+
+export function countRouteVolumes(group: GroupedStop): number {
+  return group.deliveries.length;
+}
+
+export type RouteHeaderStats = {
+  stopCount: number;
+  pedidoCount: number;
+  localizedStops: number;
+  reviewCount: number;
+  reviewDeliveries: EntregaListItem[];
+};
+
+export function computeRouteHeaderStats(
+  groupedStops: GroupedStop[],
+  geocodedCoords?: Record<number, { latitude: number; longitude: number }>
+): RouteHeaderStats {
+  const pedidoCount = countRoutePedidos(groupedStops);
+  const stopCount = groupedStops.length;
+  let localizedStops = 0;
+  const reviewDeliveries: EntregaListItem[] = [];
+  const seenIds = new Set<number>();
+
+  for (const group of groupedStops) {
+    const hasCoords = group.deliveries.some(
+      (d) =>
+        (d.latitude != null && d.longitude != null) ||
+        (geocodedCoords?.[d.id_saida]?.latitude != null &&
+          geocodedCoords?.[d.id_saida]?.longitude != null)
+    );
+    if (hasCoords) localizedStops++;
+    for (const d of group.deliveries) {
+      if (seenIds.has(d.id_saida)) continue;
+      const issue = getAddressReviewIssue(d, geocodedCoords);
+      if (issue) {
+        seenIds.add(d.id_saida);
+        reviewDeliveries.push(d);
+      }
+    }
+  }
+
+  return {
+    stopCount,
+    pedidoCount,
+    localizedStops,
+    reviewCount: reviewDeliveries.length,
+    reviewDeliveries,
+  };
+}
+
+export function flattenGroupsToRouteOrder(groups: GroupedStop[]): number[] {
+  return groups.flatMap((g) => g.deliveries.map((d) => d.id_saida));
+}
+
+export function moveGroupInOrder(groups: GroupedStop[], from: number, to: number): GroupedStop[] {
+  if (from === to || from < 0 || from >= groups.length) return groups;
+  const next = [...groups];
+  const [item] = next.splice(from, 1);
+  const clampedTo = Math.max(0, Math.min(to, next.length));
+  next.splice(clampedTo, 0, item);
+  return next;
+}
+
+export function getActiveGroupIndex(groupedStops: GroupedStop[], activeStopIndex: number): number {
+  let idx = 0;
+  for (let i = 0; i < groupedStops.length; i++) {
+    if (activeStopIndex < idx + groupedStops[i].deliveries.length) return i;
+    idx += groupedStops[i].deliveries.length;
+  }
+  return Math.max(0, groupedStops.length - 1);
+}
+
+export function getStopVolumesSummary(group: GroupedStop): string {
+  const volumes = countRouteVolumes(group);
+  const pedidos = new Set(group.deliveries.map((d) => d.id_saida)).size;
+  if (pedidos > 1) return `📦 ${volumes} volume${volumes !== 1 ? "s" : ""} · ${pedidos} pedidos`;
+  return `📦 ${volumes} volume${volumes !== 1 ? "s" : ""}`;
+}

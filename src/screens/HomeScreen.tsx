@@ -21,10 +21,11 @@ import { type as typo } from "../theme/typography";
 import { decodeJwtPayload } from "../utils/jwt";
 import { getResumoEntregas, iniciarRota, getRotasAtiva, getTodayISO, getEntregas } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
+import type { EntregasListInitialTab } from "../features/entregas/types";
 
 type Props = {
   onLogout: () => void;
-  onNavigateEntregas: () => void;
+  onNavigateEntregas: (tab?: EntregasListInitialTab) => void;
   onNavigateScan: () => void;
   onNavigateRouteBuilder?: () => void;
 };
@@ -87,6 +88,13 @@ export default function HomeScreen({
         },
         cardSecLabel: { fontSize: typo.caption, color: colors.textSecondary, fontWeight: "600" },
         cardSecValue: { fontSize: typo.metricMedium, fontWeight: "800", color: colors.text, marginTop: 4 },
+        cardSecLink: {
+          fontSize: typo.label,
+          color: colors.primary,
+          fontWeight: "700",
+          marginTop: space.sm,
+          textDecorationLine: "underline",
+        },
         cardSecRow: { flexDirection: "row", gap: space.sm, marginBottom: space.md },
         cardSecSmall: {
           flex: 1,
@@ -98,6 +106,13 @@ export default function HomeScreen({
         },
         cardSecSmallLabel: { fontSize: typo.label, color: colors.textSecondary, fontWeight: "600" },
         cardSecSmallValue: { fontSize: 20, fontWeight: "800", color: colors.text, marginTop: 4 },
+        cardSecSmallLink: {
+          fontSize: typo.label,
+          color: colors.primary,
+          fontWeight: "700",
+          marginTop: 6,
+          textDecorationLine: "underline",
+        },
         btnScan: {
           flexDirection: "row",
           alignItems: "center",
@@ -261,7 +276,7 @@ export default function HomeScreen({
         ) : (
           <>
             <View style={styles.cardMainShadow}>
-              <TouchableOpacity onPress={onNavigateEntregas} activeOpacity={0.92}>
+              <TouchableOpacity onPress={() => onNavigateEntregas("pendente")} activeOpacity={0.92}>
                 <LinearGradient colors={[...kpiGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardMainInner}>
                   <Text style={styles.cardMainLabel}>Entregas pendentes</Text>
                   <Text style={styles.cardMainValue}>{resumo?.pendentes ?? 0}</Text>
@@ -270,16 +285,26 @@ export default function HomeScreen({
               </TouchableOpacity>
             </View>
 
-            <View style={styles.cardSec}>
+            <TouchableOpacity
+              style={styles.cardSec}
+              onPress={() => onNavigateEntregas("finalizadas")}
+              activeOpacity={0.92}
+            >
               <Text style={styles.cardSecLabel}>Finalizadas hoje</Text>
               <Text style={styles.cardSecValue}>{resumo?.finalizadas_hoje ?? 0}</Text>
-            </View>
+              <Text style={styles.cardSecLink}>Ver todas</Text>
+            </TouchableOpacity>
 
             <View style={styles.cardSecRow}>
-              <View style={styles.cardSecSmall}>
+              <TouchableOpacity
+                style={styles.cardSecSmall}
+                onPress={() => onNavigateEntregas("ausentes")}
+                activeOpacity={0.92}
+              >
                 <Text style={styles.cardSecSmallLabel}>Ausentes</Text>
                 <Text style={styles.cardSecSmallValue}>{resumo?.ausentes ?? 0}</Text>
-              </View>
+                <Text style={styles.cardSecSmallLink}>Ver todas</Text>
+              </TouchableOpacity>
               <View style={styles.cardSecSmall}>
                 <Text style={styles.cardSecSmallLabel}>Atraso (D+1)</Text>
                 <Text style={styles.cardSecSmallValue}>{resumo?.atraso_d1 ?? 0}</Text>

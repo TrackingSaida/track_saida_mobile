@@ -17,7 +17,7 @@ export type MaisStackParamList = {
   MaisInicio: undefined;
   MeusDados: undefined;
   Preferencia: undefined;
-  MinhasEntregas: undefined;
+  MinhasEntregas: { presetPeriodoHoje?: true } | undefined;
   MinhasEntregasDia: { data: string };
   EntregaDetail: { idSaida: number };
 };

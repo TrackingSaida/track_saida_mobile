@@ -1,21 +1,32 @@
 import React, { useEffect, useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Modal } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  ScrollView,
+  useWindowDimensions,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { useNavigation } from "@react-navigation/native";
-import SuccessLottie from "../../../components/SuccessLottie";
+import { useNavigation, type NavigationProp, type ParamListBase } from "@react-navigation/native";
 import { useThemeColors } from "../../../theme/colors";
 import { useDiaRotaConcluidaStore } from "../../../store/diaRotaConcluidaStore";
+import { formatCurrencyBRL } from "../utils/currency";
 import { playSound } from "../../../utils/sound";
-import { navigateToEntregasResumo, navigateToHomeInicio } from "../utils/navigationHelpers";
+import { navigateToHomeInicio, navigateToMinhasEntregasHoje } from "../utils/navigationHelpers";
 
 export default function DiaRotaConcluidaModal() {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const colors = useThemeColors();
   const navigation = useNavigation();
   const visible = useDiaRotaConcluidaStore((s) => s.visible);
   const stats = useDiaRotaConcluidaStore((s) => s.stats);
+  const playCelebration = useDiaRotaConcluidaStore((s) => s.playCelebration);
   const close = useDiaRotaConcluidaStore((s) => s.close);
+  const consumeCelebration = useDiaRotaConcluidaStore((s) => s.consumeCelebration);
 
   const styles = useMemo(
     () =>
@@ -24,43 +35,46 @@ export default function DiaRotaConcluidaModal() {
           flex: 1,
           backgroundColor: colors.overlay,
           justifyContent: "center",
-          paddingHorizontal: 24,
-          paddingVertical: Math.max(24, insets.top),
+          paddingHorizontal: 20,
+          paddingVertical: Math.max(16, insets.top),
         },
+        scroll: { flexGrow: 0 },
         card: {
           backgroundColor: colors.backgroundCard,
           borderRadius: 16,
-          padding: 24,
-          alignItems: "center",
+          paddingHorizontal: 20,
+          paddingVertical: 18,
+          alignItems: "stretch",
+          maxHeight: windowHeight * 0.9,
         },
-        emoji: { fontSize: 40, marginBottom: 4 },
-        title: {
-          fontSize: 22,
+        topBlock: { alignItems: "center", marginBottom: 12 },
+        emoji: { fontSize: 34, marginBottom: 6 },
+        headline: {
+          fontSize: 19,
           fontWeight: "700",
           color: colors.text,
           textAlign: "center",
-          marginBottom: 8,
+          marginBottom: 10,
         },
-        subtitle: {
-          fontSize: 15,
-          color: colors.textSecondary,
+        title: {
+          fontSize: 17,
+          fontWeight: "700",
+          color: colors.text,
           textAlign: "center",
-          lineHeight: 22,
           marginBottom: 6,
         },
-        motivational: {
+        subtitle: {
           fontSize: 14,
           color: colors.textSecondary,
           textAlign: "center",
-          fontStyle: "italic",
-          marginBottom: 16,
+          lineHeight: 20,
+          marginBottom: 14,
         },
         resumoBox: {
-          alignSelf: "stretch",
           backgroundColor: colors.chipBackground,
           borderRadius: 12,
           padding: 14,
-          marginBottom: 20,
+          marginBottom: 16,
         },
         resumoTitle: {
           fontSize: 13,
@@ -73,10 +87,9 @@ export default function DiaRotaConcluidaModal() {
           justifyContent: "space-between",
           paddingVertical: 4,
         },
-        resumoLabel: { fontSize: 14, color: colors.textSecondary },
+        resumoLabel: { fontSize: 14, color: colors.textSecondary, flex: 1, paddingRight: 8 },
         resumoValue: { fontSize: 14, fontWeight: "700", color: colors.text },
         btnPrimary: {
-          alignSelf: "stretch",
           backgroundColor: colors.primary,
           paddingVertical: 14,
           borderRadius: 10,
@@ -85,73 +98,94 @@ export default function DiaRotaConcluidaModal() {
         },
         btnPrimaryText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
         btnSecondary: {
-          alignSelf: "stretch",
           paddingVertical: 14,
           borderRadius: 10,
           alignItems: "center",
           borderWidth: 1,
           borderColor: colors.border,
+          backgroundColor: "transparent",
         },
         btnSecondaryText: { color: colors.text, fontSize: 16, fontWeight: "600" },
       }),
-    [colors, insets.top]
+    [colors, insets.top, windowHeight]
   );
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || !playCelebration) return;
     void playSound("celebration");
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  }, [visible]);
+    consumeCelebration();
+  }, [visible, playCelebration, consumeCelebration]);
 
-  const handleVerResumo = () => {
+  const rootNav = navigation as NavigationProp<ParamListBase>;
+
+  const handleMinhasEntregasHoje = () => {
     close();
-    navigateToEntregasResumo(navigation);
+    navigateToMinhasEntregasHoje(rootNav);
   };
 
   const handleVoltarInicio = () => {
     close();
-    navigateToHomeInicio(navigation);
+    navigateToHomeInicio(rootNav);
   };
 
   if (!stats) return null;
 
+  const headline = stats.motoboyNome
+    ? `Missão cumprida, ${stats.motoboyNome}!`
+    : "Missão cumprida!";
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
       <View style={styles.overlay}>
-        <View style={styles.card}>
-          <Text style={styles.emoji}>🎉</Text>
-          <SuccessLottie visible={visible} />
-          <Text style={styles.title}>Rota do dia concluída!</Text>
-          <Text style={styles.subtitle}>Todos os pedidos pendentes foram finalizados.</Text>
-          <Text style={styles.motivational}>Bom trabalho! Não há entregas pendentes para hoje.</Text>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+          bounces={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.card}>
+            <View style={styles.topBlock}>
+              <Text style={styles.emoji}>🎉</Text>
+              <Text style={styles.headline}>{headline}</Text>
+              <Text style={styles.title}>Rota do dia concluída!</Text>
+              <Text style={styles.subtitle}>
+                Todos os pedidos pendentes foram finalizados.
+              </Text>
+            </View>
 
-          <View style={styles.resumoBox}>
-            <Text style={styles.resumoTitle}>Resumo de hoje</Text>
-            <View style={styles.resumoRow}>
-              <Text style={styles.resumoLabel}>Entregues</Text>
-              <Text style={styles.resumoValue}>{stats.entregues}</Text>
+            <View style={styles.resumoBox}>
+              <Text style={styles.resumoTitle}>Resumo de hoje</Text>
+              <View style={styles.resumoRow}>
+                <Text style={styles.resumoLabel}>{stats.valorLabel}</Text>
+                <Text style={styles.resumoValue}>{formatCurrencyBRL(stats.valorDia)}</Text>
+              </View>
+              <View style={styles.resumoRow}>
+                <Text style={styles.resumoLabel}>Entregues</Text>
+                <Text style={styles.resumoValue}>{stats.entregues}</Text>
+              </View>
+              <View style={styles.resumoRow}>
+                <Text style={styles.resumoLabel}>Ausentes</Text>
+                <Text style={styles.resumoValue}>{stats.ausentes}</Text>
+              </View>
+              <View style={styles.resumoRow}>
+                <Text style={styles.resumoLabel}>Total finalizado</Text>
+                <Text style={styles.resumoValue}>{stats.total}</Text>
+              </View>
+              <View style={styles.resumoRow}>
+                <Text style={styles.resumoLabel}>Pendentes</Text>
+                <Text style={styles.resumoValue}>{stats.pendentes}</Text>
+              </View>
             </View>
-            <View style={styles.resumoRow}>
-              <Text style={styles.resumoLabel}>Ausentes</Text>
-              <Text style={styles.resumoValue}>{stats.ausentes}</Text>
-            </View>
-            <View style={styles.resumoRow}>
-              <Text style={styles.resumoLabel}>Total finalizado</Text>
-              <Text style={styles.resumoValue}>{stats.total}</Text>
-            </View>
-            <View style={styles.resumoRow}>
-              <Text style={styles.resumoLabel}>Pendentes</Text>
-              <Text style={styles.resumoValue}>{stats.pendentes}</Text>
-            </View>
+
+            <TouchableOpacity style={styles.btnPrimary} onPress={handleMinhasEntregasHoje}>
+              <Text style={styles.btnPrimaryText}>Minhas entregas hoje</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.btnSecondary} onPress={handleVoltarInicio}>
+              <Text style={styles.btnSecondaryText}>Voltar para início</Text>
+            </TouchableOpacity>
           </View>
-
-          <TouchableOpacity style={styles.btnPrimary} onPress={handleVerResumo}>
-            <Text style={styles.btnPrimaryText}>Ver resumo da rota</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.btnSecondary} onPress={handleVoltarInicio}>
-            <Text style={styles.btnSecondaryText}>Voltar para início</Text>
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
       </View>
     </Modal>
   );

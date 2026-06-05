@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -17,17 +17,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeColors } from "../../../theme/colors";
-import { getExtratoFinanceiro } from "../api";
+import { getExtratoFinanceiro, getTodayISO } from "../api";
 import type { ExtratoFinanceiro, ExtratoStatusFiltro } from "../types";
+import { formatCurrencyBRL } from "../utils/currency";
 import { formatarDiaParaExibicao, getQuinzenaAtualIntervalo } from "../utils/quinzena";
 import type { MaisStackParamList } from "../../../screens/MaisScreen";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "MinhasEntregas">;
-
-function formatCurrencyBRL(value: string): string {
-  const num = Number(value || 0);
-  return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function normalizeServico(servico: string): "Shopee" | "Flex" | "Avulso" {
   const s = (servico || "").trim().toLowerCase();
@@ -78,7 +74,7 @@ function formatRealStatus(status: string, fallback: string): string {
     .join(" ");
 }
 
-export default function MinhasEntregasScreen({ navigation }: Props) {
+export default function MinhasEntregasScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const quinzena = useMemo(() => getQuinzenaAtualIntervalo(), []);
@@ -267,6 +263,15 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
       void load();
     }, [load])
   );
+
+  useEffect(() => {
+    if (!route.params?.presetPeriodoHoje) return;
+    const hoje = getTodayISO();
+    setDataInicio(hoje);
+    setDataFim(hoje);
+    void load({ dataInicio: hoje, dataFim: hoje, statusFiltro: "grupo_entregue" });
+    navigation.setParams({ presetPeriodoHoje: undefined });
+  }, [route.params?.presetPeriodoHoje, load, navigation]);
 
   const abrirPicker = useCallback((campo: "inicio" | "fim") => {
     const valorAtual = campo === "inicio" ? dataInicio : dataFim;

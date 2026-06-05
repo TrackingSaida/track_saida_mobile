@@ -23,6 +23,57 @@ const MARKER_STATUS_COLORS = {
   ausente: "#dc3545",
 } as const;
 
+const CLUSTER_THRESHOLD = 15;
+const CLUSTER_DISTANCE_DEG = 0.012;
+
+type GroupedMapPoint = {
+  paradaIndex: number;
+  latitude: number;
+  longitude: number;
+  firstDelivery: EntregaListItem;
+  status: "pendente" | "entregue" | "ausente";
+};
+
+type MapDisplayItem =
+  | { type: "single"; point: GroupedMapPoint }
+  | { type: "cluster"; latitude: number; longitude: number; count: number; points: GroupedMapPoint[] };
+
+function clusterMapPoints(points: GroupedMapPoint[]): MapDisplayItem[] {
+  if (points.length <= CLUSTER_THRESHOLD) {
+    return points.map((point) => ({ type: "single", point }));
+  }
+  const used = new Set<number>();
+  const items: MapDisplayItem[] = [];
+  for (let i = 0; i < points.length; i++) {
+    if (used.has(i)) continue;
+    const cluster = [points[i]];
+    used.add(i);
+    for (let j = i + 1; j < points.length; j++) {
+      if (used.has(j)) continue;
+      const dlat = Math.abs(points[i].latitude - points[j].latitude);
+      const dlon = Math.abs(points[i].longitude - points[j].longitude);
+      if (dlat < CLUSTER_DISTANCE_DEG && dlon < CLUSTER_DISTANCE_DEG) {
+        cluster.push(points[j]);
+        used.add(j);
+      }
+    }
+    if (cluster.length === 1) {
+      items.push({ type: "single", point: cluster[0] });
+    } else {
+      const avgLat = cluster.reduce((s, p) => s + p.latitude, 0) / cluster.length;
+      const avgLon = cluster.reduce((s, p) => s + p.longitude, 0) / cluster.length;
+      items.push({
+        type: "cluster",
+        latitude: avgLat,
+        longitude: avgLon,
+        count: cluster.length,
+        points: cluster,
+      });
+    }
+  }
+  return items;
+}
+
 export interface DeliveryMapProps {
   onMarkerPress?: (delivery: EntregaListItem, index: number) => void;
   selectedId?: number | null;
@@ -89,6 +140,11 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
   }, [groupedStops, routeDeliveryStatus, geocodedCoords]);
 
   const withCoords = groupedPointsWithCoords;
+
+  const mapDisplayItems = useMemo(
+    () => clusterMapPoints(groupedPointsWithCoords),
+    [groupedPointsWithCoords]
+  );
 
   const [markersReady, setMarkersReady] = useState(false);
   useEffect(() => {
@@ -199,6 +255,19 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
         },
         markerText: { fontSize: 14, fontWeight: "700", color: "#fff" },
         markerIcon: { fontSize: 18, fontWeight: "700", color: "#fff" },
+        clusterWrap: {
+          width: 42,
+          height: 42,
+          minWidth: 42,
+          minHeight: 42,
+          borderRadius: 21,
+          justifyContent: "center",
+          alignItems: "center",
+          borderWidth: 2,
+          borderColor: "#fff",
+          backgroundColor: "#6366f1",
+        },
+        clusterText: { fontSize: 14, fontWeight: "800", color: "#fff" },
         emptyOverlay: {
           ...StyleSheet.absoluteFillObject,
           justifyContent: "center",
@@ -267,7 +336,27 @@ export default function DeliveryMap({ onMarkerPress, selectedId, centerOnStopId,
             <View style={styles.motoboyMarker} />
           </Marker>
         )}
-      {groupedPointsWithCoords.map((point) => {
+      {mapDisplayItems.map((item, idx) => {
+        if (item.type === "cluster") {
+          return (
+            <Marker
+              key={`cluster-${idx}`}
+              coordinate={{ latitude: item.latitude, longitude: item.longitude }}
+              anchor={{ x: 0.5, y: 0.5 }}
+              tracksViewChanges={tracksMarkerChanges}
+              title={`${item.count} paradas`}
+              onPress={() => {
+                const first = item.points[0];
+                if (first) onMarkerPress?.(first.firstDelivery, first.paradaIndex - 1);
+              }}
+            >
+              <View style={styles.clusterWrap}>
+                <Text style={styles.clusterText}>{item.count}</Text>
+              </View>
+            </Marker>
+          );
+        }
+        const point = item.point;
         const paradaNumber = point.paradaIndex;
         const status = point.status;
         const group = groupedStops[point.paradaIndex - 1];

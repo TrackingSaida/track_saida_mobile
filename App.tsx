@@ -33,14 +33,13 @@ import DiaRotaConcluidaModal from "./src/features/entregas/components/DiaRotaCon
 import StaffHomeStack from "./src/navigation/StaffHomeStack";
 import { isMotoboyRole } from "./src/utils/role";
 
+import type { EntregasListInitialTab } from "./src/features/entregas/types";
+
+export type { EntregasListInitialTab };
+
 export type RootStackParamList = {
   HomeInicio: undefined;
-  EntregasList:
-    | {
-        initialTab?: "pendente" | "finalizadas" | "ausentes";
-        somenteHoje?: boolean;
-      }
-    | undefined;
+  EntregasList: { initialTab?: EntregasListInitialTab } | undefined;
   EntregaDetail: { idSaida: number };
   Scan: undefined;
   PrepareDeliveries: undefined;
@@ -69,7 +68,9 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
         {({ navigation }) => (
           <HomeScreen
             onLogout={onLogout}
-            onNavigateEntregas={() => navigation.navigate("EntregasList")}
+            onNavigateEntregas={(tab) =>
+              navigation.navigate("EntregasList", tab ? { initialTab: tab } : undefined)
+            }
             onNavigateScan={() => navigation.navigate("Scan")}
             onNavigateRouteBuilder={() => navigation.navigate("RouteBuilder")}
           />
@@ -78,7 +79,11 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <HomeStack.Screen name="EntregasList" component={EntregasListScreen} />
       <HomeStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
       <HomeStack.Screen name="Scan" component={ScanScreen} />
-      <HomeStack.Screen name="PrepareDeliveries" component={PrepareDeliveriesScreen} />
+      <HomeStack.Screen
+        name="PrepareDeliveries"
+        component={PrepareDeliveriesScreen}
+        options={{ title: "Preparar Rota" }}
+      />
       <HomeStack.Screen name="RouteBuilder" component={RouteBuilderScreen} />
     </HomeStack.Navigator>
   );

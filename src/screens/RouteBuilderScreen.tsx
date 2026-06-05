@@ -8,7 +8,6 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  FlatList,
   Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,7 +23,24 @@ import FormEntregaConcluida from "../features/entregas/components/FormEntregaCon
 import type { EntregueBody } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
 import { getMotivosAusencia } from "../features/entregas/api";
-import { getOrderedRouteDeliveries, computeRouteStats, groupOrderedByAddress, computeRouteStatsFromGroups, addressAndRecipientKey, servicoTipo, type GroupedStop } from "../features/entregas/utils/routeUtils";
+import {
+  getOrderedRouteDeliveries,
+  computeRouteStats,
+  groupOrderedByAddress,
+  computeRouteStatsFromGroups,
+  computeRouteHeaderStats,
+  getActiveGroupIndex,
+  addressAndRecipientKey,
+  type GroupedStop,
+} from "../features/entregas/utils/routeUtils";
+import RoutePartialReviewModal from "../features/entregas/components/RoutePartialReviewModal";
+import RouteStopPedidosModal from "../features/entregas/components/RouteStopPedidosModal";
+import RouteStopActionSheet from "../features/entregas/components/RouteStopActionSheet";
+import RouteEditAddressSheet from "../features/entregas/components/RouteEditAddressSheet";
+import RouteLocatePackageSheet from "../features/entregas/components/RouteLocatePackageSheet";
+import RouteQuickAddSheet from "../features/entregas/components/RouteQuickAddSheet";
+import RouteBulkImportSheet from "../features/entregas/components/RouteBulkImportSheet";
+import type { AddressFormValues } from "../features/entregas/components/AddressForm";
 import { playSound } from "../utils/sound";
 import { runPostFinalizeFeedback } from "../features/entregas/utils/finalizeEntregaFeedback";
 import SuccessLottie from "../components/SuccessLottie";
@@ -71,6 +87,17 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const startActiveRoute = useDeliveryStore((s) => s.startActiveRoute);
   const completeStop = useDeliveryStore((s) => s.completeStop);
   const finishRoute = useDeliveryStore((s) => s.finishRoute);
+  const optimizeRoute = useDeliveryStore((s) => s.optimizeRoute);
+  const routeOptimizationMode = useDeliveryStore((s) => s.routeOptimizationMode);
+  const saveAddress = useDeliveryStore((s) => s.saveAddress);
+  const removeFromRoute = useDeliveryStore((s) => s.removeFromRoute);
+  const moveGroupedStopToIndex = useDeliveryStore((s) => s.moveGroupedStopToIndex);
+  const moveGroupedStopToStart = useDeliveryStore((s) => s.moveGroupedStopToStart);
+  const moveGroupedStopToEnd = useDeliveryStore((s) => s.moveGroupedStopToEnd);
+  const updateRouteDelivery = useDeliveryStore((s) => s.updateRouteDelivery);
+  const findInRouteByCodigo = useDeliveryStore((s) => s.findInRouteByCodigo);
+  const appendToRoute = useDeliveryStore((s) => s.appendToRoute);
+  const pendingDeliveries = useDeliveryStore((s) => s.pendingDeliveries);
 
   const isRouteActive = activeRouteId != null;
 
@@ -78,7 +105,17 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const [rotaFinalizadaTotalParadas, setRotaFinalizadaTotalParadas] = useState(0);
   const [centerOnStopId, setCenterOnStopId] = useState<number | null>(null);
   const [iniciandoRota, setIniciandoRota] = useState(false);
-  const [stopDetailGroup, setStopDetailGroup] = useState<GroupedStop | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [actionSheetGroup, setActionSheetGroup] = useState<GroupedStop | null>(null);
+  const [actionSheetStopIndex, setActionSheetStopIndex] = useState(1);
+  const [showPedidosModal, setShowPedidosModal] = useState(false);
+  const [pedidosGroup, setPedidosGroup] = useState<GroupedStop | null>(null);
+  const [editDelivery, setEditDelivery] = useState<EntregaListItem | null>(null);
+  const [showLocateSheet, setShowLocateSheet] = useState(false);
+  const [scanMode, setScanMode] = useState<"locate" | "cargo">("locate");
+  const [cargoScannedIds, setCargoScannedIds] = useState<Set<number>>(new Set());
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [pendingEntregueIds, setPendingEntregueIds] = useState<number[] | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<number, { latitude: number; longitude: number }>>({});
   const [routePolyline, setRoutePolyline] = useState<Array<{ latitude: number; longitude: number }> | null>(null);
@@ -104,7 +141,14 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         : computeRouteStats(ordered),
     [groupedStops, ordered]
   );
-  const isPartialRoute = deliveriesWithoutAddress.length > 0;
+  const headerStats = useMemo(
+    () => computeRouteHeaderStats(groupedStops, geocodedCoords),
+    [groupedStops, geocodedCoords]
+  );
+  const activeGroupIndex = useMemo(
+    () => (isRouteActive ? getActiveGroupIndex(groupedStops, activeStopIndex) : -1),
+    [isRouteActive, groupedStops, activeStopIndex]
+  );
 
   const routePointsForOsrm = useMemo(() => {
     const points: Array<{ latitude: number; longitude: number }> = [];
@@ -390,6 +434,112 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     }
   }, [ordered.length, startActiveRoute]);
 
+  const handleCriarEIniciarRota = useCallback(async () => {
+    if (routeOrder.length === 0) {
+      Alert.alert("Atenção", "Adicione entregas à rota antes de iniciar.");
+      return;
+    }
+    setIniciandoRota(true);
+    try {
+      if (routeOptimizationMode == null && groupedStops.length >= 2) {
+        await optimizeRoute();
+      }
+      await startActiveRoute();
+      playSound("success");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Erro ao criar e iniciar rota.";
+      Alert.alert("Erro", msg);
+    } finally {
+      setIniciandoRota(false);
+    }
+  }, [routeOrder.length, routeOptimizationMode, groupedStops.length, optimizeRoute, startActiveRoute]);
+
+  const handleStopPress = useCallback((group: GroupedStop, stopIndex: number) => {
+    setActionSheetGroup(group);
+    setActionSheetStopIndex(stopIndex);
+  }, []);
+
+  const handleNavegarGroup = useCallback(
+    (group: GroupedStop) => {
+      const d = group.deliveries.find(
+        (x) => x.latitude != null && x.longitude != null
+      ) ?? group.deliveries[0];
+      if (d?.latitude != null && d?.longitude != null) {
+        setDeliveryForNavegar(d);
+        setShowNavegarModal(true);
+      } else {
+        Alert.alert("Atenção", "Esta parada não possui coordenadas para navegação.");
+      }
+    },
+    []
+  );
+
+  const handleRemoverGroup = useCallback(() => {
+    if (!actionSheetGroup) return;
+    const ids = actionSheetGroup.deliveries.map((d) => d.id_saida);
+    removeFromRoute(ids);
+    setActionSheetGroup(null);
+  }, [actionSheetGroup, removeFromRoute]);
+
+  const handleSaveAddress = useCallback(
+    async (values: AddressFormValues) => {
+      if (!editDelivery) return;
+      const updated = await saveAddress(editDelivery.id_saida, { ...values, origem: "manual" });
+      updateRouteDelivery(editDelivery.id_saida, updated);
+      if (updated.latitude != null && updated.longitude != null) {
+        setGeocodedCoords((prev) => ({
+          ...prev,
+          [updated.id_saida]: { latitude: updated.latitude!, longitude: updated.longitude! },
+        }));
+      } else {
+        const addr = [values.rua, values.numero, values.bairro, values.cidade, values.estado]
+          .filter(Boolean)
+          .join(", ");
+        const geo = await geocodeAddress(addr, {
+          cidade: values.cidade,
+          estado: values.estado,
+          bairro: values.bairro,
+          numero: values.numero,
+        });
+        if (geo) {
+          updateRouteDelivery(editDelivery.id_saida, {
+            latitude: geo.latitude,
+            longitude: geo.longitude,
+          });
+          setGeocodedCoords((prev) => ({
+            ...prev,
+            [editDelivery.id_saida]: geo,
+          }));
+        }
+      }
+      setEditDelivery(null);
+      if (isRouteActive && routePointsForOsrm.length >= 2) {
+        const poly = await fetchOsrmRoutePolyline(routePointsForOsrm);
+        if (poly) setRoutePolyline(poly);
+      }
+    },
+    [editDelivery, saveAddress, updateRouteDelivery, isRouteActive, routePointsForOsrm]
+  );
+
+  const handleCorrigirReview = useCallback((delivery: EntregaListItem) => {
+    setShowReviewModal(false);
+    setEditDelivery(delivery);
+  }, []);
+
+  const handleAddIdsToRoute = useCallback(
+    (ids: number[]) => {
+      const toAdd = pendingDeliveries.filter((d) => ids.includes(d.id_saida));
+      appendToRoute(toAdd);
+    },
+    [pendingDeliveries, appendToRoute]
+  );
+
+  const handleCargoScan = useCallback((codigo: string, inRoute: boolean, idSaida?: number) => {
+    if (inRoute && idSaida != null) {
+      setCargoScannedIds((prev) => new Set(prev).add(idSaida));
+    }
+  }, []);
+
   const handleFecharRotaFinalizada = useCallback(() => {
     setShowRotaFinalizadaModal(false);
     setCenterOnStopId(null);
@@ -439,7 +589,29 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           marginBottom: 8,
         },
         badgeRotaText: { fontSize: 12, fontWeight: "600", color: colors.text, marginLeft: 4 },
-        headerButtons: { flexDirection: "row", gap: 8, alignItems: "center" },
+        badgeReview: {
+          flexDirection: "row",
+          alignItems: "center",
+          alignSelf: "flex-start",
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+          borderRadius: 6,
+          marginBottom: 8,
+          backgroundColor: colors.warning + "30",
+        },
+        statsLine: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
+        localizedLine: { fontSize: 12, color: colors.textSecondary, marginBottom: 8 },
+        headerButtons: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
+        headerBtnSmall: {
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          borderRadius: 8,
+          backgroundColor: colors.inputBackground,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+        },
+        headerBtnSmallText: { fontSize: 12, fontWeight: "600", color: colors.text },
+        headerBtnSmallActive: { backgroundColor: colors.primary + "20", borderColor: colors.primary },
         headerBtn: {
           paddingHorizontal: 14,
           paddingVertical: 8,
@@ -592,43 +764,101 @@ export default function RouteBuilderScreen({ navigation }: Props) {
             <Text style={styles.backText}>← Voltar</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.headerStats}>
-          <Text style={styles.statText}>
-            <Text style={styles.statValue}>{groupedStops.length}</Text> parada{groupedStops.length !== 1 ? "s" : ""}
-          </Text>
-          {isRouteActive ? (
-            <Text style={styles.statText}>
-              Parada <Text style={styles.statValue}>{activeGroupIndex1Based}</Text> de <Text style={styles.statValue}>{groupedStops.length}</Text>
+        {ordered.length > 0 && (
+          <>
+            <Text style={styles.statsLine}>
+              <Text style={styles.statValue}>{headerStats.stopCount}</Text> parada
+              {headerStats.stopCount !== 1 ? "s" : ""}
+              {" · "}
+              <Text style={styles.statValue}>{headerStats.pedidoCount}</Text> pedido
+              {headerStats.pedidoCount !== 1 ? "s" : ""}
+              {!isRouteActive && (
+                <>
+                  {" · "}
+                  <Text style={styles.statValue}>{routeStats.distanceKm.toFixed(1)}</Text> km
+                  {" · ~"}
+                  <Text style={styles.statValue}>{routeStats.estimatedMinutes}</Text> min
+                </>
+              )}
             </Text>
-          ) : (
-            <>
-              <Text style={styles.statText}>
-                <Text style={styles.statValue}>{routeStats.distanceKm.toFixed(1)}</Text> km
+            {isRouteActive ? (
+              <Text style={styles.localizedLine}>
+                Parada <Text style={styles.statValue}>{activeGroupIndex1Based}</Text> de{" "}
+                <Text style={styles.statValue}>{groupedStops.length}</Text>
               </Text>
-              <Text style={styles.statText}>
-                ~<Text style={styles.statValue}>{routeStats.estimatedMinutes}</Text> min
+            ) : (
+              <Text style={styles.localizedLine}>
+                ✓ {headerStats.localizedStops} localizado{headerStats.localizedStops !== 1 ? "s" : ""}
+                {headerStats.reviewCount > 0 && (
+                  <>
+                    {" · "}⚠ {headerStats.reviewCount} precisam revisão
+                  </>
+                )}
               </Text>
-            </>
-          )}
-        </View>
-        {!isRouteActive && (
-        <View style={[styles.badgeRota, { backgroundColor: isPartialRoute ? colors.warning + "30" : colors.success + "30" }]}>
-          <Text>{isPartialRoute ? "🟡" : "🟢"}</Text>
-          <Text style={styles.badgeRotaText}>
-            {isPartialRoute ? "Rota parcial" : "Rota completa"}
-          </Text>
-        </View>
+            )}
+          </>
+        )}
+        {!isRouteActive && headerStats.reviewCount > 0 && (
+          <TouchableOpacity style={styles.badgeReview} onPress={() => setShowReviewModal(true)}>
+            <Text style={styles.badgeRotaText}>
+              ⚠ {headerStats.reviewCount} endereço{headerStats.reviewCount !== 1 ? "s" : ""} precisam revisão
+            </Text>
+          </TouchableOpacity>
         )}
         <View style={styles.headerButtons}>
-          {!isRouteActive && (
+          {ordered.length > 0 && (
             <>
-          <TouchableOpacity style={styles.headerBtn} onPress={handleCriarRota}>
-            <Text style={styles.headerBtnText}>Criar Rota</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerBtnSmall}
+                onPress={() => {
+                  setScanMode("locate");
+                  setShowLocateSheet(true);
+                }}
+              >
+                <Text style={styles.headerBtnSmallText}>Localizar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.headerBtnSmall,
+                  scanMode === "cargo" && showLocateSheet && styles.headerBtnSmallActive,
+                ]}
+                onPress={() => {
+                  setScanMode("cargo");
+                  setShowLocateSheet(true);
+                }}
+              >
+                <Text style={styles.headerBtnSmallText}>Conferir</Text>
+              </TouchableOpacity>
             </>
           )}
           {!isRouteActive && ordered.length > 0 && (
-            <Animated.View style={{ opacity: pulseAnim }}>
+            <>
+              <TouchableOpacity style={styles.headerBtnSmall} onPress={() => setShowQuickAdd(true)}>
+                <Text style={styles.headerBtnSmallText}>+ Parada</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.headerBtnSmall} onPress={() => setShowBulkImport(true)}>
+                <Text style={styles.headerBtnSmallText}>Importar</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          {!isRouteActive && (
+            <TouchableOpacity style={styles.headerBtn} onPress={handleCriarRota}>
+              <Text style={styles.headerBtnText}>Criar Rota</Text>
+            </TouchableOpacity>
+          )}
+          {!isRouteActive && ordered.length > 0 && (
+            <>
+              <Animated.View style={{ opacity: pulseAnim }}>
+                <TouchableOpacity
+                  style={[styles.headerBtn, styles.headerBtnSecondary]}
+                  onPress={handleCriarEIniciarRota}
+                  disabled={iniciandoRota}
+                >
+                  <Text style={styles.headerBtnSecondaryText}>
+                    {iniciandoRota ? "Iniciando…" : "Criar e iniciar"}
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
               <TouchableOpacity
                 style={[styles.headerBtn, styles.headerBtnSecondary]}
                 onPress={handleIniciarRota}
@@ -638,7 +868,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
                   {iniciandoRota ? "Iniciando…" : "Iniciar Rota"}
                 </Text>
               </TouchableOpacity>
-            </Animated.View>
+            </>
           )}
         </View>
       </View>
@@ -646,59 +876,99 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       <View style={styles.sheetOverlay}>
         <RouteBottomSheet
           disableDrag={isRouteActive}
-          onStopPress={(group) => setStopDetailGroup(group)}
+          activeGroupIndex={activeGroupIndex}
+          onStopPress={handleStopPress}
         />
       </View>
 
-      <Modal visible={stopDetailGroup != null} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <Text style={styles.modalTitle}>Pedidos nesta parada</Text>
-              <TouchableOpacity onPress={() => setStopDetailGroup(null)}>
-                <Text style={styles.modalBtnCancelText}>Fechar</Text>
-              </TouchableOpacity>
-            </View>
-            {stopDetailGroup && (
-              <FlatList
-                data={stopDetailGroup.deliveries}
-                keyExtractor={(item) => String(item.id_saida)}
-                renderItem={({ item }) => {
-                  const status = routeDeliveryStatus[item.id_saida] ?? "pendente";
-                  const podeFinalizar = status === "pendente";
-                  return (
-                    <TouchableOpacity
-                      style={[styles.radio, !podeFinalizar && { opacity: 0.7 }]}
-                      onPress={() => {
-                        if (podeFinalizar) {
-                          setSelectedDelivery(item);
-                          setStopDetailGroup(null);
-                        }
-                      }}
-                      disabled={!podeFinalizar}
-                    >
-                      <Text style={styles.radioText}>
-                        Pedido {item.id_saida} · {item.codigo || "—"}
-                      </Text>
-                      <Text style={[styles.radioText, { fontSize: 13, fontWeight: "400", marginTop: 4 }]}>
-                        Destinatário: {item.cliente || item.exibicao || "—"}
-                      </Text>
-                      <Text style={[styles.radioText, { fontSize: 13, fontWeight: "400" }]}>
-                        Serviço: {servicoTipo(item.servico)}
-                      </Text>
-                      {!podeFinalizar && (
-                        <Text style={[styles.radioText, { fontSize: 12, color: colors.textSecondary, marginTop: 4 }]}>
-                          {status === "entregue" ? "Entregue" : "Ausente"}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-            )}
-          </View>
-        </View>
-      </Modal>
+      <RouteStopActionSheet
+        visible={actionSheetGroup != null}
+        group={actionSheetGroup}
+        stopIndex={actionSheetStopIndex}
+        totalStops={groupedStops.length}
+        disableMutations={isRouteActive}
+        onClose={() => setActionSheetGroup(null)}
+        onNavegar={() => actionSheetGroup && handleNavegarGroup(actionSheetGroup)}
+        onVerPedidos={() => {
+          if (actionSheetGroup) {
+            setPedidosGroup(actionSheetGroup);
+            setShowPedidosModal(true);
+          }
+        }}
+        onEditarEndereco={(d) => setEditDelivery(d)}
+        onAlterarPosicao={(toIndex) => {
+          moveGroupedStopToIndex(actionSheetStopIndex - 1, toIndex);
+        }}
+        onMoverInicio={() => moveGroupedStopToStart(actionSheetStopIndex - 1)}
+        onMoverFim={() => moveGroupedStopToEnd(actionSheetStopIndex - 1)}
+        onRemover={handleRemoverGroup}
+      />
+
+      <RouteStopPedidosModal
+        visible={showPedidosModal}
+        group={pedidosGroup}
+        routeDeliveryStatus={routeDeliveryStatus}
+        onClose={() => {
+          setShowPedidosModal(false);
+          setPedidosGroup(null);
+        }}
+        onSelectPedido={(item) => {
+          setSelectedDelivery(item);
+          setShowPedidosModal(false);
+          setPedidosGroup(null);
+        }}
+      />
+
+      <RoutePartialReviewModal
+        visible={showReviewModal}
+        deliveries={headerStats.reviewDeliveries}
+        geocodedCoords={geocodedCoords}
+        onClose={() => setShowReviewModal(false)}
+        onCorrigir={handleCorrigirReview}
+      />
+
+      <RouteEditAddressSheet
+        visible={editDelivery != null}
+        delivery={editDelivery}
+        onSave={handleSaveAddress}
+        onClose={() => setEditDelivery(null)}
+      />
+
+      <RouteLocatePackageSheet
+        visible={showLocateSheet}
+        mode={scanMode}
+        totalStops={groupedStops.length}
+        totalPedidos={headerStats.pedidoCount}
+        cargoScannedCount={cargoScannedIds.size}
+        onFindByCodigo={(codigo) => {
+          const found = findInRouteByCodigo(codigo);
+          if (!found) return null;
+          return {
+            stopIndex: found.stopIndex,
+            delivery: found.delivery,
+            totalStops: groupedStops.length,
+          };
+        }}
+        onCargoScan={handleCargoScan}
+        onGoToStop={(idSaida) => setCenterOnStopId(idSaida)}
+        onClose={() => setShowLocateSheet(false)}
+      />
+
+      <RouteQuickAddSheet
+        visible={showQuickAdd}
+        pendingDeliveries={pendingDeliveries}
+        routeOrder={routeOrder}
+        onAddIds={handleAddIdsToRoute}
+        onClose={() => setShowQuickAdd(false)}
+      />
+
+      <RouteBulkImportSheet
+        visible={showBulkImport}
+        pendingDeliveries={pendingDeliveries}
+        routeOrder={routeOrder}
+        onAddIds={handleAddIdsToRoute}
+        onClose={() => setShowBulkImport(false)}
+      />
 
       {selectedDelivery && (
         <View style={[styles.cardOverlay, { paddingBottom: 24 + Math.max(0, insets.bottom) }]}>

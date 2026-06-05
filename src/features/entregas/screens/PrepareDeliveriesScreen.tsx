@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
   ActivityIndicator,
   Modal,
   Alert,
@@ -17,111 +16,43 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import { useDeliveryStore } from "../../../store/deliveryStore";
-import AddressForm, { type AddressFormValues, type AddressOrigem, type AddressCandidate } from "../components/AddressForm";
+import AddressForm, {
+  type AddressFormValues,
+  type AddressOrigem,
+  type AddressCandidate,
+} from "../components/AddressForm";
+import AddressQuickForm, { type QuickFormFlowState } from "../components/AddressQuickForm";
+import AddressPreviewSheet from "../components/AddressPreviewSheet";
+import GeocodeFailureSheet from "../components/GeocodeFailureSheet";
+import PrepProgressList from "../components/PrepProgressList";
+import PrepScanSheet from "../components/PrepScanSheet";
 import VoiceAddressModal from "../components/VoiceAddressModal";
 import type { EntregaListItem } from "../types";
-import type { ServicoTipo } from "../utils/servico";
-import { servicoTipo, SERVICO_ORDER } from "../utils/servico";
-import { parseOcrToAddress, parseVoiceToAddress } from "../utils/ocrAddress";
+import {
+  buildPrepQueue,
+  prepOrdemLabel,
+  type PrepOrdemModo,
+  type ServicoTipo,
+  SERVICO_ORDER,
+} from "../utils/servico";
+import {
+  parseVoiceAddress,
+  pickBestOcrAddress,
+  parsedToFormValues,
+  type ParsedAddress,
+} from "../utils/ocrAddress";
+import { geocodeAddress } from "../utils/geocode";
+import type { EnderecoBody } from "../api";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
+type AfterSaveMode = "scan" | "queue" | "none";
+
 export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
-  const styles = useMemo(
-    () =>
-      StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
-        content: { padding: 24 },
-        center: { flex: 1, justifyContent: "center", alignItems: "center" },
-        header: { marginBottom: 24 },
-        backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
-        title: { fontSize: 22, fontWeight: "700", color: colors.text },
-        card: {
-          backgroundColor: colors.backgroundCard,
-          padding: 20,
-          borderRadius: 12,
-          marginBottom: 24,
-          shadowColor: colors.shadowColor,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 4,
-          elevation: 2,
-        },
-        totalLabel: { fontSize: 14, color: colors.textSecondary, marginBottom: 4 },
-        totalValue: { fontSize: 28, fontWeight: "700", color: colors.text, marginBottom: 16 },
-        row: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
-        label: { fontSize: 14, color: colors.textSecondary },
-        value: { fontSize: 16, fontWeight: "600", color: colors.text },
-        btnSequencia: {
-          backgroundColor: colors.primary,
-          paddingVertical: 16,
-          borderRadius: 12,
-          alignItems: "center",
-          marginBottom: 12,
-        },
-        btnDisabled: { opacity: 0.6 },
-        btnSequenciaText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
-        btnLista: {
-          paddingVertical: 16,
-          borderRadius: 12,
-          alignItems: "center",
-          borderWidth: 1,
-          borderColor: colors.primary,
-        },
-        btnListaText: { color: colors.primary, fontSize: 16, fontWeight: "600" },
-        modalWrap: { flex: 1, backgroundColor: colors.backgroundCard },
-        modalHeader: {
-          paddingHorizontal: 24,
-          paddingBottom: 16,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.separator,
-        },
-        modalBackText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
-        modalTitle: { fontSize: 18, fontWeight: "700", color: colors.text },
-        modalSubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
-        codigoCard: {
-          backgroundColor: colors.primary + "18",
-          borderWidth: 2,
-          borderColor: colors.primary,
-          borderRadius: 12,
-          paddingVertical: 12,
-          paddingHorizontal: 16,
-          marginTop: 12,
-          marginBottom: 8,
-        },
-        codigoLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginBottom: 4, textTransform: "uppercase" },
-        codigoValue: { fontSize: 22, fontWeight: "800", color: colors.text },
-        modalHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-        btnPular: { paddingVertical: 8, paddingHorizontal: 12, marginLeft: 8 },
-        btnPularText: { fontSize: 15, color: colors.primary, fontWeight: "600" },
-        ordemModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 },
-        ordemModalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 20 },
-        ordemModalTitle: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 16 },
-        ordemBtn: { paddingVertical: 14, borderRadius: 10, alignItems: "center", marginBottom: 10 },
-        ordemBtnLast: { marginBottom: 0 },
-        ordemBtnText: { fontSize: 16, fontWeight: "600", color: colors.primaryContrast },
-        ordemBtnOutline: { borderWidth: 1, borderColor: colors.primary, backgroundColor: "transparent" },
-        ordemBtnOutlineText: { color: colors.primary },
-        btnCriarRota: {
-          backgroundColor: colors.primary,
-          paddingVertical: 16,
-          borderRadius: 12,
-          alignItems: "center",
-          marginTop: 12,
-        },
-        btnCriarRotaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
-        voiceModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 24 },
-        voiceModalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 20 },
-        voiceModalTitle: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 8 },
-        voiceModalMessage: { fontSize: 14, color: colors.textSecondary, marginBottom: 16 },
-        voiceModalBtnCancel: { paddingVertical: 12, alignItems: "center" },
-        voiceModalBtnCancelText: { fontSize: 16, color: colors.primary },
-      }),
-    [colors]
-  );
+
   const {
     pendingDeliveries,
     deliveriesWithAddress,
@@ -132,24 +63,150 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     setRouteDeliveries,
     clearActiveRouteState,
     activeRouteId,
+    optimizeRoute,
   } = useDeliveryStore();
+
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
+  const prepOrdemModo = useMotoboyPrefsStore((s) => s.prepOrdemModo);
+  const prepServicoInicio = useMotoboyPrefsStore((s) => s.prepServicoInicio);
+  const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
+  const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
+  const setPrepOrdem = useMotoboyPrefsStore((s) => s.setPrepOrdem);
 
-  const [sequenciaAtiva, setSequenciaAtiva] = useState(false);
+  const [showScanSheet, setShowScanSheet] = useState(false);
+  const [showQuickForm, setShowQuickForm] = useState(false);
+  const [showAdvancedForm, setShowAdvancedForm] = useState(false);
+  const [activeDelivery, setActiveDelivery] = useState<EntregaListItem | null>(null);
+  const [queue, setQueue] = useState<EntregaListItem[]>([]);
+  const [queueIndex, setQueueIndex] = useState(0);
+  const [afterSaveMode, setAfterSaveMode] = useState<AfterSaveMode>("none");
+  const [flowState, setFlowState] = useState<QuickFormFlowState>("idle");
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [externalParsed, setExternalParsed] = useState<ParsedAddress | null>(null);
+
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewParsed, setPreviewParsed] = useState<ParsedAddress | null>(null);
+  const [previewSource, setPreviewSource] = useState<"voice" | "ocr">("voice");
+  const [pendingPreviewSave, setPendingPreviewSave] = useState<AddressFormValues | null>(null);
+
+  const [showGeocodeFailure, setShowGeocodeFailure] = useState(false);
+  const [geocodeQuery, setGeocodeQuery] = useState("");
+  const [pendingSaveValues, setPendingSaveValues] = useState<AddressFormValues | null>(null);
+  const [pendingSaveOrigem, setPendingSaveOrigem] = useState<AddressOrigem>("manual");
+
   const [showOrdemModal, setShowOrdemModal] = useState(false);
-  /** Quando true, exibe "Por qual serviço iniciar?" (após escolher "Por serviço"). */
-  const [showServicoInicioModal, setShowServicoInicioModal] = useState(false);
-  /** Lista fixa de entregas sem endereço no início da sequência (permite pular e ordem por serviço). */
-  const [sequenciaList, setSequenciaList] = useState<EntregaListItem[]>([]);
-  const [sequenciaIndex, setSequenciaIndex] = useState(0);
+  const [ordemDraftModo, setOrdemDraftModo] = useState<PrepOrdemModo>(prepOrdemModo);
+  const [ordemDraftServico, setOrdemDraftServico] = useState<ServicoTipo>(prepServicoInicio);
+  const [optimizing, setOptimizing] = useState(false);
+
+  const voiceResolveRef = useRef<(v: AddressCandidate[] | AddressCandidate | null) => void>(
+    () => {}
+  );
+  const voiceRejectRef = useRef<() => void>(() => {});
+
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [speechModule, setSpeechModule] = useState<{
     ExpoSpeechRecognitionModule: typeof import("expo-speech-recognition").ExpoSpeechRecognitionModule;
     useSpeechRecognitionEvent: typeof import("expo-speech-recognition").useSpeechRecognitionEvent;
   } | null>(null);
-  const voiceResolveRef = useRef<(v: AddressCandidate[] | AddressCandidate | null) => void>(() => {});
-  const voiceRejectRef = useRef<() => void>(() => {});
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: { flex: 1, backgroundColor: colors.background },
+        center: { flex: 1, justifyContent: "center", alignItems: "center" },
+        header: { paddingHorizontal: 20, paddingBottom: 12 },
+        backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
+        title: { fontSize: 22, fontWeight: "700", color: colors.text },
+        card: {
+          marginHorizontal: 20,
+          backgroundColor: colors.backgroundCard,
+          padding: 20,
+          borderRadius: 12,
+          marginBottom: 16,
+        },
+        totalValue: { fontSize: 32, fontWeight: "800", color: colors.text, marginBottom: 12 },
+        row: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
+        label: { fontSize: 14, color: colors.textSecondary },
+        value: { fontSize: 16, fontWeight: "600", color: colors.text },
+        ordemRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          flexWrap: "wrap",
+          marginHorizontal: 20,
+          marginBottom: 12,
+          gap: 8,
+        },
+        ordemText: { fontSize: 13, color: colors.textSecondary, flex: 1 },
+        ordemLink: { fontSize: 13, fontWeight: "600", color: colors.primary },
+        btn: {
+          marginHorizontal: 20,
+          backgroundColor: colors.primary,
+          paddingVertical: 14,
+          borderRadius: 12,
+          alignItems: "center",
+          marginBottom: 10,
+        },
+        btnDisabled: { opacity: 0.5 },
+        btnText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnOutline: {
+          marginHorizontal: 20,
+          paddingVertical: 14,
+          borderRadius: 12,
+          alignItems: "center",
+          borderWidth: 1,
+          borderColor: colors.primary,
+          marginBottom: 10,
+        },
+        btnOutlineText: { color: colors.primary, fontSize: 15, fontWeight: "600" },
+        btnGhost: {
+          marginHorizontal: 20,
+          paddingVertical: 10,
+          alignItems: "center",
+          marginBottom: 8,
+        },
+        btnGhostText: { fontSize: 14, color: colors.textSecondary },
+        feedback: {
+          marginHorizontal: 20,
+          padding: 10,
+          borderRadius: 8,
+          backgroundColor: colors.success + "22",
+          marginBottom: 12,
+        },
+        feedbackText: { fontSize: 13, color: colors.text, textAlign: "center" },
+        listSection: { flex: 1, marginHorizontal: 20, marginBottom: 16 },
+        listTitle: { fontSize: 15, fontWeight: "600", color: colors.text, marginBottom: 8 },
+        modalWrap: { flex: 1, backgroundColor: colors.backgroundCard },
+        ordemModalOverlay: {
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.4)",
+          justifyContent: "center",
+          padding: 24,
+        },
+        ordemModalBox: {
+          backgroundColor: colors.backgroundCard,
+          borderRadius: 12,
+          padding: 20,
+        },
+        ordemModalTitle: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 16 },
+        ordemBtn: {
+          paddingVertical: 14,
+          borderRadius: 10,
+          alignItems: "center",
+          marginBottom: 10,
+        },
+        ordemBtnText: { fontSize: 16, fontWeight: "600", color: colors.primaryContrast },
+        ordemBtnOutline: { borderWidth: 1, borderColor: colors.primary, backgroundColor: "transparent" },
+        ordemBtnOutlineText: { color: colors.primary, fontSize: 16, fontWeight: "600" },
+        voiceModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 24 },
+        voiceModalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 20 },
+        voiceModalTitle: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 8 },
+        voiceModalMessage: { fontSize: 14, color: colors.textSecondary, marginBottom: 16 },
+        voiceModalBtnCancel: { paddingVertical: 12, alignItems: "center" },
+        voiceModalBtnCancelText: { fontSize: 16, color: colors.primary },
+      }),
+    [colors]
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -164,62 +221,176 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const total = pendingDeliveries.length;
   const comEndereco = deliveriesWithAddress.length;
   const semEndereco = deliveriesWithoutAddress.length;
-  const sequenciaTotal = sequenciaList.length;
-  const atual = sequenciaList[sequenciaIndex] ?? null;
 
-  const handleIniciarSequencia = () => {
-    if (semEndereco === 0) {
-      setSequenciaAtiva(false);
-      return;
+  const withCoords = useMemo(
+    () =>
+      deliveriesWithAddress.filter((d) => d.latitude != null && d.longitude != null),
+    [deliveriesWithAddress]
+  );
+
+  const queuePrefs = useMemo(
+    () => ({ modo: prepOrdemModo, servicoInicio: prepServicoInicio }),
+    [prepOrdemModo, prepServicoInicio]
+  );
+
+  const progressItems = useMemo(() => {
+    const without = buildPrepQueue(deliveriesWithoutAddress, queuePrefs);
+    return [...without, ...deliveriesWithAddress];
+  }, [deliveriesWithoutAddress, deliveriesWithAddress, queuePrefs]);
+
+  const refreshQueue = useCallback(() => {
+    const without = useDeliveryStore.getState().deliveriesWithoutAddress;
+    const q = buildPrepQueue(without, queuePrefs);
+    setQueue(q);
+    return q;
+  }, [queuePrefs]);
+
+  useEffect(() => {
+    if (feedbackMessage) {
+      const t = setTimeout(() => setFeedbackMessage(null), 2500);
+      return () => clearTimeout(t);
     }
-    setShowOrdemModal(true);
-  };
+  }, [feedbackMessage]);
 
-  const handleEscolherOrdem = (porServico: boolean) => {
-    if (!porServico) {
-      setShowOrdemModal(false);
-      setSequenciaList([...deliveriesWithoutAddress]);
-      setSequenciaIndex(0);
-      setSequenciaAtiva(true);
-      return;
-    }
-    setShowOrdemModal(false);
-    setShowServicoInicioModal(true);
-  };
+  const addressQueryFromValues = (vals: AddressFormValues): string =>
+    [vals.rua, vals.numero, vals.bairro, vals.cidade, vals.estado, vals.cep]
+      .filter(Boolean)
+      .join(", ");
 
-  /** Ordem dos serviços com o escolhido primeiro (ex.: [Flex, Shopee, Avulso]). */
-  const handleEscolherServicoInicio = (primeiro: ServicoTipo) => {
-    setShowServicoInicioModal(false);
-    const ordem: ServicoTipo[] = [primeiro, ...SERVICO_ORDER.filter((s) => s !== primeiro)];
-    const list = [...deliveriesWithoutAddress].sort(
-      (a, b) =>
-        ordem.indexOf(servicoTipo(a.servico)) - ordem.indexOf(servicoTipo(b.servico))
-    );
-    setSequenciaList(list);
-    setSequenciaIndex(0);
-    setSequenciaAtiva(true);
-  };
+  const commitSave = useCallback(
+    async (vals: AddressFormValues, origem: AddressOrigem, skipGeocodeCheck = false) => {
+      if (!activeDelivery) return;
+      setFlowState("geocoding");
+      try {
+        if (!skipGeocodeCheck) {
+          const query = addressQueryFromValues(vals);
+          const geo = await geocodeAddress(query, {
+            cidade: vals.cidade,
+            estado: vals.estado,
+            bairro: vals.bairro,
+            numero: vals.numero,
+          });
+          if (!geo) {
+            setPendingSaveValues(vals);
+            setPendingSaveOrigem(origem);
+            setGeocodeQuery(query);
+            setShowGeocodeFailure(true);
+            setFlowState("idle");
+            return;
+          }
+          const body: EnderecoBody = {
+            ...vals,
+            origem,
+            latitude: geo.latitude,
+            longitude: geo.longitude,
+          };
+          setFlowState("saving");
+          await saveAddress(activeDelivery.id_saida, body);
+        } else {
+          setFlowState("saving");
+          await saveAddress(activeDelivery.id_saida, { ...vals, origem });
+        }
+        setFeedbackMessage("Endereço salvo. Próximo pacote.");
+        setExternalParsed(null);
+        setShowGeocodeFailure(false);
+        setPendingSaveValues(null);
 
-  const handleSalvarEndereco = async (vals: AddressFormValues, origemOverride?: AddressOrigem) => {
-    if (!atual) return;
-    try {
-      await saveAddress(atual.id_saida, { ...vals, origem: origemOverride ?? "manual" });
-      const nextIndex = sequenciaIndex + 1;
-      setSequenciaIndex(nextIndex);
-      if (nextIndex >= sequenciaList.length) {
-        setSequenciaAtiva(false);
+        if (afterSaveMode === "scan") {
+          setShowQuickForm(false);
+          setShowAdvancedForm(false);
+          setActiveDelivery(null);
+          setShowScanSheet(true);
+        } else if (afterSaveMode === "queue") {
+          const q = refreshQueue();
+          const currentId = activeDelivery.id_saida;
+          const nextPending =
+            q.find((d) => !d.possui_endereco && d.id_saida !== currentId) ?? null;
+          if (nextPending) {
+            setActiveDelivery(nextPending);
+            setQueueIndex(q.indexOf(nextPending));
+            if (!showAdvancedForm) {
+              setShowQuickForm(true);
+            }
+          } else {
+            setShowQuickForm(false);
+            setShowAdvancedForm(false);
+            setActiveDelivery(null);
+          }
+        } else {
+          setShowQuickForm(false);
+          setShowAdvancedForm(false);
+          setActiveDelivery(null);
+        }
+      } catch (e) {
+        Alert.alert(
+          "Erro ao salvar",
+          e instanceof Error ? e.message : "Não foi possível salvar. Tente novamente."
+        );
+      } finally {
+        setFlowState("idle");
       }
-    } catch (e) {
-      Alert.alert("Erro ao salvar endereço", e instanceof Error ? e.message : "Não foi possível salvar. Tente novamente.");
-    }
+    },
+    [
+      activeDelivery,
+      saveAddress,
+      afterSaveMode,
+      refreshQueue,
+      showAdvancedForm,
+    ]
+  );
+
+  const handleSaveAndNext = useCallback(
+    async (vals: AddressFormValues, origem: AddressOrigem = "manual") => {
+      await commitSave(vals, origem, false);
+    },
+    [commitSave]
+  );
+
+  const handleScanFound = (delivery: EntregaListItem) => {
+    setShowScanSheet(false);
+    setActiveDelivery(delivery);
+    setAfterSaveMode("scan");
+    setShowQuickForm(true);
+    setExternalParsed(null);
   };
 
-  const handleRequestOcr = useCallback(async (): Promise<AddressCandidate[] | AddressCandidate | null> => {
+  const handleStartScan = () => {
+    setAfterSaveMode("scan");
+    setShowScanSheet(true);
+  };
+
+  const handleNextPending = () => {
+    const q = refreshQueue();
+    const next = q[queueIndex] ?? q[0];
+    if (!next) {
+      Alert.alert("Atenção", "Não há pedidos pendentes de endereço.");
+      return;
+    }
+    setQueue(q);
+    setQueueIndex(q.indexOf(next));
+    setActiveDelivery(next);
+    setAfterSaveMode("queue");
+    setShowQuickForm(true);
+    setExternalParsed(null);
+  };
+
+  const handleProgressPress = (item: EntregaListItem) => {
+    if (item.possui_endereco) return;
+    const q = refreshQueue();
+    setQueue(q);
+    setQueueIndex(q.findIndex((d) => d.id_saida === item.id_saida));
+    setActiveDelivery(item);
+    setAfterSaveMode("queue");
+    setShowQuickForm(true);
+    setExternalParsed(null);
+  };
+
+  const captureOcrParsed = useCallback(async (): Promise<ParsedAddress | null> => {
     const isExpoGo = Constants.appOwnership === "expo";
     if (isExpoGo) {
       Alert.alert(
         "OCR no Expo Go",
-        "O leitor por imagem (OCR) só funciona em build nativo. No Expo Go use a opção Digitar ou Voz para preencher o endereço."
+        "O leitor por imagem só funciona em build nativo. Use digitar ou voz."
       );
       return null;
     }
@@ -230,135 +401,218 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       extractTextFromImage = ocrModule.extractTextFromImage;
       isSupported = ocrModule.isSupported;
     } catch {
-      Alert.alert(
-        "OCR não disponível",
-        "O leitor de texto (OCR) funciona apenas em versão de desenvolvimento (build nativo). Use digitar ou Voz para preencher o endereço."
-      );
+      Alert.alert("OCR não disponível", "Use build nativo ou digite o endereço.");
       return null;
     }
     if (!isSupported) {
-      Alert.alert("Não disponível", "Reconhecimento de texto não é suportado neste dispositivo.");
+      Alert.alert("Não disponível", "OCR não suportado neste dispositivo.");
       return null;
     }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permissão", "É necessário permitir o uso da câmera para escanear.");
+      Alert.alert("Permissão", "Permita o uso da câmera.");
       return null;
     }
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ["images"],
-        quality: 0.8,
-        base64: false,
-      });
-      if (result.canceled || !result.assets?.[0]?.uri) return null;
-      const lines = await extractTextFromImage(result.assets[0].uri);
-      const parsed = parseOcrToAddress(lines);
-      return Object.keys(parsed).length > 0 ? parsed : null;
-    } catch {
-      Alert.alert("Erro", "Não foi possível ler o texto da imagem.");
-      return null;
-    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+      base64: false,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return null;
+    const lines = await extractTextFromImage(result.assets[0].uri);
+    return pickBestOcrAddress(lines);
   }, []);
 
-  const handleRequestVoz = useCallback((): Promise<AddressCandidate[] | AddressCandidate | null> => {
+  const handleOcr = useCallback(async () => {
+    setFlowState("parsing");
+    try {
+      const parsed = await captureOcrParsed();
+      if (!parsed) {
+        setFlowState("idle");
+        return;
+      }
+      if (!(parsed.rua ?? "").trim() && parsed.rawText) {
+        setExternalParsed(parsed);
+        setFlowState("idle");
+        return;
+      }
+      setPreviewParsed(parsed);
+      setPreviewSource("ocr");
+      setPendingPreviewSave(parsedToFormValues(parsed));
+      setShowPreview(true);
+    } catch {
+      Alert.alert("Erro", "Não foi possível ler a imagem.");
+    } finally {
+      setFlowState("idle");
+    }
+  }, [captureOcrParsed]);
+
+  const handleRequestOcrAdvanced = useCallback(async () => {
+    const parsed = await captureOcrParsed();
+    if (!parsed) return null;
+    return Object.keys(parsed).length > 0 ? parsedToFormValues(parsed) : null;
+  }, [captureOcrParsed]);
+
+  const handleRequestVozAdvanced = useCallback((): Promise<AddressCandidate | null> => {
     const isExpoGo = Constants.appOwnership === "expo";
     if (isExpoGo) {
-      Alert.alert(
-        "Voz no Expo Go",
-        "O reconhecimento por voz só funciona em build nativo. No Expo Go use a opção Digitar ou Leitor (OCR) para preencher o endereço."
-      );
+      Alert.alert("Voz no Expo Go", "Reconhecimento de voz só funciona em build nativo.");
       return Promise.resolve(null);
     }
     return new Promise((resolve) => {
       voiceResolveRef.current = (v) => {
         setShowVoiceModal(false);
         setSpeechModule(null);
-        resolve(v);
+        if (Array.isArray(v)) resolve(v[0] ?? null);
+        else resolve(v);
       };
       voiceRejectRef.current = () => {
         setShowVoiceModal(false);
         setSpeechModule(null);
         resolve(null);
       };
-      (async () => {
+      void (async () => {
         try {
           const mod = await import("expo-speech-recognition");
           setSpeechModule(mod);
           setShowVoiceModal(true);
         } catch {
-          Alert.alert(
-            "Voz não disponível",
-            "O reconhecimento de voz funciona apenas em versão de desenvolvimento (build nativo). Use digitar ou Leitor (OCR) para preencher o endereço."
-          );
+          Alert.alert("Voz não disponível", "Use build nativo ou digite o endereço.");
           resolve(null);
         }
       })();
     });
   }, []);
 
-  const handleVoiceDone = useCallback((transcript: string) => {
-    const parsed = parseVoiceToAddress(transcript);
-    if (Object.keys(parsed).length > 0) {
-      voiceResolveRef.current(parsed);
-    } else {
-      voiceResolveRef.current(null);
+  const handleDictate = useCallback(async () => {
+    const isExpoGo = Constants.appOwnership === "expo";
+    if (isExpoGo) {
+      Alert.alert("Voz no Expo Go", "Reconhecimento de voz só funciona em build nativo.");
+      return;
+    }
+    try {
+      const mod = await import("expo-speech-recognition");
+      setSpeechModule(mod);
+      setFlowState("listening");
+      setShowVoiceModal(true);
+    } catch {
+      Alert.alert("Voz não disponível", "Use build nativo ou digite o endereço.");
     }
   }, []);
 
-  const handleVoiceCancel = useCallback(() => {
-    voiceRejectRef.current();
-  }, []);
+  const handleVoiceDone = useCallback(
+    (transcript: string) => {
+      const parsed = parseVoiceAddress(transcript, {
+        cidade: cidadePadrao || undefined,
+        estado: estadoPadrao || undefined,
+      });
+      if (showAdvancedForm) {
+        if (Object.keys(parsed).length > 0) {
+          voiceResolveRef.current(parsedToFormValues(parsed));
+        } else {
+          voiceResolveRef.current(null);
+        }
+        return;
+      }
+      setShowVoiceModal(false);
+      setSpeechModule(null);
+      setFlowState("parsing");
+      if (!(parsed.rua ?? "").trim()) {
+        setExternalParsed({ rawText: transcript, confidence: "low" });
+        setFlowState("idle");
+        return;
+      }
+      setPreviewParsed(parsed);
+      setPreviewSource("voice");
+      setPendingPreviewSave(parsedToFormValues(parsed));
+      setShowPreview(true);
+      setFlowState("idle");
+    },
+    [cidadePadrao, estadoPadrao, showAdvancedForm]
+  );
 
-  const handleCriarRota = useCallback(() => {
-    if (deliveriesWithAddress.length === 0) return;
-    if (deliveriesWithoutAddress.length > 0) {
-      const x = deliveriesWithoutAddress.length;
+  const handleVoiceCancel = useCallback(() => {
+    if (showAdvancedForm) {
+      voiceRejectRef.current();
+      return;
+    }
+    setShowVoiceModal(false);
+    setSpeechModule(null);
+    setFlowState("idle");
+  }, [showAdvancedForm]);
+
+  const handlePreviewSave = async () => {
+    if (!pendingPreviewSave) return;
+    setShowPreview(false);
+    const origem = previewSource === "voice" ? "voz" : "ocr";
+    setExternalParsed(previewParsed);
+    await handleSaveAndNext(pendingPreviewSave, origem);
+    setPendingPreviewSave(null);
+    setPreviewParsed(null);
+  };
+
+  const handlePreviewEdit = () => {
+    setShowPreview(false);
+    if (previewParsed) setExternalParsed(previewParsed);
+    setPendingPreviewSave(null);
+  };
+
+  const handleOtimizarRota = useCallback(async () => {
+    if (activeRouteId != null) {
+      Alert.alert("Atenção", "Finalize a rota ativa antes de montar outra.");
+      return;
+    }
+    if (withCoords.length < 2) {
+      Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para otimizar.");
+      return;
+    }
+    const runOptimize = async () => {
+      setOptimizing(true);
+      try {
+        if (activeRouteId === null) clearActiveRouteState();
+        setRouteDeliveries(withCoords);
+        await optimizeRoute();
+        navigation.navigate("RouteBuilder");
+      } catch (e) {
+        Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao otimizar rota.");
+      } finally {
+        setOptimizing(false);
+      }
+    };
+    if (semEndereco > 0) {
       Alert.alert(
-        "Criar Rota",
-        `${x} entrega${x !== 1 ? "s" : ""} não possuem endereço e não entrarão na rota.`,
+        "Rota parcial",
+        `${semEndereco} pedido${semEndereco !== 1 ? "s" : ""} sem endereço não entrarão na rota agora.`,
         [
+          { text: "Adicionar pendentes", onPress: handleNextPending },
+          { text: "Continuar", onPress: () => void runOptimize() },
           { text: "Cancelar", style: "cancel" },
-          {
-            text: "Criar rota parcial",
-            onPress: () => {
-              try {
-                if (activeRouteId !== null) clearActiveRouteState();
-                setRouteDeliveries(deliveriesWithAddress);
-                navigation.navigate("RouteBuilder");
-              } catch (e) {
-                console.error("[Criar rota parcial] crash:", e);
-                Alert.alert(
-                  "Erro",
-                  `Erro ao criar rota: ${e instanceof Error ? e.message : String(e)}.`
-                );
-              }
-            },
-          },
-          { text: "Adicionar endereços", onPress: () => {} },
         ]
       );
     } else {
-      try {
-        if (activeRouteId !== null) clearActiveRouteState();
-        setRouteDeliveries(deliveriesWithAddress);
-        navigation.navigate("RouteBuilder");
-      } catch (e) {
-        console.error("[Criar Rota] crash:", e);
-        Alert.alert("Erro", `Erro ao criar rota: ${e instanceof Error ? e.message : String(e)}.`);
-      }
+      await runOptimize();
     }
-  }, [deliveriesWithAddress, deliveriesWithoutAddress, activeRouteId, clearActiveRouteState, setRouteDeliveries, navigation]);
+  }, [
+    withCoords,
+    semEndereco,
+    activeRouteId,
+    clearActiveRouteState,
+    setRouteDeliveries,
+    optimizeRoute,
+    navigation,
+    handleNextPending,
+  ]);
 
-  const handlePular = () => {
-    const nextIndex = sequenciaIndex + 1;
-    setSequenciaIndex(nextIndex);
-    if (nextIndex >= sequenciaList.length) {
-      setSequenciaAtiva(false);
-    }
+  const handleSalvarAdvanced = async (vals: AddressFormValues, origem?: AddressOrigem) => {
+    setAfterSaveMode("queue");
+    await handleSaveAndNext(vals, origem ?? "manual");
   };
 
-  const handleFecharSequencia = () => setSequenciaAtiva(false);
+  const confirmOrdem = async () => {
+    await setPrepOrdem(ordemDraftModo, ordemDraftServico);
+    setShowOrdemModal(false);
+    refreshQueue();
+  };
 
   if (loading && total === 0) {
     return (
@@ -369,10 +623,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: Math.max(16, insets.top), paddingBottom: 24 }]}
-    >
+    <View style={[styles.container, { paddingTop: Math.max(16, insets.top) }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backText}>← Voltar</Text>
@@ -381,54 +632,213 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.totalLabel}>Total de entregas</Text>
-        <Text style={styles.totalValue}>{total}</Text>
+        <Text style={styles.totalValue}>{total} pedidos</Text>
         <View style={styles.row}>
           <Text style={styles.label}>Com endereço</Text>
           <Text style={styles.value}>{comEndereco}</Text>
         </View>
         <View style={styles.row}>
-          <Text style={styles.label}>Sem endereço</Text>
+          <Text style={styles.label}>Pendentes</Text>
           <Text style={styles.value}>{semEndereco}</Text>
         </View>
       </View>
 
+      <View style={styles.ordemRow}>
+        <Text style={styles.ordemText}>
+          Ordenação: {prepOrdemLabel(prepOrdemModo, prepServicoInicio)}
+        </Text>
+        <TouchableOpacity
+          onPress={() => {
+            setOrdemDraftModo(prepOrdemModo);
+            setOrdemDraftServico(prepServicoInicio);
+            setShowOrdemModal(true);
+          }}
+        >
+          <Text style={styles.ordemLink}>Alterar</Text>
+        </TouchableOpacity>
+      </View>
+
+      {feedbackMessage ? (
+        <View style={styles.feedback}>
+          <Text style={styles.feedbackText}>{feedbackMessage}</Text>
+        </View>
+      ) : null}
+
+      <TouchableOpacity style={styles.btn} onPress={handleStartScan}>
+        <Text style={styles.btnText}>Escanear pacote</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity
-        style={[styles.btnSequencia, semEndereco === 0 && styles.btnDisabled]}
-        onPress={handleIniciarSequencia}
+        style={[styles.btnOutline, semEndereco === 0 && styles.btnDisabled]}
+        onPress={handleNextPending}
         disabled={semEndereco === 0}
       >
-        <Text style={styles.btnSequenciaText}>Adicionar Endereços em Sequência</Text>
+        <Text style={styles.btnOutlineText}>Adicionar endereço ao próximo</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.btnLista} onPress={() => navigation.navigate("EntregasList")}>
-        <Text style={styles.btnListaText}>Ir para Pendentes</Text>
+      <TouchableOpacity
+        style={[styles.btn, withCoords.length < 2 && styles.btnDisabled]}
+        onPress={() => void handleOtimizarRota()}
+        disabled={withCoords.length < 2 || optimizing}
+      >
+        {optimizing ? (
+          <ActivityIndicator color={colors.primaryContrast} />
+        ) : (
+          <Text style={styles.btnText}>Otimizar rota</Text>
+        )}
       </TouchableOpacity>
 
-      {comEndereco > 0 && (
-        <TouchableOpacity style={styles.btnCriarRota} onPress={handleCriarRota}>
-          <Text style={styles.btnCriarRotaText}>Criar Rota / Iniciar Rota</Text>
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        style={styles.btnGhost}
+        onPress={() => {
+          const q = refreshQueue();
+          const next = q[0];
+          if (!next) {
+            Alert.alert("Atenção", "Não há pedidos pendentes.");
+            return;
+          }
+          setActiveDelivery(next);
+          setAfterSaveMode("queue");
+          setShowAdvancedForm(true);
+        }}
+      >
+        <Text style={styles.btnGhostText}>Modo avançado (CEP em passos)</Text>
+      </TouchableOpacity>
+
+      <View style={[styles.listSection, { flex: 1 }]}>
+        <Text style={styles.listTitle}>Pacotes</Text>
+        <PrepProgressList items={progressItems} onPressItem={handleProgressPress} />
+      </View>
+
+      <PrepScanSheet
+        visible={showScanSheet}
+        pendingDeliveries={pendingDeliveries}
+        onFound={handleScanFound}
+        onClose={() => setShowScanSheet(false)}
+      />
+
+      <Modal visible={showQuickForm && activeDelivery != null} animationType="slide">
+        <View style={[styles.modalWrap, { paddingTop: insets.top }]}>
+          {activeDelivery && (
+            <AddressQuickForm
+              delivery={activeDelivery}
+              flowState={flowState}
+              cidadePadrao={cidadePadrao}
+              estadoPadrao={estadoPadrao}
+              externalParsed={externalParsed}
+              onFlowStateChange={setFlowState}
+              onSaveAndNext={(vals) => handleSaveAndNext(vals, "manual")}
+              onDictate={handleDictate}
+              onOcr={handleOcr}
+              onCancel={() => {
+                setShowQuickForm(false);
+                setActiveDelivery(null);
+              }}
+            />
+          )}
+        </View>
+      </Modal>
+
+      <Modal visible={showAdvancedForm && activeDelivery != null} animationType="slide">
+        <View style={styles.modalWrap}>
+          {activeDelivery && (
+            <AddressForm
+              idSaida={activeDelivery.id_saida}
+              initialValues={{
+                destinatario: activeDelivery.cliente ?? "",
+                rua: activeDelivery.endereco ?? "",
+                numero: activeDelivery.numero ?? "",
+                complemento: "",
+                bairro: activeDelivery.bairro ?? "",
+                cidade: "",
+                estado: estadoPadrao,
+                cep: activeDelivery.cep ?? "",
+              }}
+              origem="manual"
+              onSave={handleSalvarAdvanced}
+              onCancel={() => setShowAdvancedForm(false)}
+              submitLabel="Salvar e próximo"
+              enableOnlyDestinatarioShortcut
+              showOcrVozIcons
+              onRequestOcr={handleRequestOcrAdvanced}
+              onRequestVoz={handleRequestVozAdvanced}
+            />
+          )}
+        </View>
+      </Modal>
+
+      <AddressPreviewSheet
+        visible={showPreview}
+        source={previewSource}
+        parsed={previewParsed}
+        onSaveAndNext={() => void handlePreviewSave()}
+        onEdit={handlePreviewEdit}
+        onRetry={previewSource === "voice" ? handleDictate : handleOcr}
+        onClose={() => setShowPreview(false)}
+      />
+
+      <GeocodeFailureSheet
+        visible={showGeocodeFailure}
+        addressQuery={geocodeQuery}
+        onEdit={() => setShowGeocodeFailure(false)}
+        onSaveWithoutCoords={() => {
+          if (pendingSaveValues) {
+            void commitSave(pendingSaveValues, pendingSaveOrigem, true);
+          }
+        }}
+        onClose={() => setShowGeocodeFailure(false)}
+      />
 
       <Modal visible={showOrdemModal} transparent animationType="fade">
         <View style={styles.ordemModalOverlay}>
           <View style={styles.ordemModalBox}>
-            <Text style={styles.ordemModalTitle}>Como ordenar as entregas?</Text>
+            <Text style={styles.ordemModalTitle}>Ordenação da fila</Text>
             <TouchableOpacity
               style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
-              onPress={() => handleEscolherOrdem(false)}
+              onPress={() => setOrdemDraftModo("sequencial")}
             >
-              <Text style={styles.ordemBtnText}>Sequencial</Text>
+              <Text
+                style={[
+                  styles.ordemBtnText,
+                  ordemDraftModo !== "sequencial" && { opacity: 0.5 },
+                ]}
+              >
+                Sequencial {ordemDraftModo === "sequencial" ? "✓" : ""}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
-              onPress={() => handleEscolherOrdem(true)}
+              onPress={() => setOrdemDraftModo("servico")}
             >
-              <Text style={styles.ordemBtnText}>Por serviço</Text>
+              <Text
+                style={[
+                  styles.ordemBtnText,
+                  ordemDraftModo !== "servico" && { opacity: 0.5 },
+                ]}
+              >
+                Por serviço {ordemDraftModo === "servico" ? "✓" : ""}
+              </Text>
+            </TouchableOpacity>
+            {ordemDraftModo === "servico" &&
+              SERVICO_ORDER.map((s) => (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.ordemBtn, { backgroundColor: colors.inputBackground }]}
+                  onPress={() => setOrdemDraftServico(s)}
+                >
+                  <Text style={{ color: colors.text, fontWeight: "600" }}>
+                    {s} primeiro {ordemDraftServico === s ? "✓" : ""}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            <TouchableOpacity
+              style={[styles.ordemBtn, { backgroundColor: colors.primary, marginTop: 8 }]}
+              onPress={() => void confirmOrdem()}
+            >
+              <Text style={styles.ordemBtnText}>Salvar preferência</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.ordemBtn, styles.ordemBtnOutline, styles.ordemBtnLast]}
+              style={[styles.ordemBtn, styles.ordemBtnOutline]}
               onPress={() => setShowOrdemModal(false)}
             >
               <Text style={styles.ordemBtnOutlineText}>Cancelar</Text>
@@ -437,103 +847,21 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         </View>
       </Modal>
 
-      <Modal visible={showServicoInicioModal} transparent animationType="fade">
-        <View style={styles.ordemModalOverlay}>
-          <View style={styles.ordemModalBox}>
-            <Text style={styles.ordemModalTitle}>Por qual serviço iniciar?</Text>
-            <TouchableOpacity
-              style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
-              onPress={() => handleEscolherServicoInicio("Shopee")}
-            >
-              <Text style={styles.ordemBtnText}>Shopee</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
-              onPress={() => handleEscolherServicoInicio("Flex")}
-            >
-              <Text style={styles.ordemBtnText}>Flex (ML)</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.ordemBtn, { backgroundColor: colors.primary }]}
-              onPress={() => handleEscolherServicoInicio("Avulso")}
-            >
-              <Text style={styles.ordemBtnText}>Avulso</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.ordemBtn, styles.ordemBtnOutline, styles.ordemBtnLast]}
-              onPress={() => {
-                setShowServicoInicioModal(false);
-                setShowOrdemModal(true);
-              }}
-            >
-              <Text style={styles.ordemBtnOutlineText}>Voltar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={sequenciaAtiva && !!atual} animationType="slide">
-        <View style={styles.modalWrap}>
-          <View style={[styles.modalHeader, { paddingTop: Math.max(16, insets.top) }]}>
-            <View style={styles.modalHeaderRow}>
-              <TouchableOpacity onPress={handleFecharSequencia}>
-                <Text style={styles.modalBackText}>← Fechar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.btnPular} onPress={handlePular}>
-                <Text style={styles.btnPularText}>Pular</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.codigoCard}>
-              <Text style={styles.codigoLabel}>Código do pedido</Text>
-              <Text style={styles.codigoValue}>{atual?.codigo ?? "—"}</Text>
-            </View>
-            <Text style={styles.modalTitle}>
-              Entrega {sequenciaIndex + 1} de {sequenciaTotal}
-            </Text>
-            <Text style={styles.modalSubtitle}>{atual?.cliente ? `Destinatário: ${atual.cliente}` : ""}</Text>
-          </View>
-          {atual && (
-            <>
-              <AddressForm
-                idSaida={atual.id_saida}
-                initialValues={{
-                  destinatario: atual.cliente ?? "",
-                  rua: "",
-                  numero: "",
-                  complemento: "",
-                  bairro: atual.bairro ?? "",
-                  cidade: "",
-                  estado: "",
-                  cep: "",
-                }}
-                origem="manual"
-                onSave={handleSalvarEndereco}
-                enableOnlyDestinatarioShortcut={false}
-                onCancel={handleFecharSequencia}
-                submitLabel="Salvar e próximo"
-                showOcrVozIcons
-                onRequestOcr={handleRequestOcr}
-                onRequestVoz={handleRequestVoz}
-              />
-              {showVoiceModal && speechModule && (
-                <VoiceAddressModal
-                  speechModule={speechModule}
-                  modalStyles={{
-                    modalOverlay: styles.voiceModalOverlay,
-                    modalBox: styles.voiceModalBox,
-                    modalTitle: styles.voiceModalTitle,
-                    modalMessage: styles.voiceModalMessage,
-                    modalBtnCancel: styles.voiceModalBtnCancel,
-                    modalBtnCancelText: styles.voiceModalBtnCancelText,
-                  }}
-                  onDone={handleVoiceDone}
-                  onCancel={handleVoiceCancel}
-                />
-              )}
-            </>
-          )}
-        </View>
-      </Modal>
-    </ScrollView>
+      {showVoiceModal && speechModule && (
+        <VoiceAddressModal
+          speechModule={speechModule}
+          modalStyles={{
+            modalOverlay: styles.voiceModalOverlay,
+            modalBox: styles.voiceModalBox,
+            modalTitle: styles.voiceModalTitle,
+            modalMessage: styles.voiceModalMessage,
+            modalBtnCancel: styles.voiceModalBtnCancel,
+            modalBtnCancelText: styles.voiceModalBtnCancelText,
+          }}
+          onDone={handleVoiceDone}
+          onCancel={handleVoiceCancel}
+        />
+      )}
+    </View>
   );
 }

@@ -9,6 +9,7 @@ import {
   marcarAusente,
   postNovaTentativa,
   postRotasIniciar,
+  postRotasOtimizar,
   getRotasAtiva,
   postRotasAvancar,
   postRotasFinalizar,
@@ -17,6 +18,12 @@ import {
   type RotasAtivaResponse,
 } from "../features/entregas/api";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
+import {
+  flattenGroupsToRouteOrder,
+  getOrderedRouteDeliveries,
+  groupOrderedByAddress,
+  moveGroupInOrder,
+} from "../features/entregas/utils/routeUtils";
 import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
 
@@ -26,6 +33,15 @@ export type CurrentLocation = {
   latitude: number;
   longitude: number;
   heading?: number;
+};
+
+export type RouteOptimizationMode = "osrm_trip" | "nearest_fallback" | "local_fallback" | null;
+
+export type OptimizeRouteResult = {
+  ok: boolean;
+  mode: RouteOptimizationMode;
+  semCoordenadas: number[];
+  message: "success" | "partial" | "local_fallback" | "noop";
 };
 
 interface DeliveryState {
@@ -56,6 +72,9 @@ interface DeliveryState {
   currentLocation: CurrentLocation | null;
   setCurrentLocation: (location: CurrentLocation | null) => void;
 
+  /** Modo da última otimização de rota (backend ou fallback local). */
+  routeOptimizationMode: RouteOptimizationMode;
+
   loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<void>;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
   startRoute: (deliveryIds?: number[]) => Promise<number>;
@@ -70,9 +89,16 @@ interface DeliveryState {
   clearRoute: () => void;
   /** Limpa rota ativa e dados locais (logout ou quando backend não retorna rota ativa). */
   clearActiveRouteState: () => void;
-  optimizeRoute: (fromLat?: number, fromLon?: number) => void;
+  optimizeRoute: (fromLat?: number, fromLon?: number) => Promise<OptimizeRouteResult>;
   reorderRoute: (order: number[]) => void;
   setRouteDeliveryStatus: (idSaida: number, status: "pendente" | "entregue" | "ausente") => void;
+  removeFromRoute: (idSaidas: number[]) => void;
+  moveGroupedStopToIndex: (fromStopIndex: number, toStopIndex: number) => void;
+  moveGroupedStopToStart: (stopIndex: number) => void;
+  moveGroupedStopToEnd: (stopIndex: number) => void;
+  updateRouteDelivery: (idSaida: number, partial: Partial<EntregaListItem>) => void;
+  findInRouteByCodigo: (codigo: string) => { stopIndex: number; delivery: EntregaListItem } | null;
+  appendToRoute: (deliveries: EntregaListItem[]) => void;
 
   /** Inicia rota persistida com routeOrder atual; retorna rota_id. */
   startActiveRoute: () => Promise<string>;
@@ -92,6 +118,49 @@ function distSq(lat1: number, lon1: number, lat2: number, lon2: number): number 
   return dlat * dlat + dlon * dlon;
 }
 
+function optimizeRouteLocal(
+  routeDeliveries: EntregaListItem[],
+  routeOrder: number[],
+  fromLat?: number,
+  fromLon?: number
+): number[] {
+  const withCoords = routeDeliveries.filter((d) => d.latitude != null && d.longitude != null);
+  const withoutCoords = routeDeliveries.filter((d) => d.latitude == null || d.longitude == null);
+  let refLat = fromLat;
+  let refLon = fromLon;
+  if (refLat == null || refLon == null) {
+    const first = routeDeliveries.find((d) => d.id_saida === routeOrder[0]) ?? withCoords[0];
+    refLat = first?.latitude ?? 0;
+    refLon = first?.longitude ?? 0;
+  }
+  const sortedWithCoords: EntregaListItem[] = [];
+  const remaining = [...withCoords];
+  let curLat = refLat;
+  let curLon = refLon;
+  while (remaining.length > 0) {
+    let nearestIdx = -1;
+    let nearestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const d = remaining[i];
+      const d2 = distSq(curLat, curLon, d.latitude!, d.longitude!);
+      if (d2 < nearestDist) {
+        nearestDist = d2;
+        nearestIdx = i;
+      }
+    }
+    if (nearestIdx === -1) break;
+    const next = remaining.splice(nearestIdx, 1)[0];
+    sortedWithCoords.push(next);
+    curLat = next.latitude!;
+    curLon = next.longitude!;
+  }
+  const withoutIds = withoutCoords.map((d) => d.id_saida);
+  const withoutSet = new Set(withoutIds);
+  const orderedWithout = routeOrder.filter((id) => withoutSet.has(id));
+  const missingWithout = withoutIds.filter((id) => !orderedWithout.includes(id));
+  return sortedWithCoords.map((d) => d.id_saida).concat(orderedWithout, missingWithout);
+}
+
 export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   pendingDeliveries: [],
   deliveriesWithAddress: [],
@@ -108,6 +177,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   activeRouteId: null,
   activeStopIndex: 0,
   currentLocation: null,
+  routeOptimizationMode: null,
   setCurrentLocation: (location) => set({ currentLocation: location }),
 
   loadDeliveries: async (opts) => {
@@ -334,41 +404,53 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       currentLocation: null,
     });
   },
-  optimizeRoute: (fromLat?, fromLon?) => {
+  optimizeRoute: async (fromLat?, fromLon?) => {
     const { routeDeliveries, routeOrder, activeRouteId } = get();
-    if (activeRouteId != null || routeOrder.length === 0) return;
-    const withCoords = routeDeliveries.filter((d) => d.latitude != null && d.longitude != null);
-    const withoutCoords = routeDeliveries.filter((d) => d.latitude == null || d.longitude == null);
-    let refLat = fromLat;
-    let refLon = fromLon;
-    if (refLat == null || refLon == null) {
-      const first = routeDeliveries.find((d) => d.id_saida === routeOrder[0]) ?? withCoords[0];
-      refLat = first?.latitude ?? 0;
-      refLon = first?.longitude ?? 0;
+    const noop: OptimizeRouteResult = {
+      ok: false,
+      mode: null,
+      semCoordenadas: [],
+      message: "noop",
+    };
+    if (activeRouteId != null || routeOrder.length === 0) return noop;
+
+    const deliveryIds = [...routeOrder];
+    const start =
+      fromLat != null && fromLon != null
+        ? { latitude: fromLat, longitude: fromLon }
+        : undefined;
+
+    try {
+      const res = await postRotasOtimizar(deliveryIds, start);
+      const semCoordenadas = res.sem_coordenadas ?? [];
+      const message: OptimizeRouteResult["message"] =
+        semCoordenadas.length > 0 ? "partial" : "success";
+      set({
+        routeOrder: res.ordem,
+        routeOptimizationMode: res.modo,
+      });
+      return {
+        ok: true,
+        mode: res.modo,
+        semCoordenadas,
+        message,
+      };
+    } catch {
+      const orderedIds = optimizeRouteLocal(routeDeliveries, routeOrder, fromLat, fromLon);
+      set({
+        routeOrder: orderedIds,
+        routeOptimizationMode: "local_fallback",
+      });
+      const semCoordenadas = routeDeliveries
+        .filter((d) => d.latitude == null || d.longitude == null)
+        .map((d) => d.id_saida);
+      return {
+        ok: true,
+        mode: "local_fallback",
+        semCoordenadas,
+        message: "local_fallback",
+      };
     }
-    const sortedWithCoords: typeof routeDeliveries = [];
-    const remaining = [...withCoords];
-    let curLat = refLat;
-    let curLon = refLon;
-    while (remaining.length > 0) {
-      let nearestIdx = -1;
-      let nearestDist = Infinity;
-      for (let i = 0; i < remaining.length; i++) {
-        const d = remaining[i];
-        const d2 = distSq(curLat, curLon, d.latitude!, d.longitude!);
-        if (d2 < nearestDist) {
-          nearestDist = d2;
-          nearestIdx = i;
-        }
-      }
-      if (nearestIdx === -1) break;
-      const next = remaining.splice(nearestIdx, 1)[0];
-      sortedWithCoords.push(next);
-      curLat = next.latitude!;
-      curLon = next.longitude!;
-    }
-    const orderedIds = sortedWithCoords.map((d) => d.id_saida).concat(withoutCoords.map((d) => d.id_saida));
-    set({ routeOrder: orderedIds });
   },
   reorderRoute: (order) => {
     if (get().activeRouteId != null) return;
@@ -376,4 +458,73 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   },
   setRouteDeliveryStatus: (idSaida, status) =>
     set((state) => ({ routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: status } })),
+  removeFromRoute: (idSaidas) => {
+    if (get().activeRouteId != null) return;
+    const removeSet = new Set(idSaidas);
+    set((state) => {
+      const nextStatus = { ...state.routeDeliveryStatus };
+      for (const id of idSaidas) delete nextStatus[id];
+      return {
+        routeDeliveries: state.routeDeliveries.filter((d) => !removeSet.has(d.id_saida)),
+        routeOrder: state.routeOrder.filter((id) => !removeSet.has(id)),
+        routeDeliveryStatus: nextStatus,
+      };
+    });
+  },
+  moveGroupedStopToIndex: (fromStopIndex, toStopIndex) => {
+    if (get().activeRouteId != null) return;
+    const { routeDeliveries, routeOrder } = get();
+    const ordered = getOrderedRouteDeliveries(routeDeliveries, routeOrder);
+    const groups = groupOrderedByAddress(ordered);
+    if (fromStopIndex < 0 || fromStopIndex >= groups.length) return;
+    const to = Math.max(0, Math.min(toStopIndex, groups.length - 1));
+    const reordered = moveGroupInOrder(groups, fromStopIndex, to);
+    set({ routeOrder: flattenGroupsToRouteOrder(reordered) });
+  },
+  moveGroupedStopToStart: (stopIndex) => {
+    get().moveGroupedStopToIndex(stopIndex, 0);
+  },
+  moveGroupedStopToEnd: (stopIndex) => {
+    const { routeDeliveries, routeOrder } = get();
+    const ordered = getOrderedRouteDeliveries(routeDeliveries, routeOrder);
+    const groups = groupOrderedByAddress(ordered);
+    get().moveGroupedStopToIndex(stopIndex, groups.length - 1);
+  },
+  updateRouteDelivery: (idSaida, partial) => {
+    set((state) => ({
+      routeDeliveries: state.routeDeliveries.map((d) =>
+        d.id_saida === idSaida ? { ...d, ...partial } : d
+      ),
+    }));
+  },
+  findInRouteByCodigo: (codigo) => {
+    const normalized = codigo.trim().toLowerCase();
+    if (!normalized) return null;
+    const { routeDeliveries, routeOrder } = get();
+    const ordered = getOrderedRouteDeliveries(routeDeliveries, routeOrder);
+    const groups = groupOrderedByAddress(ordered);
+    for (let stopIndex = 0; stopIndex < groups.length; stopIndex++) {
+      for (const delivery of groups[stopIndex].deliveries) {
+        if ((delivery.codigo ?? "").trim().toLowerCase() === normalized) {
+          return { stopIndex, delivery };
+        }
+      }
+    }
+    return null;
+  },
+  appendToRoute: (deliveries) => {
+    if (get().activeRouteId != null) return;
+    set((state) => {
+      const existingIds = new Set(state.routeOrder);
+      const newOnes = deliveries.filter((d) => !existingIds.has(d.id_saida));
+      if (newOnes.length === 0) return state;
+      const nextStatus = { ...state.routeDeliveryStatus };
+      for (const d of newOnes) nextStatus[d.id_saida] = "pendente";
+      return {
+        routeDeliveries: [...state.routeDeliveries, ...newOnes],
+        routeOrder: [...state.routeOrder, ...newOnes.map((d) => d.id_saida)],
+        routeDeliveryStatus: nextStatus,
+      };
+    });
+  },
 }));

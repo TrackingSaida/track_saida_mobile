@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useThemeColors } from "../theme/colors";
 import type { EntregaListItem } from "../features/entregas/types";
+import { getStopPedidoLabel, getStopAddressLine, servicoTipo } from "../features/entregas/utils/routeUtils";
 
 export interface RouteMarkerCardProps {
   delivery: EntregaListItem;
@@ -14,12 +15,6 @@ export interface RouteMarkerCardProps {
   onMarcarEntregue: () => void;
   onMarcarAusente: () => void;
   onNavegar: () => void;
-}
-
-function enderecoCompleto(d: EntregaListItem): string {
-  const parts = [d.endereco, d.bairro, d.endereco_formatado].filter(Boolean);
-  if (parts.length === 0) return "—";
-  return d.endereco_formatado || [d.endereco, d.bairro].filter(Boolean).join(", ");
 }
 
 export default function RouteMarkerCard({
@@ -48,16 +43,20 @@ export default function RouteMarkerCard({
         header: {
           flexDirection: "row",
           justifyContent: "space-between",
-          alignItems: "center",
+          alignItems: "flex-start",
           marginBottom: 12,
         },
         close: { padding: 4 },
         closeText: { fontSize: 18, color: colors.textSecondary, fontWeight: "600" },
+        orderLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 2, textTransform: "uppercase" },
+        codigo: { fontSize: 20, fontWeight: "800", color: colors.primary },
+        pedido: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
         label: { fontSize: 11, color: colors.textSecondary, marginBottom: 2, textTransform: "uppercase" },
         value: { fontSize: 15, color: colors.text, fontWeight: "500" },
         valueBlock: { marginBottom: 10 },
         addressBlock: { marginBottom: 16 },
         addressValue: { fontSize: 14, color: colors.text },
+        marketplace: { fontSize: 13, color: colors.textSecondary, marginBottom: 10 },
         row: { flexDirection: "row", gap: 10, marginTop: 4 },
         btn: {
           flex: 1,
@@ -76,7 +75,6 @@ export default function RouteMarkerCard({
           alignSelf: "flex-start",
         },
         statusBadgeText: { fontSize: 12, fontWeight: "600", color: "#fff" },
-        orderLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 2, textTransform: "uppercase" },
         hintText: { fontSize: 13, color: colors.textSecondary, textAlign: "center", marginTop: 8, marginBottom: 4 },
       }),
     [colors]
@@ -93,9 +91,10 @@ export default function RouteMarkerCard({
           {orderNumber != null && (
             <Text style={styles.orderLabel}>Parada {orderNumber}</Text>
           )}
-          <Text style={styles.value} numberOfLines={1}>
+          <Text style={styles.codigo} numberOfLines={1}>
             {delivery.codigo || "—"}
           </Text>
+          <Text style={styles.pedido}>{getStopPedidoLabel(delivery)}</Text>
         </View>
         {status !== "pendente" && (
           <View
@@ -117,9 +116,11 @@ export default function RouteMarkerCard({
         <Text style={styles.value}>{delivery.cliente || delivery.exibicao || "—"}</Text>
       </View>
 
+      <Text style={styles.marketplace}>{servicoTipo(delivery.servico)}</Text>
+
       <View style={styles.addressBlock}>
         <Text style={styles.label}>Endereço</Text>
-        <Text style={styles.addressValue}>{enderecoCompleto(delivery)}</Text>
+        <Text style={styles.addressValue}>{getStopAddressLine(delivery)}</Text>
       </View>
 
       {podeAcoes && (

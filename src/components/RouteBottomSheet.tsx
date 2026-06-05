@@ -10,7 +10,9 @@ import {
   FlatList,
   ActivityIndicator,
   Dimensions,
+  Alert,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import DraggableFlatList, {
   type RenderItemParams,
@@ -24,19 +26,16 @@ import {
   groupOrderedByAddress,
   servicoTipo,
   ROUTE_MARKER_COLORS,
+  getStopPrimaryCodigo,
+  getStopPedidoLabel,
+  getStopAddressLine,
+  getStopVolumesSummary,
   type GroupedStop,
 } from "../features/entregas/utils/routeUtils";
 import type { EntregaListItem } from "../features/entregas/types";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-function enderecoResumido(d: EntregaListItem): string {
-  const parts = [d.endereco, d.bairro].filter(Boolean);
-  if (parts.length === 0) return d.endereco_formatado || "—";
-  const s = parts.join(", ");
-  return s.length > 40 ? s.slice(0, 37) + "…" : s;
 }
 
 type RouteItemStatus = "pendente" | "entregue" | "ausente";
@@ -54,7 +53,8 @@ function groupStatus(
 interface GroupedStopRowProps {
   group: GroupedStop;
   stopIndex: number;
-  isActive: boolean;
+  isDragging: boolean;
+  isCurrentStop: boolean;
   drag: () => void;
   colors: ReturnType<typeof useThemeColors>;
   status: RouteItemStatus;
@@ -65,7 +65,8 @@ interface GroupedStopRowProps {
 function GroupedStopRow({
   group,
   stopIndex,
-  isActive,
+  isDragging,
+  isCurrentStop,
   drag,
   colors,
   status,
@@ -80,7 +81,7 @@ function GroupedStopRow({
       : status === "ausente"
         ? colors.danger
         : ROUTE_MARKER_COLORS[tipo];
-  const statusLabel = status === "entregue" ? "Entregue" : status === "ausente" ? "Ausente" : tipo;
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -89,83 +90,116 @@ function GroupedStopRow({
           alignItems: "flex-start",
           paddingVertical: 12,
           paddingHorizontal: 12,
-          backgroundColor: colors.backgroundCard,
+          backgroundColor: isDragging ? colors.inputBackground : colors.backgroundCard,
           borderRadius: 10,
           marginBottom: 8,
-          borderWidth: 1,
-          borderColor: isActive ? colors.primary : colors.separator,
+          borderWidth: isCurrentStop ? 2 : 1,
+          borderColor: isCurrentStop ? colors.primary : isDragging ? colors.primary : colors.separator,
           opacity: status !== "pendente" ? 0.75 : 1,
+          ...(isDragging
+            ? {
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 6,
+                elevation: 6,
+                transform: [{ scale: 1.02 }],
+              }
+            : {}),
         },
         orderBox: {
-          width: 40,
-          minHeight: 40,
+          width: 36,
+          minHeight: 36,
           borderRadius: 8,
-          backgroundColor: colors.primary,
+          backgroundColor: isCurrentStop ? colors.primary : badgeColor,
           justifyContent: "center",
           alignItems: "center",
-          marginRight: 12,
+          marginRight: 10,
         },
-        orderText: { fontSize: 16, fontWeight: "800", color: colors.primaryContrast },
+        orderText: { fontSize: 15, fontWeight: "800", color: "#fff" },
         body: { flex: 1, minWidth: 0 },
-        labelRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-        label: { fontSize: 11, color: colors.textSecondary },
-        labelValue: { fontSize: 11, fontWeight: "600", color: colors.text },
-        badge: {
+        currentBadge: {
           alignSelf: "flex-start",
           paddingHorizontal: 8,
-          paddingVertical: 3,
+          paddingVertical: 2,
           borderRadius: 4,
-          marginBottom: 4,
+          backgroundColor: colors.primary + "25",
+          marginBottom: 6,
         },
-        badgeText: { fontSize: 11, fontWeight: "600", color: "#fff" },
+        currentBadgeText: { fontSize: 10, fontWeight: "800", color: colors.primary },
+        codigo: {
+          fontSize: 17,
+          fontWeight: "800",
+          color: colors.primary,
+          marginBottom: 2,
+        },
+        pedido: { fontSize: 12, color: colors.textSecondary, marginBottom: 2 },
         destinatario: {
-          fontSize: 15,
+          fontSize: 14,
           fontWeight: "600",
           color: status !== "pendente" ? colors.textSecondary : colors.text,
           marginBottom: 2,
         },
+        meta: { fontSize: 12, color: colors.textSecondary, marginBottom: 2 },
         endereco: { fontSize: 12, color: colors.textSecondary },
+        dragHandle: {
+          paddingLeft: 8,
+          paddingVertical: 4,
+          justifyContent: "center",
+        },
       }),
-    [colors, isActive, status]
+    [colors, isDragging, isCurrentStop, status, badgeColor]
   );
 
   return (
     <TouchableOpacity
       style={styles.row}
-      onLongPress={disableDrag ? undefined : drag}
-      delayLongPress={disableDrag ? undefined : 200}
       onPress={onPress}
-      activeOpacity={1}
+      activeOpacity={0.85}
     >
       <View style={styles.orderBox}>
-        <Text style={styles.orderText}>{stopIndex ?? 1}</Text>
+        <Text style={styles.orderText}>{stopIndex}</Text>
       </View>
       <View style={styles.body}>
-        <View style={[styles.badge, { backgroundColor: badgeColor }]}>
-          <Text style={styles.badgeText}>{statusLabel}</Text>
-        </View>
-        <View style={styles.labelRow}>
-          <Text style={styles.label}>Parada na rota</Text>
-          <Text style={styles.labelValue}>{stopIndex ?? 1}</Text>
-          <Text style={styles.label}>Pedidos nesta parada</Text>
-          <Text style={styles.labelValue}>{group.deliveries.length}</Text>
-        </View>
-        <Text style={styles.destinatario} numberOfLines={1} ellipsizeMode="tail">
+        {isCurrentStop && (
+          <View style={styles.currentBadge}>
+            <Text style={styles.currentBadgeText}>PARADA ATUAL</Text>
+          </View>
+        )}
+        <Text style={styles.codigo} numberOfLines={1}>
+          {getStopPrimaryCodigo(group)}
+        </Text>
+        <Text style={styles.pedido}>{first ? getStopPedidoLabel(first) : ""}</Text>
+        <Text style={styles.destinatario} numberOfLines={1}>
           {first?.cliente || first?.exibicao || "—"}
         </Text>
-        <Text style={styles.endereco} numberOfLines={1} ellipsizeMode="tail">
-          {enderecoResumido(first ?? group.deliveries[0])}
+        <Text style={styles.meta}>
+          {tipo} · {getStopVolumesSummary(group).replace("📦 ", "")}
+        </Text>
+        <Text style={styles.endereco} numberOfLines={1}>
+          {first ? getStopAddressLine(first) : "—"}
         </Text>
       </View>
+      {!disableDrag && (
+        <TouchableOpacity
+          style={styles.dragHandle}
+          onPressIn={drag}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="menu" size={22} color={colors.textSecondary} />
+        </TouchableOpacity>
+      )}
     </TouchableOpacity>
   );
 }
 
 export default function RouteBottomSheet({
   disableDrag = false,
+  activeGroupIndex = -1,
   onStopPress,
 }: {
   disableDrag?: boolean;
+  activeGroupIndex?: number;
   onStopPress?: (group: GroupedStop, stopIndex: number) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -191,15 +225,34 @@ export default function RouteBottomSheet({
     if (groupedStops.length < 2) return;
     setOptimizing(true);
     try {
+      let result;
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        optimizeRoute();
-        return;
+        result = await optimizeRoute();
+      } else {
+        try {
+          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          result = await optimizeRoute(pos.coords.latitude, pos.coords.longitude);
+        } catch {
+          result = await optimizeRoute();
+        }
       }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      optimizeRoute(pos.coords.latitude, pos.coords.longitude);
-    } catch {
-      optimizeRoute();
+
+      if (!result || result.message === "noop") return;
+
+      if (result.message === "success") {
+        Alert.alert("Rota otimizada", "A ordem das paradas foi atualizada com sucesso.");
+      } else if (result.message === "partial") {
+        Alert.alert(
+          "Rota otimizada parcialmente",
+          "Alguns endereços sem coordenadas ficaram ao final da rota."
+        );
+      } else if (result.message === "local_fallback") {
+        Alert.alert(
+          "Ordenação local",
+          "Não foi possível otimizar online; usamos a ordenação local por proximidade."
+        );
+      }
     } finally {
       setOptimizing(false);
     }
@@ -226,7 +279,8 @@ export default function RouteBottomSheet({
         <GroupedStopRow
           group={item}
           stopIndex={paradaNumber}
-          isActive={isActive}
+          isDragging={isActive}
+          isCurrentStop={activeGroupIndex === (typeof idx === "number" ? idx : -1)}
           drag={drag}
           colors={colors}
           status={groupStatus(item.deliveries, routeDeliveryStatus)}
@@ -235,7 +289,7 @@ export default function RouteBottomSheet({
         />
       );
     },
-    [colors, routeDeliveryStatus, disableDrag, onStopPress]
+    [colors, routeDeliveryStatus, disableDrag, onStopPress, activeGroupIndex]
   );
 
   const renderRow = useCallback(
@@ -245,7 +299,8 @@ export default function RouteBottomSheet({
         <GroupedStopRow
           group={item}
           stopIndex={paradaNumber}
-          isActive={false}
+          isDragging={false}
+          isCurrentStop={activeGroupIndex === index}
           drag={() => {}}
           colors={colors}
           status={groupStatus(item.deliveries, routeDeliveryStatus)}
@@ -254,7 +309,7 @@ export default function RouteBottomSheet({
         />
       );
     },
-    [colors, routeDeliveryStatus, onStopPress]
+    [colors, routeDeliveryStatus, onStopPress, activeGroupIndex]
   );
 
   const total = groupedStops.length;
