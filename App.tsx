@@ -21,7 +21,7 @@ import ChangePasswordRequiredScreen from "./src/screens/ChangePasswordRequiredSc
 import HomeScreen from "./src/screens/HomeScreen";
 import MaisScreen, { type MaisStackParamList } from "./src/screens/MaisScreen";
 import MeusDadosScreen from "./src/screens/MeusDadosScreen";
-import PreferenciaScreen from "./src/screens/PreferenciaScreen";
+import ConfiguracoesScreen from "./src/screens/ConfiguracoesScreen";
 import EntregasListScreen from "./src/features/entregas/screens/EntregasListScreen";
 import EntregaDetailScreen from "./src/features/entregas/screens/EntregaDetailScreen";
 import ScanScreen from "./src/features/entregas/screens/ScanScreen";
@@ -39,7 +39,7 @@ export type { EntregasListInitialTab };
 
 export type RootStackParamList = {
   HomeInicio: undefined;
-  EntregasList: { initialTab?: EntregasListInitialTab } | undefined;
+  EntregasList: { initialTab?: EntregasListInitialTab; todosPendentes?: boolean } | undefined;
   EntregaDetail: { idSaida: number };
   Scan: undefined;
   PrepareDeliveries: undefined;
@@ -68,8 +68,13 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
         {({ navigation }) => (
           <HomeScreen
             onLogout={onLogout}
-            onNavigateEntregas={(tab) =>
-              navigation.navigate("EntregasList", tab ? { initialTab: tab } : undefined)
+            onNavigateEntregas={(tab, opts) =>
+              navigation.navigate(
+                "EntregasList",
+                tab || opts?.todosPendentes
+                  ? { initialTab: tab, todosPendentes: opts?.todosPendentes }
+                  : undefined
+              )
             }
             onNavigateScan={() => navigation.navigate("Scan")}
             onNavigateRouteBuilder={() => navigation.navigate("RouteBuilder")}
@@ -96,7 +101,7 @@ function MaisStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
         {(props) => <MaisScreen {...props} onLogout={onLogout} />}
       </MaisStack.Screen>
       <MaisStack.Screen name="MeusDados" component={MeusDadosScreen} />
-      <MaisStack.Screen name="Preferencia" component={PreferenciaScreen} />
+      <MaisStack.Screen name="Configuracoes" component={ConfiguracoesScreen} />
       <MaisStack.Screen name="MinhasEntregas" component={MinhasEntregasScreen} />
       <MaisStack.Screen name="MinhasEntregasDia" component={MinhasEntregasDiaScreen} />
       <MaisStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
@@ -168,6 +173,7 @@ export default function App() {
 
   const logout = useCallback(async () => {
     useDeliveryStore.getState().clearActiveRouteState();
+    useMotoboyPrefsStore.getState().resetToDefaults();
     await logoutFromStore();
   }, [logoutFromStore]);
 

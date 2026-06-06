@@ -49,15 +49,8 @@ export default function DiaRotaConcluidaModal() {
         },
         topBlock: { alignItems: "center", marginBottom: 12 },
         emoji: { fontSize: 34, marginBottom: 6 },
-        headline: {
-          fontSize: 19,
-          fontWeight: "700",
-          color: colors.text,
-          textAlign: "center",
-          marginBottom: 10,
-        },
         title: {
-          fontSize: 17,
+          fontSize: 19,
           fontWeight: "700",
           color: colors.text,
           textAlign: "center",
@@ -119,7 +112,7 @@ export default function DiaRotaConcluidaModal() {
 
   const rootNav = navigation as NavigationProp<ParamListBase>;
 
-  const handleMinhasEntregasHoje = () => {
+  const handleVerEntregas = () => {
     close();
     navigateToMinhasEntregasHoje(rootNav);
   };
@@ -131,9 +124,12 @@ export default function DiaRotaConcluidaModal() {
 
   if (!stats) return null;
 
-  const headline = stats.motoboyNome
-    ? `Missão cumprida, ${stats.motoboyNome}!`
-    : "Missão cumprida!";
+  const isRoute = stats.variant === "route";
+  const title = isRoute ? "🎉 Rota concluída!" : "🎉 Dia concluído!";
+  const subtitle = isRoute
+    ? "Todos os pedidos desta rota foram finalizados."
+    : "Todos os pedidos pendentes de hoje foram finalizados.";
+  const resumoTitle = isRoute ? "Resumo da rota" : "Resumo do dia";
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
@@ -147,42 +143,66 @@ export default function DiaRotaConcluidaModal() {
           <View style={styles.card}>
             <View style={styles.topBlock}>
               <Text style={styles.emoji}>🎉</Text>
-              <Text style={styles.headline}>{headline}</Text>
-              <Text style={styles.title}>Rota do dia concluída!</Text>
-              <Text style={styles.subtitle}>
-                Todos os pedidos pendentes foram finalizados.
-              </Text>
+              <Text style={styles.title}>{title}</Text>
+              <Text style={styles.subtitle}>{subtitle}</Text>
             </View>
 
             <View style={styles.resumoBox}>
-              <Text style={styles.resumoTitle}>Resumo de hoje</Text>
-              <View style={styles.resumoRow}>
-                <Text style={styles.resumoLabel}>{stats.valorLabel}</Text>
-                <Text style={styles.resumoValue}>{formatCurrencyBRL(stats.valorDia)}</Text>
-              </View>
-              <View style={styles.resumoRow}>
-                <Text style={styles.resumoLabel}>Entregues</Text>
-                <Text style={styles.resumoValue}>{stats.entregues}</Text>
-              </View>
-              <View style={styles.resumoRow}>
-                <Text style={styles.resumoLabel}>Ausentes</Text>
-                <Text style={styles.resumoValue}>{stats.ausentes}</Text>
-              </View>
-              <View style={styles.resumoRow}>
-                <Text style={styles.resumoLabel}>Total finalizado</Text>
-                <Text style={styles.resumoValue}>{stats.total}</Text>
-              </View>
-              <View style={styles.resumoRow}>
-                <Text style={styles.resumoLabel}>Pendentes</Text>
-                <Text style={styles.resumoValue}>{stats.pendentes}</Text>
-              </View>
+              <Text style={styles.resumoTitle}>{resumoTitle}</Text>
+              {isRoute ? (
+                <>
+                  <View style={styles.resumoRow}>
+                    <Text style={styles.resumoLabel}>Paradas</Text>
+                    <Text style={styles.resumoValue}>{stats.paradas}</Text>
+                  </View>
+                  <View style={styles.resumoRow}>
+                    <Text style={styles.resumoLabel}>Pedidos</Text>
+                    <Text style={styles.resumoValue}>{stats.pedidos}</Text>
+                  </View>
+                  <View style={styles.resumoRow}>
+                    <Text style={styles.resumoLabel}>Entregues</Text>
+                    <Text style={styles.resumoValue}>{stats.entregues}</Text>
+                  </View>
+                  <View style={styles.resumoRow}>
+                    <Text style={styles.resumoLabel}>Ausentes</Text>
+                    <Text style={styles.resumoValue}>{stats.ausentes}</Text>
+                  </View>
+                  <View style={styles.resumoRow}>
+                    <Text style={styles.resumoLabel}>{stats.valorLabel}</Text>
+                    <Text style={styles.resumoValue}>
+                      {formatCurrencyBRL(stats.valorRota)}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.resumoRow}>
+                    <Text style={styles.resumoLabel}>Entregues</Text>
+                    <Text style={styles.resumoValue}>{stats.entregues}</Text>
+                  </View>
+                  <View style={styles.resumoRow}>
+                    <Text style={styles.resumoLabel}>Ausentes</Text>
+                    <Text style={styles.resumoValue}>{stats.ausentes}</Text>
+                  </View>
+                  <View style={styles.resumoRow}>
+                    <Text style={styles.resumoLabel}>Total finalizado</Text>
+                    <Text style={styles.resumoValue}>{stats.total}</Text>
+                  </View>
+                  <View style={styles.resumoRow}>
+                    <Text style={styles.resumoLabel}>{stats.valorLabel}</Text>
+                    <Text style={styles.resumoValue}>
+                      {formatCurrencyBRL(stats.valorDia)}
+                    </Text>
+                  </View>
+                </>
+              )}
             </View>
 
-            <TouchableOpacity style={styles.btnPrimary} onPress={handleMinhasEntregasHoje}>
-              <Text style={styles.btnPrimaryText}>Minhas entregas hoje</Text>
+            <TouchableOpacity style={styles.btnPrimary} onPress={handleVerEntregas}>
+              <Text style={styles.btnPrimaryText}>Ver entregas</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.btnSecondary} onPress={handleVoltarInicio}>
-              <Text style={styles.btnSecondaryText}>Voltar para início</Text>
+              <Text style={styles.btnSecondaryText}>Voltar ao início</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

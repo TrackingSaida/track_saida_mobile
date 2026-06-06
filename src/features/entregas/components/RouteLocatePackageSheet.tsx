@@ -8,14 +8,23 @@ import {
   Alert,
   Dimensions,
   ScrollView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
-import { getStopAddressLine, servicoTipo } from "../utils/routeUtils";
+import { getStopAddressLine } from "../utils/routeUtils";
 import type { EntregaListItem } from "../types";
+import {
+  getDestinationLabel,
+  getNavigationOptions,
+  openNavigationToStop,
+  resolveNavigationTarget,
+  type GeocodedCoordsMap,
+  type NavigationApp,
+} from "../utils/externalNavigation";
 
 const SCAN_DEBOUNCE_MS = 1500;
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -23,12 +32,14 @@ const BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
 interface LocateResult {
   stopIndex: number;
   delivery: EntregaListItem;
+  sameStopDeliveries: EntregaListItem[];
   totalStops: number;
 }
 
 interface RouteLocatePackageSheetProps {
   visible: boolean;
   totalStops: number;
+  geocodedCoords?: GeocodedCoordsMap;
   onFindByCodigo: (codigo: string) => LocateResult | null;
   onGoToStop: (idSaida: number) => void;
   onClose: () => void;
@@ -37,6 +48,7 @@ interface RouteLocatePackageSheetProps {
 export default function RouteLocatePackageSheet({
   visible,
   totalStops,
+  geocodedCoords = {},
   onFindByCodigo,
   onGoToStop,
   onClose,
@@ -44,7 +56,16 @@ export default function RouteLocatePackageSheet({
   const colors = useThemeColors();
   const [permission, requestPermission] = useCameraPermissions();
   const [result, setResult] = useState<LocateResult | null>(null);
+  const [showNavOptions, setShowNavOptions] = useState(false);
   const lastScanRef = useRef(0);
+  const navOptions = useMemo(() => getNavigationOptions(), []);
+  const navTarget = result
+    ? resolveNavigationTarget(result.delivery, geocodedCoords)
+    : null;
+  const destinationLabel = navTarget ? getDestinationLabel(navTarget) : null;
+  const canNavigate =
+    navTarget &&
+    (navTarget.mode === "coords" || (navTarget.mode === "address" && navTarget.address));
 
   const styles = useMemo(
     () =>
@@ -71,39 +92,63 @@ export default function RouteLocatePackageSheet({
           marginBottom: 16,
         },
         resultBox: {
-          padding: 16,
-          borderRadius: 10,
-          backgroundColor: colors.success + "20",
+          padding: 20,
+          borderRadius: 12,
+          backgroundColor: colors.success + "18",
           marginBottom: 12,
+          borderWidth: 1,
+          borderColor: colors.success + "40",
         },
-        heroLabel: {
+        divider: {
           fontSize: 14,
-          fontWeight: "700",
           color: colors.textSecondary,
           textAlign: "center",
-          letterSpacing: 2,
-          marginBottom: 4,
+          letterSpacing: 3,
+          marginVertical: 6,
+        },
+        heroLabel: {
+          fontSize: 16,
+          fontWeight: "800",
+          color: colors.textSecondary,
+          textAlign: "center",
+          letterSpacing: 4,
         },
         heroNumber: {
-          fontSize: 64,
+          fontSize: 72,
           fontWeight: "900",
           color: colors.primary,
           textAlign: "center",
-          lineHeight: 72,
+          lineHeight: 80,
         },
-        heroCodigo: {
-          fontSize: 18,
-          fontWeight: "800",
+        pedidosMeta: {
+          fontSize: 16,
+          fontWeight: "600",
           color: colors.text,
           textAlign: "center",
           marginTop: 8,
+          marginBottom: 12,
         },
-        heroMeta: {
-          fontSize: 14,
-          color: colors.textSecondary,
+        codigoItem: {
+          fontSize: 17,
+          fontWeight: "800",
+          color: colors.primary,
           textAlign: "center",
-          marginTop: 4,
-          lineHeight: 20,
+          marginBottom: 8,
+          fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+        },
+        codigoItemHighlight: {
+          backgroundColor: colors.primary + "15",
+          paddingVertical: 6,
+          paddingHorizontal: 10,
+          borderRadius: 8,
+          overflow: "hidden",
+        },
+        addressLine: {
+          fontSize: 15,
+          color: colors.text,
+          textAlign: "center",
+          marginTop: 12,
+          lineHeight: 22,
         },
         btn: {
           paddingVertical: 14,
@@ -113,6 +158,23 @@ export default function RouteLocatePackageSheet({
           marginTop: 16,
         },
         btnText: { fontSize: 15, fontWeight: "600", color: colors.primaryContrast },
+        btnSecondary: {
+          paddingVertical: 12,
+          borderRadius: 8,
+          alignItems: "center",
+          backgroundColor: colors.inputBackground,
+          marginTop: 8,
+          borderWidth: 1,
+          borderColor: colors.separator,
+        },
+        btnSecondaryText: { fontSize: 14, fontWeight: "600", color: colors.text },
+        destLabel: {
+          fontSize: 13,
+          fontWeight: "600",
+          color: colors.primary,
+          textAlign: "center",
+          marginTop: 8,
+        },
         permText: { fontSize: 14, color: colors.textSecondary, marginBottom: 12 },
       }),
     [colors]
@@ -138,8 +200,24 @@ export default function RouteLocatePackageSheet({
 
   const handleClose = () => {
     setResult(null);
+    setShowNavOptions(false);
     onClose();
   };
+
+  const handleNav = useCallback(
+    async (app: NavigationApp) => {
+      if (!result) return;
+      const needsConfirm =
+        navTarget?.mode === "address" ||
+        (navTarget?.mode === "coords" && navTarget.precision === "geocoded");
+      await openNavigationToStop(result.delivery, app, {
+        geocodedCoords,
+        skipApproximateConfirm: !needsConfirm,
+      });
+      setShowNavOptions(false);
+    },
+    [result, navTarget, geocodedCoords]
+  );
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
@@ -174,16 +252,31 @@ export default function RouteLocatePackageSheet({
 
           {result && (
             <View style={styles.resultBox}>
+              <Text style={styles.divider}>━━━━━━━━━━</Text>
               <Text style={styles.heroLabel}>PARADA</Text>
               <Text style={styles.heroNumber}>{result.stopIndex + 1}</Text>
-              <Text style={styles.heroCodigo}>{result.delivery.codigo || "—"}</Text>
-              <Text style={styles.heroMeta}>
-                {result.delivery.cliente || "—"}
-                {"\n"}
-                {getStopAddressLine(result.delivery)}
-                {"\n"}
-                {servicoTipo(result.delivery.servico)}
+              <Text style={styles.divider}>━━━━━━━━━━</Text>
+              <Text style={styles.pedidosMeta}>
+                📦 {result.sameStopDeliveries.length} pedido
+                {result.sameStopDeliveries.length !== 1 ? "s" : ""}
               </Text>
+              {result.sameStopDeliveries.map((d) => {
+                const isScanned = d.id_saida === result.delivery.id_saida;
+                const codigo = d.codigo?.trim() || "—";
+                return (
+                  <Text
+                    key={d.id_saida}
+                    style={[
+                      styles.codigoItem,
+                      isScanned && styles.codigoItemHighlight,
+                    ]}
+                  >
+                    {codigo}
+                  </Text>
+                );
+              })}
+              <Text style={styles.addressLine}>{getStopAddressLine(result.delivery)}</Text>
+              <Text style={styles.divider}>━━━━━━━━━━</Text>
               <TouchableOpacity
                 style={styles.btn}
                 onPress={() => {
@@ -191,8 +284,34 @@ export default function RouteLocatePackageSheet({
                   handleClose();
                 }}
               >
-                <Text style={styles.btnText}>Ir para parada</Text>
+                <Text style={styles.btnText}>Ir para parada no mapa</Text>
               </TouchableOpacity>
+              {canNavigate && (
+                <>
+                  <TouchableOpacity
+                    style={styles.btnSecondary}
+                    onPress={() => setShowNavOptions((v) => !v)}
+                  >
+                    <Text style={styles.btnSecondaryText}>Navegar</Text>
+                  </TouchableOpacity>
+                  {showNavOptions && (
+                    <>
+                      {destinationLabel && (
+                        <Text style={styles.destLabel}>{destinationLabel}</Text>
+                      )}
+                      {navOptions.map((opt) => (
+                        <TouchableOpacity
+                          key={opt.id}
+                          style={styles.btnSecondary}
+                          onPress={() => void handleNav(opt.id)}
+                        >
+                          <Text style={styles.btnSecondaryText}>{opt.label}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
             </View>
           )}
         </ScrollView>

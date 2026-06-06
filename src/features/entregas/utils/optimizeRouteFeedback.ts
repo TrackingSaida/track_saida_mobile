@@ -6,6 +6,13 @@ type OptimizeFn = (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
 
 function showOptimizeAlert(result: OptimizeRouteResult): void {
   if (!result.ok || result.message === "noop") return;
+  if (result.mode === "priority_soft") {
+    Alert.alert(
+      "Rota otimizada",
+      "Ordem atualizada com prioridade suave por proximidade."
+    );
+    return;
+  }
   if (result.message === "success") {
     Alert.alert("Rota otimizada", "A ordem das paradas foi atualizada com sucesso.");
   } else if (result.message === "partial") {

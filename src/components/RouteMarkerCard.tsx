@@ -1,31 +1,61 @@
 import React, { useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Platform,
+  ScrollView,
+  Dimensions,
+} from "react-native";
+
+const DEFAULT_SCROLL_MAX_HEIGHT = Dimensions.get("window").height * 0.55;
 import { useThemeColors } from "../theme/colors";
 import type { EntregaListItem } from "../features/entregas/types";
-import { getStopPedidoLabel, getStopAddressLine, servicoTipo } from "../features/entregas/utils/routeUtils";
+import {
+  getStopAddressLine,
+  type GroupedStop,
+  type RouteDeliveryStatus,
+} from "../features/entregas/utils/routeUtils";
 
 export interface RouteMarkerCardProps {
   delivery: EntregaListItem;
-  status: "pendente" | "entregue" | "ausente";
-  /** Ordem da parada na rota (1-based). Exibido quando fornecido. */
+  group?: GroupedStop;
+  status: RouteDeliveryStatus;
   orderNumber?: number;
-  /** Se false, oculta ações de marcar entregue/ausente e exibe mensagem para iniciar a rota. Default true. */
+  totalStops?: number;
+  maxScrollHeight?: number;
+  deliveryStatusMap?: Record<number, RouteDeliveryStatus>;
   canMarkDelivery?: boolean;
   onClose: () => void;
   onMarcarEntregue: () => void;
   onMarcarAusente: () => void;
+  onMarcarEntregueFor?: (delivery: EntregaListItem) => void;
+  onMarcarAusenteFor?: (delivery: EntregaListItem) => void;
   onNavegar: () => void;
+  onLocalizarPacote?: () => void;
+  onEditarParada?: () => void;
+  onSelectDelivery?: (delivery: EntregaListItem) => void;
 }
 
 export default function RouteMarkerCard({
   delivery,
+  group,
   status,
   orderNumber,
+  totalStops,
+  maxScrollHeight = DEFAULT_SCROLL_MAX_HEIGHT,
+  deliveryStatusMap = {},
   canMarkDelivery = true,
   onClose,
   onMarcarEntregue,
   onMarcarAusente,
+  onMarcarEntregueFor,
+  onMarcarAusenteFor,
   onNavegar,
+  onLocalizarPacote,
+  onEditarParada,
+  onSelectDelivery,
 }: RouteMarkerCardProps) {
   const colors = useThemeColors();
   const styles = useMemo(
@@ -35,28 +65,88 @@ export default function RouteMarkerCard({
           backgroundColor: colors.backgroundCard,
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
-          padding: 16,
-          paddingBottom: 24,
           borderWidth: 1,
           borderColor: colors.separator,
+          overflow: "hidden",
         },
         header: {
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "flex-start",
-          marginBottom: 12,
+          paddingHorizontal: 16,
+          paddingTop: 16,
+          paddingBottom: 8,
         },
+        scroll: { maxHeight: maxScrollHeight },
+        scrollContent: { paddingHorizontal: 16, paddingBottom: 16 },
         close: { padding: 4 },
         closeText: { fontSize: 18, color: colors.textSecondary, fontWeight: "600" },
-        orderLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 2, textTransform: "uppercase" },
-        codigo: { fontSize: 20, fontWeight: "800", color: colors.primary },
-        pedido: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-        label: { fontSize: 11, color: colors.textSecondary, marginBottom: 2, textTransform: "uppercase" },
-        value: { fontSize: 15, color: colors.text, fontWeight: "500" },
-        valueBlock: { marginBottom: 10 },
-        addressBlock: { marginBottom: 16 },
-        addressValue: { fontSize: 14, color: colors.text },
-        marketplace: { fontSize: 13, color: colors.textSecondary, marginBottom: 10 },
+        title: { fontSize: 20, fontWeight: "800", color: colors.text },
+        pedidosMeta: { fontSize: 14, color: colors.textSecondary, marginBottom: 12 },
+        codigoRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          borderRadius: 8,
+          backgroundColor: colors.inputBackground,
+          marginBottom: 8,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          gap: 8,
+        },
+        codigoRowSelected: {
+          borderColor: colors.primary,
+          borderWidth: 2,
+          backgroundColor: colors.primary + "12",
+        },
+        codigoRowDone: { opacity: 0.55 },
+        codigoText: {
+          fontSize: 14,
+          fontWeight: "700",
+          color: colors.primary,
+          fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+          flex: 1,
+          minWidth: 0,
+        },
+        codigoStatus: {
+          fontSize: 11,
+          fontWeight: "700",
+          color: colors.textSecondary,
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+          borderRadius: 6,
+          backgroundColor: colors.inputBorder,
+        },
+        inlineBtn: {
+          paddingVertical: 8,
+          paddingHorizontal: 10,
+          borderRadius: 6,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        inlineBtnEntregue: { backgroundColor: colors.success },
+        inlineBtnAusente: { backgroundColor: colors.danger },
+        inlineBtnText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+        selectedLabel: {
+          fontSize: 13,
+          fontWeight: "600",
+          color: colors.text,
+          marginBottom: 10,
+          marginTop: 4,
+        },
+        addressValue: { fontSize: 14, color: colors.text, lineHeight: 20, marginBottom: 16 },
+        actionRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+        actionBtn: {
+          flex: 1,
+          paddingVertical: 10,
+          borderRadius: 8,
+          alignItems: "center",
+          backgroundColor: colors.inputBackground,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+        },
+        actionBtnText: { fontSize: 12, fontWeight: "700", color: colors.primary },
         row: { flexDirection: "row", gap: 10, marginTop: 4 },
         btn: {
           flex: 1,
@@ -66,7 +156,6 @@ export default function RouteMarkerCard({
         },
         btnEntregue: { backgroundColor: colors.success },
         btnAusente: { backgroundColor: colors.danger },
-        btnNavegar: { backgroundColor: colors.primary },
         btnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
         statusBadge: {
           paddingHorizontal: 8,
@@ -77,26 +166,103 @@ export default function RouteMarkerCard({
         statusBadgeText: { fontSize: 12, fontWeight: "600", color: "#fff" },
         hintText: { fontSize: 13, color: colors.textSecondary, textAlign: "center", marginTop: 8, marginBottom: 4 },
       }),
-    [colors]
+    [colors, maxScrollHeight]
   );
 
-  const podeAcoes = status === "pendente" && canMarkDelivery;
-  const temCoords = delivery.latitude != null && delivery.longitude != null;
-  const showStartRouteHint = status === "pendente" && !canMarkDelivery;
+  const displayDelivery = group?.representativeDelivery ?? delivery;
+  const packageCount = group?.deliveries.length ?? 1;
+  const multiPackage = packageCount > 1;
+  const podeAcoesRodape =
+    !multiPackage &&
+    (deliveryStatusMap[delivery.id_saida] ?? status) === "pendente" &&
+    canMarkDelivery;
+  const deliveriesList = group?.deliveries ?? [delivery];
+  const navDelivery =
+    group?.deliveries.find((d) => d.latitude != null && d.longitude != null) ?? displayDelivery;
+  const temCoords = navDelivery.latitude != null && navDelivery.longitude != null;
+  const showStartRouteHint =
+    !canMarkDelivery &&
+    deliveriesList.some((d) => (deliveryStatusMap[d.id_saida] ?? "pendente") === "pendente");
+  const selectedCodigo = delivery.codigo?.trim() || "—";
+
+  const renderPackageRow = (d: EntregaListItem) => {
+    const dStatus = deliveryStatusMap[d.id_saida] ?? "pendente";
+    const isSelected = !multiPackage && d.id_saida === delivery.id_saida;
+    const codigo = d.codigo?.trim() || "—";
+    const showInlineActions =
+      multiPackage && canMarkDelivery && dStatus === "pendente";
+
+    const rowContent = (
+      <>
+        <Text style={styles.codigoText} numberOfLines={1} ellipsizeMode="tail">
+          {codigo}
+        </Text>
+        {showInlineActions && (
+          <>
+            <TouchableOpacity
+              style={[styles.inlineBtn, styles.inlineBtnEntregue]}
+              onPress={() => onMarcarEntregueFor?.(d)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.inlineBtnText}>Entregue</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.inlineBtn, styles.inlineBtnAusente]}
+              onPress={() => onMarcarAusenteFor?.(d)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.inlineBtnText}>Ausente</Text>
+            </TouchableOpacity>
+          </>
+        )}
+        {dStatus !== "pendente" && (
+          <Text style={styles.codigoStatus}>{dStatus === "entregue" ? "Entregue" : "Ausente"}</Text>
+        )}
+      </>
+    );
+
+    if (!multiPackage && onSelectDelivery) {
+      return (
+        <TouchableOpacity
+          key={d.id_saida}
+          style={[
+            styles.codigoRow,
+            isSelected && styles.codigoRowSelected,
+            dStatus !== "pendente" && styles.codigoRowDone,
+          ]}
+          onPress={() => onSelectDelivery(d)}
+          activeOpacity={0.7}
+        >
+          {rowContent}
+        </TouchableOpacity>
+      );
+    }
+
+    return (
+      <View
+        key={d.id_saida}
+        style={[styles.codigoRow, dStatus !== "pendente" && styles.codigoRowDone]}
+      >
+        {rowContent}
+      </View>
+    );
+  };
 
   return (
     <View style={styles.card}>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           {orderNumber != null && (
-            <Text style={styles.orderLabel}>Parada {orderNumber}</Text>
+            <Text style={styles.title}>
+              Parada {orderNumber}
+              {totalStops != null ? ` de ${totalStops}` : ""}
+            </Text>
           )}
-          <Text style={styles.codigo} numberOfLines={1}>
-            {delivery.codigo || "—"}
+          <Text style={styles.pedidosMeta}>
+            📦 {packageCount} pedido{packageCount !== 1 ? "s" : ""}
           </Text>
-          <Text style={styles.pedido}>{getStopPedidoLabel(delivery)}</Text>
         </View>
-        {status !== "pendente" && (
+        {!multiPackage && status !== "pendente" && (
           <View
             style={[
               styles.statusBadge,
@@ -111,41 +277,56 @@ export default function RouteMarkerCard({
         </TouchableOpacity>
       </View>
 
-      <View style={styles.valueBlock}>
-        <Text style={styles.label}>Destinatário</Text>
-        <Text style={styles.value}>{delivery.cliente || delivery.exibicao || "—"}</Text>
-      </View>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+      >
+        {deliveriesList.map(renderPackageRow)}
 
-      <Text style={styles.marketplace}>{servicoTipo(delivery.servico)}</Text>
+        {!multiPackage && (
+          <Text style={styles.selectedLabel}>
+            Pacote selecionado:{" "}
+            <Text style={{ color: colors.primary, fontWeight: "800" }}>{selectedCodigo}</Text>
+          </Text>
+        )}
 
-      <View style={styles.addressBlock}>
-        <Text style={styles.label}>Endereço</Text>
-        <Text style={styles.addressValue}>{getStopAddressLine(delivery)}</Text>
-      </View>
+        <Text style={styles.addressValue}>{getStopAddressLine(displayDelivery)}</Text>
 
-      {podeAcoes && (
-        <View style={styles.row}>
-          <TouchableOpacity style={[styles.btn, styles.btnEntregue]} onPress={onMarcarEntregue}>
-            <Text style={styles.btnText}>Marcar como Entregue</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.btn, styles.btnAusente]} onPress={onMarcarAusente}>
-            <Text style={styles.btnText}>Marcar como Ausente</Text>
-          </TouchableOpacity>
+        <View style={styles.actionRow}>
+          {temCoords && (
+            <TouchableOpacity style={styles.actionBtn} onPress={onNavegar}>
+              <Text style={styles.actionBtnText}>Navegar</Text>
+            </TouchableOpacity>
+          )}
+          {onLocalizarPacote && (
+            <TouchableOpacity style={styles.actionBtn} onPress={onLocalizarPacote}>
+              <Text style={styles.actionBtnText}>Localizar pacote</Text>
+            </TouchableOpacity>
+          )}
+          {onEditarParada && (
+            <TouchableOpacity style={styles.actionBtn} onPress={onEditarParada}>
+              <Text style={styles.actionBtnText}>Editar parada</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      )}
 
-      {showStartRouteHint && (
-        <Text style={styles.hintText}>Inicie a rota para marcar entregas.</Text>
-      )}
+        {podeAcoesRodape && (
+          <View style={styles.row}>
+            <TouchableOpacity style={[styles.btn, styles.btnEntregue]} onPress={onMarcarEntregue}>
+              <Text style={styles.btnText}>Marcar Entregue</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, styles.btnAusente]} onPress={onMarcarAusente}>
+              <Text style={styles.btnText}>Marcar Ausente</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-      {temCoords && (
-        <TouchableOpacity
-          style={[styles.btn, styles.btnNavegar, { marginTop: podeAcoes || showStartRouteHint ? 10 : 0 }]}
-          onPress={onNavegar}
-        >
-          <Text style={styles.btnText}>Navegar</Text>
-        </TouchableOpacity>
-      )}
+        {showStartRouteHint && (
+          <Text style={styles.hintText}>Inicie a rota para marcar entregas.</Text>
+        )}
+      </ScrollView>
     </View>
   );
 }

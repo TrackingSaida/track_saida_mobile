@@ -96,11 +96,24 @@ function parseSpokenChunk(tokens: string[]): number {
 const SPOKEN_NUMBER_PATTERN =
   /\b((?:(?:zero|um|uma|dois|duas|tres|três|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|quatorze|catorze|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta|quarenta|cinquenta|sessenta|setenta|oitenta|noventa|cem|cento|duzentos|duzentas|trezentos|trezentas|quatrocentos|quinhentos|seiscentos|setecentos|oitocentos|novecentos|mil)(?:\s+e\s+(?:zero|um|uma|dois|duas|tres|três|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|quatorze|catorze|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta|quarenta|cinquenta|sessenta|setenta|oitenta|noventa|cem|cento|duzentos|duzentas|trezentos|trezentas|quatrocentos|quinhentos|seiscentos|setecentos|oitocentos|novecentos))?)+)\b/gi;
 
+/** Dezenas + unidade: "quarenta e três" → 43, "vinte e um" → 21. */
+const TENS_AND_UNITS_PATTERN =
+  /\b(vinte|trinta|quarenta|cinquenta|sessenta|setenta|oitenta|noventa)\s+e\s+(um|uma|dois|duas|tres|três|quatro|cinco|seis|sete|oito|nove)\b/gi;
+
+function tensAndUnitsValue(match: string): string {
+  const parts = match.toLowerCase().split(/\s+e\s+/);
+  const tens = TENS[normalizeToken(parts[0] ?? "")];
+  const units = UNITS[normalizeToken(parts[1] ?? "")];
+  if (tens == null || units == null) return match;
+  return String(tens + units);
+}
+
 /**
  * Substitui trechos numéricos por extenso no texto por algarismos.
  */
 export function replaceSpokenNumbers(text: string): string {
-  return text.replace(SPOKEN_NUMBER_PATTERN, (match) => {
+  let out = text.replace(TENS_AND_UNITS_PATTERN, (m) => tensAndUnitsValue(m));
+  return out.replace(SPOKEN_NUMBER_PATTERN, (match) => {
     const tokens = match.split(/\s+e\s+|\s+/).filter(Boolean);
     const value = parseSpokenChunk(tokens);
     return value > 0 ? String(value) : match;

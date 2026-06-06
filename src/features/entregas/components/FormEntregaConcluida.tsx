@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
 import type { EntregueBody } from "../api";
+import type { MarcacaoEntregaResponse } from "../types";
 import { formatCPF, formatRG, unmaskCPF, unmaskRG } from "../utils/formatDocument";
 import {
   selectOrTakePhoto,
@@ -55,9 +56,15 @@ export interface FormEntregaConcluidaProps {
   idSaida: number;
   destinatarioPreenchido?: string;
   requiredFields?: string[];
-  onConfirm: (body: EntregueBody) => Promise<void>;
+  /** Código do pacote sendo finalizado (ex.: BR257683187244F). */
+  codigo?: string;
+  /** Quando > 1, exibe banner de lote na mesma parada. */
+  batchCount?: number;
+  /** Ex.: "Parada 7 de 19". */
+  stopLabel?: string;
+  onConfirm: (body: EntregueBody) => Promise<MarcacaoEntregaResponse | void>;
   onClose: () => void;
-  onSuccess: () => void | Promise<void>;
+  onSuccess: (marcacao?: MarcacaoEntregaResponse) => void | Promise<void>;
 }
 
 export default function FormEntregaConcluida({
@@ -65,6 +72,9 @@ export default function FormEntregaConcluida({
   idSaida,
   destinatarioPreenchido,
   requiredFields = [],
+  codigo,
+  batchCount = 1,
+  stopLabel,
   onConfirm,
   onClose,
   onSuccess,
@@ -84,6 +94,16 @@ export default function FormEntregaConcluida({
           maxHeight: "85%",
         },
         title: { fontSize: 18, fontWeight: "600", marginBottom: 8, color: colors.text },
+        packageBanner: {
+          backgroundColor: hexToRgba(colors.primary, 0.08),
+          borderWidth: 1,
+          borderColor: hexToRgba(colors.primary, 0.2),
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 12,
+        },
+        packageCodigo: { fontSize: 16, fontWeight: "800", color: colors.primary, marginBottom: 4 },
+        packageMeta: { fontSize: 13, color: colors.textSecondary },
         requiredBanner: {
           backgroundColor: hexToRgba(colors.primary, 0.08),
           borderWidth: 1,
@@ -323,9 +343,9 @@ export default function FormEntregaConcluida({
           numeroDocumento.trim() ? (tipoDocumento === "CPF" ? unmaskCPF(numeroDocumento) : unmaskRG(numeroDocumento)) : undefined,
         observacao_entrega: observacao.trim() || undefined,
       };
-      await onConfirm(body);
+      const marcacao = await onConfirm(body);
       onClose();
-      await onSuccess();
+      await onSuccess(marcacao ?? undefined);
     } catch (e: unknown) {
       const detail =
         e && typeof e === "object" && "response" in e
@@ -376,6 +396,17 @@ export default function FormEntregaConcluida({
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
         <View style={styles.box}>
           <Text style={styles.title}>Dados do recebedor</Text>
+          {codigo ? (
+            <View style={styles.packageBanner}>
+              <Text style={styles.packageCodigo}>Pacote: {codigo}</Text>
+              {stopLabel ? <Text style={styles.packageMeta}>{stopLabel}</Text> : null}
+              {batchCount > 1 ? (
+                <Text style={styles.packageMeta}>
+                  Aplicará a {batchCount} pacotes desta parada
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
           {hasRequiredRules ? (
             <View style={styles.requiredBanner}>
               <Text style={styles.requiredBannerTitle}>Campos obrigatórios neste pedido</Text>

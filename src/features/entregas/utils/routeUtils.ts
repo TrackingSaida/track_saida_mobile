@@ -41,6 +41,7 @@ type AddressKeyParts = {
   endereco?: string | null;
   numero?: string | null;
   cep?: string | null;
+  cidade?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   endereco_formatado?: string | null;
@@ -48,16 +49,24 @@ type AddressKeyParts = {
   id_saida?: number;
 };
 
+function roundCoord5(n: number): number {
+  return Math.round(n * 100000) / 100000;
+}
+
 function buildAddressKey(parts: AddressKeyParts): string {
   const rua = normalizeStreet(parts.endereco ?? "");
   const num = normalizeNumero(parts.numero ?? "", parts.endereco ?? "");
-  if (rua && num) return `loc|${rua}|${num}`;
-
+  const cidade = normalizeStreet(parts.cidade ?? "");
   const cep = (parts.cep ?? "").toString().replace(/\D/g, "").slice(0, 8);
+
   if (cep && num) return `cep|${cep}|${num}`;
+  if (rua && num && cidade) return `loc|${rua}|${num}|${cidade}`;
+  if (rua && num) return `loc|${rua}|${num}|`;
 
   if (parts.latitude != null && parts.longitude != null) {
-    return `coord|${Math.round(parts.latitude * 10000)}|${Math.round(parts.longitude * 10000)}`;
+    const lat = roundCoord5(parts.latitude);
+    const lon = roundCoord5(parts.longitude);
+    if (lat !== 0 || lon !== 0) return `coord|${lat}|${lon}`;
   }
 
   const addr = (
@@ -68,8 +77,20 @@ function buildAddressKey(parts: AddressKeyParts): string {
   return addr ? `addr|${normalizeStreet(addr)}` : `id|${parts.id_saida ?? 0}`;
 }
 
-/** Retorna chave de endereço para agrupamento: rua + número normalizados; fallbacks CEP/coords/endereço. */
-export function addressKey(d: EntregaListItem): string {
+function toGroupedStop(stopKey: string, deliveries: EntregaListItem[]): GroupedStop {
+  const withCoords = deliveries.find((d) => d.latitude != null && d.longitude != null);
+  const representativeDelivery = withCoords ?? deliveries[0];
+  return {
+    key: stopKey,
+    stopKey,
+    deliveries,
+    deliveryIds: deliveries.map((d) => d.id_saida),
+    representativeDelivery,
+  };
+}
+
+/** Chave de parada alinhada ao backend: CEP+número → rua+número+cidade → coord → id. */
+export function getDeliveryStopKey(d: EntregaListItem): string {
   return buildAddressKey({
     endereco: d.endereco,
     numero: d.numero,
@@ -80,6 +101,11 @@ export function addressKey(d: EntregaListItem): string {
     bairro: d.bairro,
     id_saida: d.id_saida,
   });
+}
+
+/** @deprecated use getDeliveryStopKey */
+export function addressKey(d: EntregaListItem): string {
+  return getDeliveryStopKey(d);
 }
 
 export function addressKeyFromValues(vals: {
@@ -130,27 +156,116 @@ export function addressAndRecipientKey(d: EntregaListItem): string {
   return `${base}|${cliente}`;
 }
 
-/** Agrupa entregas na ordem da rota por mesmo endereço (CEP+número ou fallback). Preserva ordem. */
-export function groupOrderedByAddress(
-  ordered: EntregaListItem[]
-): Array<{ key: string; deliveries: EntregaListItem[] }> {
+/** Agrupa entregas consecutivas na ordem da rota com mesma chave de parada. */
+export function groupDeliveriesIntoStops(
+  deliveries: EntregaListItem[],
+  routeOrder: number[]
+): GroupedStop[] {
+  const ordered = getOrderedRouteDeliveries(deliveries, routeOrder);
+  return groupOrderedByAddress(ordered);
+}
+
+/** Agrupa entregas na ordem por mesmo endereço (CEP+número ou fallback). Preserva ordem. */
+export function groupOrderedByAddress(ordered: EntregaListItem[]): GroupedStop[] {
   if (ordered.length === 0) return [];
-  const groups: Array<{ key: string; deliveries: EntregaListItem[] }> = [];
-  let currentKey = addressKey(ordered[0]);
+  const groups: GroupedStop[] = [];
+  let currentKey = getDeliveryStopKey(ordered[0]);
   let current: EntregaListItem[] = [ordered[0]];
   for (let i = 1; i < ordered.length; i++) {
     const d = ordered[i];
-    const k = addressKey(d);
+    const k = getDeliveryStopKey(d);
     if (k === currentKey) {
       current.push(d);
     } else {
-      groups.push({ key: currentKey, deliveries: current });
+      groups.push(toGroupedStop(currentKey, current));
       currentKey = k;
       current = [d];
     }
   }
-  groups.push({ key: currentKey, deliveries: current });
+  groups.push(toGroupedStop(currentKey, current));
   return groups;
+}
+
+/** Agrupa entregas pelo mesmo stop_key, independente da ordem de rota. */
+export function groupDeliveriesByStopKey(deliveries: EntregaListItem[]): GroupedStop[] {
+  const map = new Map<string, EntregaListItem[]>();
+  for (const d of deliveries) {
+    const k = getDeliveryStopKey(d);
+    const list = map.get(k) ?? [];
+    list.push(d);
+    map.set(k, list);
+  }
+  return Array.from(map.entries()).map(([stopKey, dels]) => toGroupedStop(stopKey, dels));
+}
+
+export function resolveDeliveryCoords(
+  d: EntregaListItem,
+  geocodedCoords: Record<number, { latitude: number; longitude: number }> = {}
+): { latitude: number; longitude: number } | null {
+  const lat = d.latitude ?? geocodedCoords[d.id_saida]?.latitude;
+  const lon = d.longitude ?? geocodedCoords[d.id_saida]?.longitude;
+  if (lat == null || lon == null) return null;
+  return { latitude: lat, longitude: lon };
+}
+
+/** Proxy de atraso: data operacional (campo data) anterior ao dia de referência. */
+export function isDeliveryLate(d: EntregaListItem, todayIso: string): boolean {
+  const data = (d.data ?? "").trim().slice(0, 10);
+  if (!data || data.length < 10) return false;
+  return data < todayIso;
+}
+
+export function hasPersistedDeliveryCoords(d: EntregaListItem): boolean {
+  return d.latitude != null && d.longitude != null;
+}
+
+/** KPIs estáveis: conta somente coordenadas persistidas no pedido (não geocode em andamento). */
+export function countPendingMapStats(pending: EntregaListItem[]): {
+  total: number;
+  noMapa: number;
+  semLocalizacao: number;
+} {
+  const total = pending.length;
+  let noMapa = 0;
+  for (const d of pending) {
+    if (hasPersistedDeliveryCoords(d)) noMapa++;
+  }
+  return { total, noMapa, semLocalizacao: total - noMapa };
+}
+
+export type PendingMapGroupPoint = {
+  group: GroupedStop;
+  latitude: number;
+  longitude: number;
+  packageCount: number;
+  hasLate: boolean;
+  mapIndex: number;
+};
+
+/** Grupos de endereço com coordenadas para o mapa de pendentes. */
+export function buildPendingMapGroups(
+  pending: EntregaListItem[],
+  geocodedCoords: Record<number, { latitude: number; longitude: number }>,
+  todayIso: string
+): PendingMapGroupPoint[] {
+  const grouped = groupDeliveriesByStopKey(pending);
+  const result: PendingMapGroupPoint[] = [];
+  let mapIndex = 0;
+  for (const group of grouped) {
+    const withCoords = group.deliveries.find((d) => resolveDeliveryCoords(d, geocodedCoords));
+    if (!withCoords) continue;
+    const coords = resolveDeliveryCoords(withCoords, geocodedCoords)!;
+    mapIndex++;
+    result.push({
+      group,
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      packageCount: group.deliveries.length,
+      hasLate: group.deliveries.some((d) => isDeliveryLate(d, todayIso)),
+      mapIndex,
+    });
+  }
+  return result;
 }
 
 /** Retorna entregas na ordem atual da rota (routeOrder). Suporta mesmo id_saida em várias entregas (usa uma entrega por id na ordem). */
@@ -216,7 +331,13 @@ export function computeRouteStats(
   return { distanceKm: Math.round(distanceKm * 100) / 100, estimatedMinutes };
 }
 
-export type GroupedStop = { key: string; deliveries: EntregaListItem[] };
+export type GroupedStop = {
+  key: string;
+  stopKey: string;
+  deliveries: EntregaListItem[];
+  deliveryIds: number[];
+  representativeDelivery: EntregaListItem;
+};
 
 /** Estatísticas da rota a partir de paradas agrupadas: um ponto por grupo (primeira entrega com coords). */
 export function computeRouteStatsFromGroups(
@@ -264,23 +385,127 @@ export function getAddressReviewIssue(
   return null;
 }
 
+export function getStopCodigosList(group: GroupedStop): string[] {
+  return group.deliveries.map((d) => (d.codigo ?? "").trim()).filter(Boolean);
+}
+
 export function getStopPrimaryCodigo(group: GroupedStop): string {
-  const codes = group.deliveries
-    .map((d) => (d.codigo ?? "").trim())
-    .filter(Boolean);
+  const codes = getStopCodigosList(group);
   if (codes.length === 0) return "—";
   if (codes.length === 1) return codes[0];
-  return `${codes[0]} +${codes.length - 1}`;
+  return codes.join(" · ");
+}
+
+export function getStopPedidosList(group: GroupedStop): string {
+  const ids = group.deliveries.map((d) => d.id_saida);
+  if (ids.length <= 3) return ids.map((id) => `Pedido ${id}`).join(" · ");
+  return `Pedido ${ids[0]} · +${ids.length - 1}`;
 }
 
 export function getStopPedidoLabel(d: EntregaListItem): string {
   return `Pedido ${d.id_saida}`;
 }
 
+function normalizePartForAddressDedup(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function normalizeNumeroForAddressDedup(num: string): string {
+  const digits = num.replace(/\D/g, "");
+  return digits || normalizePartForAddressDedup(num);
+}
+
+function cleanAddressString(s: string): string {
+  return s
+    .replace(/,+\s*/g, ", ")
+    .replace(/\s+/g, " ")
+    .replace(/,\s*,+/g, ", ")
+    .trim()
+    .replace(/,\s*$/g, "");
+}
+
+function hasObviousAddressDuplicates(s: string): boolean {
+  const parts = s.split(",").map((p) => p.trim()).filter(Boolean);
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const key = normalizePartForAddressDedup(p);
+    if (seen.has(key)) return true;
+    seen.add(key);
+  }
+  return false;
+}
+
+function isPartAlreadyInCombined(part: string, combined: string, kind: "text" | "num" | "cep"): boolean {
+  const lower = combined.toLowerCase();
+  if (kind === "num") {
+    const digits = part.replace(/\D/g, "");
+    return Boolean(digits && lower.includes(digits));
+  }
+  if (kind === "cep") {
+    const digits = part.replace(/\D/g, "");
+    return Boolean(digits.length === 8 && lower.includes(digits));
+  }
+  const norm = normalizePartForAddressDedup(part);
+  return Boolean(norm && lower.includes(norm));
+}
+
+/** Endereço limpo para exibição (sem duplicar número, bairro, etc.). */
+export function formatStopAddress(d: EntregaListItem): string {
+  const formatted = cleanAddressString(d.endereco_formatado ?? "");
+  if (formatted && !hasObviousAddressDuplicates(formatted)) {
+    return formatted;
+  }
+
+  const seen = new Set<string>();
+  const parts: string[] = [];
+
+  const add = (raw: string, kind: "text" | "num" | "cep" = "text") => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const key =
+      kind === "num"
+        ? `num:${normalizeNumeroForAddressDedup(trimmed)}`
+        : kind === "cep"
+          ? `cep:${trimmed.replace(/\D/g, "")}`
+          : normalizePartForAddressDedup(trimmed);
+    if (!key || seen.has(key)) return;
+    const combined = parts.join(", ");
+    if (isPartAlreadyInCombined(trimmed, combined, kind)) return;
+    seen.add(key);
+    parts.push(trimmed);
+  };
+
+  const endereco = (d.endereco ?? "").trim();
+  const numero = (d.numero ?? "").trim();
+  const bairro = (d.bairro ?? "").trim();
+  const cepDigits = (d.cep ?? "").replace(/\D/g, "");
+
+  if (endereco) add(endereco);
+  if (numero) add(numero, "num");
+  if (bairro) add(bairro);
+  if (cepDigits.length === 8) add(cepDigits, "cep");
+
+  if (parts.length > 0) return parts.join(", ");
+  return formatted || "—";
+}
+
+export function formatStopAddressLines(d: EntregaListItem): { line1: string; line2?: string } {
+  const full = formatStopAddress(d);
+  if (full === "—") return { line1: "—" };
+  const segments = full.split(",").map((p) => p.trim()).filter(Boolean);
+  if (segments.length <= 2) return { line1: full };
+  const line1 = segments.slice(0, 2).join(", ");
+  const line2 = segments.slice(2).join(", ");
+  return line2 ? { line1, line2 } : { line1 };
+}
+
 export function getStopAddressLine(d: EntregaListItem): string {
-  const parts = [d.endereco, d.numero, d.bairro].filter(Boolean);
-  if (parts.length === 0) return d.endereco_formatado || "—";
-  return parts.join(", ");
+  return formatStopAddress(d);
 }
 
 export function countRoutePedidos(groupedStops: GroupedStop[]): number {
@@ -358,9 +583,260 @@ export function getActiveGroupIndex(groupedStops: GroupedStop[], activeStopIndex
   return Math.max(0, groupedStops.length - 1);
 }
 
+/** Primeiro índice em routeOrder cujo pedido ainda está pendente. */
+export function getFirstPendingRouteIndex(
+  routeOrder: number[],
+  statusMap: Record<number, RouteDeliveryStatus>
+): number {
+  for (let i = 0; i < routeOrder.length; i++) {
+    if ((statusMap[routeOrder[i]] ?? "pendente") === "pendente") return i;
+  }
+  return routeOrder.length;
+}
+
+/** Grupo 0-based da parada operacional atual (primeira parada com pendentes). */
+export function getEffectiveCurrentGroupIndex(
+  groupedStops: GroupedStop[],
+  statusMap: Record<number, RouteDeliveryStatus>,
+  activeGroupIndex: number
+): number {
+  if (groupedStops.length === 0) return -1;
+  if (
+    activeGroupIndex >= 0 &&
+    activeGroupIndex < groupedStops.length &&
+    getGroupStatus(groupedStops[activeGroupIndex].deliveries, statusMap) === "pendente"
+  ) {
+    return activeGroupIndex;
+  }
+  const next = getNextPendingGroupIndex(groupedStops, statusMap, activeGroupIndex);
+  return next >= 0 ? next : Math.max(0, groupedStops.length - 1);
+}
+
+export function getEffectiveCurrentGroupNumber(
+  groupedStops: GroupedStop[],
+  statusMap: Record<number, RouteDeliveryStatus>,
+  activeGroupIndex: number
+): number {
+  const idx = getEffectiveCurrentGroupIndex(groupedStops, statusMap, activeGroupIndex);
+  return idx >= 0 ? idx + 1 : 1;
+}
+
 export function getStopVolumesSummary(group: GroupedStop): string {
   const volumes = countRouteVolumes(group);
   const pedidos = new Set(group.deliveries.map((d) => d.id_saida)).size;
   if (pedidos > 1) return `📦 ${volumes} volume${volumes !== 1 ? "s" : ""} · ${pedidos} pedidos`;
   return `📦 ${volumes} volume${volumes !== 1 ? "s" : ""}`;
+}
+
+export type RouteDeliveryStatus = "pendente" | "entregue" | "ausente";
+
+/** Cores operacionais dos marcadores de parada na rota. */
+export const ROUTE_STOP_MARKER_COLORS = {
+  next: "#1565C0",
+  current: "#198754",
+  completed: "#9CA3AF",
+  pending: "#64B5F6",
+} as const;
+
+export function getGroupStatus(
+  deliveries: EntregaListItem[],
+  statusMap: Record<number, RouteDeliveryStatus>
+): RouteDeliveryStatus {
+  const statuses = deliveries.map((d) => statusMap[d.id_saida] ?? "pendente");
+  if (statuses.every((s) => s === "entregue")) return "entregue";
+  if (statuses.some((s) => s === "ausente")) return "ausente";
+  return "pendente";
+}
+
+export function isGroupCompleted(
+  group: GroupedStop,
+  statusMap: Record<number, RouteDeliveryStatus>
+): boolean {
+  return getGroupStatus(group.deliveries, statusMap) !== "pendente";
+}
+
+export function getPendingDeliveriesInGroup(
+  group: GroupedStop,
+  statusMap: Record<number, RouteDeliveryStatus>
+): EntregaListItem[] {
+  return group.deliveries.filter((d) => (statusMap[d.id_saida] ?? "pendente") === "pendente");
+}
+
+export function getFirstPendingInGroup(
+  group: GroupedStop,
+  statusMap: Record<number, RouteDeliveryStatus>
+): EntregaListItem | undefined {
+  return getPendingDeliveriesInGroup(group, statusMap)[0];
+}
+
+export function getStopAddressLineFromGroup(group: GroupedStop): string {
+  return getStopAddressLine(group.representativeDelivery);
+}
+
+/** Índice 0-based da próxima parada com pedidos pendentes. */
+export function getNextPendingGroupIndex(
+  groupedStops: GroupedStop[],
+  statusMap: Record<number, RouteDeliveryStatus>,
+  activeGroupIndex: number
+): number {
+  if (groupedStops.length === 0) return -1;
+  const start = activeGroupIndex >= 0 ? activeGroupIndex : 0;
+  for (let i = start; i < groupedStops.length; i++) {
+    if (getGroupStatus(groupedStops[i].deliveries, statusMap) === "pendente") return i;
+  }
+  for (let i = 0; i < start; i++) {
+    if (getGroupStatus(groupedStops[i].deliveries, statusMap) === "pendente") return i;
+  }
+  return -1;
+}
+
+export function getStopMarkerOperationalState(
+  groupIndex: number,
+  groupedStops: GroupedStop[],
+  statusMap: Record<number, RouteDeliveryStatus>,
+  activeGroupIndex: number,
+  isRouteActive: boolean
+): { isCurrent: boolean; isNext: boolean; isCompleted: boolean } {
+  const group = groupedStops[groupIndex];
+  const isCompleted = group ? isGroupCompleted(group, statusMap) : false;
+  const isCurrent = isRouteActive && activeGroupIndex >= 0 && groupIndex === activeGroupIndex && !isCompleted;
+  const nextIdx = getNextPendingGroupIndex(groupedStops, statusMap, activeGroupIndex);
+  const isNext = !isCompleted && nextIdx === groupIndex && !isCurrent;
+  return { isCurrent, isNext, isCompleted };
+}
+
+export type StopDisplayCoord = {
+  paradaIndex: number;
+  latitude: number;
+  longitude: number;
+};
+
+function coordDistanceDeg(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number }
+): number {
+  const dlat = Math.abs(a.latitude - b.latitude);
+  const dlon = Math.abs(a.longitude - b.longitude);
+  return Math.max(dlat, dlon);
+}
+
+/**
+ * Desloca levemente marcadores de paradas distintas que compartilham coords ou ficam muito próximas,
+ * evitando sobreposição visual sem alterar a sequência da rota.
+ */
+export function spreadOverlappingStopCoords(
+  points: StopDisplayCoord[],
+  thresholdDeg = 0.00012,
+  offsetDeg = 0.00008
+): StopDisplayCoord[] {
+  if (points.length <= 1) return points;
+
+  const result = points.map((p) => ({ ...p }));
+  const used = new Set<number>();
+
+  for (let i = 0; i < result.length; i++) {
+    if (used.has(i)) continue;
+    const clusterIdx = [i];
+    used.add(i);
+    for (let j = i + 1; j < result.length; j++) {
+      if (used.has(j)) continue;
+      if (coordDistanceDeg(result[i], result[j]) < thresholdDeg) {
+        clusterIdx.push(j);
+        used.add(j);
+      }
+    }
+    if (clusterIdx.length <= 1) continue;
+
+    clusterIdx.sort((a, b) => result[a].paradaIndex - result[b].paradaIndex);
+    const centroidLat =
+      clusterIdx.reduce((s, idx) => s + result[idx].latitude, 0) / clusterIdx.length;
+    const centroidLon =
+      clusterIdx.reduce((s, idx) => s + result[idx].longitude, 0) / clusterIdx.length;
+    const n = clusterIdx.length;
+    const startAngle = -Math.PI / 2;
+
+    clusterIdx.forEach((idx, k) => {
+      const angle = startAngle + (2 * Math.PI * k) / n;
+      result[idx] = {
+        ...result[idx],
+        latitude: centroidLat + Math.sin(angle) * offsetDeg,
+        longitude: centroidLon + Math.cos(angle) * offsetDeg,
+      };
+    });
+  }
+
+  return result;
+}
+
+export type RoutePoint = { latitude: number; longitude: number };
+
+export function buildPendingRoutePoints(params: {
+  groupedStops: GroupedStop[];
+  activeGroupIndex: number;
+  routeDeliveryStatus: Record<number, RouteDeliveryStatus>;
+  geocodedCoords?: Record<number, { latitude: number; longitude: number }>;
+  currentLocation?: { latitude: number; longitude: number } | null;
+}): RoutePoint[] {
+  const {
+    groupedStops,
+    activeGroupIndex,
+    routeDeliveryStatus,
+    geocodedCoords = {},
+    currentLocation,
+  } = params;
+
+  const points: RoutePoint[] = [];
+
+  if (currentLocation) {
+    points.push({
+      latitude: currentLocation.latitude,
+      longitude: currentLocation.longitude,
+    });
+  }
+
+  const startIdx = activeGroupIndex >= 0 ? activeGroupIndex : 0;
+
+  for (let i = startIdx; i < groupedStops.length; i++) {
+    const group = groupedStops[i];
+    if (getGroupStatus(group.deliveries, routeDeliveryStatus) !== "pendente") continue;
+
+    const d =
+      group.deliveries.find((del) => del.latitude != null && del.longitude != null) ??
+      group.deliveries[0];
+    if (!d) continue;
+
+    const geo = geocodedCoords[d.id_saida];
+    const lat = d.latitude ?? geo?.latitude;
+    const lon = d.longitude ?? geo?.longitude;
+    if (lat == null || lon == null) continue;
+
+    points.push({ latitude: lat, longitude: lon });
+  }
+
+  return points;
+}
+
+/** Pontos da rota completa no planejamento (uma coordenada por parada agrupada). */
+export function buildPlanningRoutePoints(params: {
+  groupedStops: GroupedStop[];
+  geocodedCoords?: Record<number, { latitude: number; longitude: number }>;
+}): RoutePoint[] {
+  const { groupedStops, geocodedCoords = {} } = params;
+  const points: RoutePoint[] = [];
+
+  for (const group of groupedStops) {
+    const d =
+      group.deliveries.find((del) => del.latitude != null && del.longitude != null) ??
+      group.deliveries[0];
+    if (!d) continue;
+
+    const geo = geocodedCoords[d.id_saida];
+    const lat = d.latitude ?? geo?.latitude;
+    const lon = d.longitude ?? geo?.longitude;
+    if (lat == null || lon == null) continue;
+
+    points.push({ latitude: lat, longitude: lon });
+  }
+
+  return points;
 }

@@ -1,63 +1,139 @@
-import { getExtratoFinanceiro, getResumoEntregas, getTodayISO } from "../api";
-import { alertAusenciaRegistrada, alertEntregaFinalizada } from "./deliveryAlerts";
-import { useAuthStore } from "../../../store/authStore";
+import { getResumoEntregas, getRotaResumo } from "../api";
+import {
+  alertAusenciaRegistrada,
+  alertEntregaAtrasadaConcluida,
+  alertEntregaFinalizada,
+} from "./deliveryAlerts";
+import {
+  determineSyncCompletionContext,
+  resolveCompletionContextAfterFinalize,
+  type CompletionContext,
+} from "./determineCompletionContext";
 import {
   useDiaRotaConcluidaStore,
-  VALOR_DIA_LABEL_PREVISTO,
+  VALOR_DIA_LABEL,
+  VALOR_ROTA_LABEL,
 } from "../../../store/diaRotaConcluidaStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 
 export interface PostFinalizeFeedbackOptions {
   tipo: "entregue" | "ausente";
   codigo?: string | null;
+  entregaAtrasada?: boolean;
+  routeJustCompleted?: boolean;
+  rotaIdForResumo?: string | number | null;
+  isRouteFlow?: boolean;
   onAfterIndividualAlert?: () => void;
 }
 
-async function checkAndOpenDiaConcluido(): Promise<boolean> {
+async function openDayCompletedModal(): Promise<boolean> {
   await useDeliveryStore.getState().loadDeliveries({ onlyToday: true });
-  const hoje = getTodayISO();
-  const [resumo, extrato] = await Promise.all([
-    getResumoEntregas(),
-    getExtratoFinanceiro({
-      data_inicio: hoje,
-      data_fim: hoje,
-      status_filtro: "grupo_entregue",
-    }),
-  ]);
-  if (resumo.pendentes > 0) return false;
-
+  const resumo = await getResumoEntregas();
   const entregues = resumo.finalizadas_hoje ?? 0;
   const ausentes = resumo.ausentes_hoje ?? resumo.ausentes ?? 0;
   const total = resumo.total_finalizado_hoje ?? entregues + ausentes;
-  const nome = useAuthStore.getState().currentUser?.username?.trim();
+  const valorRaw = resumo.valor_finalizado_hoje;
+  const valorDia =
+    valorRaw != null && String(valorRaw).trim() !== ""
+      ? String(valorRaw)
+      : "0";
 
   useDiaRotaConcluidaStore.getState().open({
+    variant: "day",
     entregues,
     ausentes,
     total,
     pendentes: 0,
-    valorDia: extrato.valor_a_receber ?? "0",
-    valorLabel: VALOR_DIA_LABEL_PREVISTO,
-    motoboyNome: nome || undefined,
+    valorDia,
+    valorLabel: VALOR_DIA_LABEL,
   });
   return true;
 }
 
+async function openRouteCompletedModal(rotaId: string | number): Promise<boolean> {
+  const resumo = await getRotaResumo(rotaId);
+  useDiaRotaConcluidaStore.getState().open({
+    variant: "route",
+    paradas: resumo.paradas,
+    pedidos: resumo.pedidos,
+    entregues: resumo.entregues,
+    ausentes: resumo.ausentes,
+    pendentes: resumo.pendentes,
+    valorRota: String(resumo.valor_total ?? "0"),
+    valorLabel: VALOR_ROTA_LABEL,
+  });
+  return true;
+}
+
+function showIndividualAlert(
+  tipo: "entregue" | "ausente",
+  codigo: string | null | undefined,
+  context: CompletionContext,
+  onOk: () => void
+): void {
+  if (context === "LATE_DELIVERY") {
+    alertEntregaAtrasadaConcluida(codigo, tipo, onOk);
+    return;
+  }
+  if (tipo === "entregue") {
+    alertEntregaFinalizada(codigo, onOk);
+  } else {
+    alertAusenciaRegistrada(codigo, onOk);
+  }
+}
+
 export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void {
-  const { tipo, codigo, onAfterIndividualAlert } = opts;
+  const {
+    tipo,
+    codigo,
+    entregaAtrasada = false,
+    routeJustCompleted = false,
+    rotaIdForResumo = null,
+    isRouteFlow = false,
+    onAfterIndividualAlert,
+  } = opts;
+
+  const activeRouteId = useDeliveryStore.getState().activeRouteId;
 
   const afterAlert = async () => {
     try {
-      const opened = await checkAndOpenDiaConcluido();
-      if (!opened) onAfterIndividualAlert?.();
+      if (routeJustCompleted && rotaIdForResumo != null) {
+        await openRouteCompletedModal(rotaIdForResumo);
+        return;
+      }
+
+      const context = await resolveCompletionContextAfterFinalize(
+        {
+          activeRouteId,
+          routeJustCompleted,
+          entregaAtrasada,
+          isRouteFlow,
+        },
+        getResumoEntregas
+      );
+
+      if (context === "DAY_COMPLETED") {
+        await openDayCompletedModal();
+        return;
+      }
+
+      onAfterIndividualAlert?.();
     } catch {
       onAfterIndividualAlert?.();
     }
   };
 
-  if (tipo === "entregue") {
-    alertEntregaFinalizada(codigo, () => void afterAlert());
-  } else {
-    alertAusenciaRegistrada(codigo, () => void afterAlert());
+  const syncContext = determineSyncCompletionContext({
+    activeRouteId,
+    routeJustCompleted,
+    entregaAtrasada,
+    isRouteFlow,
+  });
+
+  if (syncContext === "ROUTE_COMPLETED") {
+    void afterAlert();
+    return;
   }
+
+  showIndividualAlert(tipo, codigo, syncContext, () => void afterAlert());
 }

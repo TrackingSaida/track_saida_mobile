@@ -8,6 +8,12 @@ import type {
   ScanConflito,
   ExtratoFinanceiro,
   ExtratoStatusFiltro,
+  MarcacaoEntregaResponse,
+  RotasResumo,
+  FinalizarLoteBody,
+  FinalizarLoteResponse,
+  EnderecoSugestoesBody,
+  EnderecoSugestoesResponse,
 } from "./types";
 
 function getAuthHeaders(): Record<string, string> {
@@ -158,12 +164,32 @@ export interface CamposObrigatoriosValidationError {
   message?: string;
 }
 
-export async function marcarEntregue(idSaida: number, body?: EntregueBody): Promise<void> {
-  await client.post(`/mobile/entrega/${idSaida}/entregue`, body ?? {});
+export async function marcarEntregue(
+  idSaida: number,
+  body?: EntregueBody
+): Promise<MarcacaoEntregaResponse> {
+  const { data } = await client.post<MarcacaoEntregaResponse>(
+    `/mobile/entrega/${idSaida}/entregue`,
+    body ?? {}
+  );
+  return data;
 }
 
-export async function marcarAusente(idSaida: number, motivoId: number, observacao?: string): Promise<void> {
-  await client.post(`/mobile/entrega/${idSaida}/ausente`, { motivo_id: motivoId, observacao: observacao || null });
+export async function marcarAusente(
+  idSaida: number,
+  motivoId: number,
+  observacao?: string
+): Promise<MarcacaoEntregaResponse> {
+  const { data } = await client.post<MarcacaoEntregaResponse>(
+    `/mobile/entrega/${idSaida}/ausente`,
+    { motivo_id: motivoId, observacao: observacao || null }
+  );
+  return data;
+}
+
+export async function finalizarLote(body: FinalizarLoteBody): Promise<FinalizarLoteResponse> {
+  const { data } = await client.post<FinalizarLoteResponse>("/mobile/entregas/finalizar-lote", body);
+  return data;
 }
 
 export interface PresignUploadResponse {
@@ -213,11 +239,18 @@ export interface EnderecoBody {
   cep: string;
   latitude?: number | null;
   longitude?: number | null;
-  origem?: "manual" | "ocr" | "voz";
+  origem?: "manual" | "ocr" | "voz" | "suggestion" | "autocomplete" | "mapa";
 }
 
 export async function putEndereco(idSaida: number, body: EnderecoBody): Promise<EntregaListItem> {
   const { data } = await client.put<EntregaListItem>(`/mobile/entrega/${idSaida}/endereco`, body);
+  return data;
+}
+
+export async function postEnderecoSugestoes(
+  body: EnderecoSugestoesBody
+): Promise<EnderecoSugestoesResponse> {
+  const { data } = await client.post<EnderecoSugestoesResponse>("/mobile/enderecos/sugestoes", body);
   return data;
 }
 
@@ -360,7 +393,7 @@ export async function fetchComprovanteImageDataUri(idSaida: number): Promise<str
 
 // --- Otimização e rotas ativas persistidas ---
 
-export type RotasOtimizarModo = "osrm_trip" | "nearest_fallback";
+export type RotasOtimizarModo = "osrm_trip" | "nearest_fallback" | "priority_soft";
 
 export interface RotasOtimizarResponse {
   ordem: number[];
@@ -370,14 +403,24 @@ export interface RotasOtimizarResponse {
   duracao_total_s?: number | null;
 }
 
+export type RotasOtimizarPriority =
+  | { type: "service"; value: string }
+  | { type: "delivery"; id_saida: number };
+
 export async function postRotasOtimizar(
   deliveryIds: number[],
-  start?: { latitude: number; longitude: number }
+  start?: { latitude: number; longitude: number },
+  priority?: RotasOtimizarPriority
 ): Promise<RotasOtimizarResponse> {
-  const body: { delivery_ids: number[]; start?: { latitude: number; longitude: number } } = {
+  const body: {
+    delivery_ids: number[];
+    start?: { latitude: number; longitude: number };
+    priority?: RotasOtimizarPriority;
+  } = {
     delivery_ids: deliveryIds,
   };
   if (start) body.start = start;
+  if (priority) body.priority = priority;
   const { data } = await client.post<RotasOtimizarResponse>("/mobile/rotas/otimizar", body);
   return data;
 }
@@ -408,6 +451,11 @@ export async function postRotasAvancar(rotaId: string): Promise<{ parada_atual: 
 
 export async function postRotasFinalizar(rotaId: string): Promise<void> {
   await client.post(`/mobile/rotas/${rotaId}/finalizar`);
+}
+
+export async function getRotaResumo(rotaId: string | number): Promise<RotasResumo> {
+  const { data } = await client.get<RotasResumo>(`/mobile/rotas/${rotaId}/resumo`);
+  return data;
 }
 
 export interface RotasOrdemResponse {

@@ -34,7 +34,13 @@ const initialEmpty: AddressFormValues = {
   cep: "",
 };
 
-export type AddressOrigem = "manual" | "ocr" | "voz";
+export type AddressOrigem =
+  | "manual"
+  | "ocr"
+  | "voz"
+  | "suggestion"
+  | "autocomplete"
+  | "mapa";
 
 interface ViaCepResponse {
   logradouro?: string;

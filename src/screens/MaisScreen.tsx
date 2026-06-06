@@ -16,7 +16,7 @@ import { isMotoboyRole } from "../utils/role";
 export type MaisStackParamList = {
   MaisInicio: undefined;
   MeusDados: undefined;
-  Preferencia: undefined;
+  Configuracoes: undefined;
   MinhasEntregas: { presetPeriodoHoje?: true } | undefined;
   MinhasEntregasDia: { data: string };
   EntregaDetail: { idSaida: number };
@@ -105,11 +105,11 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
           />
         </MenuSection>
 
-        <MenuSection label="Preferências">
+        <MenuSection label="Aplicativo">
           <PressableMenuRow
-            icon="color-palette-outline"
-            title="Tema (claro ou escuro)"
-            onPress={() => navigation.navigate("Preferencia")}
+            icon="settings-outline"
+            title="Configurações"
+            onPress={() => navigation.navigate("Configuracoes")}
             iconColor={profile.accent}
             iconSoftBg={profile.accentSoft}
             isLast

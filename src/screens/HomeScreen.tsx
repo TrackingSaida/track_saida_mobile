@@ -25,7 +25,10 @@ import type { EntregasListInitialTab } from "../features/entregas/types";
 
 type Props = {
   onLogout: () => void;
-  onNavigateEntregas: (tab?: EntregasListInitialTab) => void;
+  onNavigateEntregas: (
+    tab?: EntregasListInitialTab,
+    opts?: { todosPendentes?: boolean }
+  ) => void;
   onNavigateScan: () => void;
   onNavigateRouteBuilder?: () => void;
 };
@@ -227,6 +230,14 @@ export default function HomeScreen({
             store.clearActiveRouteState();
             return;
           }
+          const sameRoute = store.activeRouteId === rotaAtiva.rota_id;
+          const routeDeliveryIds = new Set(store.routeDeliveries.map((d) => d.id_saida));
+          const hasAllDeliveries =
+            sameRoute && ordem.length > 0 && ordem.every((id) => routeDeliveryIds.has(id));
+          if (hasAllDeliveries) {
+            store.syncActiveStopIndex();
+            return;
+          }
           await store.restoreActiveRoute(rotaAtiva);
         } catch {
           useDeliveryStore.getState().clearActiveRouteState();
@@ -305,10 +316,15 @@ export default function HomeScreen({
                 <Text style={styles.cardSecSmallValue}>{resumo?.ausentes ?? 0}</Text>
                 <Text style={styles.cardSecSmallLink}>Ver todas</Text>
               </TouchableOpacity>
-              <View style={styles.cardSecSmall}>
-                <Text style={styles.cardSecSmallLabel}>Atraso (D+1)</Text>
+              <TouchableOpacity
+                style={styles.cardSecSmall}
+                onPress={() => onNavigateEntregas("pendente", { todosPendentes: true })}
+                activeOpacity={0.92}
+              >
+                <Text style={styles.cardSecSmallLabel}>Sua fila em atraso</Text>
                 <Text style={styles.cardSecSmallValue}>{resumo?.atraso_d1 ?? 0}</Text>
-              </View>
+                <Text style={styles.cardSecSmallLink}>Ver pendentes</Text>
+              </TouchableOpacity>
             </View>
 
             <TouchableOpacity onPress={onNavigateScan} activeOpacity={0.92}>

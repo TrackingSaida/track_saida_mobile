@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
 import type { EntregaListItem } from "../types";
-import type { AddressFormValues } from "./AddressForm";
+import type { AddressFormValues, AddressOrigem } from "./AddressForm";
 import {
   parseFreeTextAddress,
   parsedToFormValues,
@@ -21,13 +21,18 @@ import {
 } from "../utils/ocrAddress";
 import {
   buildSearchQuery,
+  filterSelectableSuggestions,
   findLocalAddressSuggestions,
   formatAddressSummary,
+  formatSelectedAddress,
+  isSelectableAddressSuggestion,
+  sanitizeAddressFormValues,
   needsAddressEnrichment,
   searchAddressSuggestions,
   type AddressSuggestion,
 } from "../utils/addressSuggestions";
 import AddressSuggestionList from "./AddressSuggestionList";
+import { isValidGeocodeCoords, type GeocodeResult } from "../utils/geocode";
 
 export type QuickFormFlowState =
   | "idle"
@@ -48,7 +53,11 @@ interface AddressQuickFormProps {
   showInputActions?: boolean;
   submitLabel?: string;
   onFlowStateChange?: (state: QuickFormFlowState) => void;
-  onSaveAndNext: (values: AddressFormValues) => Promise<void>;
+  onSaveAndNext: (
+    values: AddressFormValues,
+    coords?: GeocodeResult | null,
+    origem?: AddressOrigem
+  ) => Promise<void>;
   onDictate: () => void;
   onOcr: () => void;
   onCancel?: () => void;
@@ -79,41 +88,60 @@ export default function AddressQuickForm({
   const [showOptional, setShowOptional] = useState(false);
   const [parsedInternal, setParsedInternal] = useState<Partial<AddressFormValues>>({});
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [didYouMean, setDidYouMean] = useState<AddressSuggestion | null>(null);
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<string | null>(null);
   const [autoApplied, setAutoApplied] = useState(false);
+  const [selectedCoords, setSelectedCoords] = useState<GeocodeResult | null>(null);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const freeTextRef = useRef<TextInput>(null);
   const lastSearchQueryRef = useRef("");
+  const searchRequestIdRef = useRef(0);
+  const parsedInternalRef = useRef(parsedInternal);
+  const externalParsedKeyRef = useRef<string | null>(null);
+  parsedInternalRef.current = parsedInternal;
 
   const defaults = useMemo(
     () => ({ cidade: cidadePadrao, estado: estadoPadrao }),
     [cidadePadrao, estadoPadrao]
   );
 
+  const applySuggestionRef = useRef<(s: AddressSuggestion, fromAuto?: boolean) => void>(() => {});
+  const runSearchRef = useRef<
+    (vals: Partial<AddressFormValues>, options?: { autoApply?: boolean }) => Promise<void>
+  >(async () => {});
+
   const applySuggestion = useCallback(
     (s: AddressSuggestion, fromAuto = false) => {
-      const parsedNumero = (parsedInternal.numero ?? "").trim();
-      const vals = {
+      if (!isSelectableAddressSuggestion(s)) return;
+
+      const parsedNumero = (parsedInternalRef.current.numero ?? "").trim();
+      const vals: AddressFormValues = sanitizeAddressFormValues({
         ...s.values,
         numero: (s.values.numero ?? "").trim() || parsedNumero,
         destinatario: destinatario.trim() || delivery.cliente || "",
         complemento: complemento.trim(),
-      };
+      });
       setParsedInternal(vals);
-      setFreeText(formatAddressSummary(vals));
+      setSelectedCoords({ latitude: s.latitude, longitude: s.longitude });
+      setFreeText(formatSelectedAddress({ ...s, values: vals }));
       setSelectedSuggestionId(s.id);
       setAutoApplied(fromAuto);
       setSuggestions([s]);
     },
-    [destinatario, complemento, delivery.cliente, parsedInternal.numero]
+    [destinatario, complemento, delivery.cliente]
   );
+  applySuggestionRef.current = applySuggestion;
 
   const runSearch = useCallback(
-    async (vals: Partial<AddressFormValues>) => {
+    async (
+      vals: Partial<AddressFormValues>,
+      options?: { autoApply?: boolean }
+    ) => {
       if (!needsAddressEnrichment(vals)) {
         setSuggestions([]);
+        setDidYouMean(null);
         setSearching(false);
         onFlowStateChange?.("idle");
         return;
@@ -125,26 +153,39 @@ export default function AddressQuickForm({
         return;
       }
       lastSearchQueryRef.current = query;
+      const requestId = ++searchRequestIdRef.current;
       setSearching(true);
       onFlowStateChange?.("searching");
       const local = findLocalAddressSuggestions(vals, knownDeliveries, defaults);
-      const remote = await searchAddressSuggestions(query, { hints: vals, defaults });
+      if (local.length > 0) {
+        setSuggestions(filterSelectableSuggestions(local));
+      }
+      const { suggestions: remote, didYouMean: dym } = await searchAddressSuggestions(query, {
+        hints: vals,
+        defaults,
+      });
+      if (requestId !== searchRequestIdRef.current) return;
+
       const localIds = new Set(local.map((s) => s.id));
-      const merged = [...local, ...remote.filter((s) => !localIds.has(s.id))];
+      const merged = filterSelectableSuggestions([
+        ...local,
+        ...remote.filter((s) => !localIds.has(s.id)),
+      ]);
       setSearching(false);
       onFlowStateChange?.("idle");
       setSuggestions(merged);
-      if (merged.length === 1) {
-        applySuggestion(merged[0], true);
-      } else if (local.length === 1 && needsAddressEnrichment(vals)) {
-        applySuggestion(local[0], true);
+      setDidYouMean(dym);
+
+      if (options?.autoApply && merged.length === 1 && isSelectableAddressSuggestion(merged[0])) {
+        applySuggestionRef.current(merged[0], true);
       } else {
         setAutoApplied(false);
         setSelectedSuggestionId(null);
       }
     },
-    [defaults, knownDeliveries, onFlowStateChange, applySuggestion]
+    [defaults, knownDeliveries, onFlowStateChange]
   );
+  runSearchRef.current = runSearch;
 
   useEffect(() => {
     setFreeText(initialFreeText);
@@ -152,38 +193,52 @@ export default function AddressQuickForm({
     setComplemento("");
     setParsedInternal({});
     setSuggestions([]);
+    setDidYouMean(null);
     setSelectedSuggestionId(null);
     setAutoApplied(false);
+    setSelectedCoords(null);
     lastSearchQueryRef.current = "";
+    searchRequestIdRef.current += 1;
+    externalParsedKeyRef.current = null;
 
     if (initialFreeText.trim()) {
       const parsed = parseFreeTextAddress(initialFreeText, defaults);
       const vals = parsedToFormValues(parsed);
       setParsedInternal(vals);
       if (needsAddressEnrichment(vals)) {
-        void runSearch(vals);
+        void runSearchRef.current(vals);
       }
     }
-  }, [delivery.id_saida, initialFreeText, delivery.cliente, defaults, runSearch]);
+    // Resetar formulário apenas ao trocar de pedido — não quando runSearch/parse mudam.
+  }, [delivery.id_saida]);
 
   useEffect(() => {
-    if (!externalParsed) return;
+    if (!externalParsed) {
+      externalParsedKeyRef.current = null;
+      return;
+    }
+    const key = externalParsed.rawText ?? JSON.stringify(externalParsed);
+    if (externalParsedKeyRef.current === key) return;
+    externalParsedKeyRef.current = key;
+
     const vals = parsedToFormValues(externalParsed);
     setParsedInternal(vals);
     const summary = formatAddressSummary(vals);
     if (summary) setFreeText(summary);
     if (vals.destinatario) setDestinatario(vals.destinatario);
     if (vals.complemento) setComplemento(vals.complemento);
-    void runSearch(vals);
-  }, [externalParsed, runSearch]);
+    void runSearchRef.current(vals, { autoApply: true });
+  }, [externalParsed]);
 
   const runParse = useCallback(
     (text: string) => {
       if (!text.trim()) {
         setParsedInternal({});
         setSuggestions([]);
+        setDidYouMean(null);
         setSelectedSuggestionId(null);
         setAutoApplied(false);
+        setSelectedCoords(null);
         lastSearchQueryRef.current = "";
         return;
       }
@@ -195,26 +250,52 @@ export default function AddressQuickForm({
 
       if (searchRef.current) clearTimeout(searchRef.current);
       searchRef.current = setTimeout(() => {
-        void runSearch(vals);
+        void runSearchRef.current(vals);
       }, 500);
     },
-    [defaults, onFlowStateChange, runSearch]
+    [defaults, onFlowStateChange]
   );
 
   const handleFreeTextChange = (text: string) => {
+    searchRequestIdRef.current += 1;
+    lastSearchQueryRef.current = "";
     setFreeText(text);
     setSelectedSuggestionId(null);
     setAutoApplied(false);
+    setSelectedCoords(null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => runParse(text), 400);
+    debounceRef.current = setTimeout(() => runParse(text), 500);
+  };
+
+  const resolveDestinatario = (): string => {
+    const fromField = destinatario.trim();
+    if (fromField) return fromField;
+    const fromDelivery = (delivery.cliente ?? "").trim();
+    if (fromDelivery) return fromDelivery;
+    const fromParsed = (parsedInternal.destinatario ?? "").trim();
+    if (fromParsed) return fromParsed;
+    return "—";
   };
 
   const buildValues = (): AddressFormValues => {
+    if (selectedSuggestionId && (parsedInternal.rua || parsedInternal.cidade)) {
+      return {
+        destinatario: resolveDestinatario(),
+        rua: (parsedInternal.rua ?? "").trim(),
+        numero: (parsedInternal.numero ?? "").trim(),
+        complemento: complemento.trim() || (parsedInternal.complemento ?? "").trim(),
+        bairro: (parsedInternal.bairro ?? "").trim(),
+        cidade: (parsedInternal.cidade ?? "").trim(),
+        estado: (parsedInternal.estado ?? "").trim(),
+        cep: (parsedInternal.cep ?? "").replace(/\D/g, "").slice(0, 8),
+      };
+    }
+
     const fromParse = parsedInternal;
     const merged = parseFreeTextAddress(freeText, defaults);
     const base = parsedToFormValues(merged);
     return {
-      destinatario: destinatario.trim() || base.destinatario || fromParse.destinatario || delivery.cliente || "",
+      destinatario: resolveDestinatario() || base.destinatario || fromParse.destinatario || "",
       rua: base.rua || fromParse.rua || "",
       numero: base.numero || fromParse.numero || "",
       complemento: complemento.trim() || base.complemento || fromParse.complemento || "",
@@ -227,7 +308,6 @@ export default function AddressQuickForm({
 
   const validateValues = (vals: AddressFormValues): string | null => {
     const missing: string[] = [];
-    if (!vals.destinatario.trim()) missing.push("destinatário");
     if (!vals.rua.trim()) missing.push("rua");
     if (!vals.numero.trim()) missing.push("número");
     if (!vals.bairro.trim()) missing.push("bairro");
@@ -235,7 +315,8 @@ export default function AddressQuickForm({
     if (!vals.estado.trim()) missing.push("estado");
     if (vals.cep.replace(/\D/g, "").length < 8) missing.push("CEP (8 dígitos)");
     if (missing.length === 0) return null;
-    if (suggestions.length > 0 && !selectedSuggestionId) {
+    const selectableCount = filterSelectableSuggestions(suggestions).length;
+    if (selectableCount > 0 && !selectedSuggestionId) {
       return "Selecione uma das sugestões de endereço abaixo.";
     }
     return `Faltam: ${missing.join(", ")}. Aguarde a busca ou use o modo avançado.`;
@@ -250,17 +331,20 @@ export default function AddressQuickForm({
     }
     onFlowStateChange?.("saving");
     try {
-      await onSaveAndNext(vals);
+      const origem: AddressOrigem =
+        selectedSuggestionId && isValidGeocodeCoords(selectedCoords?.latitude, selectedCoords?.longitude)
+          ? "suggestion"
+          : "manual";
+      await onSaveAndNext(vals, selectedCoords, origem);
     } finally {
       onFlowStateChange?.("idle");
     }
   };
 
-  const busy =
+  const inputLocked =
     flowState === "geocoding" ||
     flowState === "saving" ||
-    flowState === "listening" ||
-    searching;
+    flowState === "listening";
 
   const styles = useMemo(
     () =>
@@ -374,7 +458,7 @@ export default function AddressQuickForm({
           value={freeText}
           onChangeText={handleFreeTextChange}
           multiline
-          editable={!busy}
+          editable={!inputLocked}
         />
 
         <AddressSuggestionList
@@ -382,7 +466,9 @@ export default function AddressQuickForm({
           loading={searching}
           selectedId={selectedSuggestionId}
           autoApplied={autoApplied}
+          didYouMean={didYouMean}
           onSelect={(s) => applySuggestion(s, false)}
+          onSelectDidYouMean={(s) => applySuggestion(s, false)}
         />
 
         {showParsedPreview && (
@@ -399,16 +485,16 @@ export default function AddressQuickForm({
 
         {showInputActions && (
           <View style={styles.actionsRow}>
-            <TouchableOpacity style={styles.actionBtn} onPress={onDictate} disabled={busy}>
+            <TouchableOpacity style={styles.actionBtn} onPress={onDictate} disabled={inputLocked || searching}>
               <Text style={styles.actionBtnText}>Ditar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionBtn} onPress={onOcr} disabled={busy}>
+            <TouchableOpacity style={styles.actionBtn} onPress={onOcr} disabled={inputLocked || searching}>
               <Text style={styles.actionBtnText}>Foto/OCR</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={() => freeTextRef.current?.focus()}
-              disabled={busy}
+              disabled={inputLocked || searching}
             >
               <Text style={styles.actionBtnText}>Digitar</Text>
             </TouchableOpacity>
@@ -433,7 +519,7 @@ export default function AddressQuickForm({
               placeholderTextColor={colors.placeholder}
               value={destinatario}
               onChangeText={setDestinatario}
-              editable={!busy}
+              editable={!inputLocked}
             />
             <Text style={[styles.label, { marginTop: 8 }]}>Complemento</Text>
             <TextInput
@@ -442,7 +528,7 @@ export default function AddressQuickForm({
               placeholderTextColor={colors.placeholder}
               value={complemento}
               onChangeText={setComplemento}
-              editable={!busy}
+              editable={!inputLocked}
             />
           </>
         )}
@@ -450,9 +536,9 @@ export default function AddressQuickForm({
         {statusLabel ? <Text style={styles.status}>{statusLabel}</Text> : null}
 
         <TouchableOpacity
-          style={[styles.saveBtn, busy && styles.saveBtnDisabled]}
+          style={[styles.saveBtn, (inputLocked || searching) && styles.saveBtnDisabled]}
           onPress={handleSave}
-          disabled={busy || !freeText.trim()}
+          disabled={inputLocked || searching || !freeText.trim()}
         >
           {flowState === "saving" || flowState === "geocoding" ? (
             <ActivityIndicator color={colors.primaryContrast} />
@@ -462,7 +548,7 @@ export default function AddressQuickForm({
         </TouchableOpacity>
 
         {onCancel && (
-          <TouchableOpacity style={styles.cancel} onPress={onCancel} disabled={busy}>
+          <TouchableOpacity style={styles.cancel} onPress={onCancel} disabled={inputLocked}>
             <Text style={styles.cancelText}>Cancelar</Text>
           </TouchableOpacity>
         )}

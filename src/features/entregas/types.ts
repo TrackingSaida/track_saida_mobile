@@ -47,11 +47,64 @@ export interface ResumoEntregas {
   pode_iniciar_rota: boolean;
   ausentes?: number;
   atraso_d1?: number;
+  valor_finalizado_hoje?: string | number;
+}
+
+export interface MarcacaoEntregaResponse {
+  ok: boolean;
+  id_saida: number;
+  entrega_atrasada?: boolean;
+  data_operacional?: string;
+  complemento?: boolean;
+}
+
+export interface RotasResumo {
+  rota_id: number;
+  paradas: number;
+  pedidos: number;
+  entregues: number;
+  ausentes: number;
+  pendentes: number;
+  valor_total: string | number;
 }
 
 export interface MotivoAusencia {
   id: number;
   descricao: string;
+}
+
+export type FinalizarLoteAcao = "entregue" | "ausente";
+
+/** Limite do backend em POST /mobile/entregas/finalizar-lote */
+export const FINALIZAR_LOTE_MAX_IDS = 50;
+
+export interface FinalizarLoteBody {
+  ids: number[];
+  acao: FinalizarLoteAcao;
+  motivo_id?: number;
+  observacao?: string;
+}
+
+export interface FinalizarLoteItemOut {
+  id_saida: number;
+  status: string;
+}
+
+export interface FinalizarLoteBloqueadoOut {
+  id_saida: number;
+  codigo: string | null;
+  motivo: string;
+}
+
+export interface FinalizarLoteErroOut {
+  id_saida: number;
+  mensagem: string;
+}
+
+export interface FinalizarLoteResponse {
+  finalizados: FinalizarLoteItemOut[];
+  bloqueados: FinalizarLoteBloqueadoOut[];
+  erros: FinalizarLoteErroOut[];
 }
 
 export type ExtratoStatusFiltro = "todos" | "grupo_entregue" | "cancelados";
@@ -92,4 +145,47 @@ export interface ScanConflito {
   conflito: true;
   motoboy_atual: string;
   id_saida: number;
+}
+
+export interface EnderecoSugestoesHints {
+  rua?: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+  cep?: string;
+}
+
+export interface EnderecoSugestoesBody {
+  query: string;
+  latitude?: number;
+  longitude?: number;
+  hints?: EnderecoSugestoesHints;
+  limit?: number;
+}
+
+export interface EnderecoSugestaoApi {
+  label: string;
+  rua: string;
+  numero?: string;
+  bairro?: string;
+  cidade: string;
+  estado: string;
+  cep?: string;
+  latitude: number;
+  longitude: number;
+  score: number;
+  confidence?: number;
+  source: string;
+  distance_km?: number | null;
+  badge?: string | null;
+  already_used?: boolean;
+}
+
+export interface EnderecoSugestoesResponse {
+  suggestions: EnderecoSugestaoApi[];
+  did_you_mean?: {
+    original_query: string;
+    suggestion: EnderecoSugestaoApi;
+  } | null;
 }

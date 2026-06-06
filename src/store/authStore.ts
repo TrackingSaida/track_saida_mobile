@@ -2,9 +2,9 @@ import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
 import { decodeJwtPayload, type JwtClaims } from "../utils/jwt";
+import { getBiometricEnabled, setBiometricEnabled as persistBiometricEnabled } from "../services/settingsService";
 
 const TOKEN_KEY = "access_token";
-const BIOMETRIC_ENABLED_KEY = "biometric_enabled";
 
 let sessionExpiredCallback: (() => void) | null = null;
 
@@ -35,6 +35,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await SecureStore.setItemAsync(TOKEN_KEY, token);
       const claims = decodeJwtPayload(token);
       set({ token, currentUser: claims });
+      const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
+      await useMotoboyPrefsStore.getState().loadForCurrentUser();
     } else {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       set({ token: null, currentUser: null });
@@ -44,8 +46,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   loadToken: async () => {
     try {
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      const biometricEnabled =
-        (await SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY)) === "true";
+      const biometricEnabled = await getBiometricEnabled();
 
       if (!token) {
         set({
@@ -86,7 +87,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
-    await SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY);
     set({ token: null, currentUser: null, requiresBiometricUnlock: false });
   },
 
@@ -100,11 +100,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   setBiometricEnabled: async (enabled: boolean) => {
-    if (enabled) {
-      await SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, "true");
-    } else {
-      await SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY);
-    }
+    await persistBiometricEnabled(enabled);
     set({});
   },
 
@@ -119,6 +115,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (!token) return false;
       const claims = decodeJwtPayload(token);
       set({ token, currentUser: claims, requiresBiometricUnlock: false });
+      const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
+      await useMotoboyPrefsStore.getState().loadForCurrentUser();
       return true;
     } catch {
       return false;

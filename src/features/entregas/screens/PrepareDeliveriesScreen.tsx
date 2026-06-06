@@ -41,12 +41,20 @@ import {
   parsedToFormValues,
   type ParsedAddress,
 } from "../utils/ocrAddress";
-import { geocodeAddress } from "../utils/geocode";
+import {
+  geocodeAddressFromValues,
+  isValidGeocodeCoords,
+  type GeocodeResult,
+} from "../utils/geocode";
 import type { EnderecoBody } from "../api";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
+import RoutePriorityModal from "../components/RoutePriorityModal";
+import { routePriorityLabel } from "../utils/routePriority";
 import { formatApiError } from "../../../utils/formatApiError";
 import {
   enrichParsedAddress,
+  formatAddressSummary,
+  isSelectableAddressSuggestion,
   needsAddressEnrichment,
   suggestionToParsed,
   type AddressSuggestion,
@@ -80,6 +88,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const setPrepOrdem = useMotoboyPrefsStore((s) => s.setPrepOrdem);
+  const routePriority = useMotoboyPrefsStore((s) => s.routePriority);
+  const setRoutePriority = useMotoboyPrefsStore((s) => s.setRoutePriority);
 
   const [showScanSheet, setShowScanSheet] = useState(false);
   const [showQuickForm, setShowQuickForm] = useState(false);
@@ -95,8 +105,13 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const [showPreview, setShowPreview] = useState(false);
   const [previewParsed, setPreviewParsed] = useState<ParsedAddress | null>(null);
   const [previewSource, setPreviewSource] = useState<"voice" | "ocr">("voice");
-  const [pendingPreviewSave, setPendingPreviewSave] = useState<AddressFormValues | null>(null);
+  const [pendingPreviewSave, setPendingPreviewSave] = useState<{
+    values: AddressFormValues;
+    coords: GeocodeResult | null;
+    origem: AddressOrigem;
+  } | null>(null);
   const [previewSuggestions, setPreviewSuggestions] = useState<AddressSuggestion[]>([]);
+  const [previewDidYouMean, setPreviewDidYouMean] = useState<AddressSuggestion | null>(null);
   const [previewSuggestionsLoading, setPreviewSuggestionsLoading] = useState(false);
   const [previewSelectedSuggestionId, setPreviewSelectedSuggestionId] = useState<string | null>(null);
   const [previewAutoApplied, setPreviewAutoApplied] = useState(false);
@@ -107,6 +122,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const [pendingSaveOrigem, setPendingSaveOrigem] = useState<AddressOrigem>("manual");
 
   const [showOrdemModal, setShowOrdemModal] = useState(false);
+  const [showPriorityModal, setShowPriorityModal] = useState(false);
   const [ordemDraftModo, setOrdemDraftModo] = useState<PrepOrdemModo>(prepOrdemModo);
   const [ordemDraftServico, setOrdemDraftServico] = useState<ServicoTipo>(prepServicoInicio);
   const [optimizing, setOptimizing] = useState(false);
@@ -268,28 +284,31 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     }
   }, [feedbackMessage]);
 
-  const addressQueryFromValues = (vals: AddressFormValues): string =>
-    [vals.rua, vals.numero, vals.bairro, vals.cidade, vals.estado, vals.cep]
-      .filter(Boolean)
-      .join(", ");
+  type CommitSaveOptions = {
+    skipGeocodeCheck?: boolean;
+    coords?: GeocodeResult | null;
+  };
 
   const commitSave = useCallback(
-    async (vals: AddressFormValues, origem: AddressOrigem, skipGeocodeCheck = false) => {
+    async (
+      vals: AddressFormValues,
+      origem: AddressOrigem,
+      options: CommitSaveOptions | boolean = {}
+    ) => {
       if (!activeDelivery) return;
+      const opts: CommitSaveOptions =
+        typeof options === "boolean" ? { skipGeocodeCheck: options } : options;
       setFlowState("geocoding");
       try {
-        if (!skipGeocodeCheck) {
-          const query = addressQueryFromValues(vals);
-          const geo = await geocodeAddress(query, {
-            cidade: vals.cidade,
-            estado: vals.estado,
-            bairro: vals.bairro,
-            numero: vals.numero,
-          });
+        if (!opts.skipGeocodeCheck) {
+          const geoDefaults = { cidade: cidadePadrao, estado: estadoPadrao };
+          const geo = isValidGeocodeCoords(opts.coords?.latitude, opts.coords?.longitude)
+            ? opts.coords!
+            : await geocodeAddressFromValues(vals, geoDefaults);
           if (!geo) {
             setPendingSaveValues(vals);
             setPendingSaveOrigem(origem);
-            setGeocodeQuery(query);
+            setGeocodeQuery(formatAddressSummary(vals));
             setShowGeocodeFailure(true);
             setFlowState("idle");
             return;
@@ -352,14 +371,38 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       afterSaveMode,
       refreshQueue,
       showAdvancedForm,
+      cidadePadrao,
+      estadoPadrao,
     ]
   );
 
   const handleSaveAndNext = useCallback(
-    async (vals: AddressFormValues, origem: AddressOrigem = "manual") => {
-      await commitSave(vals, origem, false);
+    async (
+      vals: AddressFormValues,
+      origem: AddressOrigem = "manual",
+      coords?: GeocodeResult | null
+    ) => {
+      await commitSave(vals, origem, { coords });
     },
     [commitSave]
+  );
+
+  const setPreviewPending = useCallback(
+    (
+      values: AddressFormValues,
+      opts?: { coords?: GeocodeResult | null; origem?: AddressOrigem; fromSuggestion?: boolean }
+    ) => {
+      const coords = opts?.coords ?? null;
+      const origem =
+        opts?.origem ??
+        (opts?.fromSuggestion && isValidGeocodeCoords(coords?.latitude, coords?.longitude)
+          ? "suggestion"
+          : previewSource === "voice"
+            ? "voz"
+            : "ocr");
+      setPendingPreviewSave({ values, coords, origem });
+    },
+    [previewSource]
   );
 
   const handleScanFound = (delivery: EntregaListItem) => {
@@ -451,8 +494,9 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     async (parsed: ParsedAddress, source: "voice" | "ocr") => {
       setPreviewParsed(parsed);
       setPreviewSource(source);
-      setPendingPreviewSave(mergePreviewValues(parsedToFormValues(parsed)));
+      setPreviewPending(mergePreviewValues(parsedToFormValues(parsed)));
       setPreviewSuggestions([]);
+      setPreviewDidYouMean(null);
       setPreviewSelectedSuggestionId(null);
       setPreviewAutoApplied(false);
       setShowPreview(true);
@@ -461,15 +505,19 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
 
       setPreviewSuggestionsLoading(true);
       try {
-        const { suggestions, autoSelected } = await enrichParsedAddress(parsed, {
+        const { suggestions, autoSelected, didYouMean } = await enrichParsedAddress(parsed, {
           cidade: cidadePadrao || undefined,
           estado: estadoPadrao || undefined,
         });
         setPreviewSuggestions(suggestions);
+        setPreviewDidYouMean(didYouMean);
         if (autoSelected) {
           const enriched = suggestionToParsed(autoSelected);
           setPreviewParsed(enriched);
-          setPendingPreviewSave(mergePreviewValues(autoSelected.values));
+          setPreviewPending(mergePreviewValues(autoSelected.values), {
+            coords: { latitude: autoSelected.latitude, longitude: autoSelected.longitude },
+            fromSuggestion: true,
+          });
           setPreviewSelectedSuggestionId(autoSelected.id);
           setPreviewAutoApplied(true);
         }
@@ -477,16 +525,20 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         setPreviewSuggestionsLoading(false);
       }
     },
-    [cidadePadrao, estadoPadrao, mergePreviewValues]
+    [cidadePadrao, estadoPadrao, mergePreviewValues, setPreviewPending]
   );
 
   const handlePreviewSelectSuggestion = useCallback((s: AddressSuggestion) => {
+    if (!isSelectableAddressSuggestion(s)) return;
     const enriched = suggestionToParsed(s);
     setPreviewParsed(enriched);
-    setPendingPreviewSave(mergePreviewValues(s.values));
+    setPreviewPending(mergePreviewValues(s.values), {
+      coords: { latitude: s.latitude, longitude: s.longitude },
+      fromSuggestion: true,
+    });
     setPreviewSelectedSuggestionId(s.id);
     setPreviewAutoApplied(false);
-  }, [mergePreviewValues]);
+  }, [mergePreviewValues, setPreviewPending]);
 
   const handleOcr = useCallback(async () => {
     setFlowState("parsing");
@@ -603,9 +655,12 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const handlePreviewSave = async () => {
     if (!pendingPreviewSave) return;
     setShowPreview(false);
-    const origem = previewSource === "voice" ? "voz" : "ocr";
     setExternalParsed(previewParsed);
-    await handleSaveAndNext(pendingPreviewSave, origem);
+    await handleSaveAndNext(
+      pendingPreviewSave.values,
+      pendingPreviewSave.origem,
+      pendingPreviewSave.coords
+    );
     setPendingPreviewSave(null);
     setPreviewParsed(null);
   };
@@ -616,16 +671,16 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     setPendingPreviewSave(null);
   };
 
-  const handleOtimizarRota = useCallback(async () => {
+  const handleCriarRota = useCallback(async () => {
     if (activeRouteId != null) {
       Alert.alert("Atenção", "Finalize a rota ativa antes de montar outra.");
       return;
     }
     if (withCoords.length < 2) {
-      Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para otimizar.");
+      Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para criar a rota.");
       return;
     }
-    const runOptimize = async () => {
+    const runCreate = async () => {
       setOptimizing(true);
       try {
         if (activeRouteId === null) clearActiveRouteState();
@@ -633,7 +688,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         await optimizeRoute();
         navigation.navigate("RouteBuilder");
       } catch (e) {
-        Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao otimizar rota.");
+        Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
       } finally {
         setOptimizing(false);
       }
@@ -644,12 +699,12 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         `${semEndereco} pedido${semEndereco !== 1 ? "s" : ""} sem endereço não entrarão na rota agora.`,
         [
           { text: "Adicionar pendentes", onPress: handleNextPending },
-          { text: "Continuar", onPress: () => void runOptimize() },
+          { text: "Continuar", onPress: () => void runCreate() },
           { text: "Cancelar", style: "cancel" },
         ]
       );
     } else {
-      await runOptimize();
+      await runCreate();
     }
   }, [
     withCoords,
@@ -717,6 +772,21 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
+      <View style={styles.ordemRow}>
+        <Text style={styles.ordemText}>
+          Priorizar por:{" "}
+          {routePriority.type === "delivery"
+            ? routePriorityLabel(
+                routePriority,
+                withCoords.find((d) => d.id_saida === routePriority.idSaida)?.codigo ?? undefined
+              )
+            : routePriorityLabel(routePriority)}
+        </Text>
+        <TouchableOpacity onPress={() => setShowPriorityModal(true)}>
+          <Text style={styles.ordemLink}>Alterar</Text>
+        </TouchableOpacity>
+      </View>
+
       {feedbackMessage ? (
         <View style={styles.feedback}>
           <Text style={styles.feedbackText}>{feedbackMessage}</Text>
@@ -737,13 +807,13 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
 
       <TouchableOpacity
         style={[styles.btn, withCoords.length < 2 && styles.btnDisabled]}
-        onPress={() => void handleOtimizarRota()}
+        onPress={() => void handleCriarRota()}
         disabled={withCoords.length < 2 || optimizing}
       >
         {optimizing ? (
           <ActivityIndicator color={colors.primaryContrast} />
         ) : (
-          <Text style={styles.btnText}>Otimizar rota</Text>
+          <Text style={styles.btnText}>Criar rota</Text>
         )}
       </TouchableOpacity>
 
@@ -787,7 +857,9 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
               knownDeliveries={knownDeliveriesForForm}
               externalParsed={externalParsed}
               onFlowStateChange={setFlowState}
-              onSaveAndNext={(vals) => handleSaveAndNext(vals, "manual")}
+              onSaveAndNext={(vals, coords, origem) =>
+                handleSaveAndNext(vals, origem ?? "manual", coords)
+              }
               onDictate={handleDictate}
               onOcr={handleOcr}
               onCancel={() => {
@@ -835,6 +907,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         suggestionsLoading={previewSuggestionsLoading}
         selectedSuggestionId={previewSelectedSuggestionId}
         autoApplied={previewAutoApplied}
+        didYouMean={previewDidYouMean}
         onSelectSuggestion={handlePreviewSelectSuggestion}
         onSaveAndNext={() => void handlePreviewSave()}
         onEdit={handlePreviewEdit}
@@ -846,12 +919,24 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         visible={showGeocodeFailure}
         addressQuery={geocodeQuery}
         onEdit={() => setShowGeocodeFailure(false)}
+        onChooseSuggestion={() => {
+          setShowGeocodeFailure(false);
+          if (!showQuickForm && activeDelivery) setShowQuickForm(true);
+        }}
         onSaveWithoutCoords={() => {
           if (pendingSaveValues) {
-            void commitSave(pendingSaveValues, pendingSaveOrigem, true);
+            void commitSave(pendingSaveValues, pendingSaveOrigem, { skipGeocodeCheck: true });
           }
         }}
         onClose={() => setShowGeocodeFailure(false)}
+      />
+
+      <RoutePriorityModal
+        visible={showPriorityModal}
+        current={routePriority}
+        packages={withCoords}
+        onClose={() => setShowPriorityModal(false)}
+        onSave={(p) => void setRoutePriority(p)}
       />
 
       <Modal visible={showOrdemModal} transparent animationType="fade">

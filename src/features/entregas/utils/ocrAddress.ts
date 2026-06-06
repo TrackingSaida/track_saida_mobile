@@ -4,6 +4,7 @@
  * CEP: 8 dígitos ou 00000-000; estado: 2 letras maiúsculas com contexto; número: número sozinho ou após rua.
  */
 import type { AddressFormValues } from "../components/AddressForm";
+import { preprocessAddressInput } from "./addressQueryNormalizer";
 import { replaceSpokenNumbers } from "./spokenNumbers";
 
 export type ParsedAddress = Partial<AddressFormValues> & {
@@ -691,8 +692,8 @@ export function parseVoiceAddress(
   transcript: string,
   defaults?: AddressParseDefaults
 ): ParsedAddress {
-  let text = transcript.trim();
-  if (!text) return { rawText: text, confidence: "low" };
+  let text = preprocessAddressInput(transcript, "voice");
+  if (!text) return { rawText: transcript, confidence: "low" };
 
   text = text
     .replace(/\b(s\s*p|são paulo)\b/gi, " São Paulo SP ")
@@ -735,7 +736,8 @@ export function parseVoiceAddress(
 export function pickBestOcrAddress(
   lines: string[]
 ): ParsedAddress {
-  const parsed = parseOcrToAddress(lines);
+  const normalizedLines = lines.map((l) => preprocessAddressInput(l, "ocr"));
+  const parsed = parseOcrToAddress(normalizedLines);
   const score = scoreParsedAddress(parsed);
   const confidence: ParsedAddress["confidence"] =
     score >= 6 ? "high" : score >= 4 ? "medium" : "low";
@@ -760,14 +762,9 @@ export function parsedToFormValues(p: ParsedAddress): AddressFormValues {
   };
 }
 
-/** Para voz: uma única string é quebrada em "linhas" por vírgula, ponto ou "número". */
+/** Para voz: delega ao pipeline unificado com OCR fix e números por extenso. */
 export function parseVoiceToAddress(text: string): Partial<AddressFormValues> {
-  const normalized = text.replace(/\s+número\s+/gi, ", ").replace(/\s+nº\s+/gi, ", ");
-  const lines = normalized
-    .split(/[,.]|\s+-\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return parseOcrToAddress(lines);
+  return parseVoiceAddress(text);
 }
 
 /** Detecta múltiplos endereços na transcrição de voz. */

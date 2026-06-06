@@ -6,6 +6,7 @@ interface GeocodeFailureSheetProps {
   visible: boolean;
   addressQuery: string;
   onEdit: () => void;
+  onChooseSuggestion?: () => void;
   onSaveWithoutCoords: () => void;
   onClose: () => void;
 }
@@ -14,6 +15,7 @@ export default function GeocodeFailureSheet({
   visible,
   addressQuery,
   onEdit,
+  onChooseSuggestion,
   onSaveWithoutCoords,
   onClose,
 }: GeocodeFailureSheetProps) {
@@ -63,22 +65,27 @@ export default function GeocodeFailureSheet({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.box}>
-          <Text style={styles.title}>Endereço não localizado</Text>
+          <Text style={styles.title}>Não encontramos coordenadas para este endereço</Text>
           <Text style={styles.message}>
-            Não conseguimos localizar este endereço no mapa. Você pode editar, salvar sem
-            coordenada ou abrir no mapa externo.
+            Não foi possível localizar este endereço no mapa. Edite os dados, escolha uma
+            sugestão, salve sem coordenada ou abra no mapa externo.
           </Text>
           <Text style={styles.address} numberOfLines={3}>
             {addressQuery}
           </Text>
           <TouchableOpacity style={styles.btn} onPress={onEdit}>
-            <Text style={styles.btnText}>Editar endereço</Text>
+            <Text style={styles.btnText}>Editar</Text>
           </TouchableOpacity>
+          {onChooseSuggestion ? (
+            <TouchableOpacity style={styles.btnOutline} onPress={onChooseSuggestion}>
+              <Text style={styles.btnOutlineText}>Escolher sugestão</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity style={styles.btnOutline} onPress={onSaveWithoutCoords}>
             <Text style={styles.btnOutlineText}>Salvar sem coordenada</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.btnOutline} onPress={openMap}>
-            <Text style={styles.btnOutlineText}>Escolher no mapa</Text>
+            <Text style={styles.btnOutlineText}>Abrir mapa</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.cancel} onPress={onClose}>
             <Text style={styles.cancelText}>Cancelar</Text>

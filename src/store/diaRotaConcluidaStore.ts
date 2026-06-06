@@ -1,22 +1,38 @@
 import { create } from "zustand";
 
-export const VALOR_DIA_LABEL_PREVISTO = "Valor previsto hoje";
+export const VALOR_DIA_LABEL = "Valor do dia";
+export const VALOR_ROTA_LABEL = "Valor da rota";
 
-export interface DiaRotaConcluidaStats {
+export type CompletionVariant = "day" | "route";
+
+export interface DayCompletionStats {
+  variant: "day";
   entregues: number;
   ausentes: number;
   total: number;
   pendentes: number;
-  motoboyNome?: string;
   valorDia: string;
   valorLabel: string;
 }
 
+export interface RouteCompletionStats {
+  variant: "route";
+  paradas: number;
+  pedidos: number;
+  entregues: number;
+  ausentes: number;
+  pendentes: number;
+  valorRota: string;
+  valorLabel: string;
+}
+
+export type CompletionStats = DayCompletionStats | RouteCompletionStats;
+
 interface DiaRotaConcluidaState {
   visible: boolean;
-  stats: DiaRotaConcluidaStats | null;
+  stats: CompletionStats | null;
   playCelebration: boolean;
-  open: (stats: DiaRotaConcluidaStats) => void;
+  open: (stats: CompletionStats) => void;
   close: () => void;
   consumeCelebration: () => void;
 }
@@ -29,3 +45,6 @@ export const useDiaRotaConcluidaStore = create<DiaRotaConcluidaState>((set) => (
   close: () => set({ visible: false, stats: null, playCelebration: false }),
   consumeCelebration: () => set({ playCelebration: false }),
 }));
+
+// Compat: export antigo usado em testes legados
+export const VALOR_DIA_LABEL_PREVISTO = VALOR_DIA_LABEL;

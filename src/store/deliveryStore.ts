@@ -1,12 +1,19 @@
 import { create } from "zustand";
-import type { EntregaListItem } from "../features/entregas/types";
+import type {
+  EntregaListItem,
+  FinalizarLoteBody,
+  FinalizarLoteResponse,
+  MarcacaoEntregaResponse,
+} from "../features/entregas/types";
 import {
   getEntregas,
+  getEntrega,
   getTodayISO,
   putEndereco,
   iniciarRota,
   marcarEntregue,
   marcarAusente,
+  finalizarLote,
   postNovaTentativa,
   postRotasIniciar,
   postRotasOtimizar,
@@ -18,11 +25,12 @@ import {
   type EntregueBody,
   type RotasAtivaResponse,
 } from "../features/entregas/api";
-import { geocodeAddress } from "../features/entregas/utils/geocode";
+import { geocodeAddressFromValues, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
 import {
   clusterRouteOrderByAddress,
   flattenGroupsToRouteOrder,
   getActiveGroupIndex,
+  getFirstPendingRouteIndex,
   getOrderedRouteDeliveries,
   groupOrderedByAddress,
   moveGroupInOrder,
@@ -30,6 +38,12 @@ import {
 import { formatApiError } from "../utils/formatApiError";
 import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
+import {
+  toApiPriorityPayload,
+  optimizeStopsSoftPriority,
+  estimateRouteDistanceKm,
+  type RoutePriority,
+} from "../features/entregas/utils/routePriority";
 
 export type MapMode = "list" | "map";
 
@@ -39,7 +53,12 @@ export type CurrentLocation = {
   heading?: number;
 };
 
-export type RouteOptimizationMode = "osrm_trip" | "nearest_fallback" | "local_fallback" | null;
+export type RouteOptimizationMode =
+  | "osrm_trip"
+  | "nearest_fallback"
+  | "priority_soft"
+  | "local_fallback"
+  | null;
 
 export type OptimizeRouteResult = {
   ok: boolean;
@@ -85,13 +104,18 @@ interface DeliveryState {
 
   /** Modo da última otimização de rota (backend ou fallback local). */
   routeOptimizationMode: RouteOptimizationMode;
+  /** Distância total da última otimização (metros), quando disponível via OSRM. */
+  routeDistanceM: number | null;
+  /** Duração total da última otimização (segundos), quando disponível via OSRM. */
+  routeDurationS: number | null;
 
   loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<void>;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
   startRoute: (deliveryIds?: number[]) => Promise<number>;
   suggestRoute: (fromLat?: number, fromLon?: number) => void;
-  markDelivered: (idSaida: number, body?: EntregueBody) => Promise<void>;
-  markAbsent: (idSaida: number, motivoId: number, observacao?: string) => Promise<void>;
+  markDelivered: (idSaida: number, body?: EntregueBody) => Promise<MarcacaoEntregaResponse>;
+  markAbsent: (idSaida: number, motivoId: number, observacao?: string) => Promise<MarcacaoEntregaResponse>;
+  finalizePendingBatch: (body: FinalizarLoteBody) => Promise<FinalizarLoteResponse>;
   setSelectedDelivery: (d: EntregaListItem | null) => void;
   setMapMode: (mode: MapMode) => void;
   clearSuggestedOrder: () => void;
@@ -108,12 +132,15 @@ interface DeliveryState {
   moveGroupedStopToStart: (stopIndex: number) => void;
   moveGroupedStopToEnd: (stopIndex: number) => void;
   updateRouteDelivery: (idSaida: number, partial: Partial<EntregaListItem>) => void;
-  findInRouteByCodigo: (codigo: string) => { stopIndex: number; delivery: EntregaListItem } | null;
+  findInRouteByCodigo: (
+    codigo: string
+  ) => { stopIndex: number; delivery: EntregaListItem; sameStopDeliveries: EntregaListItem[] } | null;
   appendToRoute: (deliveries: EntregaListItem[]) => void;
 
   /** Inicia rota persistida com routeOrder atual; retorna rota_id. */
   startActiveRoute: () => Promise<string>;
   completeStop: () => Promise<void>;
+  syncActiveStopIndex: () => void;
   finishRoute: () => Promise<void>;
   restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
   novaTentativa: (idSaida: number) => Promise<void>;
@@ -127,6 +154,12 @@ function distSq(lat1: number, lon1: number, lat2: number, lon2: number): number 
   const dlat = lat1 - lat2;
   const dlon = lon1 - lon2;
   return dlat * dlat + dlon * dlon;
+}
+
+function routeStatusFromExibicao(exibicao: string): "pendente" | "entregue" | "ausente" {
+  if (exibicao === "Entregue") return "entregue";
+  if (exibicao === "Ausente") return "ausente";
+  return "pendente";
 }
 
 function optimizeRouteLocal(
@@ -196,6 +229,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   activeStopIndex: 0,
   currentLocation: null,
   routeOptimizationMode: null,
+  routeDistanceM: null,
+  routeDurationS: null,
   setCurrentLocation: (location) => set({ currentLocation: location }),
 
   loadDeliveries: async (opts) => {
@@ -230,14 +265,14 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
 
   saveAddress: async (idSaida, body) => {
     let finalBody = body;
-    if (body.latitude == null || body.longitude == null) {
-      const parts = [body.rua, body.numero, body.bairro, body.cidade, body.estado].filter(Boolean);
-      const address = parts.join(", ");
-      const coords = await geocodeAddress(address, {
+    if (!isValidGeocodeCoords(body.latitude, body.longitude)) {
+      const coords = await geocodeAddressFromValues({
+        rua: body.rua,
+        numero: body.numero,
+        bairro: body.bairro,
         cidade: body.cidade,
         estado: body.estado,
-        bairro: body.bairro,
-        numero: body.numero,
+        cep: body.cep,
       });
       if (coords) {
         finalBody = { ...body, latitude: coords.latitude, longitude: coords.longitude };
@@ -286,8 +321,15 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   completeStop: async () => {
     const { activeRouteId } = get();
     if (!activeRouteId) return;
-    const { parada_atual } = await postRotasAvancar(activeRouteId);
-    set({ activeStopIndex: parada_atual });
+    await postRotasAvancar(activeRouteId);
+    get().syncActiveStopIndex();
+  },
+
+  syncActiveStopIndex: () => {
+    const { activeRouteId, routeOrder, routeDeliveryStatus } = get();
+    if (!activeRouteId || routeOrder.length === 0) return;
+    const idx = getFirstPendingRouteIndex(routeOrder, routeDeliveryStatus);
+    set({ activeStopIndex: idx });
   },
 
   finishRoute: async () => {
@@ -312,23 +354,45 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   },
 
   restoreActiveRoute: async (payload) => {
-    const prefOnlyToday = useMotoboyPrefsStore.getState().somenteHojePendentes;
-    const paramsHoje = prefOnlyToday ? { dia: "hoje" as const, data: getTodayISO() } : undefined;
+    const state = get();
+    const existingById = new Map(state.routeDeliveries.map((d) => [d.id_saida, d]));
     const [pendentes, finalizadas, ausentes] = await Promise.all([
-      getEntregas("pendente", paramsHoje),
-      getEntregas("finalizadas", paramsHoje),
-      getEntregas("ausentes", paramsHoje),
+      getEntregas("pendente"),
+      getEntregas("finalizadas"),
+      getEntregas("ausentes"),
     ]);
+    const freshListIds = new Set<number>();
     const byId = new Map<number, EntregaListItem>();
-    [...pendentes, ...finalizadas, ...ausentes].forEach((d) => byId.set(d.id_saida, d));
+    for (const d of [...pendentes, ...finalizadas, ...ausentes]) {
+      byId.set(d.id_saida, d);
+      freshListIds.add(d.id_saida);
+    }
+    existingById.forEach((d, id) => {
+      if (!byId.has(id)) byId.set(id, d);
+    });
+    const missingIds = payload.ordem.filter((id) => !byId.has(id));
+    if (missingIds.length > 0) {
+      const fetched = await Promise.all(
+        missingIds.map((id) => getEntrega(id).catch(() => null))
+      );
+      for (const d of fetched) {
+        if (d) {
+          byId.set(d.id_saida, d);
+          freshListIds.add(d.id_saida);
+        }
+      }
+    }
     const deliveries: EntregaListItem[] = [];
     const routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente"> = {};
     for (const id of payload.ordem) {
       const d = byId.get(id);
-      if (d) {
-        deliveries.push(d);
-        routeDeliveryStatus[d.id_saida] =
-          d.exibicao === "Entregue" ? "entregue" : d.exibicao === "Ausente" ? "ausente" : "pendente";
+      if (!d) continue;
+      deliveries.push(d);
+      if (freshListIds.has(id)) {
+        routeDeliveryStatus[id] = routeStatusFromExibicao(d.exibicao);
+      } else {
+        routeDeliveryStatus[id] =
+          state.routeDeliveryStatus[id] ?? routeStatusFromExibicao(d.exibicao);
       }
     }
     set({
@@ -338,6 +402,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDeliveries: deliveries,
       routeDeliveryStatus,
     });
+    get().syncActiveStopIndex();
     await startBackgroundTracking();
   },
 
@@ -367,25 +432,52 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   },
 
   markDelivered: async (idSaida, body) => {
-    await marcarEntregue(idSaida, body);
+    const response = await marcarEntregue(idSaida, body);
     set((state) => ({
       pendingDeliveries: state.pendingDeliveries.filter((d) => d.id_saida !== idSaida),
       deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => d.id_saida !== idSaida),
       deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => d.id_saida !== idSaida),
       selectedDelivery: state.selectedDelivery?.id_saida === idSaida ? null : state.selectedDelivery,
+      routeDeliveries: state.routeDeliveries.map((d) =>
+        d.id_saida === idSaida ? { ...d, exibicao: "Entregue", status: "Entregue" } : d
+      ),
       routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: "entregue" as const },
     }));
+    if (get().activeRouteId) get().syncActiveStopIndex();
+    return response;
   },
 
   markAbsent: async (idSaida, motivoId, observacao) => {
-    await marcarAusente(idSaida, motivoId, observacao);
+    const response = await marcarAusente(idSaida, motivoId, observacao);
     set((state) => ({
       pendingDeliveries: state.pendingDeliveries.filter((d) => d.id_saida !== idSaida),
       deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => d.id_saida !== idSaida),
       deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => d.id_saida !== idSaida),
       selectedDelivery: state.selectedDelivery?.id_saida === idSaida ? null : state.selectedDelivery,
+      routeDeliveries: state.routeDeliveries.map((d) =>
+        d.id_saida === idSaida ? { ...d, exibicao: "Ausente", status: "Ausente" } : d
+      ),
       routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: "ausente" as const },
     }));
+    if (get().activeRouteId) get().syncActiveStopIndex();
+    return response;
+  },
+
+  finalizePendingBatch: async (body) => {
+    const response = await finalizarLote(body);
+    const finalizedIds = new Set(response.finalizados.map((f) => f.id_saida));
+    if (finalizedIds.size > 0) {
+      set((state) => ({
+        pendingDeliveries: state.pendingDeliveries.filter((d) => !finalizedIds.has(d.id_saida)),
+        deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => !finalizedIds.has(d.id_saida)),
+        deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => !finalizedIds.has(d.id_saida)),
+        selectedDelivery:
+          state.selectedDelivery && finalizedIds.has(state.selectedDelivery.id_saida)
+            ? null
+            : state.selectedDelivery,
+      }));
+    }
+    return response;
   },
 
   setSelectedDelivery: (d) => set({ selectedDelivery: d }),
@@ -407,7 +499,15 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     });
     set({ routeDeliveries: deliveries, routeOrder: order, routeDeliveryStatus });
   },
-  clearRoute: () => set({ routeDeliveries: [], routeOrder: [], routeDeliveryStatus: {} }),
+  clearRoute: () =>
+    set({
+      routeDeliveries: [],
+      routeOrder: [],
+      routeDeliveryStatus: {},
+      routeOptimizationMode: null,
+      routeDistanceM: null,
+      routeDurationS: null,
+    }),
   clearActiveRouteState: () => {
     stopBackgroundTracking().catch(() => {});
     set({
@@ -417,6 +517,9 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeOrder: [],
       routeDeliveryStatus: {},
       currentLocation: null,
+      routeOptimizationMode: null,
+      routeDistanceM: null,
+      routeDurationS: null,
     });
   },
   optimizeRoute: async (opts) => {
@@ -442,37 +545,69 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         ? { latitude: opts.fromLat, longitude: opts.fromLon }
         : undefined;
 
-    const applyOrder = async (newSuffix: number[], mode: RouteOptimizationMode, message: OptimizeRouteResult["message"], semCoordenadas: number[]) => {
+    const applyOrder = async (
+      newSuffix: number[],
+      mode: RouteOptimizationMode,
+      message: OptimizeRouteResult["message"],
+      semCoordenadas: number[],
+      stats?: { distanceM: number | null; durationS: number | null }
+    ) => {
       let newOrder = activeRouteId != null ? [...prefix, ...newSuffix] : newSuffix;
       newOrder = clusterRouteOrderByAddress(routeDeliveries, newOrder);
-      set({ routeOrder: newOrder, routeOptimizationMode: mode });
+      set({
+        routeOrder: newOrder,
+        routeOptimizationMode: mode,
+        routeDistanceM: stats?.distanceM ?? null,
+        routeDurationS: stats?.durationS ?? null,
+      });
       if (activeRouteId != null && opts?.persistActive !== false) {
         await persistActiveRouteOrder(activeRouteId, newOrder);
       }
       return { ok: true, mode, semCoordenadas, message } as OptimizeRouteResult;
     };
 
+    const routePriority: RoutePriority = useMotoboyPrefsStore.getState().routePriority;
+    const apiPriority = toApiPriorityPayload(routePriority);
+
     try {
-      const res = await postRotasOtimizar(idsForApi, start);
+      const res = await postRotasOtimizar(idsForApi, start, apiPriority);
       const semCoordenadas = res.sem_coordenadas ?? [];
       const message: OptimizeRouteResult["message"] =
         semCoordenadas.length > 0 ? "partial" : "success";
-      return applyOrder(res.ordem, res.modo, message, semCoordenadas);
+      return applyOrder(res.ordem, res.modo, message, semCoordenadas, {
+        distanceM: res.distancia_total_m ?? null,
+        durationS: res.duracao_total_s ?? null,
+      });
     } catch {
       const suffixDeliveries = getOrderedRouteDeliveries(
         routeDeliveries.filter((d) => suffix.includes(d.id_saida)),
         suffix
       );
-      const orderedIds = optimizeRouteLocal(
-        suffixDeliveries,
-        suffix,
-        opts?.fromLat,
-        opts?.fromLon
-      );
+      const orderedIds =
+        routePriority.type !== "none"
+          ? optimizeStopsSoftPriority(
+              suffixDeliveries,
+              suffix,
+              routePriority,
+              opts?.fromLat,
+              opts?.fromLon
+            )
+          : optimizeRouteLocal(
+              suffixDeliveries,
+              suffix,
+              opts?.fromLat,
+              opts?.fromLon
+            );
       const semCoordenadas = suffixDeliveries
         .filter((d) => d.latitude == null || d.longitude == null)
         .map((d) => d.id_saida);
-      return applyOrder(orderedIds, "local_fallback", "local_fallback", semCoordenadas);
+      const distKm = estimateRouteDistanceKm(suffixDeliveries, orderedIds);
+      const mode: RouteOptimizationMode =
+        routePriority.type !== "none" ? "priority_soft" : "local_fallback";
+      return applyOrder(orderedIds, mode, "local_fallback", semCoordenadas, {
+        distanceM: Math.round(distKm * 1000),
+        durationS: Math.round((distKm / 30) * 3600),
+      });
     }
   },
   reorderRoute: (order) => {
@@ -553,7 +688,11 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     for (let stopIndex = 0; stopIndex < groups.length; stopIndex++) {
       for (const delivery of groups[stopIndex].deliveries) {
         if ((delivery.codigo ?? "").trim().toLowerCase() === normalized) {
-          return { stopIndex, delivery };
+          return {
+            stopIndex,
+            delivery,
+            sameStopDeliveries: groups[stopIndex].deliveries,
+          };
         }
       }
     }

@@ -4,13 +4,14 @@ import { useThemeColors } from "../../../theme/colors";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import type { EntregaListItem } from "../types";
 import type { AddressFormValues } from "./AddressForm";
+import type { GeocodeResult } from "../utils/geocode";
 import AddressQuickForm, { type QuickFormFlowState } from "./AddressQuickForm";
 import { getStopAddressLine, getStopPedidoLabel } from "../utils/routeUtils";
 
 interface RouteEditAddressSheetProps {
   visible: boolean;
   delivery: EntregaListItem | null;
-  onSave: (values: AddressFormValues) => Promise<void>;
+  onSave: (values: AddressFormValues, coords?: GeocodeResult | null) => Promise<void>;
   onClose: () => void;
 }
 
@@ -94,7 +95,7 @@ export default function RouteEditAddressSheet({
               showInputActions={false}
               submitLabel="Salvar endereço"
               onFlowStateChange={setFlowState}
-              onSaveAndNext={onSave}
+              onSaveAndNext={(vals, coords) => onSave(vals, coords)}
               onDictate={() =>
                 Alert.alert("Indisponível", "Use o campo de texto para editar o endereço.")
               }

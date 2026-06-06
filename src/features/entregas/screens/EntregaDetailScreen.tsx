@@ -9,7 +9,6 @@ import {
   Linking,
   Alert,
   Modal,
-  TextInput,
   Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,19 +16,18 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import * as ImagePicker from "expo-image-picker";
-import { getEntrega, getMotivosAusencia, marcarEntregue, marcarAusente, fetchComprovanteImageDataUri } from "../api";
-import {
-  selectOrTakePhoto,
-  preparePhoto,
-  uploadDeliveryPhoto,
-  MAX_PHOTOS,
-} from "../../../services/deliveryPhotoService";
-import type { EntregaListItem, MotivoAusencia } from "../types";
+import { getEntrega, marcarEntregue, marcarAusente, fetchComprovanteImageDataUri } from "../api";
+import type { EntregaListItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
-import AddressForm, { type AddressFormValues, type AddressOrigem } from "../components/AddressForm";
+import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
+import AddressQuickForm from "../components/AddressQuickForm";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
-import { parseOcrToAddress, parseVoiceToAddress } from "../utils/ocrAddress";
+import FormAusenteModal from "../components/FormAusenteModal";
+import { pickBestOcrAddress, parseVoiceAddress, type ParsedAddress } from "../utils/ocrAddress";
 import VoiceAddressModal from "../components/VoiceAddressModal";
+import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
+import type { GeocodeResult } from "../utils/geocode";
+import { isValidGeocodeCoords } from "../utils/geocode";
 import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregaDetail">;
@@ -151,30 +149,27 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [modalAusente, setModalAusente] = useState(false);
   const [modalEndereco, setModalEndereco] = useState(false);
   const [modalEnderecoOpcoes, setModalEnderecoOpcoes] = useState(false);
-  const [ocrInitialValues, setOcrInitialValues] = useState<Partial<AddressFormValues> | null>(null);
-  const [enderecoOrigem, setEnderecoOrigem] = useState<AddressOrigem>("manual");
+  const [externalParsed, setExternalParsed] = useState<ParsedAddress | null>(null);
+  const [quickFormFlowState, setQuickFormFlowState] =
+    useState<import("../components/AddressQuickForm").QuickFormFlowState>("idle");
   const [ocrLoading, setOcrLoading] = useState(false);
   const [vozLoading, setVozLoading] = useState(false);
   const [speechModule, setSpeechModule] = useState<typeof import("expo-speech-recognition") | null>(null);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [showEntregueModal, setShowEntregueModal] = useState(false);
-  const [motivos, setMotivos] = useState<MotivoAusencia[]>([]);
-  const [motivoId, setMotivoId] = useState<number | null>(null);
-  const [observacao, setObservacao] = useState("");
-  type PhotoItem = { uri: string; status: "idle" | "uploading" | "sent" | "error"; object_key?: string };
-  const [ausentePhotos, setAusentePhotos] = useState<PhotoItem[]>([]);
   const [comprovanteThumb, setComprovanteThumb] = useState<string | null>(null);
   const [loadingComprovante, setLoadingComprovante] = useState(false);
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
+  const pendingDeliveries = useDeliveryStore((s) => s.pendingDeliveries);
   const novaTentativa = useDeliveryStore((s) => s.novaTentativa);
+  const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
+  const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const load = async () => {
     setLoading(true);
     try {
-      const [e, m] = await Promise.all([getEntrega(idSaida), getMotivosAusencia()]);
+      const e = await getEntrega(idSaida);
       setEntrega(e);
-      setMotivos(m);
-      if (m.length) setMotivoId(m[0].id);
       const exibirComprovante =
         !!e?.tem_comprovante || e?.exibicao === "Entregue" || e?.exibicao === "Ausente";
       if (exibirComprovante) {
@@ -203,33 +198,40 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
 
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
 
-  const handleAbrirAusente = () => {
-    setAusentePhotos([]);
-    setModalAusente(true);
-  };
+  const handleAbrirAusente = () => setModalAusente(true);
 
-  const addPhotoAusente = async () => {
-    if (ausentePhotos.length >= MAX_PHOTOS) return;
+  const handleConfirmarAusente = async ({
+    motivoId,
+    observacao,
+  }: {
+    motivoId: number;
+    observacao?: string;
+    photoUris: string[];
+  }) => {
     try {
-      const picked = await selectOrTakePhoto();
-      if (!picked) return;
-      const prepared = await preparePhoto(picked.uri);
-      setAusentePhotos((prev) => [...prev, { uri: prepared.uri, status: "idle" }]);
-    } catch (e) {
-      Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+      const marcacao = await marcarAusente(idSaida, motivoId, observacao);
+      setModalAusente(false);
+      runPostFinalizeFeedback({
+        tipo: "ausente",
+        codigo: entrega?.codigo,
+        entregaAtrasada: marcacao.entrega_atrasada ?? false,
+        onAfterIndividualAlert: () => navigation.goBack(),
+      });
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === "object" && "response" in e
+          ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          : "Erro ao salvar.";
+      Alert.alert("Erro", String(msg));
+      throw e;
     }
-  };
-
-  const removePhotoAusente = (index: number) => {
-    setAusentePhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleAbrirEndereco = () => setModalEnderecoOpcoes(true);
 
   const handleDigitarEndereco = () => {
     setModalEnderecoOpcoes(false);
-    setOcrInitialValues(null);
-    setEnderecoOrigem("manual");
+    setExternalParsed(null);
     setModalEndereco(true);
   };
 
@@ -269,12 +271,11 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         return;
       }
       const lines = await extractTextFromImage(result.assets[0].uri);
-      const parsed = parseOcrToAddress(lines);
+      const parsed = pickBestOcrAddress(lines);
       const nomeOriginal = (entrega?.cliente ?? "").trim();
       const nomeOcr = (parsed.destinatario ?? "").trim();
       const openFormWithDest = (dest: string) => {
-        setOcrInitialValues({ ...parsed, destinatario: dest });
-        setEnderecoOrigem("ocr");
+        setExternalParsed({ ...parsed, destinatario: dest });
         setModalEndereco(true);
         setOcrLoading(false);
       };
@@ -318,12 +319,14 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const handleVoiceDone = (transcript: string) => {
     setShowVoiceModal(false);
     setSpeechModule(null);
-    const parsed = parseVoiceToAddress(transcript);
-    setOcrInitialValues({
+    const parsed = parseVoiceAddress(transcript, {
+      cidade: cidadePadrao || undefined,
+      estado: estadoPadrao || undefined,
+    });
+    setExternalParsed({
       ...parsed,
       destinatario: parsed.destinatario ?? entrega?.cliente ?? "",
     });
-    setEnderecoOrigem("voz");
     setModalEndereco(true);
   };
 
@@ -332,87 +335,37 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     setSpeechModule(null);
   };
 
-  const handleSalvarEndereco = async (vals: AddressFormValues) => {
+  const handleQuickFormSave = async (
+    vals: AddressFormValues,
+    coords?: GeocodeResult | null,
+    origem: AddressOrigem = "manual"
+  ) => {
     try {
-      const updated = await saveAddress(idSaida, {
+      const body = {
         ...vals,
-        origem: enderecoOrigem,
-      });
+        origem,
+        ...(isValidGeocodeCoords(coords?.latitude, coords?.longitude)
+          ? { latitude: coords!.latitude, longitude: coords!.longitude }
+          : {}),
+      };
+      const updated = await saveAddress(idSaida, body);
       setEntrega(updated);
       setModalEndereco(false);
-      setOcrInitialValues(null);
-      setEnderecoOrigem("manual");
+      setExternalParsed(null);
     } catch (e) {
-      Alert.alert("Erro ao salvar endereço", e instanceof Error ? e.message : "Não foi possível salvar. Verifique o endereço e tente novamente.");
+      Alert.alert(
+        "Erro ao salvar endereço",
+        e instanceof Error ? e.message : "Não foi possível salvar. Verifique o endereço e tente novamente."
+      );
     }
   };
 
-  const handleConfirmarAusente = async () => {
-    if (motivoId == null) {
-      Alert.alert("Atenção", "Selecione um motivo.");
-      return;
-    }
-    const motivo = motivos.find((m) => m.id === motivoId);
-    if (motivo?.descricao.trim().toLowerCase() === "outro" && !observacao.trim()) {
-      Alert.alert("Atenção", "Informe a observação quando o motivo for 'Outro'.");
-      return;
-    }
-    const required = new Set((entrega?.campos_obrigatorios_ausente || []).map((f) => String(f || "").trim().toLowerCase()));
-    const missing: string[] = [];
-    if (required.has("foto") && ausentePhotos.length === 0) missing.push("Foto");
-    if (required.has("observacao") && !observacao.trim()) missing.push("Observação");
-    if (missing.length) {
-      Alert.alert("Atenção", `Preencha os campos obrigatórios para concluir este pedido: ${missing.join(", ")}.`);
-      return;
-    }
-    setSaving(true);
-    try {
-      const idleIndexes = ausentePhotos.map((p, i) => (p.status === "idle" ? i : -1)).filter((i) => i >= 0);
-      for (const idx of idleIndexes) {
-        const item = ausentePhotos[idx];
-        if (!item || item.status !== "idle") continue;
-        setAusentePhotos((prev) =>
-          prev.map((p, j) => (j === idx ? { ...p, status: "uploading" as const } : p))
-        );
-        try {
-          await uploadDeliveryPhoto({
-            id_saida: idSaida,
-            tipo: "ausente",
-            uri: item.uri,
-            mimeType: "image/jpeg",
-            filename: "foto.jpg",
-            validarCamposObrigatorios: false,
-            alterarStatus: false,
-          });
-          setAusentePhotos((prev) =>
-            prev.map((p, j) => (j === idx ? { ...p, status: "sent" as const } : p))
-          );
-        } catch (uploadErr) {
-          setAusentePhotos((prev) =>
-            prev.map((p, j) => (j === idx ? { ...p, status: "error" as const } : p))
-          );
-          Alert.alert("Erro ao enviar foto", (uploadErr as Error)?.message || "Falha no envio.");
-          setSaving(false);
-          return;
-        }
-      }
-      await marcarAusente(idSaida, motivoId, observacao.trim() || undefined);
-      setModalAusente(false);
-      setObservacao("");
-      setAusentePhotos([]);
-      runPostFinalizeFeedback({
-        tipo: "ausente",
-        codigo: entrega?.codigo,
-        onAfterIndividualAlert: () => navigation.goBack(),
-      });
-    } catch (e: unknown) {
-      const msg = e && typeof e === "object" && "response" in e
-        ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
-        : "Erro ao salvar.";
-      Alert.alert("Erro", String(msg));
-    } finally {
-      setSaving(false);
-    }
+  const handleQuickFormOcr = async () => {
+    await handleOcrEndereco();
+  };
+
+  const handleQuickFormDictate = async () => {
+    await handleVozEndereco();
   };
 
   if (loading || !entrega) {
@@ -602,11 +555,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.btnAusente, saving && styles.btnDisabled]}
-            onPress={handleAbrirAusente}
-            disabled={saving}
-          >
+          <TouchableOpacity style={styles.btnAusente} onPress={handleAbrirAusente}>
             <Text style={styles.btnAusenteText}>Marcar como ausente</Text>
           </TouchableOpacity>
         </>
@@ -654,37 +603,26 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         />
       )}
 
-      <Modal visible={modalEndereco} animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, styles.modalBoxForm]}>
-            <Text style={styles.modalTitle}>Endereço</Text>
-            <AddressForm
-              idSaida={idSaida}
-              initialValues={{
-                destinatario: "",
-                rua: "",
-                numero: "",
-                complemento: "",
-                bairro: "",
-                cidade: "",
-                estado: "",
-                cep: "",
-                ...(ocrInitialValues ?? {
-                  destinatario: entrega.cliente ?? "",
-                  rua: (entrega as { endereco?: string }).endereco?.split(",")[0] ?? "",
-                  bairro: entrega.bairro ?? "",
-                }),
-              }}
-              origem={enderecoOrigem}
-              onSave={handleSalvarEndereco}
-              onCancel={() => {
-                setModalEndereco(false);
-                setOcrInitialValues(null);
-                setEnderecoOrigem("manual");
-              }}
-              submitLabel="Salvar"
-            />
-          </View>
+      <Modal visible={modalEndereco && entrega != null} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+          <AddressQuickForm
+            delivery={entrega!}
+            flowState={quickFormFlowState}
+            cidadePadrao={cidadePadrao}
+            estadoPadrao={estadoPadrao}
+            knownDeliveries={pendingDeliveries}
+            hidePackageCard
+            submitLabel="Salvar"
+            onFlowStateChange={setQuickFormFlowState}
+            onSaveAndNext={handleQuickFormSave}
+            onDictate={() => void handleQuickFormDictate()}
+            onOcr={() => void handleQuickFormOcr()}
+            externalParsed={externalParsed}
+            onCancel={() => {
+              setModalEndereco(false);
+              setExternalParsed(null);
+            }}
+          />
         </View>
       </Modal>
 
@@ -695,75 +633,25 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         requiredFields={entrega?.campos_obrigatorios_entregue || []}
         onConfirm={async (body) => marcarEntregue(idSaida, body)}
         onClose={() => setShowEntregueModal(false)}
-        onSuccess={async () => {
+        onSuccess={async (marcacao) => {
           await load();
           runPostFinalizeFeedback({
             tipo: "entregue",
             codigo: entrega?.codigo,
+            entregaAtrasada: marcacao?.entrega_atrasada ?? false,
             onAfterIndividualAlert: () => navigation.goBack(),
           });
         }}
       />
 
-      <Modal visible={modalAusente} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Motivo da ausência</Text>
-            {motivos.map((m) => (
-              <TouchableOpacity
-                key={m.id}
-                style={[styles.radio, motivoId === m.id && styles.radioActive]}
-                onPress={() => setMotivoId(m.id)}
-              >
-                <Text style={styles.radioText}>{m.descricao}</Text>
-              </TouchableOpacity>
-            ))}
-            {motivoId !== null && motivos.find((m) => m.id === motivoId)?.descricao.trim().toLowerCase() === "outro" && (
-              <TextInput
-                style={styles.input}
-                placeholder="Observação (obrigatório)"
-                value={observacao}
-                onChangeText={setObservacao}
-                multiline
-              />
-            )}
-            <Text style={styles.label}>Comprovante (opcional, até {MAX_PHOTOS} fotos)</Text>
-            <View style={styles.photoRow}>
-              {ausentePhotos.map((p, idx) => (
-                <View key={idx} style={styles.photoWrap}>
-                  <Image source={{ uri: p.uri }} style={styles.photoImg} resizeMode="cover" />
-                  <TouchableOpacity
-                    style={styles.photoRemove}
-                    onPress={() => removePhotoAusente(idx)}
-                    disabled={saving}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 10 }}>✕</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.photoStatus} numberOfLines={1}>
-                    {p.status === "idle" && "Pendente"}
-                    {p.status === "uploading" && "Enviando…"}
-                    {p.status === "sent" && "Enviado"}
-                    {p.status === "error" && "Falhou"}
-                  </Text>
-                </View>
-              ))}
-              {ausentePhotos.length < MAX_PHOTOS && (
-                <TouchableOpacity style={styles.btnAddPhoto} onPress={addPhotoAusente} disabled={saving}>
-                  <Text style={styles.btnAddPhotoText}>+ Foto</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalAusente(false)}>
-                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalBtnOk} onPress={handleConfirmarAusente} disabled={saving}>
-                <Text style={styles.modalBtnOkText}>Confirmar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <FormAusenteModal
+        visible={modalAusente}
+        idSaidas={[idSaida]}
+        requiredFields={entrega?.campos_obrigatorios_ausente || []}
+        codigo={entrega?.codigo ?? undefined}
+        onConfirm={handleConfirmarAusente}
+        onClose={() => setModalAusente(false)}
+      />
 
       <Modal visible={showComprovanteViewer} transparent={false} animationType="fade" onRequestClose={() => setShowComprovanteViewer(false)}>
         <View style={{ flex: 1, backgroundColor: "#000" }}>

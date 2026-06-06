@@ -8,9 +8,9 @@ import {
   ActivityIndicator,
   Modal,
   Dimensions,
-  Linking,
   Alert,
   TextInput,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import MapView, { Marker } from "react-native-maps";
@@ -23,14 +23,31 @@ import { useThemeColors } from "../../../theme/colors";
 import { fetchFinalizadasFiltradas, getEntregas, getTodayISO } from "../api";
 import {
   FINALIZADAS_FILTROS_PADRAO,
+  FINALIZAR_LOTE_MAX_IDS,
   type EntregasListInitialTab,
   type FinalizadasFiltros,
 } from "../types";
-import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
-import type { EntregaListItem } from "../types";
-import FormEntregaConcluida from "../components/FormEntregaConcluida";
+import type { EntregaListItem, FinalizarLoteBloqueadoOut } from "../types";
+import BatchSelectionBar, { BATCH_SELECTION_LIST_PADDING } from "../components/BatchSelectionBar";
+import BatchAusenteConfirmModal from "../components/BatchAusenteConfirmModal";
+import BatchFinalizeResultModal from "../components/BatchFinalizeResultModal";
 import { useDeliveryStore } from "../../../store/deliveryStore";
-import { geocodeAddress } from "../utils/geocode";
+import { geocodeAddressFromValues, isValidGeocodeCoords, type GeocodeResult } from "../utils/geocode";
+import {
+  buildPendingMapGroups,
+  countPendingMapStats,
+  resolveDeliveryCoords,
+  spreadOverlappingStopCoords,
+  type GroupedStop,
+  type PendingMapGroupPoint,
+} from "../utils/routeUtils";
+import { clusterMapPoints } from "../utils/mapClusterUtils";
+import MapLocateButton from "../../../components/MapLocateButton";
+import PendingMapMarker, { PendingMapClusterMarker } from "../components/PendingMapMarker";
+import PendingMapGroupSheet, { confirmCreateRouteFromGroup } from "../components/PendingMapGroupSheet";
+import RouteEditAddressSheet from "../components/RouteEditAddressSheet";
+import type { AddressFormValues } from "../components/AddressForm";
+import { formatApiError } from "../../../utils/formatApiError";
 import { SERVICO_ORDER, servicoTipo, type ServicoTipo } from "../utils/servico";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useThemeStore } from "../../../store/themeStore";
@@ -38,6 +55,11 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import { ScanFrameOverlay } from "../../operacao/components/ScanFrameOverlay";
+import {
+  getDestinationLabel,
+  openNavigationToStop,
+  resolveNavigationTarget,
+} from "../utils/externalNavigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregasList">;
 
@@ -66,11 +88,9 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-const SERVICO_INICIAL: Record<string, string> = {
-  Shopee: "S",
-  Flex: "F",
-  Avulso: "A",
-};
+const LOCATE_ZOOM_DELTA = 0.008;
+const MAP_LOCATE_BOTTOM_INSET = 72;
+const GEOCODE_BATCH_SIZE = 8;
 
 const defaultExpanded: Record<string, boolean> = { Shopee: false, Flex: false, Avulso: false };
 
@@ -212,7 +232,21 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         toggleText: { fontSize: 14, color: colors.textSecondary },
         toggleTextActive: { color: colors.primaryContrast, fontWeight: "600" },
         loader: { marginTop: 48 },
-        listContent: { padding: 16, paddingBottom: 32 },
+        listWrap: { flex: 1 },
+        batchLoadingOverlay: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: colors.overlay,
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 5,
+          gap: 12,
+        },
+        batchLoadingText: {
+          fontSize: 15,
+          fontWeight: "600",
+          color: colors.text,
+        },
+        listContent: { padding: 16 },
         mapWrap: { flex: 1, minHeight: Dimensions.get("window").height * 0.5 },
         map: { width: "100%", height: "100%", minHeight: 400 },
         bottomSheetOverlay: { flex: 1, backgroundColor: colors.overlay },
@@ -304,6 +338,27 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         },
         servicoCardLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 4 },
         servicoCardValue: { fontSize: 20, fontWeight: "700", color: colors.text },
+        mapStatsRow: {
+          flexDirection: "row",
+          paddingHorizontal: 16,
+          gap: 8,
+          marginBottom: 4,
+        },
+        mapStatCard: {
+          flex: 1,
+          backgroundColor: colors.backgroundCard,
+          padding: 12,
+          borderRadius: 10,
+          borderTopWidth: 3,
+          borderTopColor: colors.primary,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+          elevation: 2,
+        },
+        mapStatLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 2 },
+        mapStatValue: { fontSize: 18, fontWeight: "700", color: colors.text },
         sectionHeaderWrap: {
           flexDirection: "row",
           alignItems: "center",
@@ -402,6 +457,43 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           alignItems: "center",
           marginBottom: 12,
         },
+        selectionBtn: {
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: colors.separator,
+          backgroundColor: colors.backgroundCard,
+        },
+        selectionBtnActive: {
+          borderColor: colors.primary,
+          backgroundColor: colors.inputBackground,
+        },
+        selectionBtnText: { fontSize: 13, fontWeight: "600", color: colors.text },
+        sectionSelectRow: {
+          flexDirection: "row",
+          justifyContent: "flex-end",
+          gap: 12,
+          paddingHorizontal: 10,
+          paddingBottom: 6,
+        },
+        sectionSelectLink: { fontSize: 12, color: colors.primary, fontWeight: "600" },
+        itemSelected: { borderWidth: 2, borderColor: colors.primary },
+        checkbox: {
+          width: 22,
+          height: 22,
+          borderRadius: 6,
+          borderWidth: 2,
+          borderColor: colors.separator,
+          marginRight: 10,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        checkboxChecked: {
+          borderColor: colors.primary,
+          backgroundColor: colors.primary,
+        },
+        itemRowWithCheck: { flexDirection: "row", alignItems: "flex-start" },
       }),
     [colors]
   );
@@ -412,29 +504,38 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   const [list, setList] = useState<EntregaListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedServico, setExpandedServico] = useState<Record<string, boolean>>(defaultExpanded);
-  const [saving, setSaving] = useState(false);
 
   const {
     pendingDeliveries,
     mapMode,
     setMapMode,
-    selectedDelivery,
-    setSelectedDelivery,
     loadDeliveries,
-    markDelivered,
     suggestedOrder,
     loading: storeLoading,
     routeStarted,
+    activeRouteId,
+    setRouteDeliveries,
+    clearActiveRouteState,
+    optimizeRoute,
+    saveAddress,
+    currentLocation,
+    setCurrentLocation,
+    finalizePendingBatch,
   } = useDeliveryStore();
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [showBatchAusenteModal, setShowBatchAusenteModal] = useState(false);
+  const [batchResultVisible, setBatchResultVisible] = useState(false);
+  const [batchFinalizadosCount, setBatchFinalizadosCount] = useState(0);
+  const [batchBloqueados, setBatchBloqueados] = useState<FinalizarLoteBloqueadoOut[]>([]);
   const [showNavegarModal, setShowNavegarModal] = useState(false);
-  const [showEntregueModal, setShowEntregueModal] = useState(false);
-  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<number, { latitude: number; longitude: number }>>({});
-  const [selectedMarkerCount, setSelectedMarkerCount] = useState<number | null>(null);
-  const [selectedGroup, setSelectedGroup] = useState<{ originalLatitude: number; originalLongitude: number } | null>(null);
-  const selectedGroupRef = useRef<{ originalLatitude: number; originalLongitude: number } | null>(null);
-  const [listFinalizadas, setListFinalizadas] = useState<EntregaListItem[]>([]);
-  const [listAusentes, setListAusentes] = useState<EntregaListItem[]>([]);
+  const [selectedPendingGroup, setSelectedPendingGroup] = useState<GroupedStop | null>(null);
+  const [editDelivery, setEditDelivery] = useState<EntregaListItem | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [markersReady, setMarkersReady] = useState(false);
+  const mapRegionInitializedRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [scannerVisible, setScannerVisible] = useState(false);
   const scanLockedRef = useRef(false);
@@ -485,6 +586,12 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     navigation.setParams({ initialTab: undefined });
   }, [route.params?.initialTab, navigation]);
 
+  useEffect(() => {
+    if (!route.params?.todosPendentes) return;
+    void setSomenteHojePendentes(false);
+    navigation.setParams({ todosPendentes: undefined });
+  }, [route.params?.todosPendentes, navigation, setSomenteHojePendentes]);
+
   useFocusEffect(
     useCallback(() => {
       if (tab === "pendente") {
@@ -505,71 +612,6 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (tab === "finalizadas") void load();
   }, [tab, finalizadasFiltros, load]);
-
-  useEffect(() => {
-    if (mapMode !== "map" || tab !== "pendente") return;
-    let cancelled = false;
-    let subscription: Location.LocationSubscription | null = null;
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (cancelled || status !== "granted") return;
-        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        if (cancelled) return;
-        const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        setUserLocation(coords);
-        subscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 5000,
-            distanceInterval: 10,
-          },
-          (location) => {
-            if (cancelled) return;
-            const { latitude, longitude } = location.coords;
-            setUserLocation({ latitude, longitude });
-            mapRef.current?.animateToRegion({
-              latitude,
-              longitude,
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
-            });
-          }
-        );
-      } catch {
-        // ignora falha de localização
-      }
-    })();
-    return () => {
-      cancelled = true;
-      subscription?.remove();
-    };
-  }, [mapMode, tab]);
-
-  const loadMapListsRef = useRef(false);
-  useEffect(() => {
-    if (mapMode !== "map" || tab !== "pendente") return;
-    loadMapListsRef.current = false;
-    (async () => {
-      try {
-        const params = somenteHojePendentes ? { dia: "hoje" as const, data: getTodayISO() } : undefined;
-        const [fin, aus] = await Promise.all([
-          getEntregas("finalizadas", params),
-          getEntregas("ausentes", params),
-        ]);
-        if (!loadMapListsRef.current) {
-          setListFinalizadas(fin ?? []);
-          setListAusentes(aus ?? []);
-        }
-      } catch {
-        if (!loadMapListsRef.current) {
-          setListFinalizadas([]);
-          setListAusentes([]);
-        }
-      }
-    })();
-    return () => { loadMapListsRef.current = true; };
-  }, [mapMode, tab, somenteHojePendentes]);
 
   const badgeColor = (exibicao: string) => {
     if (exibicao === "Pendente") return colors.warning;
@@ -618,110 +660,61 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     [totalByService]
   );
 
-  const entregasComCoords = useMemo(
-    () => (listForTab ?? []).filter((d) => d.latitude != null && d.longitude != null),
-    [listForTab]
+  const todayIso = useMemo(() => getTodayISO(), []);
+
+  const pendingMapStats = useMemo(
+    () => countPendingMapStats(orderedPendentes),
+    [orderedPendentes]
   );
 
-  type MapMarkerStatus = "pendente" | "entregue" | "ausente";
-  type ItemComCoords = EntregaListItem & { latitude: number; longitude: number; mapStatus: MapMarkerStatus };
+  const persistedMapGroups = useMemo(
+    () => buildPendingMapGroups(orderedPendentes, {}, todayIso),
+    [orderedPendentes, todayIso]
+  );
 
-  const listaUnicaParaMapa = useMemo(() => {
-    if (tab !== "pendente") return [];
-    const withCoords = (d: EntregaListItem, status: MapMarkerStatus): ItemComCoords | null => {
-      const lat = d.latitude ?? geocodedCoords[d.id_saida]?.latitude;
-      const lon = d.longitude ?? geocodedCoords[d.id_saida]?.longitude;
-      if (lat == null || lon == null) return null;
-      return { ...d, latitude: lat, longitude: lon, mapStatus: status };
-    };
-    const pendentes = (pendingDeliveries ?? []).map((d) => withCoords(d, "pendente")).filter(Boolean) as ItemComCoords[];
-    const finalizadas = listFinalizadas.map((d) => withCoords(d, "entregue")).filter(Boolean) as ItemComCoords[];
-    const ausentes = listAusentes.map((d) => withCoords(d, "ausente")).filter(Boolean) as ItemComCoords[];
-    return [...pendentes, ...finalizadas, ...ausentes];
-  }, [tab, pendingDeliveries, listFinalizadas, listAusentes, geocodedCoords]);
+  const pendingMapGroups = useMemo(
+    () => buildPendingMapGroups(orderedPendentes, geocodedCoords, todayIso),
+    [orderedPendentes, geocodedCoords, todayIso]
+  );
 
-  const gruposNoMapa = useMemo(() => {
-    const list = listaUnicaParaMapa;
-    const key = (lat: number, lon: number, tipo: string, status: MapMarkerStatus) =>
-      `${Number(lat.toFixed(6))}_${Number(lon.toFixed(6))}_${tipo}_${status}`;
-    const map = new Map<
-      string,
-      { latitude: number; longitude: number; tipo: string; status: MapMarkerStatus; items: ItemComCoords[] }
-    >();
-    for (const d of list) {
-      const tipo = servicoTipo(d.servico);
-      const k = key(d.latitude, d.longitude, tipo, d.mapStatus);
-      const existing = map.get(k);
-      if (existing) {
-        existing.items.push(d);
-      } else {
-        map.set(k, {
-          latitude: d.latitude,
-          longitude: d.longitude,
-          tipo,
-          status: d.mapStatus,
-          items: [d],
-        });
-      }
-    }
-    return Array.from(map.values());
-  }, [listaUnicaParaMapa]);
-
-  const OFFSET_DEG = 0.00012;
-  type GrupoComDeslocamento = {
-    latitude: number;
-    longitude: number;
-    originalLatitude: number;
-    originalLongitude: number;
-    tipo: string;
-    status: MapMarkerStatus;
-    items: ItemComCoords[];
+  type PendingMapPointDisplay = PendingMapGroupPoint & {
+    displayLatitude: number;
+    displayLongitude: number;
   };
-  const gruposComDeslocamento = useMemo((): GrupoComDeslocamento[] => {
-    const pointKey = (lat: number, lon: number) => `${Number(lat.toFixed(6))}_${Number(lon.toFixed(6))}`;
-    const byPoint = new Map<string, typeof gruposNoMapa>();
-    for (const g of gruposNoMapa) {
-      const k = pointKey(g.latitude, g.longitude);
-      if (!byPoint.has(k)) byPoint.set(k, []);
-      byPoint.get(k)!.push(g);
-    }
-    return gruposNoMapa.map((g) => {
-      const k = pointKey(g.latitude, g.longitude);
-      const noMesmoPonto = byPoint.get(k)!;
-      const originalLat = g.latitude;
-      const originalLon = g.longitude;
-      if (noMesmoPonto.length <= 1) {
-        return { ...g, originalLatitude: originalLat, originalLongitude: originalLon };
-      }
-      const idx = noMesmoPonto.indexOf(g);
-      const n = noMesmoPonto.length;
-      const angleRad = (idx * (2 * Math.PI)) / n;
-      const dLat = OFFSET_DEG * Math.cos(angleRad);
-      const dLon = (OFFSET_DEG / Math.cos((g.latitude * Math.PI) / 180)) * Math.sin(angleRad);
+
+  const pendingMapPointsWithDisplay = useMemo((): PendingMapPointDisplay[] => {
+    const spread = spreadOverlappingStopCoords(
+      pendingMapGroups.map((p) => ({
+        paradaIndex: p.mapIndex,
+        latitude: p.latitude,
+        longitude: p.longitude,
+      }))
+    );
+    const coordByIndex = new Map(
+      spread.map((s) => [s.paradaIndex, { latitude: s.latitude, longitude: s.longitude }])
+    );
+    return pendingMapGroups.map((p) => {
+      const display = coordByIndex.get(p.mapIndex) ?? { latitude: p.latitude, longitude: p.longitude };
       return {
-        ...g,
-        latitude: g.latitude + dLat,
-        longitude: g.longitude + dLon,
-        originalLatitude: originalLat,
-        originalLongitude: originalLon,
+        ...p,
+        displayLatitude: display.latitude,
+        displayLongitude: display.longitude,
       };
     });
-  }, [gruposNoMapa]);
+  }, [pendingMapGroups]);
 
-  const listaPedidosNoEndereco = useMemo(() => {
-    if (!selectedGroup) return [];
-    return gruposComDeslocamento
-      .filter(
-        (g) =>
-          Number(g.originalLatitude.toFixed(6)) === Number(selectedGroup.originalLatitude.toFixed(6)) &&
-          Number(g.originalLongitude.toFixed(6)) === Number(selectedGroup.originalLongitude.toFixed(6))
-      )
-      .flatMap((g) => g.items);
-  }, [selectedGroup, gruposComDeslocamento]);
-
-  const totalNoEndereco = listaPedidosNoEndereco.length;
-  const finalizadosNoEndereco = listaPedidosNoEndereco.filter((i) => i.mapStatus !== "pendente").length;
-  const pendentesNoEndereco = listaPedidosNoEndereco.filter((i) => i.mapStatus === "pendente").length;
+  const pendingMapDisplayItems = useMemo(
+    () =>
+      clusterMapPoints(
+        pendingMapPointsWithDisplay.map((p) => ({
+          ...p,
+          latitude: p.displayLatitude,
+          longitude: p.displayLongitude,
+        })),
+        { routeMode: false }
+      ),
+    [pendingMapPointsWithDisplay]
+  );
   const getServiceRowStyle = useCallback(
     (servico?: string | null) => {
       const tipo = servicoTipo(servico);
@@ -762,12 +755,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     if (mapMode !== "map" || tab !== "pendente") return;
-    const list = [
-      ...(pendingDeliveries ?? []),
-      ...listFinalizadas,
-      ...listAusentes,
-    ];
-    const toGeocode = list.filter(
+    const toGeocode = (pendingDeliveries ?? []).filter(
       (d) =>
         (d.possui_endereco || (d.endereco_formatado ?? "").trim() || (d.endereco ?? "").trim()) &&
         (d.latitude == null || d.longitude == null) &&
@@ -776,47 +764,55 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     if (toGeocode.length === 0) return;
     let cancelled = false;
     (async () => {
+      let pendingBatch: Record<number, { latitude: number; longitude: number }> = {};
+      const flushBatch = () => {
+        if (Object.keys(pendingBatch).length === 0) return;
+        const snapshot = pendingBatch;
+        pendingBatch = {};
+        setGeocodedCoords((prev) => ({ ...prev, ...snapshot }));
+      };
       for (const d of toGeocode) {
         if (cancelled) break;
         geocodedIdsRef.current.add(d.id_saida);
         const address = (d.endereco_formatado || d.endereco || "").trim();
         if (!address) continue;
-        const coords = await geocodeAddress(address, { cidade: d.bairro ?? undefined, estado: undefined });
+        const coords = await geocodeAddressFromValues({
+          rua: d.endereco ?? undefined,
+          numero: d.numero ?? undefined,
+          bairro: d.bairro ?? undefined,
+          cep: d.cep ?? undefined,
+        });
         if (cancelled || !coords) continue;
-        setGeocodedCoords((prev) => ({ ...prev, [d.id_saida]: coords }));
+        pendingBatch[d.id_saida] = coords;
+        if (Object.keys(pendingBatch).length >= GEOCODE_BATCH_SIZE) {
+          flushBatch();
+        }
         await new Promise((r) => setTimeout(r, 1100));
       }
+      if (!cancelled) flushBatch();
     })();
     return () => {
       cancelled = true;
     };
-  }, [mapMode, tab, pendingDeliveries, listFinalizadas, listAusentes]);
+  }, [mapMode, tab, pendingDeliveries]);
 
-  const firstDestWithCoords = useMemo(
-    () => orderedPendentes.find((d) => d.latitude != null && d.longitude != null),
-    [orderedPendentes]
+  const firstDestForNav = useMemo(() => orderedPendentes[0] ?? null, [orderedPendentes]);
+
+  const firstDestNavTarget = useMemo(
+    () => (firstDestForNav ? resolveNavigationTarget(firstDestForNav) : null),
+    [firstDestForNav]
   );
 
   const abrirAcoesOuBloquear = useCallback(
-    (item: EntregaListItem, opts?: { abrirDetailDireto?: boolean }) => {
+    (item: EntregaListItem) => {
       const statusNorm = String(item.status || item.exibicao || "").trim().toLowerCase();
       if (statusNorm.includes("entreg") || statusNorm.includes("cancel")) {
         Alert.alert("Bloqueado", `Pedido ${item.codigo ?? ""} está com status final (${item.exibicao || item.status}).`);
         return;
       }
-      if (opts?.abrirDetailDireto) {
-        navigation.navigate("EntregaDetail", { idSaida: item.id_saida });
-        return;
-      }
-      setSelectedGroup(null);
-      if (mapMode === "list") {
-        navigation.navigate("EntregaDetail", { idSaida: item.id_saida });
-        return;
-      }
-      setSelectedDelivery(item);
-      setSelectedMarkerCount(1);
+      navigation.navigate("EntregaDetail", { idSaida: item.id_saida });
     },
-    [setSelectedDelivery, mapMode, navigation]
+    [navigation]
   );
 
   const processarBuscaOuScan = useCallback(
@@ -829,27 +825,18 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       }
       const item = (pendingDeliveries ?? []).find((d) => String(d.codigo ?? "").trim().toLowerCase() === codigo);
       if (!item) {
-        const finalizado = [...(listFinalizadas ?? []), ...(listAusentes ?? [])].find(
-          (d) => String(d.codigo ?? "").trim().toLowerCase() === codigo
-        );
-        if (finalizado) {
-          Alert.alert("Bloqueado", `Pedido ${finalizado.codigo ?? ""} está com status final (${finalizado.exibicao || finalizado.status}).`);
-          return;
-        }
-      }
-      if (!item) {
         Alert.alert("Não encontrado", "Código não está nos pendentes carregados ou já está finalizado/cancelado.");
         return;
       }
-      abrirAcoesOuBloquear(item, { abrirDetailDireto: true });
+      abrirAcoesOuBloquear(item);
       setSearchQuery("");
     },
-    [pendingDeliveries, listFinalizadas, listAusentes, abrirAcoesOuBloquear]
+    [pendingDeliveries, abrirAcoesOuBloquear]
   );
 
   const handleSelectBuscaDigitada = useCallback(
     (item: EntregaListItem) => {
-      abrirAcoesOuBloquear(item, { abrirDetailDireto: true });
+      abrirAcoesOuBloquear(item);
     },
     [abrirAcoesOuBloquear]
   );
@@ -880,46 +867,46 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     setScannerVisible(true);
   }, [cameraPermission?.granted, requestCameraPermission]);
 
-  const openGoogleMaps = useCallback(() => {
-    if (!firstDestWithCoords?.latitude || !firstDestWithCoords?.longitude) {
-      Alert.alert("Aviso", "Nenhuma entrega com endereço para navegação.");
+  const openGoogleMaps = useCallback(async () => {
+    if (!firstDestForNav) {
+      Alert.alert("Aviso", "Nenhuma entrega para navegação.");
       return;
     }
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${firstDestWithCoords.latitude},${firstDestWithCoords.longitude}`;
-    Linking.openURL(url).catch(() => Alert.alert("Erro", "Não foi possível abrir o Google Maps."));
+    await openNavigationToStop(firstDestForNav, "google");
     setShowNavegarModal(false);
-  }, [firstDestWithCoords]);
+  }, [firstDestForNav]);
 
-  const openWaze = useCallback(() => {
-    if (!firstDestWithCoords?.latitude || !firstDestWithCoords?.longitude) {
-      Alert.alert("Aviso", "Nenhuma entrega com endereço para navegação.");
+  const openWaze = useCallback(async () => {
+    if (!firstDestForNav) {
+      Alert.alert("Aviso", "Nenhuma entrega para navegação.");
       return;
     }
-    const url = `https://waze.com/ul?ll=${firstDestWithCoords.latitude},${firstDestWithCoords.longitude}&navigate=yes`;
-    Linking.openURL(url).catch(() => Alert.alert("Erro", "Não foi possível abrir o Waze."));
+    await openNavigationToStop(firstDestForNav, "waze");
     setShowNavegarModal(false);
-  }, [firstDestWithCoords]);
+  }, [firstDestForNav]);
 
-  const openNavegador = useCallback(() => {
-    if (!firstDestWithCoords?.latitude || !firstDestWithCoords?.longitude) {
-      Alert.alert("Aviso", "Nenhuma entrega com endereço para navegação.");
+  const openNavegador = useCallback(async () => {
+    if (!firstDestForNav) {
+      Alert.alert("Aviso", "Nenhuma entrega para navegação.");
       return;
     }
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${firstDestWithCoords.latitude},${firstDestWithCoords.longitude}`;
-    Linking.openURL(url).catch(() => Alert.alert("Erro", "Não foi possível abrir."));
+    await openNavigationToStop(firstDestForNav, "google");
     setShowNavegarModal(false);
-  }, [firstDestWithCoords]);
-  const mapRegion = useMemo(() => {
-    if (userLocation) {
-      return {
-        ...userLocation,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      };
+  }, [firstDestForNav]);
+  const mapInitialRegion = useMemo(() => {
+    const points = persistedMapGroups;
+    if (points.length === 0) {
+      if (currentLocation) {
+        return {
+          ...currentLocation,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        };
+      }
+      return DEFAULT_REGION;
     }
-    if (gruposComDeslocamento.length === 0) return DEFAULT_REGION;
-    const lats = gruposComDeslocamento.map((g) => g.latitude);
-    const lons = gruposComDeslocamento.map((g) => g.longitude);
+    const lats = points.map((g) => g.latitude);
+    const lons = points.map((g) => g.longitude);
     const minLat = Math.min(...lats);
     const maxLat = Math.max(...lats);
     const minLon = Math.min(...lons);
@@ -927,67 +914,323 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     return {
       latitude: (minLat + maxLat) / 2,
       longitude: (minLon + maxLon) / 2,
-      latitudeDelta: Math.max(0.01, (maxLat - minLat) * 1.5 || 0.05),
-      longitudeDelta: Math.max(0.01, (maxLon - minLon) * 1.5 || 0.05),
+      latitudeDelta: Math.max(0.02, (maxLat - minLat) * 1.6 || 0.08),
+      longitudeDelta: Math.max(0.02, (maxLon - minLon) * 1.6 || 0.08),
     };
-  }, [userLocation, gruposComDeslocamento]);
+  }, [persistedMapGroups, currentLocation]);
 
-  const fecharSheetERestaurarLista = useCallback(() => {
-    setSelectedDelivery(null);
-    setSelectedMarkerCount(null);
-    if (selectedGroupRef.current) {
-      setSelectedGroup(selectedGroupRef.current);
-      selectedGroupRef.current = null;
+  useEffect(() => {
+    if (mapMode !== "map" || tab !== "pendente") {
+      mapRegionInitializedRef.current = false;
+      return;
     }
+    if (mapRegionInitializedRef.current || persistedMapGroups.length === 0) return;
+    mapRegionInitializedRef.current = true;
+    const coords = persistedMapGroups.map((p) => ({
+      latitude: p.latitude,
+      longitude: p.longitude,
+    }));
+    mapRef.current?.fitToCoordinates(coords, {
+      edgePadding: { top: 80, right: 48, bottom: 140, left: 48 },
+      animated: false,
+    });
+  }, [mapMode, tab, persistedMapGroups]);
+
+  useEffect(() => {
+    if (pendingMapPointsWithDisplay.length === 0) {
+      setMarkersReady(true);
+      return;
+    }
+    setMarkersReady(false);
+    const t = setTimeout(() => setMarkersReady(true), Platform.OS === "android" ? 500 : 300);
+    return () => clearTimeout(t);
+  }, [pendingMapPointsWithDisplay]);
+
+  const centerOnCoords = useCallback((latitude: number, longitude: number) => {
+    mapRef.current?.animateToRegion(
+      {
+        latitude,
+        longitude,
+        latitudeDelta: LOCATE_ZOOM_DELTA,
+        longitudeDelta: LOCATE_ZOOM_DELTA,
+      },
+      400
+    );
   }, []);
 
-  const handleAbrirEntregueModal = useCallback(() => setShowEntregueModal(true), []);
-
-  const handleEntregueModalSuccess = useCallback(() => {
-    if (!selectedDelivery) return;
-    const codigo = selectedDelivery.codigo;
-    const lat = selectedDelivery.latitude ?? geocodedCoords[selectedDelivery.id_saida]?.latitude;
-    const lon = selectedDelivery.longitude ?? geocodedCoords[selectedDelivery.id_saida]?.longitude;
-    if (lat != null && lon != null) {
-      setListFinalizadas((prev) => [...prev, { ...selectedDelivery, latitude: lat, longitude: lon }]);
+  const handleLocateMe = useCallback(async () => {
+    if (locating) return;
+    if (currentLocation) {
+      centerOnCoords(currentLocation.latitude, currentLocation.longitude);
+      return;
     }
-    setShowEntregueModal(false);
-    fecharSheetERestaurarLista();
-    void load();
-    runPostFinalizeFeedback({
-      tipo: "entregue",
-      codigo,
-      onAfterIndividualAlert: () => {
-        if (tab === "pendente") void loadDeliveries({ onlyToday: somenteHojePendentes });
-      },
-    });
-  }, [
-    selectedDelivery,
-    geocodedCoords,
-    fecharSheetERestaurarLista,
-    load,
-    tab,
-    loadDeliveries,
-    somenteHojePendentes,
-  ]);
-
-  const handleMarcarAusente = useCallback(
-    (item: EntregaListItem) => {
-      const lat = (item as ItemComCoords).latitude ?? geocodedCoords[item.id_saida]?.latitude;
-      const lon = (item as ItemComCoords).longitude ?? geocodedCoords[item.id_saida]?.longitude;
-      if (lat != null && lon != null) {
-        setListAusentes((prev) => [...prev, { ...item, latitude: lat, longitude: lon }]);
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Localização",
+          "Permita o acesso à localização para centralizar o mapa na sua posição."
+        );
+        return;
       }
-      fecharSheetERestaurarLista();
-      navigation.navigate("EntregaDetail", { idSaida: item.id_saida });
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude, heading } = pos.coords;
+      setCurrentLocation({
+        latitude,
+        longitude,
+        heading: typeof heading === "number" && !Number.isNaN(heading) ? heading : undefined,
+      });
+      centerOnCoords(latitude, longitude);
+    } catch {
+      Alert.alert("Localização", "Não foi possível obter sua posição atual.");
+    } finally {
+      setLocating(false);
+    }
+  }, [locating, currentLocation, centerOnCoords, setCurrentLocation]);
+
+  const handleCriarRotaFromGroup = useCallback(
+    (group: GroupedStop) => {
+      confirmCreateRouteFromGroup(() => {
+        void (async () => {
+          const withCoords = group.deliveries.filter((d) => resolveDeliveryCoords(d, geocodedCoords));
+          if (withCoords.length === 0) {
+            Alert.alert("Atenção", "Nenhum pedido deste endereço possui coordenadas.");
+            return;
+          }
+          try {
+            if (activeRouteId === null) clearActiveRouteState();
+            setRouteDeliveries(withCoords);
+            if (withCoords.length >= 2) {
+              await optimizeRoute();
+            }
+            setSelectedPendingGroup(null);
+            navigation.navigate("RouteBuilder");
+          } catch (e) {
+            Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
+          }
+        })();
+      }, activeRouteId);
     },
-    [geocodedCoords, navigation, fecharSheetERestaurarLista]
+    [
+      activeRouteId,
+      clearActiveRouteState,
+      geocodedCoords,
+      navigation,
+      setRouteDeliveries,
+      optimizeRoute,
+    ]
+  );
+
+  const handleSavePendingAddress = useCallback(
+    async (values: AddressFormValues, coords?: GeocodeResult | null) => {
+      if (!editDelivery) return;
+      try {
+        const body = {
+          ...values,
+          origem: "manual" as const,
+          ...(isValidGeocodeCoords(coords?.latitude, coords?.longitude)
+            ? { latitude: coords!.latitude, longitude: coords!.longitude }
+            : {}),
+        };
+        const updated = await saveAddress(editDelivery.id_saida, body);
+        if (updated.latitude != null && updated.longitude != null) {
+          setGeocodedCoords((prev) => ({
+            ...prev,
+            [updated.id_saida]: { latitude: updated.latitude!, longitude: updated.longitude! },
+          }));
+        }
+        setEditDelivery(null);
+      } catch (e) {
+        Alert.alert("Erro ao salvar", formatApiError(e, "Não foi possível salvar o endereço."));
+      }
+    },
+    [editDelivery, saveAddress]
+  );
+
+  const handleClusterPress = useCallback(
+    (points: PendingMapPointDisplay[]) => {
+      if (points.length === 0) return;
+      const lats = points.map((p) => p.displayLatitude);
+      const lons = points.map((p) => p.displayLongitude);
+      const minLat = Math.min(...lats);
+      const maxLat = Math.max(...lats);
+      const minLon = Math.min(...lons);
+      const maxLon = Math.max(...lons);
+      mapRef.current?.animateToRegion(
+        {
+          latitude: (minLat + maxLat) / 2,
+          longitude: (minLon + maxLon) / 2,
+          latitudeDelta: Math.max(0.005, (maxLat - minLat) * 2 || 0.02),
+          longitudeDelta: Math.max(0.005, (maxLon - minLon) * 2 || 0.02),
+        },
+        400
+      );
+    },
+    []
   );
 
 
   const toggleServico = (s: string) => {
     setExpandedServico((prev) => ({ ...prev, [s]: !prev[s] }));
   };
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  }, []);
+
+  useEffect(() => {
+    if (tab !== "pendente" || mapMode === "map") {
+      clearSelection();
+    }
+  }, [tab, mapMode, clearSelection]);
+
+  const toggleSelectedId = useCallback((idSaida: number) => {
+    if (batchLoading) return;
+    setSelectedIds((prev) => {
+      if (prev.has(idSaida)) {
+        const next = new Set(prev);
+        next.delete(idSaida);
+        return next;
+      }
+      if (prev.size >= FINALIZAR_LOTE_MAX_IDS) {
+        Alert.alert(
+          "Limite de seleção",
+          `É possível selecionar no máximo ${FINALIZAR_LOTE_MAX_IDS} pedidos por lote.`
+        );
+        return prev;
+      }
+      const next = new Set(prev);
+      next.add(idSaida);
+      return next;
+    });
+  }, [batchLoading]);
+
+  const enterSelectionWithItem = useCallback((item: EntregaListItem) => {
+    if (batchLoading) return;
+    setSelectionMode(true);
+    setSelectedIds(new Set([item.id_saida]));
+  }, [batchLoading]);
+
+  const selectAllInSection = useCallback((items: EntregaListItem[]) => {
+    if (batchLoading) return;
+    setSelectionMode(true);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      let skipped = 0;
+      for (const item of items) {
+        if (next.has(item.id_saida)) continue;
+        if (next.size >= FINALIZAR_LOTE_MAX_IDS) {
+          skipped += 1;
+          continue;
+        }
+        next.add(item.id_saida);
+      }
+      if (skipped > 0) {
+        Alert.alert(
+          "Limite de seleção",
+          `Só é possível selecionar até ${FINALIZAR_LOTE_MAX_IDS} pedidos por lote. ${skipped} pedido${skipped !== 1 ? "s" : ""} não ${skipped !== 1 ? "foram" : "foi"} incluído${skipped !== 1 ? "s" : ""}.`
+        );
+      }
+      return next;
+    });
+  }, [batchLoading]);
+
+  const clearSectionSelection = useCallback((items: EntregaListItem[]) => {
+    if (batchLoading) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const item of items) next.delete(item.id_saida);
+      return next;
+    });
+  }, [batchLoading]);
+
+  const selectedIdsArray = useMemo(() => Array.from(selectedIds), [selectedIds]);
+
+  const handleBatchEntregue = useCallback(() => {
+    const count = selectedIds.size;
+    if (count === 0) return;
+    if (count > FINALIZAR_LOTE_MAX_IDS) {
+      Alert.alert(
+        "Limite de seleção",
+        `Reduza a seleção para no máximo ${FINALIZAR_LOTE_MAX_IDS} pedidos antes de finalizar em lote.`
+      );
+      return;
+    }
+    Alert.alert(
+      "Confirmar entrega em lote?",
+      `Você está marcando ${count} pedido${count !== 1 ? "s" : ""} como entregue${count !== 1 ? "s" : ""}.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Confirmar",
+          onPress: () => {
+            void (async () => {
+              setBatchLoading(true);
+              try {
+                const resp = await finalizePendingBatch({
+                  ids: selectedIdsArray,
+                  acao: "entregue",
+                });
+                setBatchFinalizadosCount(resp.finalizados.length);
+                setBatchBloqueados(resp.bloqueados);
+                setBatchResultVisible(true);
+                const finalizedSet = new Set(resp.finalizados.map((f) => f.id_saida));
+                const remaining = selectedIdsArray.filter((id) => !finalizedSet.has(id));
+                setSelectedIds(new Set(remaining));
+                if (remaining.length === 0) setSelectionMode(false);
+              } catch (e) {
+                Alert.alert("Erro", formatApiError(e, "Não foi possível finalizar em lote."));
+              } finally {
+                setBatchLoading(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, [selectedIds.size, selectedIdsArray, finalizePendingBatch]);
+
+  const handleBatchAusenteConfirm = useCallback(
+    async (data: { motivoId: number; observacao?: string }) => {
+      if (selectedIds.size > FINALIZAR_LOTE_MAX_IDS) {
+        Alert.alert(
+          "Limite de seleção",
+          `Reduza a seleção para no máximo ${FINALIZAR_LOTE_MAX_IDS} pedidos antes de finalizar em lote.`
+        );
+        return;
+      }
+      setShowBatchAusenteModal(false);
+      setBatchLoading(true);
+      try {
+        const resp = await finalizePendingBatch({
+          ids: selectedIdsArray,
+          acao: "ausente",
+          motivo_id: data.motivoId,
+          observacao: data.observacao,
+        });
+        setBatchFinalizadosCount(resp.finalizados.length);
+        setBatchBloqueados(resp.bloqueados);
+        setBatchResultVisible(true);
+        const finalizedSet = new Set(resp.finalizados.map((f) => f.id_saida));
+        const remaining = selectedIdsArray.filter((id) => !finalizedSet.has(id));
+        setSelectedIds(new Set(remaining));
+        if (remaining.length === 0) setSelectionMode(false);
+      } catch (e) {
+        Alert.alert("Erro", formatApiError(e, "Não foi possível finalizar em lote."));
+      } finally {
+        setBatchLoading(false);
+      }
+    },
+    [selectedIdsArray, finalizePendingBatch]
+  );
+
+  const handleVerBloqueados = useCallback(() => {
+    setBatchResultVisible(false);
+    setSelectionMode(true);
+    setSelectedIds(new Set(batchBloqueados.map((b) => b.id_saida)));
+  }, [batchBloqueados]);
 
   const handleToggleSomenteHoje = useCallback(
     async (value: boolean) => {
@@ -1130,7 +1373,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       )}
 
       {tab === "pendente" && (
-        <View style={styles.toggleRow}>
+        <View style={[styles.toggleRow, { alignItems: "center" }]}>
           <TouchableOpacity
             style={[styles.toggleBtn, mapMode === "list" && styles.toggleBtnActive]}
             onPress={() => setMapMode("list")}
@@ -1143,17 +1386,41 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           >
             <Text style={[styles.toggleText, mapMode === "map" && styles.toggleTextActive]}>Mapa</Text>
           </TouchableOpacity>
+          {mapMode === "list" && (
+            <TouchableOpacity
+              style={[styles.selectionBtn, selectionMode && styles.selectionBtnActive, batchLoading && { opacity: 0.5 }]}
+              onPress={() => !batchLoading && (selectionMode ? clearSelection() : setSelectionMode(true))}
+              disabled={batchLoading}
+            >
+              <Text style={styles.selectionBtnText}>{selectionMode ? "Cancelar" : "Selecionar"}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
-      {!loadingForTab && (
+      {!loadingForTab && tab === "pendente" && mapMode === "map" ? (
+        <View style={styles.mapStatsRow}>
+          <View style={styles.mapStatCard}>
+            <Text style={styles.mapStatLabel}>Pendentes</Text>
+            <Text style={styles.mapStatValue}>{pendingMapStats.total}</Text>
+          </View>
+          <View style={styles.mapStatCard}>
+            <Text style={styles.mapStatLabel}>No mapa</Text>
+            <Text style={styles.mapStatValue}>{pendingMapStats.noMapa}</Text>
+          </View>
+          <View style={styles.mapStatCard}>
+            <Text style={styles.mapStatLabel}>Sem localização</Text>
+            <Text style={styles.mapStatValue}>{pendingMapStats.semLocalizacao}</Text>
+          </View>
+        </View>
+      ) : !loadingForTab ? (
         <View style={styles.cardsRow}>
           <View style={styles.cardTotal}>
             <Text style={styles.servicoCardLabel}>{TAB_LABELS[tab]}</Text>
             <Text style={styles.servicoCardValue}>{totalGeral}</Text>
           </View>
         </View>
-      )}
+      ) : null}
 
       {loadingForTab ? (
         <ActivityIndicator size="large" style={styles.loader} />
@@ -1162,178 +1429,61 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           <MapView
             ref={mapRef}
             style={styles.map}
-            initialRegion={mapRegion}
-            region={mapRegion}
+            initialRegion={mapInitialRegion}
             showsUserLocation
-            showsMyLocationButton
+            showsMyLocationButton={false}
           >
-            {gruposComDeslocamento.map((grupo, idx) => {
-              const first = grupo.items[0];
-              const count = grupo.items.length;
-              const onPress = () => {
-                if (count > 1) {
-                  setSelectedGroup({ originalLatitude: grupo.originalLatitude, originalLongitude: grupo.originalLongitude });
-                  setSelectedDelivery(null);
-                  setSelectedMarkerCount(null);
-                } else {
-                  setSelectedGroup(null);
-                  setSelectedDelivery(first);
-                  setSelectedMarkerCount(1);
-                }
-              };
-              if (grupo.status === "entregue") {
+            {pendingMapDisplayItems.map((item, idx) => {
+              if (item.type === "cluster") {
                 return (
                   <Marker
-                    key={`entregue-${idx}-${grupo.latitude}-${grupo.longitude}`}
-                    coordinate={{ latitude: grupo.latitude, longitude: grupo.longitude }}
-                    onPress={onPress}
+                    key={`pending-cluster-${idx}`}
+                    coordinate={{ latitude: item.latitude, longitude: item.longitude }}
+                    onPress={() => handleClusterPress(item.points)}
                     anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={!markersReady}
                   >
-                    <View style={[styles.markerWrap, styles.markerEntregue]}>
-                      <Text style={styles.markerIconText}>✓</Text>
-                      {count > 1 && <View style={styles.markerCountBadge}><Text style={styles.markerCountText}>{count}</Text></View>}
-                    </View>
+                    <PendingMapClusterMarker count={item.count} />
                   </Marker>
                 );
               }
-              if (grupo.status === "ausente") {
-                return (
-                  <Marker
-                    key={`ausente-${idx}-${grupo.latitude}-${grupo.longitude}`}
-                    coordinate={{ latitude: grupo.latitude, longitude: grupo.longitude }}
-                    onPress={onPress}
-                    anchor={{ x: 0.5, y: 0.5 }}
-                  >
-                    <View style={[styles.markerWrap, styles.markerAusente]}>
-                      <Text style={styles.markerIconText}>✕</Text>
-                      {count > 1 && <View style={styles.markerCountBadge}><Text style={styles.markerCountText}>{count}</Text></View>}
-                    </View>
-                  </Marker>
-                );
-              }
-              const cor = SERVICO_COLORS[grupo.tipo] || "#999";
-              const inicial = SERVICO_INICIAL[grupo.tipo] || "?";
-              const textoClaro = grupo.tipo !== "Flex";
+              const point = item.point;
               return (
                 <Marker
-                  key={`pendente-${idx}-${grupo.latitude}-${grupo.longitude}-${grupo.tipo}`}
-                  coordinate={{ latitude: grupo.latitude, longitude: grupo.longitude }}
-                  onPress={onPress}
+                  key={`pending-${point.group.stopKey}-${point.mapIndex}`}
+                  coordinate={{ latitude: point.displayLatitude, longitude: point.displayLongitude }}
+                  onPress={() => setSelectedPendingGroup(point.group)}
                   anchor={{ x: 0.5, y: 0.5 }}
+                  tracksViewChanges={!markersReady}
                 >
-                  <View style={[styles.markerWrap, { backgroundColor: cor }]}>
-                    <Text style={[styles.markerInicialText, { color: textoClaro ? "#fff" : "#333" }]}>{inicial}</Text>
-                    {count > 1 && <View style={styles.markerCountBadge}><Text style={styles.markerCountText}>{count}</Text></View>}
-                  </View>
+                  <PendingMapMarker packageCount={point.packageCount} hasLate={point.hasLate} />
                 </Marker>
               );
             })}
           </MapView>
-          <Modal visible={!!selectedGroup} transparent animationType="slide">
-            <TouchableOpacity
-              style={styles.bottomSheetOverlay}
-              activeOpacity={1}
-              onPress={() => setSelectedGroup(null)}
-            />
-            <View style={[styles.listSheet, { paddingBottom: Math.max(24, insets.bottom) }]}>
-              <Text style={styles.listSheetTitle}>Pedidos neste endereço</Text>
-              <Text style={styles.listSheetSubtitle}>
-                {finalizadosNoEndereco} de {totalNoEndereco} finalizados
-                {pendentesNoEndereco > 0 ? ` · ${pendentesNoEndereco} pendente${pendentesNoEndereco > 1 ? "s" : ""}` : ""}
-              </Text>
-              <FlatList
-                data={listaPedidosNoEndereco}
-                keyExtractor={(item) => String(item.id_saida)}
-                style={styles.listSheetList}
-                renderItem={({ item }) => {
-                  const isPendente = item.mapStatus === "pendente";
-                  const statusLabel = item.mapStatus === "entregue" ? "Entregue" : item.mapStatus === "ausente" ? "Ausente" : "Pendente";
-                  const statusStyle = item.mapStatus === "entregue" ? styles.badgeEntregue : item.mapStatus === "ausente" ? styles.badgeAusente : styles.badgePendente;
-                  return (
-                    <TouchableOpacity
-                      style={[styles.listSheetItem, !isPendente && styles.listSheetItemDisabled]}
-                      onPress={() => {
-                        if (!isPendente) return;
-                        selectedGroupRef.current = selectedGroup;
-                        handleSelectBuscaDigitada(item);
-                      }}
-                      disabled={!isPendente}
-                    >
-                      <View style={styles.listSheetItemLeft}>
-                        <Text style={styles.listSheetItemCodigo}>{item.codigo ?? "—"}</Text>
-                        <Text style={styles.listSheetItemCliente}>{item.cliente ?? "—"}</Text>
-                      </View>
-                      <View style={[styles.badge, statusStyle]}>
-                        <Text style={styles.badgeText}>{statusLabel}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-              <TouchableOpacity style={styles.bottomSheetFechar} onPress={() => setSelectedGroup(null)}>
-                <Text style={styles.bottomSheetFecharText}>Fechar</Text>
-              </TouchableOpacity>
-            </View>
-          </Modal>
 
-          <Modal visible={!!selectedDelivery} transparent animationType="slide">
-            <TouchableOpacity
-              style={styles.bottomSheetOverlay}
-              activeOpacity={1}
-              onPress={fecharSheetERestaurarLista}
-            />
-            <View style={[styles.bottomSheet, { paddingBottom: Math.max(24, insets.bottom) }]}>
-              {selectedDelivery && (
-                <>
-                  <Text style={styles.bottomSheetTitle}>{selectedDelivery.codigo ?? "—"}</Text>
-                  <Text style={styles.bottomSheetCliente}>{selectedDelivery.cliente ?? "—"}</Text>
-                  {selectedMarkerCount != null && selectedMarkerCount > 1 && (
-                    <Text style={styles.bottomSheetGrupoInfo}>{selectedMarkerCount} entregas neste endereço</Text>
-                  )}
-                  <Text style={styles.bottomSheetEndereco}>
-                    {selectedDelivery.endereco_formatado || selectedDelivery.endereco || "—"}
-                  </Text>
-                  {(pendingDeliveries ?? []).some((d) => d.id_saida === selectedDelivery.id_saida) ? (
-                    <View style={styles.bottomSheetActions}>
-                      <TouchableOpacity
-                        style={styles.bottomSheetBtnEntregue}
-                        onPress={handleAbrirEntregueModal}
-                      >
-                        <Text style={styles.bottomSheetBtnText}>Marcar como entregue</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.bottomSheetBtnAusente, saving && styles.btnDisabled]}
-                        onPress={() => handleMarcarAusente(selectedDelivery)}
-                        disabled={saving}
-                      >
-                        <Text style={styles.bottomSheetBtnText}>Marcar como ausente</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.bottomSheetBtnVerDetalhes}
-                      onPress={() => navigation.navigate("EntregaDetail", { idSaida: selectedDelivery.id_saida })}
-                    >
-                      <Text style={styles.bottomSheetBtnText}>Ver detalhes</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity style={styles.bottomSheetFechar} onPress={fecharSheetERestaurarLista}>
-                    <Text style={styles.bottomSheetFecharText}>Fechar</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          </Modal>
+          <MapLocateButton
+            bottomInset={MAP_LOCATE_BOTTOM_INSET + insets.bottom}
+            onPress={handleLocateMe}
+            loading={locating}
+            disabled={locating}
+          />
 
-          <FormEntregaConcluida
-            visible={showEntregueModal && !!selectedDelivery}
-            idSaida={selectedDelivery?.id_saida ?? 0}
-            destinatarioPreenchido={selectedDelivery?.cliente ?? selectedDelivery?.endereco_formatado?.split(",")[0] ?? undefined}
-            onConfirm={async (body) => {
-              if (selectedDelivery) await markDelivered(selectedDelivery.id_saida, body);
-            }}
-            onClose={() => setShowEntregueModal(false)}
-            onSuccess={handleEntregueModalSuccess}
+          <PendingMapGroupSheet
+            visible={!!selectedPendingGroup}
+            group={selectedPendingGroup}
+            bottomInset={insets.bottom}
+            onClose={() => setSelectedPendingGroup(null)}
+            onCriarRota={handleCriarRotaFromGroup}
+            onEditarEndereco={(group) => setEditDelivery(group.representativeDelivery)}
+            onVerPedido={(idSaida) => navigation.navigate("EntregaDetail", { idSaida })}
+          />
+
+          <RouteEditAddressSheet
+            visible={!!editDelivery}
+            delivery={editDelivery}
+            onSave={handleSavePendingAddress}
+            onClose={() => setEditDelivery(null)}
           />
 
           <Modal visible={showNavegarModal} transparent animationType="fade">
@@ -1343,6 +1493,11 @@ export default function EntregasListScreen({ navigation, route }: Props) {
                 <Text style={styles.modalMessage}>
                   Abrir primeiro destino da rota sugerida em:
                 </Text>
+                {firstDestNavTarget && (
+                  <Text style={[styles.modalMessage, { fontWeight: "600", marginBottom: 8 }]}>
+                    {getDestinationLabel(firstDestNavTarget)}
+                  </Text>
+                )}
                 <TouchableOpacity style={styles.navegarBtn} onPress={openGoogleMaps}>
                   <Text style={styles.navegarBtnText}>Google Maps</Text>
                 </TouchableOpacity>
@@ -1360,12 +1515,20 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           </Modal>
         </View>
       ) : (
-        <FlatList
-          data={listWithSections}
-          keyExtractor={(sec, idx) => sec.section ? sec.section : `list-${idx}`}
-          contentContainerStyle={styles.listContent}
-          renderItem={({ item: section }) => {
+        <View style={styles.listWrap}>
+          <FlatList
+            data={listWithSections}
+            keyExtractor={(sec, idx) => sec.section ? sec.section : `list-${idx}`}
+            contentContainerStyle={[
+              styles.listContent,
+              tab === "pendente" && selectionMode
+                ? { paddingBottom: BATCH_SELECTION_LIST_PADDING }
+                : { paddingBottom: 24 },
+            ]}
+            renderItem={({ item: section }) => {
             const isExpanded = !section.section || expandedServico[section.section] !== false;
+            const sectionAllSelected =
+              section.data.length > 0 && section.data.every((d) => selectedIds.has(d.id_saida));
             return (
               <View>
                 {section.section ? (
@@ -1392,45 +1555,121 @@ export default function EntregasListScreen({ navigation, route }: Props) {
                     </View>
                   </TouchableOpacity>
                 ) : null}
-                {isExpanded &&
-                  section.data.map((item) => (
-                    <TouchableOpacity
-                      key={item.id_saida}
-                      style={[styles.item, getServiceRowStyle(section.section)]}
-                      onPress={() => navigation.navigate("EntregaDetail", { idSaida: item.id_saida })}
-                    >
-                      <View style={styles.itemRow}>
-                        <Text style={styles.itemCodigo}>{item.codigo || "—"}</Text>
-                        <View style={styles.badgesRow}>
-                          <View style={[styles.servicoBadge, { backgroundColor: SERVICO_COLORS[servicoTipo(item.servico)] || colors.placeholder }]}>
-                            <Text style={[styles.servicoBadgeText, { color: badgeTextColor }]}>{servicoTipo(item.servico)}</Text>
-                          </View>
-                          <View style={[styles.badge, { backgroundColor: badgeColor(item.exibicao) }]}>
-                            <Text style={styles.badgeText}>{item.exibicao}</Text>
-                          </View>
-                          {(item.tentativa ?? 1) >= 2 && (
-                            <Text style={styles.tentativaBadge}>{item.tentativa}ª tentativa</Text>
-                          )}
-                        </View>
-                      </View>
-                      <Text style={styles.itemCliente} numberOfLines={1}>
-                        {item.cliente || "—"}
+                {tab === "pendente" && selectionMode && isExpanded && section.section && section.data.length > 0 && (
+                  <View style={styles.sectionSelectRow}>
+                    <TouchableOpacity onPress={() => selectAllInSection(section.data)}>
+                      <Text style={styles.sectionSelectLink}>
+                        {sectionAllSelected ? "Selecionados" : "Selecionar todos visíveis"}
                       </Text>
-                      <View style={styles.itemRow2}>
-                        <Text style={styles.itemBairro}>{item.bairro || "—"}</Text>
-                        {item.possui_endereco ? (
-                          <Text style={styles.enderecoOk}>✓ Endereço</Text>
-                        ) : (
-                          <Text style={styles.enderecoFalta}>Sem endereço</Text>
-                        )}
-                      </View>
                     </TouchableOpacity>
-                  ))}
+                    {section.data.some((d) => selectedIds.has(d.id_saida)) && (
+                      <TouchableOpacity onPress={() => clearSectionSelection(section.data)}>
+                        <Text style={styles.sectionSelectLink}>Limpar seção</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+                {isExpanded &&
+                  section.data.map((item) => {
+                    const isSelected = selectedIds.has(item.id_saida);
+                    return (
+                      <TouchableOpacity
+                        key={item.id_saida}
+                        style={[
+                          styles.item,
+                          getServiceRowStyle(section.section),
+                          isSelected && styles.itemSelected,
+                        ]}
+                        onPress={() => {
+                          if (tab === "pendente" && selectionMode) {
+                            toggleSelectedId(item.id_saida);
+                            return;
+                          }
+                          navigation.navigate("EntregaDetail", { idSaida: item.id_saida });
+                        }}
+                        onLongPress={() => {
+                          if (tab === "pendente") enterSelectionWithItem(item);
+                        }}
+                        delayLongPress={400}
+                      >
+                        <View style={styles.itemRowWithCheck}>
+                          {tab === "pendente" && selectionMode && (
+                            <View style={[styles.checkbox, isSelected && styles.checkboxChecked]}>
+                              {isSelected && (
+                                <Ionicons name="checkmark" size={14} color={colors.primaryContrast} />
+                              )}
+                            </View>
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.itemRow}>
+                              <Text style={styles.itemCodigo}>{item.codigo || "—"}</Text>
+                              <View style={styles.badgesRow}>
+                                <View style={[styles.servicoBadge, { backgroundColor: SERVICO_COLORS[servicoTipo(item.servico)] || colors.placeholder }]}>
+                                  <Text style={[styles.servicoBadgeText, { color: badgeTextColor }]}>{servicoTipo(item.servico)}</Text>
+                                </View>
+                                <View style={[styles.badge, { backgroundColor: badgeColor(item.exibicao) }]}>
+                                  <Text style={styles.badgeText}>{item.exibicao}</Text>
+                                </View>
+                                {(item.tentativa ?? 1) >= 2 && (
+                                  <Text style={styles.tentativaBadge}>{item.tentativa}ª tentativa</Text>
+                                )}
+                              </View>
+                            </View>
+                            <Text style={styles.itemCliente} numberOfLines={1}>
+                              {item.cliente || "—"}
+                            </Text>
+                            <View style={styles.itemRow2}>
+                              <Text style={styles.itemBairro}>{item.bairro || "—"}</Text>
+                              {item.possui_endereco ? (
+                                <Text style={styles.enderecoOk}>✓ Endereço</Text>
+                              ) : (
+                                <Text style={styles.enderecoFalta}>Sem endereço</Text>
+                              )}
+                            </View>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
               </View>
             );
           }}
-        />
+          />
+          {tab === "pendente" && batchLoading && (
+            <View style={styles.batchLoadingOverlay} pointerEvents="auto">
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.batchLoadingText}>Finalizando pedidos...</Text>
+            </View>
+          )}
+          {tab === "pendente" && (
+            <BatchSelectionBar
+              count={selectedIds.size}
+              maxCount={FINALIZAR_LOTE_MAX_IDS}
+              loading={batchLoading}
+              onMarcarEntregue={handleBatchEntregue}
+              onMarcarAusente={() => setShowBatchAusenteModal(true)}
+              onCancelar={clearSelection}
+            />
+          )}
+        </View>
       )}
+
+      <BatchAusenteConfirmModal
+        visible={showBatchAusenteModal}
+        count={selectedIds.size}
+        onClose={() => setShowBatchAusenteModal(false)}
+        onConfirm={(data) => void handleBatchAusenteConfirm(data)}
+      />
+
+      <BatchFinalizeResultModal
+        visible={batchResultVisible}
+        finalizadosCount={batchFinalizadosCount}
+        bloqueados={batchBloqueados}
+        bottomInset={insets.bottom}
+        onClose={() => setBatchResultVisible(false)}
+        onVerBloqueados={handleVerBloqueados}
+      />
+
       <Modal visible={scannerVisible} transparent={false} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
         <View style={styles.imageViewerOverlay}>
           <View style={[styles.scannerHeader, { paddingTop: Math.max(14, insets.top), paddingBottom: 10 }]}>

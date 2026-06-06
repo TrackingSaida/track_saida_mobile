@@ -20,6 +20,7 @@ interface AddressPreviewSheetProps {
   suggestionsLoading?: boolean;
   selectedSuggestionId?: string | null;
   autoApplied?: boolean;
+  didYouMean?: AddressSuggestion | null;
   onSelectSuggestion?: (suggestion: AddressSuggestion) => void;
   onSaveAndNext: () => void;
   onEdit: () => void;
@@ -42,6 +43,7 @@ export default function AddressPreviewSheet({
   suggestionsLoading,
   selectedSuggestionId,
   autoApplied,
+  didYouMean,
   onSelectSuggestion,
   onSaveAndNext,
   onEdit,
@@ -122,7 +124,9 @@ export default function AddressPreviewSheet({
                 loading={suggestionsLoading}
                 selectedId={selectedSuggestionId}
                 autoApplied={autoApplied}
+                didYouMean={didYouMean}
                 onSelect={onSelectSuggestion}
+                onSelectDidYouMean={onSelectSuggestion}
               />
             )}
 
