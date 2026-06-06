@@ -7,11 +7,12 @@ import {
   StyleSheet,
   Alert,
   Dimensions,
+  ScrollView,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
-import { copyToClipboard } from "../../../utils/clipboard";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import { getStopAddressLine, servicoTipo } from "../utils/routeUtils";
 import type { EntregaListItem } from "../types";
@@ -25,28 +26,18 @@ interface LocateResult {
   totalStops: number;
 }
 
-export type RouteScanMode = "locate" | "cargo";
-
 interface RouteLocatePackageSheetProps {
   visible: boolean;
-  mode?: RouteScanMode;
   totalStops: number;
-  totalPedidos?: number;
-  cargoScannedCount?: number;
   onFindByCodigo: (codigo: string) => LocateResult | null;
-  onCargoScan?: (codigo: string, inRoute: boolean, idSaida?: number) => void;
   onGoToStop: (idSaida: number) => void;
   onClose: () => void;
 }
 
 export default function RouteLocatePackageSheet({
   visible,
-  mode = "locate",
   totalStops,
-  totalPedidos = 0,
-  cargoScannedCount = 0,
   onFindByCodigo,
-  onCargoScan,
   onGoToStop,
   onClose,
 }: RouteLocatePackageSheetProps) {
@@ -58,22 +49,23 @@ export default function RouteLocatePackageSheet({
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        overlay: {
-          flex: 1,
-          backgroundColor: colors.overlay,
-          justifyContent: "flex-end",
+        screen: { flex: 1, backgroundColor: colors.background },
+        header: {
+          flexDirection: "row",
+          alignItems: "center",
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.separator,
         },
-        box: {
-          backgroundColor: colors.backgroundCard,
-          borderTopLeftRadius: 16,
-          borderTopRightRadius: 16,
-          padding: 20,
-          maxHeight: "85%",
-        },
-        title: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 8 },
+        backText: { fontSize: 16, color: colors.primary, fontWeight: "600" },
+        title: { fontSize: 18, fontWeight: "700", color: colors.text, marginLeft: 12, flex: 1 },
+        scroll: { flex: 1 },
+        scrollContent: { padding: 16, paddingBottom: 32 },
+        hint: { fontSize: 14, color: colors.textSecondary, marginBottom: 12 },
         camera: {
           width: "100%",
-          height: Dimensions.get("window").height * 0.4,
+          height: Dimensions.get("window").height * 0.38,
           borderRadius: 12,
           overflow: "hidden",
           marginBottom: 16,
@@ -84,7 +76,6 @@ export default function RouteLocatePackageSheet({
           backgroundColor: colors.success + "20",
           marginBottom: 12,
         },
-        resultText: { fontSize: 15, color: colors.text, lineHeight: 22 },
         heroLabel: {
           fontSize: 14,
           fontWeight: "700",
@@ -114,25 +105,14 @@ export default function RouteLocatePackageSheet({
           marginTop: 4,
           lineHeight: 20,
         },
-        btnOutline: {
-          paddingVertical: 12,
-          borderRadius: 8,
-          alignItems: "center",
-          borderWidth: 1,
-          borderColor: colors.primary,
-          marginBottom: 8,
-        },
-        btnOutlineText: { fontSize: 15, fontWeight: "600", color: colors.primary },
         btn: {
-          paddingVertical: 12,
+          paddingVertical: 14,
           borderRadius: 8,
           alignItems: "center",
           backgroundColor: colors.primary,
-          marginBottom: 8,
+          marginTop: 16,
         },
         btnText: { fontSize: 15, fontWeight: "600", color: colors.primaryContrast },
-        close: { alignItems: "center", paddingVertical: 12 },
-        closeText: { fontSize: 16, color: colors.textSecondary },
         permText: { fontSize: 14, color: colors.textSecondary, marginBottom: 12 },
       }),
     [colors]
@@ -146,17 +126,6 @@ export default function RouteLocatePackageSheet({
       const parsed = parseCodigoQrRaw(scan.data);
       const codigo = (parsed.codigo || scan.data).trim();
       if (!codigo) return;
-      if (mode === "cargo") {
-        const found = onFindByCodigo(codigo);
-        if (found) {
-          onCargoScan?.(codigo, true, found.delivery.id_saida);
-          Alert.alert("✓ Na rota", `Pacote ${codigo} conferido.`);
-        } else {
-          onCargoScan?.(codigo, false);
-          Alert.alert("⚠ Fora da rota", `O código ${codigo} não está nesta rota.`);
-        }
-        return;
-      }
       const found = onFindByCodigo(codigo);
       if (found) {
         setResult(found);
@@ -164,7 +133,7 @@ export default function RouteLocatePackageSheet({
         Alert.alert("Pacote não encontrado", `O código ${codigo} não está nesta rota.`);
       }
     },
-    [onFindByCodigo, mode, onCargoScan]
+    [onFindByCodigo]
   );
 
   const handleClose = () => {
@@ -173,17 +142,20 @@ export default function RouteLocatePackageSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <View style={styles.overlay}>
-        <View style={styles.box}>
-          <Text style={styles.title}>
-            {mode === "cargo" ? "Conferir carga" : "Localizar pacote"}
+    <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleClose}>
+            <Text style={styles.backText}>← Voltar</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>Localizar pacote</Text>
+        </View>
+
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.hint}>
+            Escaneie a etiqueta para ver em qual parada ({totalStops} no total) o pacote está.
           </Text>
-          {mode === "cargo" && totalPedidos > 0 && (
-            <Text style={styles.permText}>
-              {cargoScannedCount} de {totalPedidos} pacotes conferidos
-            </Text>
-          )}
+
           {!permission?.granted ? (
             <>
               <Text style={styles.permText}>Permissão de câmera necessária para escanear etiquetas.</Text>
@@ -199,7 +171,8 @@ export default function RouteLocatePackageSheet({
               onBarcodeScanned={handleBarcode}
             />
           )}
-          {result && mode === "locate" && (
+
+          {result && (
             <View style={styles.resultBox}>
               <Text style={styles.heroLabel}>PARADA</Text>
               <Text style={styles.heroNumber}>{result.stopIndex + 1}</Text>
@@ -212,7 +185,7 @@ export default function RouteLocatePackageSheet({
                 {servicoTipo(result.delivery.servico)}
               </Text>
               <TouchableOpacity
-                style={[styles.btn, { marginTop: 16 }]}
+                style={styles.btn}
                 onPress={() => {
                   onGoToStop(result.delivery.id_saida);
                   handleClose();
@@ -220,24 +193,10 @@ export default function RouteLocatePackageSheet({
               >
                 <Text style={styles.btnText}>Ir para parada</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.btnOutline}
-                onPress={async () => {
-                  const copied = await copyToClipboard(String(result.stopIndex + 1));
-                  if (copied) {
-                    Alert.alert("Copiado", `Número da parada ${result.stopIndex + 1} copiado.`);
-                  }
-                }}
-              >
-                <Text style={styles.btnOutlineText}>Copiar número</Text>
-              </TouchableOpacity>
             </View>
           )}
-          <TouchableOpacity style={styles.close} onPress={handleClose}>
-            <Text style={styles.closeText}>Fechar</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+        </ScrollView>
+      </SafeAreaView>
     </Modal>
   );
 }

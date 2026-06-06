@@ -10,10 +10,9 @@ import {
   FlatList,
   ActivityIndicator,
   Dimensions,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as Location from "expo-location";
+import { runOptimizeRouteWithFeedback } from "../features/entregas/utils/optimizeRouteFeedback";
 import DraggableFlatList, {
   type RenderItemParams,
   type DragEndParams,
@@ -225,34 +224,7 @@ export default function RouteBottomSheet({
     if (groupedStops.length < 2) return;
     setOptimizing(true);
     try {
-      let result;
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        result = await optimizeRoute();
-      } else {
-        try {
-          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          result = await optimizeRoute(pos.coords.latitude, pos.coords.longitude);
-        } catch {
-          result = await optimizeRoute();
-        }
-      }
-
-      if (!result || result.message === "noop") return;
-
-      if (result.message === "success") {
-        Alert.alert("Rota otimizada", "A ordem das paradas foi atualizada com sucesso.");
-      } else if (result.message === "partial") {
-        Alert.alert(
-          "Rota otimizada parcialmente",
-          "Alguns endereços sem coordenadas ficaram ao final da rota."
-        );
-      } else if (result.message === "local_fallback") {
-        Alert.alert(
-          "Ordenação local",
-          "Não foi possível otimizar online; usamos a ordenação local por proximidade."
-        );
-      }
+      await runOptimizeRouteWithFeedback(optimizeRoute);
     } finally {
       setOptimizing(false);
     }

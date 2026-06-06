@@ -409,3 +409,16 @@ export async function postRotasAvancar(rotaId: string): Promise<{ parada_atual: 
 export async function postRotasFinalizar(rotaId: string): Promise<void> {
   await client.post(`/mobile/rotas/${rotaId}/finalizar`);
 }
+
+export interface RotasOrdemResponse {
+  ordem: number[];
+  parada_atual: number;
+}
+
+export async function putRotasOrdem(
+  rotaId: string,
+  ordem: number[]
+): Promise<RotasOrdemResponse> {
+  const { data } = await client.put<RotasOrdemResponse>(`/mobile/rotas/${rotaId}/ordem`, { ordem });
+  return data;
+}

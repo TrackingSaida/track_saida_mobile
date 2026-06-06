@@ -9,6 +9,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
 import type { EntregaListItem } from "../types";
@@ -18,11 +19,20 @@ import {
   parsedToFormValues,
   type ParsedAddress,
 } from "../utils/ocrAddress";
+import {
+  buildSearchQuery,
+  formatAddressSummary,
+  needsAddressEnrichment,
+  searchAddressSuggestions,
+  type AddressSuggestion,
+} from "../utils/addressSuggestions";
+import AddressSuggestionList from "./AddressSuggestionList";
 
 export type QuickFormFlowState =
   | "idle"
   | "listening"
   | "parsing"
+  | "searching"
   | "geocoding"
   | "saving";
 
@@ -37,7 +47,6 @@ interface AddressQuickFormProps {
   onDictate: () => void;
   onOcr: () => void;
   onCancel?: () => void;
-  /** Aplica endereço parseado (voz/OCR) nos campos internos. */
   externalParsed?: ParsedAddress | null;
 }
 
@@ -60,8 +69,14 @@ export default function AddressQuickForm({
   const [complemento, setComplemento] = useState("");
   const [showOptional, setShowOptional] = useState(false);
   const [parsedInternal, setParsedInternal] = useState<Partial<AddressFormValues>>({});
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [selectedSuggestionId, setSelectedSuggestionId] = useState<string | null>(null);
+  const [autoApplied, setAutoApplied] = useState(false);
+  const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const freeTextRef = useRef<TextInput>(null);
+  const lastSearchQueryRef = useRef("");
 
   const defaults = useMemo(
     () => ({ cidade: cidadePadrao, estado: estadoPadrao }),
@@ -73,36 +88,97 @@ export default function AddressQuickForm({
     setDestinatario(delivery.cliente ?? "");
     setComplemento("");
     setParsedInternal({});
+    setSuggestions([]);
+    setSelectedSuggestionId(null);
+    setAutoApplied(false);
   }, [delivery.id_saida, initialFreeText, delivery.cliente]);
+
+  const applySuggestion = useCallback(
+    (s: AddressSuggestion, fromAuto = false) => {
+      const vals = {
+        ...s.values,
+        destinatario: destinatario.trim() || delivery.cliente || "",
+        complemento: complemento.trim(),
+      };
+      setParsedInternal(vals);
+      setFreeText(formatAddressSummary(vals));
+      setSelectedSuggestionId(s.id);
+      setAutoApplied(fromAuto);
+      setSuggestions([s]);
+    },
+    [destinatario, complemento, delivery.cliente]
+  );
+
+  const runSearch = useCallback(
+    async (vals: Partial<AddressFormValues>) => {
+      if (!needsAddressEnrichment(vals)) {
+        setSuggestions([]);
+        setSearching(false);
+        onFlowStateChange?.("idle");
+        return;
+      }
+      const query = buildSearchQuery(vals, defaults);
+      if (query === lastSearchQueryRef.current) {
+        setSearching(false);
+        onFlowStateChange?.("idle");
+        return;
+      }
+      lastSearchQueryRef.current = query;
+      setSearching(true);
+      onFlowStateChange?.("searching");
+      const found = await searchAddressSuggestions(query);
+      setSearching(false);
+      onFlowStateChange?.("idle");
+      setSuggestions(found);
+      if (found.length === 1) {
+        applySuggestion(found[0], true);
+      } else {
+        setAutoApplied(false);
+        setSelectedSuggestionId(null);
+      }
+    },
+    [defaults, onFlowStateChange, applySuggestion]
+  );
 
   useEffect(() => {
     if (!externalParsed) return;
     const vals = parsedToFormValues(externalParsed);
     setParsedInternal(vals);
-    const summary = [vals.rua, vals.numero, vals.bairro, vals.cidade, vals.estado]
-      .filter(Boolean)
-      .join(", ");
+    const summary = formatAddressSummary(vals);
     if (summary) setFreeText(summary);
     if (vals.destinatario) setDestinatario(vals.destinatario);
     if (vals.complemento) setComplemento(vals.complemento);
-  }, [externalParsed]);
+    void runSearch(vals);
+  }, [externalParsed, runSearch]);
 
   const runParse = useCallback(
     (text: string) => {
       if (!text.trim()) {
         setParsedInternal({});
+        setSuggestions([]);
+        setSelectedSuggestionId(null);
+        setAutoApplied(false);
+        lastSearchQueryRef.current = "";
         return;
       }
       onFlowStateChange?.("parsing");
       const parsed = parseFreeTextAddress(text, defaults);
-      setParsedInternal(parsedToFormValues(parsed));
+      const vals = parsedToFormValues(parsed);
+      setParsedInternal(vals);
       onFlowStateChange?.("idle");
+
+      if (searchRef.current) clearTimeout(searchRef.current);
+      searchRef.current = setTimeout(() => {
+        void runSearch(vals);
+      }, 500);
     },
-    [defaults, onFlowStateChange]
+    [defaults, onFlowStateChange, runSearch]
   );
 
   const handleFreeTextChange = (text: string) => {
     setFreeText(text);
+    setSelectedSuggestionId(null);
+    setAutoApplied(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => runParse(text), 400);
   };
@@ -112,7 +188,7 @@ export default function AddressQuickForm({
     const merged = parseFreeTextAddress(freeText, defaults);
     const base = parsedToFormValues(merged);
     return {
-      destinatario: destinatario.trim() || base.destinatario || fromParse.destinatario || "",
+      destinatario: destinatario.trim() || base.destinatario || fromParse.destinatario || delivery.cliente || "",
       rua: base.rua || fromParse.rua || "",
       numero: base.numero || fromParse.numero || "",
       complemento: complemento.trim() || base.complemento || fromParse.complemento || "",
@@ -123,9 +199,27 @@ export default function AddressQuickForm({
     };
   };
 
+  const validateValues = (vals: AddressFormValues): string | null => {
+    const missing: string[] = [];
+    if (!vals.destinatario.trim()) missing.push("destinatário");
+    if (!vals.rua.trim()) missing.push("rua");
+    if (!vals.numero.trim()) missing.push("número");
+    if (!vals.bairro.trim()) missing.push("bairro");
+    if (!vals.cidade.trim()) missing.push("cidade");
+    if (!vals.estado.trim()) missing.push("estado");
+    if (vals.cep.replace(/\D/g, "").length < 8) missing.push("CEP (8 dígitos)");
+    if (missing.length === 0) return null;
+    if (suggestions.length > 0 && !selectedSuggestionId) {
+      return "Selecione uma das sugestões de endereço abaixo.";
+    }
+    return `Faltam: ${missing.join(", ")}. Aguarde a busca ou use o modo avançado.`;
+  };
+
   const handleSave = async () => {
     const vals = buildValues();
-    if (!vals.rua.trim()) {
+    const validationError = validateValues(vals);
+    if (validationError) {
+      Alert.alert("Endereço incompleto", validationError);
       return;
     }
     onFlowStateChange?.("saving");
@@ -136,7 +230,11 @@ export default function AddressQuickForm({
     }
   };
 
-  const busy = flowState === "geocoding" || flowState === "saving" || flowState === "listening";
+  const busy =
+    flowState === "geocoding" ||
+    flowState === "saving" ||
+    flowState === "listening" ||
+    searching;
 
   const styles = useMemo(
     () =>
@@ -196,6 +294,13 @@ export default function AddressQuickForm({
         cancel: { alignItems: "center", paddingVertical: 14 },
         cancelText: { fontSize: 16, color: colors.textSecondary },
         status: { fontSize: 12, color: colors.textSecondary, marginBottom: 8, textAlign: "center" },
+        parsedPreview: {
+          backgroundColor: colors.inputBackground,
+          borderRadius: 8,
+          padding: 10,
+          marginBottom: 12,
+        },
+        parsedPreviewText: { fontSize: 13, color: colors.text, lineHeight: 18 },
       }),
     [colors]
   );
@@ -205,11 +310,18 @@ export default function AddressQuickForm({
       ? "Ouvindo…"
       : flowState === "parsing"
         ? "Interpretando endereço…"
-        : flowState === "geocoding"
-          ? "Localizando no mapa…"
-          : flowState === "saving"
-            ? "Salvando…"
-            : null;
+        : searching || flowState === "searching"
+          ? "Buscando endereço completo…"
+          : flowState === "geocoding"
+            ? "Localizando no mapa…"
+            : flowState === "saving"
+              ? "Salvando…"
+              : null;
+
+  const previewVals = buildValues();
+  const showParsedPreview =
+    (previewVals.rua || previewVals.numero) &&
+    (selectedSuggestionId || autoApplied || !needsAddressEnrichment(previewVals));
 
   return (
     <KeyboardAvoidingView
@@ -234,6 +346,26 @@ export default function AddressQuickForm({
           multiline
           editable={!busy}
         />
+
+        <AddressSuggestionList
+          suggestions={suggestions}
+          loading={searching}
+          selectedId={selectedSuggestionId}
+          autoApplied={autoApplied}
+          onSelect={(s) => applySuggestion(s, false)}
+        />
+
+        {showParsedPreview && (
+          <View style={styles.parsedPreview}>
+            <Text style={styles.parsedPreviewText}>
+              {[previewVals.rua, previewVals.numero].filter(Boolean).join(", ")}
+              {previewVals.bairro ? `\n${previewVals.bairro}` : ""}
+              {previewVals.cidade
+                ? `\n${[previewVals.cidade, previewVals.estado, previewVals.cep].filter(Boolean).join(" · ")}`
+                : ""}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.actionsRow}>
           <TouchableOpacity style={styles.actionBtn} onPress={onDictate} disabled={busy}>

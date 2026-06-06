@@ -6,29 +6,39 @@ import {
   Modal,
   StyleSheet,
   Alert,
-  Share,
   FlatList,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import type { ComponentProps } from "react";
 import { useThemeColors } from "../../../theme/colors";
-import { copyToClipboard } from "../../../utils/clipboard";
 import type { EntregaListItem } from "../types";
+import { servicoTipo } from "../utils/servico";
 import {
   getStopPrimaryCodigo,
-  getStopAddressLine,
   getStopPedidoLabel,
   type GroupedStop,
 } from "../utils/routeUtils";
+
+const SERVICO_COLORS: Record<string, string> = {
+  Shopee: "#EE4D2D",
+  Flex: "#F5A623",
+  Avulso: "#7B61FF",
+};
+
+type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
 interface RouteStopActionSheetProps {
   visible: boolean;
   group: GroupedStop | null;
   stopIndex: number;
   totalStops: number;
-  disableMutations?: boolean;
+  canMutateStop?: boolean;
+  isCurrentStop?: boolean;
+  minPosition?: number;
   onClose: () => void;
   onNavegar: () => void;
   onVerPedidos: () => void;
-  onEditarEndereco: (delivery: EntregaListItem) => void;
+  onEditarParada: (delivery: EntregaListItem) => void;
   onAlterarPosicao: (toIndex: number) => void;
   onMoverInicio: () => void;
   onMoverFim: () => void;
@@ -38,6 +48,7 @@ interface RouteStopActionSheetProps {
 type ActionItem = {
   key: string;
   label: string;
+  icon: IoniconName;
   destructive?: boolean;
   onPress: () => void;
 };
@@ -47,11 +58,13 @@ export default function RouteStopActionSheet({
   group,
   stopIndex,
   totalStops,
-  disableMutations,
+  canMutateStop = true,
+  isCurrentStop = false,
+  minPosition = 1,
   onClose,
   onNavegar,
   onVerPedidos,
-  onEditarEndereco,
+  onEditarParada,
   onAlterarPosicao,
   onMoverInicio,
   onMoverFim,
@@ -75,14 +88,35 @@ export default function RouteStopActionSheet({
           padding: 20,
           paddingBottom: 32,
         },
-        title: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 4 },
+        headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 4, gap: 8 },
+        title: { fontSize: 18, fontWeight: "700", color: colors.text, flex: 1 },
+        badge: {
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+          borderRadius: 6,
+        },
+        badgeText: { fontSize: 11, fontWeight: "700", color: "#fff" },
+        currentBadge: {
+          alignSelf: "flex-start",
+          backgroundColor: colors.primary + "22",
+          borderWidth: 1,
+          borderColor: colors.primary,
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+          borderRadius: 6,
+          marginBottom: 12,
+        },
+        currentBadgeText: { fontSize: 11, fontWeight: "700", color: colors.primary },
         subtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 16 },
         action: {
+          flexDirection: "row",
+          alignItems: "center",
           paddingVertical: 14,
           borderBottomWidth: 1,
           borderBottomColor: colors.separator,
+          gap: 12,
         },
-        actionText: { fontSize: 16, color: colors.text },
+        actionText: { fontSize: 16, color: colors.text, flex: 1 },
         actionDestructive: { color: colors.danger },
         cancel: { marginTop: 12, alignItems: "center", paddingVertical: 12 },
         cancelText: { fontSize: 16, color: colors.textSecondary },
@@ -101,22 +135,8 @@ export default function RouteStopActionSheet({
   );
 
   const first = group?.deliveries[0];
-  const address = first ? getStopAddressLine(first) : "";
-
-  const handleCopiarNumero = async () => {
-    const copied = await copyToClipboard(String(stopIndex));
-    if (copied) {
-      Alert.alert("Copiado", `Número da parada ${stopIndex} copiado.`);
-    }
-  };
-
-  const handleCopiarEndereco = async () => {
-    if (!address || address === "—") {
-      Alert.alert("Atenção", "Endereço indisponível para copiar.");
-      return;
-    }
-    await Share.share({ message: address, title: "Endereço da parada" });
-  };
+  const servico = first ? servicoTipo(first.servico) : "";
+  const servicoColor = SERVICO_COLORS[servico] || colors.placeholder;
 
   const handleRemover = () => {
     Alert.alert(
@@ -130,42 +150,45 @@ export default function RouteStopActionSheet({
   };
 
   const actions: ActionItem[] = [
-    { key: "navegar", label: "Navegar", onPress: () => { onClose(); onNavegar(); } },
-    { key: "pedidos", label: "Ver pedidos", onPress: () => { onClose(); onVerPedidos(); } },
+    { key: "navegar", label: "Navegar", icon: "navigate-outline", onPress: () => { onClose(); onNavegar(); } },
+    { key: "pedidos", label: "Ver pedidos", icon: "list-outline", onPress: () => { onClose(); onVerPedidos(); } },
     {
       key: "editar",
-      label: "Editar endereço",
+      label: "Editar parada",
+      icon: "create-outline",
       onPress: () => {
         if (first) {
           onClose();
-          onEditarEndereco(first);
+          onEditarParada(first);
         }
       },
     },
-    { key: "copiar_num", label: "Copiar número da parada", onPress: handleCopiarNumero },
-    { key: "copiar", label: "Copiar endereço", onPress: handleCopiarEndereco },
   ];
 
-  if (!disableMutations) {
+  if (canMutateStop) {
     actions.push(
       {
         key: "posicao",
         label: "Alterar posição",
+        icon: "swap-vertical-outline",
         onPress: () => setShowPositionPicker(true),
       },
       {
         key: "inicio",
         label: "Mover para o início",
+        icon: "arrow-up-outline",
         onPress: () => { onClose(); onMoverInicio(); },
       },
       {
         key: "fim",
         label: "Mover para o fim",
+        icon: "arrow-down-outline",
         onPress: () => { onClose(); onMoverFim(); },
       },
       {
         key: "remover",
         label: "Remover da rota",
+        icon: "trash-outline",
         destructive: true,
         onPress: handleRemover,
       }
@@ -173,6 +196,10 @@ export default function RouteStopActionSheet({
   }
 
   if (!group) return null;
+
+  const positions = Array.from({ length: totalStops }, (_, i) => i + 1).filter(
+    (pos) => pos >= minPosition
+  );
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -182,7 +209,7 @@ export default function RouteStopActionSheet({
             <>
               <Text style={styles.pickerTitle}>Mover para posição</Text>
               <FlatList
-                data={Array.from({ length: totalStops }, (_, i) => i + 1)}
+                data={positions}
                 keyExtractor={(n) => String(n)}
                 renderItem={({ item: pos }) => (
                   <TouchableOpacity
@@ -205,12 +232,29 @@ export default function RouteStopActionSheet({
             </>
           ) : (
             <>
-              <Text style={styles.title}>{getStopPrimaryCodigo(group)}</Text>
+              <View style={styles.headerRow}>
+                <Text style={styles.title}>{getStopPrimaryCodigo(group)}</Text>
+                {servico ? (
+                  <View style={[styles.badge, { backgroundColor: servicoColor }]}>
+                    <Text style={styles.badgeText}>{servico}</Text>
+                  </View>
+                ) : null}
+              </View>
+              {isCurrentStop && (
+                <View style={styles.currentBadge}>
+                  <Text style={styles.currentBadgeText}>PARADA ATUAL</Text>
+                </View>
+              )}
               <Text style={styles.subtitle}>
                 Parada {stopIndex} · {first ? getStopPedidoLabel(first) : ""} · {first?.cliente || "—"}
               </Text>
               {actions.map((a) => (
                 <TouchableOpacity key={a.key} style={styles.action} onPress={a.onPress}>
+                  <Ionicons
+                    name={a.icon}
+                    size={22}
+                    color={a.destructive ? colors.danger : colors.primary}
+                  />
                   <Text style={[styles.actionText, a.destructive && styles.actionDestructive]}>
                     {a.label}
                   </Text>

@@ -13,6 +13,7 @@ import {
   getRotasAtiva,
   postRotasAvancar,
   postRotasFinalizar,
+  putRotasOrdem,
   type EnderecoBody,
   type EntregueBody,
   type RotasAtivaResponse,
@@ -20,10 +21,12 @@ import {
 import { geocodeAddress } from "../features/entregas/utils/geocode";
 import {
   flattenGroupsToRouteOrder,
+  getActiveGroupIndex,
   getOrderedRouteDeliveries,
   groupOrderedByAddress,
   moveGroupInOrder,
 } from "../features/entregas/utils/routeUtils";
+import { formatApiError } from "../utils/formatApiError";
 import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
 
@@ -42,6 +45,13 @@ export type OptimizeRouteResult = {
   mode: RouteOptimizationMode;
   semCoordenadas: number[];
   message: "success" | "partial" | "local_fallback" | "noop";
+};
+
+export type OptimizeRouteOptions = {
+  fromLat?: number;
+  fromLon?: number;
+  fromDeliveryIndex?: number;
+  persistActive?: boolean;
 };
 
 interface DeliveryState {
@@ -89,7 +99,7 @@ interface DeliveryState {
   clearRoute: () => void;
   /** Limpa rota ativa e dados locais (logout ou quando backend não retorna rota ativa). */
   clearActiveRouteState: () => void;
-  optimizeRoute: (fromLat?: number, fromLon?: number) => Promise<OptimizeRouteResult>;
+  optimizeRoute: (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
   reorderRoute: (order: number[]) => void;
   setRouteDeliveryStatus: (idSaida: number, status: "pendente" | "entregue" | "ausente") => void;
   removeFromRoute: (idSaidas: number[]) => void;
@@ -159,6 +169,13 @@ function optimizeRouteLocal(
   const orderedWithout = routeOrder.filter((id) => withoutSet.has(id));
   const missingWithout = withoutIds.filter((id) => !orderedWithout.includes(id));
   return sortedWithCoords.map((d) => d.id_saida).concat(orderedWithout, missingWithout);
+}
+
+async function persistActiveRouteOrder(
+  activeRouteId: string,
+  routeOrder: number[]
+): Promise<void> {
+  await putRotasOrdem(activeRouteId, routeOrder);
 }
 
 export const useDeliveryStore = create<DeliveryState>((set, get) => ({
@@ -240,13 +257,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       });
       return updated;
     } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err && err.response && typeof err.response === "object" && "data" in err.response && err.response.data && typeof err.response.data === "object" && "detail" in err.response.data
-          ? String((err.response.data as { detail?: unknown }).detail)
-          : err instanceof Error
-            ? err.message
-            : "Não foi possível salvar o endereço.";
-      throw new Error(msg);
+      throw new Error(formatApiError(err, "Não foi possível salvar o endereço."));
     }
   },
 
@@ -404,85 +415,116 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       currentLocation: null,
     });
   },
-  optimizeRoute: async (fromLat?, fromLon?) => {
-    const { routeDeliveries, routeOrder, activeRouteId } = get();
+  optimizeRoute: async (opts) => {
+    const { routeDeliveries, routeOrder, activeRouteId, activeStopIndex } = get();
     const noop: OptimizeRouteResult = {
       ok: false,
       mode: null,
       semCoordenadas: [],
       message: "noop",
     };
-    if (activeRouteId != null || routeOrder.length === 0) return noop;
+    if (routeOrder.length === 0) return noop;
 
-    const deliveryIds = [...routeOrder];
+    const fromIndex =
+      opts?.fromDeliveryIndex ?? (activeRouteId != null ? activeStopIndex : 0);
+    const prefix = routeOrder.slice(0, fromIndex);
+    const suffix = routeOrder.slice(fromIndex);
+    const idsForApi = activeRouteId != null ? suffix : routeOrder;
+
+    if (idsForApi.length < 2) return noop;
+
     const start =
-      fromLat != null && fromLon != null
-        ? { latitude: fromLat, longitude: fromLon }
+      opts?.fromLat != null && opts?.fromLon != null
+        ? { latitude: opts.fromLat, longitude: opts.fromLon }
         : undefined;
 
+    const applyOrder = async (newSuffix: number[], mode: RouteOptimizationMode, message: OptimizeRouteResult["message"], semCoordenadas: number[]) => {
+      const newOrder = activeRouteId != null ? [...prefix, ...newSuffix] : newSuffix;
+      set({ routeOrder: newOrder, routeOptimizationMode: mode });
+      if (activeRouteId != null && opts?.persistActive !== false) {
+        await persistActiveRouteOrder(activeRouteId, newOrder);
+      }
+      return { ok: true, mode, semCoordenadas, message } as OptimizeRouteResult;
+    };
+
     try {
-      const res = await postRotasOtimizar(deliveryIds, start);
+      const res = await postRotasOtimizar(idsForApi, start);
       const semCoordenadas = res.sem_coordenadas ?? [];
       const message: OptimizeRouteResult["message"] =
         semCoordenadas.length > 0 ? "partial" : "success";
-      set({
-        routeOrder: res.ordem,
-        routeOptimizationMode: res.modo,
-      });
-      return {
-        ok: true,
-        mode: res.modo,
-        semCoordenadas,
-        message,
-      };
+      return applyOrder(res.ordem, res.modo, message, semCoordenadas);
     } catch {
-      const orderedIds = optimizeRouteLocal(routeDeliveries, routeOrder, fromLat, fromLon);
-      set({
-        routeOrder: orderedIds,
-        routeOptimizationMode: "local_fallback",
-      });
-      const semCoordenadas = routeDeliveries
+      const suffixDeliveries = getOrderedRouteDeliveries(
+        routeDeliveries.filter((d) => suffix.includes(d.id_saida)),
+        suffix
+      );
+      const orderedIds = optimizeRouteLocal(
+        suffixDeliveries,
+        suffix,
+        opts?.fromLat,
+        opts?.fromLon
+      );
+      const semCoordenadas = suffixDeliveries
         .filter((d) => d.latitude == null || d.longitude == null)
         .map((d) => d.id_saida);
-      return {
-        ok: true,
-        mode: "local_fallback",
-        semCoordenadas,
-        message: "local_fallback",
-      };
+      return applyOrder(orderedIds, "local_fallback", "local_fallback", semCoordenadas);
     }
   },
   reorderRoute: (order) => {
-    if (get().activeRouteId != null) return;
+    const { activeRouteId, activeStopIndex, routeOrder } = get();
+    if (activeRouteId != null) {
+      const prefix = routeOrder.slice(0, activeStopIndex);
+      if (order.slice(0, activeStopIndex).join(",") !== prefix.join(",")) return;
+    }
     set({ routeOrder: order });
+    if (activeRouteId != null) {
+      void persistActiveRouteOrder(activeRouteId, order);
+    }
   },
   setRouteDeliveryStatus: (idSaida, status) =>
     set((state) => ({ routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: status } })),
   removeFromRoute: (idSaidas) => {
-    if (get().activeRouteId != null) return;
+    const { activeRouteId } = get();
     const removeSet = new Set(idSaidas);
+    let nextOrder: number[] = [];
     set((state) => {
       const nextStatus = { ...state.routeDeliveryStatus };
       for (const id of idSaidas) delete nextStatus[id];
+      nextOrder = state.routeOrder.filter((id) => !removeSet.has(id));
       return {
         routeDeliveries: state.routeDeliveries.filter((d) => !removeSet.has(d.id_saida)),
-        routeOrder: state.routeOrder.filter((id) => !removeSet.has(id)),
+        routeOrder: nextOrder,
         routeDeliveryStatus: nextStatus,
       };
     });
+    if (activeRouteId != null) {
+      void persistActiveRouteOrder(activeRouteId, nextOrder);
+    }
   },
   moveGroupedStopToIndex: (fromStopIndex, toStopIndex) => {
-    if (get().activeRouteId != null) return;
-    const { routeDeliveries, routeOrder } = get();
+    const { routeDeliveries, routeOrder, activeRouteId, activeStopIndex } = get();
     const ordered = getOrderedRouteDeliveries(routeDeliveries, routeOrder);
     const groups = groupOrderedByAddress(ordered);
-    if (fromStopIndex < 0 || fromStopIndex >= groups.length) return;
-    const to = Math.max(0, Math.min(toStopIndex, groups.length - 1));
+    const minGroup =
+      activeRouteId != null ? getActiveGroupIndex(groups, activeStopIndex) : 0;
+    if (fromStopIndex < minGroup || fromStopIndex >= groups.length) return;
+    const to = Math.max(minGroup, Math.min(toStopIndex, groups.length - 1));
     const reordered = moveGroupInOrder(groups, fromStopIndex, to);
-    set({ routeOrder: flattenGroupsToRouteOrder(reordered) });
+    const newOrder = flattenGroupsToRouteOrder(reordered);
+    set({ routeOrder: newOrder });
+    if (activeRouteId != null) {
+      void persistActiveRouteOrder(activeRouteId, newOrder);
+    }
   },
   moveGroupedStopToStart: (stopIndex) => {
-    get().moveGroupedStopToIndex(stopIndex, 0);
+    const { routeDeliveries, routeOrder, activeRouteId, activeStopIndex } = get();
+    let target = 0;
+    if (activeRouteId != null) {
+      const ordered = getOrderedRouteDeliveries(routeDeliveries, routeOrder);
+      const groups = groupOrderedByAddress(ordered);
+      target = getActiveGroupIndex(groups, activeStopIndex);
+    }
+    get().moveGroupedStopToIndex(stopIndex, target);
   },
   moveGroupedStopToEnd: (stopIndex) => {
     const { routeDeliveries, routeOrder } = get();

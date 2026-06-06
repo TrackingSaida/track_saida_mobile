@@ -9,11 +9,18 @@ import {
 } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
 import type { ParsedAddress } from "../utils/ocrAddress";
+import type { AddressSuggestion } from "../utils/addressSuggestions";
+import AddressSuggestionList from "./AddressSuggestionList";
 
 interface AddressPreviewSheetProps {
   visible: boolean;
   source: "voice" | "ocr";
   parsed: ParsedAddress | null;
+  suggestions?: AddressSuggestion[];
+  suggestionsLoading?: boolean;
+  selectedSuggestionId?: string | null;
+  autoApplied?: boolean;
+  onSelectSuggestion?: (suggestion: AddressSuggestion) => void;
   onSaveAndNext: () => void;
   onEdit: () => void;
   onRetry: () => void;
@@ -31,6 +38,11 @@ export default function AddressPreviewSheet({
   visible,
   source,
   parsed,
+  suggestions = [],
+  suggestionsLoading,
+  selectedSuggestionId,
+  autoApplied,
+  onSelectSuggestion,
   onSaveAndNext,
   onEdit,
   onRetry,
@@ -46,7 +58,7 @@ export default function AddressPreviewSheet({
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
           padding: 20,
-          maxHeight: "80%",
+          maxHeight: "85%",
         },
         title: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 4 },
         subtitle: { fontSize: 13, color: colors.textSecondary, marginBottom: 16 },
@@ -86,6 +98,10 @@ export default function AddressPreviewSheet({
 
   if (!parsed) return null;
 
+  const canSave =
+    !suggestionsLoading &&
+    (suggestions.length === 0 || selectedSuggestionId != null || autoApplied);
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -94,11 +110,22 @@ export default function AddressPreviewSheet({
           <Text style={styles.subtitle}>
             {source === "voice" ? "Reconhecido por voz" : "Lido da foto"}
           </Text>
-          <ScrollView>
+          <ScrollView keyboardShouldPersistTaps="handled">
             <View style={styles.previewBox}>
               <Text style={styles.previewLabel}>Resumo</Text>
               <Text style={styles.previewText}>{formatPreview(parsed) || parsed.rawText || "—"}</Text>
             </View>
+
+            {onSelectSuggestion && (
+              <AddressSuggestionList
+                suggestions={suggestions}
+                loading={suggestionsLoading}
+                selectedId={selectedSuggestionId}
+                autoApplied={autoApplied}
+                onSelect={onSelectSuggestion}
+              />
+            )}
+
             {parsed.destinatario ? (
               <View style={styles.fieldRow}>
                 <Text style={styles.fieldLabel}>Destinatário</Text>
@@ -117,22 +144,12 @@ export default function AddressPreviewSheet({
                 <Text style={styles.fieldValue}>{parsed.numero}</Text>
               </View>
             ) : null}
-            {parsed.complemento ? (
-              <View style={styles.fieldRow}>
-                <Text style={styles.fieldLabel}>Complemento</Text>
-                <Text style={styles.fieldValue}>{parsed.complemento}</Text>
-              </View>
-            ) : null}
-            {parsed.cidade ? (
-              <View style={styles.fieldRow}>
-                <Text style={styles.fieldLabel}>Cidade/UF</Text>
-                <Text style={styles.fieldValue}>
-                  {[parsed.cidade, parsed.estado].filter(Boolean).join("/")}
-                </Text>
-              </View>
-            ) : null}
           </ScrollView>
-          <TouchableOpacity style={styles.btn} onPress={onSaveAndNext}>
+          <TouchableOpacity
+            style={[styles.btn, !canSave && { opacity: 0.5 }]}
+            onPress={onSaveAndNext}
+            disabled={!canSave}
+          >
             <Text style={styles.btnText}>Salvar e próximo</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.btnOutline} onPress={onEdit}>

@@ -44,6 +44,13 @@ import {
 import { geocodeAddress } from "../utils/geocode";
 import type { EnderecoBody } from "../api";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
+import { formatApiError } from "../../../utils/formatApiError";
+import {
+  enrichParsedAddress,
+  needsAddressEnrichment,
+  suggestionToParsed,
+  type AddressSuggestion,
+} from "../utils/addressSuggestions";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
@@ -89,6 +96,10 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const [previewParsed, setPreviewParsed] = useState<ParsedAddress | null>(null);
   const [previewSource, setPreviewSource] = useState<"voice" | "ocr">("voice");
   const [pendingPreviewSave, setPendingPreviewSave] = useState<AddressFormValues | null>(null);
+  const [previewSuggestions, setPreviewSuggestions] = useState<AddressSuggestion[]>([]);
+  const [previewSuggestionsLoading, setPreviewSuggestionsLoading] = useState(false);
+  const [previewSelectedSuggestionId, setPreviewSelectedSuggestionId] = useState<string | null>(null);
+  const [previewAutoApplied, setPreviewAutoApplied] = useState(false);
 
   const [showGeocodeFailure, setShowGeocodeFailure] = useState(false);
   const [geocodeQuery, setGeocodeQuery] = useState("");
@@ -324,7 +335,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       } catch (e) {
         Alert.alert(
           "Erro ao salvar",
-          e instanceof Error ? e.message : "Não foi possível salvar. Tente novamente."
+          formatApiError(e, "Não foi possível salvar. Tente novamente.")
         );
       } finally {
         setFlowState("idle");
@@ -423,6 +434,55 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     return pickBestOcrAddress(lines);
   }, []);
 
+  const mergePreviewValues = useCallback(
+    (vals: AddressFormValues): AddressFormValues => ({
+      ...vals,
+      destinatario: vals.destinatario.trim() || activeDelivery?.cliente || "",
+    }),
+    [activeDelivery?.cliente]
+  );
+
+  const openPreviewWithEnrichment = useCallback(
+    async (parsed: ParsedAddress, source: "voice" | "ocr") => {
+      setPreviewParsed(parsed);
+      setPreviewSource(source);
+      setPendingPreviewSave(mergePreviewValues(parsedToFormValues(parsed)));
+      setPreviewSuggestions([]);
+      setPreviewSelectedSuggestionId(null);
+      setPreviewAutoApplied(false);
+      setShowPreview(true);
+
+      if (!needsAddressEnrichment(parsedToFormValues(parsed))) return;
+
+      setPreviewSuggestionsLoading(true);
+      try {
+        const { suggestions, autoSelected } = await enrichParsedAddress(parsed, {
+          cidade: cidadePadrao || undefined,
+          estado: estadoPadrao || undefined,
+        });
+        setPreviewSuggestions(suggestions);
+        if (autoSelected) {
+          const enriched = suggestionToParsed(autoSelected);
+          setPreviewParsed(enriched);
+          setPendingPreviewSave(mergePreviewValues(autoSelected.values));
+          setPreviewSelectedSuggestionId(autoSelected.id);
+          setPreviewAutoApplied(true);
+        }
+      } finally {
+        setPreviewSuggestionsLoading(false);
+      }
+    },
+    [cidadePadrao, estadoPadrao, mergePreviewValues]
+  );
+
+  const handlePreviewSelectSuggestion = useCallback((s: AddressSuggestion) => {
+    const enriched = suggestionToParsed(s);
+    setPreviewParsed(enriched);
+    setPendingPreviewSave(mergePreviewValues(s.values));
+    setPreviewSelectedSuggestionId(s.id);
+    setPreviewAutoApplied(false);
+  }, [mergePreviewValues]);
+
   const handleOcr = useCallback(async () => {
     setFlowState("parsing");
     try {
@@ -436,16 +496,13 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         setFlowState("idle");
         return;
       }
-      setPreviewParsed(parsed);
-      setPreviewSource("ocr");
-      setPendingPreviewSave(parsedToFormValues(parsed));
-      setShowPreview(true);
+      await openPreviewWithEnrichment(parsed, "ocr");
     } catch {
       Alert.alert("Erro", "Não foi possível ler a imagem.");
     } finally {
       setFlowState("idle");
     }
-  }, [captureOcrParsed]);
+  }, [captureOcrParsed, openPreviewWithEnrichment]);
 
   const handleRequestOcrAdvanced = useCallback(async () => {
     const parsed = await captureOcrParsed();
@@ -522,13 +579,10 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         setFlowState("idle");
         return;
       }
-      setPreviewParsed(parsed);
-      setPreviewSource("voice");
-      setPendingPreviewSave(parsedToFormValues(parsed));
-      setShowPreview(true);
+      void openPreviewWithEnrichment(parsed, "voice");
       setFlowState("idle");
     },
-    [cidadePadrao, estadoPadrao, showAdvancedForm]
+    [cidadePadrao, estadoPadrao, showAdvancedForm, openPreviewWithEnrichment]
   );
 
   const handleVoiceCancel = useCallback(() => {
@@ -771,6 +825,11 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         visible={showPreview}
         source={previewSource}
         parsed={previewParsed}
+        suggestions={previewSuggestions}
+        suggestionsLoading={previewSuggestionsLoading}
+        selectedSuggestionId={previewSelectedSuggestionId}
+        autoApplied={previewAutoApplied}
+        onSelectSuggestion={handlePreviewSelectSuggestion}
         onSaveAndNext={() => void handlePreviewSave()}
         onEdit={handlePreviewEdit}
         onRetry={previewSource === "voice" ? handleDictate : handleOcr}

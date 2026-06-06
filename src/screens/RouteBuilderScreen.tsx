@@ -49,6 +49,7 @@ import { geocodeAddress } from "../features/entregas/utils/geocode";
 import { fetchOsrmRoutePolyline } from "../features/entregas/utils/osrm";
 import type { EntregaListItem, MotivoAusencia } from "../features/entregas/types";
 import { useMotoboyPrefsStore } from "../store/motoboyPrefsStore";
+import { runOptimizeRouteWithFeedback } from "../features/entregas/utils/optimizeRouteFeedback";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RouteBuilder">;
 
@@ -112,8 +113,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const [pedidosGroup, setPedidosGroup] = useState<GroupedStop | null>(null);
   const [editDelivery, setEditDelivery] = useState<EntregaListItem | null>(null);
   const [showLocateSheet, setShowLocateSheet] = useState(false);
-  const [scanMode, setScanMode] = useState<"locate" | "cargo">("locate");
-  const [cargoScannedIds, setCargoScannedIds] = useState<Set<number>>(new Set());
+  const [optimizingHeader, setOptimizingHeader] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [pendingEntregueIds, setPendingEntregueIds] = useState<number[] | null>(null);
@@ -481,45 +481,111 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     setActionSheetGroup(null);
   }, [actionSheetGroup, removeFromRoute]);
 
+  const refreshActivePolyline = useCallback(async () => {
+    const { routeDeliveries: rd, routeOrder: ro } = useDeliveryStore.getState();
+    const ord = getOrderedRouteDeliveries(rd, ro);
+    const gr = groupOrderedByAddress(ord);
+    const points: Array<{ latitude: number; longitude: number }> = [];
+    for (const group of gr) {
+      const d = group.deliveries.find(
+        (x) =>
+          (x.latitude != null && x.longitude != null) ||
+          (geocodedCoords[x.id_saida]?.latitude != null && geocodedCoords[x.id_saida]?.longitude != null)
+      );
+      if (!d) continue;
+      const lat = d.latitude ?? geocodedCoords[d.id_saida]?.latitude;
+      const lon = d.longitude ?? geocodedCoords[d.id_saida]?.longitude;
+      if (lat != null && lon != null) points.push({ latitude: lat, longitude: lon });
+    }
+    if (points.length >= 2) {
+      const poly = await fetchOsrmRoutePolyline(points);
+      if (poly) setRoutePolyline(poly);
+    }
+  }, [geocodedCoords]);
+
+  const runPartialOptimize = useCallback(
+    async (fromIndex?: number) => {
+      if (groupedStops.length < 2) return;
+      await runOptimizeRouteWithFeedback(optimizeRoute, {
+        fromDeliveryIndex: fromIndex ?? (isRouteActive ? activeStopIndex : 0),
+        persistActive: isRouteActive,
+      });
+      if (isRouteActive) await refreshActivePolyline();
+    },
+    [groupedStops.length, optimizeRoute, isRouteActive, activeStopIndex, refreshActivePolyline]
+  );
+
+  const handleHeaderOptimize = useCallback(async () => {
+    if (groupedStops.length < 2 || optimizingHeader) return;
+    setOptimizingHeader(true);
+    try {
+      await runPartialOptimize();
+    } finally {
+      setOptimizingHeader(false);
+    }
+  }, [groupedStops.length, optimizingHeader, runPartialOptimize]);
+
   const handleSaveAddress = useCallback(
     async (values: AddressFormValues) => {
       if (!editDelivery) return;
-      const updated = await saveAddress(editDelivery.id_saida, { ...values, origem: "manual" });
-      updateRouteDelivery(editDelivery.id_saida, updated);
-      if (updated.latitude != null && updated.longitude != null) {
-        setGeocodedCoords((prev) => ({
-          ...prev,
-          [updated.id_saida]: { latitude: updated.latitude!, longitude: updated.longitude! },
-        }));
-      } else {
-        const addr = [values.rua, values.numero, values.bairro, values.cidade, values.estado]
-          .filter(Boolean)
-          .join(", ");
-        const geo = await geocodeAddress(addr, {
-          cidade: values.cidade,
-          estado: values.estado,
-          bairro: values.bairro,
-          numero: values.numero,
-        });
-        if (geo) {
-          updateRouteDelivery(editDelivery.id_saida, {
-            latitude: geo.latitude,
-            longitude: geo.longitude,
-          });
+      try {
+        const updated = await saveAddress(editDelivery.id_saida, { ...values, origem: "manual" });
+        updateRouteDelivery(editDelivery.id_saida, updated);
+        if (updated.latitude != null && updated.longitude != null) {
           setGeocodedCoords((prev) => ({
             ...prev,
-            [editDelivery.id_saida]: geo,
+            [updated.id_saida]: { latitude: updated.latitude!, longitude: updated.longitude! },
           }));
+        } else {
+          const addr = [values.rua, values.numero, values.bairro, values.cidade, values.estado]
+            .filter(Boolean)
+            .join(", ");
+          const geo = await geocodeAddress(addr, {
+            cidade: values.cidade,
+            estado: values.estado,
+            bairro: values.bairro,
+            numero: values.numero,
+          });
+          if (geo) {
+            updateRouteDelivery(editDelivery.id_saida, {
+              latitude: geo.latitude,
+              longitude: geo.longitude,
+            });
+            setGeocodedCoords((prev) => ({
+              ...prev,
+              [editDelivery.id_saida]: geo,
+            }));
+          }
         }
-      }
-      setEditDelivery(null);
-      if (isRouteActive && routePointsForOsrm.length >= 2) {
-        const poly = await fetchOsrmRoutePolyline(routePointsForOsrm);
-        if (poly) setRoutePolyline(poly);
+        setEditDelivery(null);
+        await runPartialOptimize();
+      } catch (e) {
+        Alert.alert("Erro ao salvar", formatApiError(e, "Não foi possível salvar o endereço."));
       }
     },
-    [editDelivery, saveAddress, updateRouteDelivery, isRouteActive, routePointsForOsrm]
+    [editDelivery, saveAddress, updateRouteDelivery, runPartialOptimize]
   );
+
+  const handleAlterarPosicao = useCallback(
+    async (toIndex: number) => {
+      moveGroupedStopToIndex(actionSheetStopIndex - 1, toIndex);
+      setActionSheetGroup(null);
+      await runPartialOptimize();
+    },
+    [actionSheetStopIndex, moveGroupedStopToIndex, runPartialOptimize]
+  );
+
+  const handleMoverInicio = useCallback(async () => {
+    moveGroupedStopToStart(actionSheetStopIndex - 1);
+    setActionSheetGroup(null);
+    await runPartialOptimize();
+  }, [actionSheetStopIndex, moveGroupedStopToStart, runPartialOptimize]);
+
+  const handleMoverFim = useCallback(async () => {
+    moveGroupedStopToEnd(actionSheetStopIndex - 1);
+    setActionSheetGroup(null);
+    await runPartialOptimize();
+  }, [actionSheetStopIndex, moveGroupedStopToEnd, runPartialOptimize]);
 
   const handleCorrigirReview = useCallback((delivery: EntregaListItem) => {
     setShowReviewModal(false);
@@ -533,12 +599,6 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     },
     [pendingDeliveries, appendToRoute]
   );
-
-  const handleCargoScan = useCallback((codigo: string, inRoute: boolean, idSaida?: number) => {
-    if (inRoute && idSaida != null) {
-      setCargoScannedIds((prev) => new Set(prev).add(idSaida));
-    }
-  }, []);
 
   const handleFecharRotaFinalizada = useCallback(() => {
     setShowRotaFinalizadaModal(false);
@@ -807,29 +867,25 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         )}
         <View style={styles.headerButtons}>
           {ordered.length > 0 && (
-            <>
-              <TouchableOpacity
-                style={styles.headerBtnSmall}
-                onPress={() => {
-                  setScanMode("locate");
-                  setShowLocateSheet(true);
-                }}
-              >
-                <Text style={styles.headerBtnSmallText}>Localizar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.headerBtnSmall,
-                  scanMode === "cargo" && showLocateSheet && styles.headerBtnSmallActive,
-                ]}
-                onPress={() => {
-                  setScanMode("cargo");
-                  setShowLocateSheet(true);
-                }}
-              >
-                <Text style={styles.headerBtnSmallText}>Conferir</Text>
-              </TouchableOpacity>
-            </>
+            <TouchableOpacity
+              style={styles.headerBtnSmall}
+              onPress={() => setShowLocateSheet(true)}
+            >
+              <Text style={styles.headerBtnSmallText}>Localizar</Text>
+            </TouchableOpacity>
+          )}
+          {groupedStops.length >= 2 && (
+            <TouchableOpacity
+              style={styles.headerBtnSmall}
+              onPress={() => void handleHeaderOptimize()}
+              disabled={optimizingHeader}
+            >
+              {optimizingHeader ? (
+                <ActivityIndicator size="small" color={colors.text} />
+              ) : (
+                <Text style={styles.headerBtnSmallText}>Otimizar rota</Text>
+              )}
+            </TouchableOpacity>
           )}
           {!isRouteActive && ordered.length > 0 && (
             <>
@@ -886,7 +942,9 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         group={actionSheetGroup}
         stopIndex={actionSheetStopIndex}
         totalStops={groupedStops.length}
-        disableMutations={isRouteActive}
+        canMutateStop={!isRouteActive || actionSheetStopIndex >= activeGroupIndex1Based}
+        isCurrentStop={isRouteActive && actionSheetStopIndex === activeGroupIndex1Based}
+        minPosition={isRouteActive ? activeGroupIndex1Based : 1}
         onClose={() => setActionSheetGroup(null)}
         onNavegar={() => actionSheetGroup && handleNavegarGroup(actionSheetGroup)}
         onVerPedidos={() => {
@@ -895,12 +953,10 @@ export default function RouteBuilderScreen({ navigation }: Props) {
             setShowPedidosModal(true);
           }
         }}
-        onEditarEndereco={(d) => setEditDelivery(d)}
-        onAlterarPosicao={(toIndex) => {
-          moveGroupedStopToIndex(actionSheetStopIndex - 1, toIndex);
-        }}
-        onMoverInicio={() => moveGroupedStopToStart(actionSheetStopIndex - 1)}
-        onMoverFim={() => moveGroupedStopToEnd(actionSheetStopIndex - 1)}
+        onEditarParada={(d) => setEditDelivery(d)}
+        onAlterarPosicao={(toIndex) => void handleAlterarPosicao(toIndex)}
+        onMoverInicio={() => void handleMoverInicio()}
+        onMoverFim={() => void handleMoverFim()}
         onRemover={handleRemoverGroup}
       />
 
@@ -936,10 +992,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
 
       <RouteLocatePackageSheet
         visible={showLocateSheet}
-        mode={scanMode}
         totalStops={groupedStops.length}
-        totalPedidos={headerStats.pedidoCount}
-        cargoScannedCount={cargoScannedIds.size}
         onFindByCodigo={(codigo) => {
           const found = findInRouteByCodigo(codigo);
           if (!found) return null;
@@ -949,7 +1002,6 @@ export default function RouteBuilderScreen({ navigation }: Props) {
             totalStops: groupedStops.length,
           };
         }}
-        onCargoScan={handleCargoScan}
         onGoToStop={(idSaida) => setCenterOnStopId(idSaida)}
         onClose={() => setShowLocateSheet(false)}
       />
