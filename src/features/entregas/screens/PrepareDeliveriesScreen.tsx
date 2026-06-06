@@ -239,6 +239,11 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     [deliveriesWithAddress]
   );
 
+  const knownDeliveriesForForm = useMemo(() => {
+    if (!activeDelivery) return deliveriesWithAddress;
+    return deliveriesWithAddress.filter((d) => d.id_saida !== activeDelivery.id_saida);
+  }, [deliveriesWithAddress, activeDelivery]);
+
   const queuePrefs = useMemo(
     () => ({ modo: prepOrdemModo, servicoInicio: prepServicoInicio }),
     [prepOrdemModo, prepServicoInicio]
@@ -779,6 +784,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
               flowState={flowState}
               cidadePadrao={cidadePadrao}
               estadoPadrao={estadoPadrao}
+              knownDeliveries={knownDeliveriesForForm}
               externalParsed={externalParsed}
               onFlowStateChange={setFlowState}
               onSaveAndNext={(vals) => handleSaveAndNext(vals, "manual")}

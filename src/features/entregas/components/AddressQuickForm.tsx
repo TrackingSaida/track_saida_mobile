@@ -21,6 +21,7 @@ import {
 } from "../utils/ocrAddress";
 import {
   buildSearchQuery,
+  findLocalAddressSuggestions,
   formatAddressSummary,
   needsAddressEnrichment,
   searchAddressSuggestions,
@@ -42,6 +43,10 @@ interface AddressQuickFormProps {
   cidadePadrao?: string;
   estadoPadrao?: string;
   initialFreeText?: string;
+  knownDeliveries?: EntregaListItem[];
+  hidePackageCard?: boolean;
+  showInputActions?: boolean;
+  submitLabel?: string;
   onFlowStateChange?: (state: QuickFormFlowState) => void;
   onSaveAndNext: (values: AddressFormValues) => Promise<void>;
   onDictate: () => void;
@@ -56,6 +61,10 @@ export default function AddressQuickForm({
   cidadePadrao,
   estadoPadrao,
   initialFreeText = "",
+  knownDeliveries = [],
+  hidePackageCard = false,
+  showInputActions = true,
+  submitLabel = "Salvar e próximo",
   onFlowStateChange,
   onSaveAndNext,
   onDictate,
@@ -83,20 +92,12 @@ export default function AddressQuickForm({
     [cidadePadrao, estadoPadrao]
   );
 
-  useEffect(() => {
-    setFreeText(initialFreeText);
-    setDestinatario(delivery.cliente ?? "");
-    setComplemento("");
-    setParsedInternal({});
-    setSuggestions([]);
-    setSelectedSuggestionId(null);
-    setAutoApplied(false);
-  }, [delivery.id_saida, initialFreeText, delivery.cliente]);
-
   const applySuggestion = useCallback(
     (s: AddressSuggestion, fromAuto = false) => {
+      const parsedNumero = (parsedInternal.numero ?? "").trim();
       const vals = {
         ...s.values,
+        numero: (s.values.numero ?? "").trim() || parsedNumero,
         destinatario: destinatario.trim() || delivery.cliente || "",
         complemento: complemento.trim(),
       };
@@ -106,7 +107,7 @@ export default function AddressQuickForm({
       setAutoApplied(fromAuto);
       setSuggestions([s]);
     },
-    [destinatario, complemento, delivery.cliente]
+    [destinatario, complemento, delivery.cliente, parsedInternal.numero]
   );
 
   const runSearch = useCallback(
@@ -126,19 +127,44 @@ export default function AddressQuickForm({
       lastSearchQueryRef.current = query;
       setSearching(true);
       onFlowStateChange?.("searching");
-      const found = await searchAddressSuggestions(query);
+      const local = findLocalAddressSuggestions(vals, knownDeliveries, defaults);
+      const remote = await searchAddressSuggestions(query, { hints: vals, defaults });
+      const localIds = new Set(local.map((s) => s.id));
+      const merged = [...local, ...remote.filter((s) => !localIds.has(s.id))];
       setSearching(false);
       onFlowStateChange?.("idle");
-      setSuggestions(found);
-      if (found.length === 1) {
-        applySuggestion(found[0], true);
+      setSuggestions(merged);
+      if (merged.length === 1) {
+        applySuggestion(merged[0], true);
+      } else if (local.length === 1 && needsAddressEnrichment(vals)) {
+        applySuggestion(local[0], true);
       } else {
         setAutoApplied(false);
         setSelectedSuggestionId(null);
       }
     },
-    [defaults, onFlowStateChange, applySuggestion]
+    [defaults, knownDeliveries, onFlowStateChange, applySuggestion]
   );
+
+  useEffect(() => {
+    setFreeText(initialFreeText);
+    setDestinatario(delivery.cliente ?? "");
+    setComplemento("");
+    setParsedInternal({});
+    setSuggestions([]);
+    setSelectedSuggestionId(null);
+    setAutoApplied(false);
+    lastSearchQueryRef.current = "";
+
+    if (initialFreeText.trim()) {
+      const parsed = parseFreeTextAddress(initialFreeText, defaults);
+      const vals = parsedToFormValues(parsed);
+      setParsedInternal(vals);
+      if (needsAddressEnrichment(vals)) {
+        void runSearch(vals);
+      }
+    }
+  }, [delivery.id_saida, initialFreeText, delivery.cliente, defaults, runSearch]);
 
   useEffect(() => {
     if (!externalParsed) return;
@@ -329,13 +355,17 @@ export default function AddressQuickForm({
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20 }}>
-        <View style={styles.codigoCard}>
-          <Text style={styles.codigoLabel}>Pacote / etiqueta</Text>
-          <Text style={styles.codigoValue}>{delivery.codigo || "—"}</Text>
-          <Text style={styles.pedido}>Pedido {delivery.id_saida}</Text>
-        </View>
+        {!hidePackageCard && (
+          <View style={styles.codigoCard}>
+            <Text style={styles.codigoLabel}>Pacote / etiqueta</Text>
+            <Text style={styles.codigoValue}>{delivery.codigo || "—"}</Text>
+            <Text style={styles.pedido}>Pedido {delivery.id_saida}</Text>
+          </View>
+        )}
 
-        <Text style={styles.label}>Digite, dite ou fotografe o endereço</Text>
+        <Text style={styles.label}>
+          {showInputActions ? "Digite, dite ou fotografe o endereço" : "Digite o endereço"}
+        </Text>
         <TextInput
           ref={freeTextRef}
           style={styles.input}
@@ -367,21 +397,23 @@ export default function AddressQuickForm({
           </View>
         )}
 
-        <View style={styles.actionsRow}>
-          <TouchableOpacity style={styles.actionBtn} onPress={onDictate} disabled={busy}>
-            <Text style={styles.actionBtnText}>Ditar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn} onPress={onOcr} disabled={busy}>
-            <Text style={styles.actionBtnText}>Foto/OCR</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => freeTextRef.current?.focus()}
-            disabled={busy}
-          >
-            <Text style={styles.actionBtnText}>Digitar</Text>
-          </TouchableOpacity>
-        </View>
+        {showInputActions && (
+          <View style={styles.actionsRow}>
+            <TouchableOpacity style={styles.actionBtn} onPress={onDictate} disabled={busy}>
+              <Text style={styles.actionBtnText}>Ditar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn} onPress={onOcr} disabled={busy}>
+              <Text style={styles.actionBtnText}>Foto/OCR</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => freeTextRef.current?.focus()}
+              disabled={busy}
+            >
+              <Text style={styles.actionBtnText}>Digitar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <TouchableOpacity
           style={styles.optionalToggle}
@@ -425,7 +457,7 @@ export default function AddressQuickForm({
           {flowState === "saving" || flowState === "geocoding" ? (
             <ActivityIndicator color={colors.primaryContrast} />
           ) : (
-            <Text style={styles.saveBtnText}>Salvar e próximo</Text>
+            <Text style={styles.saveBtnText}>{submitLabel}</Text>
           )}
         </TouchableOpacity>
 

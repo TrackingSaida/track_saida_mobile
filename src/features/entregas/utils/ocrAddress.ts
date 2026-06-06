@@ -645,22 +645,36 @@ export function parseFreeTextAddress(
 
   let parsed = parseOcrToAddress(lines.length > 0 ? lines : [normalized]);
 
-  if (!(parsed.rua ?? "").trim() && normalized.length > 5) {
+  if (normalized.length > 5) {
     const cepMatch = normalized.match(/\b(\d{5}-?\d{3})\b/);
     const withoutCep = cepMatch
       ? normalized.replace(cepMatch[0], "").trim()
       : normalized;
-    const numMatch = withoutCep.match(/^(.*?)[\s,]+(\d+[a-zA-Z]?)(?:\s+(.+))?$/);
-    if (numMatch) {
-      parsed = {
-        ...parsed,
-        rua: numMatch[1].trim(),
-        numero: numMatch[2],
-        cidade: numMatch[3]?.trim() || parsed.cidade,
-        cep: cepMatch ? normalizeCep(cepMatch[1]) : parsed.cep,
-      };
-    } else {
-      parsed = { ...parsed, rua: withoutCep };
+
+    if (!(parsed.rua ?? "").trim()) {
+      const numMatch = withoutCep.match(/^(.*?)[\s,]+(\d+[a-zA-Z]?)(?:\s+(.+))?$/);
+      if (numMatch) {
+        parsed = {
+          ...parsed,
+          rua: numMatch[1].trim(),
+          numero: numMatch[2],
+          cidade: numMatch[3]?.trim() || parsed.cidade,
+          cep: cepMatch ? normalizeCep(cepMatch[1]) : parsed.cep,
+        };
+      } else {
+        parsed = { ...parsed, rua: withoutCep };
+      }
+    } else if (!(parsed.numero ?? "").trim()) {
+      const { rua, numero, afterNumero } = splitStreetAndNumber(
+        (parsed.rua ?? "").trim() || withoutCep
+      );
+      if (rua) parsed.rua = rua;
+      if (numero) parsed.numero = numero;
+      if (!(parsed.cidade ?? "").trim() && afterNumero) {
+        const cityState = extractCityAndState(afterNumero);
+        if (cityState.cidade) parsed.cidade = cityState.cidade;
+        if (cityState.estado) parsed.estado = cityState.estado;
+      }
     }
   }
 

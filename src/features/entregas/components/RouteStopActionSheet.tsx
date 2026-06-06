@@ -6,7 +6,6 @@ import {
   Modal,
   StyleSheet,
   Alert,
-  FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
@@ -18,6 +17,7 @@ import {
   getStopPedidoLabel,
   type GroupedStop,
 } from "../utils/routeUtils";
+import RouteChangePositionSheet from "./RouteChangePositionSheet";
 
 const SERVICO_COLORS: Record<string, string> = {
   Shopee: "#EE4D2D",
@@ -87,6 +87,7 @@ export default function RouteStopActionSheet({
           borderTopRightRadius: 16,
           padding: 20,
           paddingBottom: 32,
+          maxHeight: "85%",
         },
         headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 4, gap: 8 },
         title: { fontSize: 18, fontWeight: "700", color: colors.text, flex: 1 },
@@ -120,16 +121,6 @@ export default function RouteStopActionSheet({
         actionDestructive: { color: colors.danger },
         cancel: { marginTop: 12, alignItems: "center", paddingVertical: 12 },
         cancelText: { fontSize: 16, color: colors.textSecondary },
-        pickerTitle: { fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 12 },
-        pickerItem: {
-          paddingVertical: 12,
-          paddingHorizontal: 16,
-          borderRadius: 8,
-          backgroundColor: colors.inputBackground,
-          marginBottom: 8,
-        },
-        pickerItemActive: { borderWidth: 1, borderColor: colors.primary },
-        pickerItemText: { fontSize: 15, color: colors.text },
       }),
     [colors]
   );
@@ -154,7 +145,7 @@ export default function RouteStopActionSheet({
     { key: "pedidos", label: "Ver pedidos", icon: "list-outline", onPress: () => { onClose(); onVerPedidos(); } },
     {
       key: "editar",
-      label: "Editar parada",
+      label: "Editar endereço",
       icon: "create-outline",
       onPress: () => {
         if (first) {
@@ -197,39 +188,23 @@ export default function RouteStopActionSheet({
 
   if (!group) return null;
 
-  const positions = Array.from({ length: totalStops }, (_, i) => i + 1).filter(
-    (pos) => pos >= minPosition
-  );
-
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
         <View style={styles.box} onStartShouldSetResponder={() => true}>
           {showPositionPicker ? (
-            <>
-              <Text style={styles.pickerTitle}>Mover para posição</Text>
-              <FlatList
-                data={positions}
-                keyExtractor={(n) => String(n)}
-                renderItem={({ item: pos }) => (
-                  <TouchableOpacity
-                    style={[styles.pickerItem, pos === stopIndex && styles.pickerItemActive]}
-                    onPress={() => {
-                      setShowPositionPicker(false);
-                      onClose();
-                      onAlterarPosicao(pos - 1);
-                    }}
-                  >
-                    <Text style={styles.pickerItemText}>
-                      Posição {pos}{pos === stopIndex ? " (atual)" : ""}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              />
-              <TouchableOpacity style={styles.cancel} onPress={() => setShowPositionPicker(false)}>
-                <Text style={styles.cancelText}>Voltar</Text>
-              </TouchableOpacity>
-            </>
+            <RouteChangePositionSheet
+              group={group}
+              stopIndex={stopIndex}
+              totalStops={totalStops}
+              minPosition={minPosition}
+              onSelectPosition={(toIndex) => {
+                setShowPositionPicker(false);
+                onClose();
+                onAlterarPosicao(toIndex);
+              }}
+              onBack={() => setShowPositionPicker(false)}
+            />
           ) : (
             <>
               <View style={styles.headerRow}>

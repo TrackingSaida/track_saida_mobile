@@ -97,6 +97,7 @@ export default function AddressSuggestionList({
       )}
       {suggestions.map((s) => {
         const selected = selectedId === s.id;
+        const headline = [s.values.rua, s.values.numero].filter(Boolean).join(", ");
         const meta = [s.values.bairro, s.values.cidade, s.values.estado, s.values.cep]
           .filter(Boolean)
           .join(" · ");
@@ -106,7 +107,7 @@ export default function AddressSuggestionList({
             style={[styles.card, selected && styles.cardSelected]}
             onPress={() => onSelect(s)}
           >
-            <Text style={styles.cardText}>{s.displayName}</Text>
+            <Text style={styles.cardText}>{headline || s.displayName}</Text>
             {meta ? <Text style={styles.cardMeta}>{meta}</Text> : null}
           </TouchableOpacity>
         );

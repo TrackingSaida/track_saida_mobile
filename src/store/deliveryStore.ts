@@ -20,6 +20,7 @@ import {
 } from "../features/entregas/api";
 import { geocodeAddress } from "../features/entregas/utils/geocode";
 import {
+  clusterRouteOrderByAddress,
   flattenGroupsToRouteOrder,
   getActiveGroupIndex,
   getOrderedRouteDeliveries,
@@ -396,7 +397,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     if (state.activeRouteId != null) {
       return;
     }
-    const order = deliveries.map((d) => d.id_saida);
+    const order = clusterRouteOrderByAddress(
+      deliveries,
+      deliveries.map((d) => d.id_saida)
+    );
     const routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente"> = {};
     deliveries.forEach((d) => {
       routeDeliveryStatus[d.id_saida] = "pendente";
@@ -439,7 +443,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         : undefined;
 
     const applyOrder = async (newSuffix: number[], mode: RouteOptimizationMode, message: OptimizeRouteResult["message"], semCoordenadas: number[]) => {
-      const newOrder = activeRouteId != null ? [...prefix, ...newSuffix] : newSuffix;
+      let newOrder = activeRouteId != null ? [...prefix, ...newSuffix] : newSuffix;
+      newOrder = clusterRouteOrderByAddress(routeDeliveries, newOrder);
       set({ routeOrder: newOrder, routeOptimizationMode: mode });
       if (activeRouteId != null && opts?.persistActive !== false) {
         await persistActiveRouteOrder(activeRouteId, newOrder);
@@ -562,9 +567,14 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       if (newOnes.length === 0) return state;
       const nextStatus = { ...state.routeDeliveryStatus };
       for (const d of newOnes) nextStatus[d.id_saida] = "pendente";
+      const routeDeliveries = [...state.routeDeliveries, ...newOnes];
+      const routeOrder = clusterRouteOrderByAddress(routeDeliveries, [
+        ...state.routeOrder,
+        ...newOnes.map((d) => d.id_saida),
+      ]);
       return {
-        routeDeliveries: [...state.routeDeliveries, ...newOnes],
-        routeOrder: [...state.routeOrder, ...newOnes.map((d) => d.id_saida)],
+        routeDeliveries,
+        routeOrder,
         routeDeliveryStatus: nextStatus,
       };
     });

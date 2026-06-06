@@ -16,16 +16,111 @@ export const ROUTE_MARKER_COLORS: Record<ServicoTipo, string> = {
   Shopee: "#ea580c",
 };
 
-/** Retorna chave de endereço para agrupamento: CEP + número quando disponível; senão coords; senão endereço formatado. */
-export function addressKey(d: EntregaListItem): string {
-  const cep = (d.cep ?? "").toString().replace(/\D/g, "").slice(0, 8);
-  const num = (d.numero ?? "").toString().trim();
-  if (cep && num) return `${cep}|${num}`;
-  if (d.latitude != null && d.longitude != null) {
-    return `coord|${Math.round(d.latitude * 100000)}|${Math.round(d.longitude * 100000)}`;
+export function normalizeStreet(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+/** Extrai e normaliza o número principal (somente dígitos quando possível). */
+export function normalizeNumero(numero: string, endereco?: string): string {
+  const n = (numero ?? "").trim();
+  if (n) {
+    const digits = n.replace(/\D/g, "");
+    return digits || n.toLowerCase();
   }
-  const addr = (d.endereco_formatado || [d.endereco, d.bairro].filter(Boolean).join(", ") || "").trim();
-  return addr ? `addr|${addr}` : `id|${d.id_saida}`;
+  const fromAddr = (endereco ?? "").match(/,?\s*(\d{1,6})\s*(?:,|$)/);
+  if (fromAddr) return fromAddr[1];
+  return "";
+}
+
+type AddressKeyParts = {
+  endereco?: string | null;
+  numero?: string | null;
+  cep?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  endereco_formatado?: string | null;
+  bairro?: string | null;
+  id_saida?: number;
+};
+
+function buildAddressKey(parts: AddressKeyParts): string {
+  const rua = normalizeStreet(parts.endereco ?? "");
+  const num = normalizeNumero(parts.numero ?? "", parts.endereco ?? "");
+  if (rua && num) return `loc|${rua}|${num}`;
+
+  const cep = (parts.cep ?? "").toString().replace(/\D/g, "").slice(0, 8);
+  if (cep && num) return `cep|${cep}|${num}`;
+
+  if (parts.latitude != null && parts.longitude != null) {
+    return `coord|${Math.round(parts.latitude * 10000)}|${Math.round(parts.longitude * 10000)}`;
+  }
+
+  const addr = (
+    parts.endereco_formatado ||
+    [parts.endereco, parts.bairro].filter(Boolean).join(", ") ||
+    ""
+  ).trim();
+  return addr ? `addr|${normalizeStreet(addr)}` : `id|${parts.id_saida ?? 0}`;
+}
+
+/** Retorna chave de endereço para agrupamento: rua + número normalizados; fallbacks CEP/coords/endereço. */
+export function addressKey(d: EntregaListItem): string {
+  return buildAddressKey({
+    endereco: d.endereco,
+    numero: d.numero,
+    cep: d.cep,
+    latitude: d.latitude,
+    longitude: d.longitude,
+    endereco_formatado: d.endereco_formatado,
+    bairro: d.bairro,
+    id_saida: d.id_saida,
+  });
+}
+
+export function addressKeyFromValues(vals: {
+  rua?: string;
+  numero?: string;
+  cep?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+}): string {
+  return buildAddressKey({
+    endereco: vals.rua,
+    numero: vals.numero,
+    cep: vals.cep,
+    bairro: vals.bairro,
+  });
+}
+
+/** Reordena routeOrder para que pedidos com mesma addressKey fiquem adjacentes. */
+export function clusterRouteOrderByAddress(
+  routeDeliveries: EntregaListItem[],
+  routeOrder: number[]
+): number[] {
+  if (routeOrder.length === 0) return [];
+  const ordered = getOrderedRouteDeliveries(routeDeliveries, routeOrder);
+  const byKey = new Map<string, number[]>();
+  for (const d of ordered) {
+    const k = addressKey(d);
+    const list = byKey.get(k) ?? [];
+    list.push(d.id_saida);
+    byKey.set(k, list);
+  }
+  const seen = new Set<string>();
+  const result: number[] = [];
+  for (const d of ordered) {
+    const k = addressKey(d);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    result.push(...(byKey.get(k) ?? []));
+  }
+  return result;
 }
 
 /** Chave CEP + número + destinatário (para fluxo "finalizar todos"). */
@@ -170,8 +265,12 @@ export function getAddressReviewIssue(
 }
 
 export function getStopPrimaryCodigo(group: GroupedStop): string {
-  const first = group.deliveries[0];
-  return (first?.codigo ?? "").trim() || "—";
+  const codes = group.deliveries
+    .map((d) => (d.codigo ?? "").trim())
+    .filter(Boolean);
+  if (codes.length === 0) return "—";
+  if (codes.length === 1) return codes[0];
+  return `${codes[0]} +${codes.length - 1}`;
 }
 
 export function getStopPedidoLabel(d: EntregaListItem): string {
