@@ -1,7 +1,8 @@
 import { Alert, Linking, Platform } from "react-native";
 import { copyToClipboard } from "../../../utils/clipboard";
 import type { EntregaListItem } from "../types";
-import { formatStopAddress, type GroupedStop } from "./routeUtils";
+import { valuesFromEnderecoFormatado } from "./addressSuggestions";
+import { formatStopAddress, isApproximateLocation, type GroupedStop } from "./routeUtils";
 
 export type NavigationApp = "google" | "waze" | "apple" | "copy";
 
@@ -27,16 +28,38 @@ export function isValidNavigationCoords(
   return true;
 }
 
+function hasParseableCity(stop: EntregaListItem): boolean {
+  if ((stop.cidade ?? "").trim()) return true;
+  const parsed = stop.endereco_formatado
+    ? valuesFromEnderecoFormatado(stop.endereco_formatado)
+    : null;
+  return Boolean((parsed?.cidade ?? "").trim());
+}
+
+function shouldPreferAddressNavigation(stop: EntregaListItem): boolean {
+  if (!hasParseableCity(stop)) return false;
+  if (stop.coord_precision === "approx") return true;
+  return isApproximateLocation(stop);
+}
+
 export function resolveNavigationTarget(
   stop: EntregaListItem,
   geocodedCoords: GeocodedCoordsMap = {}
 ): NavigationTarget {
+  const address = formatStopAddress(stop);
+  const fullAddress = address === "—" ? "" : address;
+
+  if (shouldPreferAddressNavigation(stop) && fullAddress) {
+    return { mode: "address", address: fullAddress };
+  }
+
   if (isValidNavigationCoords(stop.latitude, stop.longitude)) {
+    const approx = isApproximateLocation(stop);
     return {
       mode: "coords",
       latitude: stop.latitude!,
       longitude: stop.longitude!,
-      precision: "saved",
+      precision: approx ? "geocoded" : "saved",
     };
   }
 
@@ -50,8 +73,7 @@ export function resolveNavigationTarget(
     };
   }
 
-  const address = formatStopAddress(stop);
-  return { mode: "address", address: address === "—" ? "" : address };
+  return { mode: "address", address: fullAddress };
 }
 
 export function resolveGroupNavigationTarget(
@@ -62,6 +84,9 @@ export function resolveGroupNavigationTarget(
 }
 
 export function getDestinationLabel(target: NavigationTarget): string {
+  if (target.mode === "address") {
+    return "Destino: endereço completo";
+  }
   if (target.mode === "coords" && target.precision === "saved") {
     return "Destino: coordenadas salvas";
   }

@@ -6,6 +6,7 @@ import type { EntregaListItem } from "../types";
 import type { AddressFormValues } from "./AddressForm";
 import type { GeocodeResult } from "../utils/geocode";
 import AddressQuickForm, { type QuickFormFlowState } from "./AddressQuickForm";
+import { deliveryToFreeText } from "../utils/deliveryAddress";
 import { getStopAddressLine, getStopPedidoLabel } from "../utils/routeUtils";
 
 interface RouteEditAddressSheetProps {
@@ -13,12 +14,6 @@ interface RouteEditAddressSheetProps {
   delivery: EntregaListItem | null;
   onSave: (values: AddressFormValues, coords?: GeocodeResult | null) => Promise<void>;
   onClose: () => void;
-}
-
-function deliveryToFreeText(d: EntregaListItem): string {
-  const parts = [d.endereco, d.numero, d.bairro, d.cep].filter(Boolean);
-  if (parts.length > 0) return parts.join(", ");
-  return d.endereco_formatado ?? "";
 }
 
 export default function RouteEditAddressSheet({

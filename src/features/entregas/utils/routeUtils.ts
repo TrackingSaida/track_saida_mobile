@@ -350,6 +350,25 @@ export function computeRouteStatsFromGroups(
   return computeRouteStats(onePerGroup);
 }
 
+/** Partes do tempo estimado: valor em destaque + rótulo discreto. */
+export function getEstimatedRouteDurationParts(totalMinutes: number): {
+  value: string;
+  label: string;
+} {
+  const m = Math.max(0, Math.round(totalMinutes));
+  if (m < 60) return { value: `~${m} min`, label: "estimados" };
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (rem === 0) return { value: `~${h}h`, label: "estimados" };
+  return { value: `~${h}h e ${rem}min`, label: "estimados" };
+}
+
+/** Tempo estimado legível para o motoboy (horas e minutos quando passa de 59 min). */
+export function formatEstimatedRouteDuration(totalMinutes: number): string {
+  const { value, label } = getEstimatedRouteDurationParts(totalMinutes);
+  return `${value} ${label}`;
+}
+
 export type AddressReviewIssue =
   | "sem_endereco"
   | "rua_incompleta"
@@ -457,7 +476,16 @@ function isPartAlreadyInCombined(part: string, combined: string, kind: "text" | 
 /** Endereço limpo para exibição (sem duplicar número, bairro, etc.). */
 export function formatStopAddress(d: EntregaListItem): string {
   const formatted = cleanAddressString(d.endereco_formatado ?? "");
+  const numero = (d.numero ?? "").trim();
+
   if (formatted && !hasObviousAddressDuplicates(formatted)) {
+    if (numero && !isPartAlreadyInCombined(numero, formatted, "num")) {
+      const parts = formatted.split(",").map((p) => p.trim()).filter(Boolean);
+      if (parts.length > 0) {
+        return cleanAddressString([parts[0], numero, ...parts.slice(1)].join(", "));
+      }
+      return cleanAddressString(`${formatted}, ${numero}`);
+    }
     return formatted;
   }
 
@@ -481,7 +509,6 @@ export function formatStopAddress(d: EntregaListItem): string {
   };
 
   const endereco = (d.endereco ?? "").trim();
-  const numero = (d.numero ?? "").trim();
   const bairro = (d.bairro ?? "").trim();
   const cepDigits = (d.cep ?? "").replace(/\D/g, "");
 
@@ -506,6 +533,20 @@ export function formatStopAddressLines(d: EntregaListItem): { line1: string; lin
 
 export function getStopAddressLine(d: EntregaListItem): string {
   return formatStopAddress(d);
+}
+
+export function isApproximateLocation(d: EntregaListItem): boolean {
+  const precision = d.coord_precision;
+  if (precision === "rooftop") return false;
+  if (precision === "street" || precision === "approx") return true;
+  const origem = (d.endereco_origem ?? "").toLowerCase();
+  if (origem === "google_places" || origem === "mapa") return false;
+  if (origem === "suggestion" || origem === "autocomplete") return true;
+  return false;
+}
+
+export function getApproximateLocationLabel(d: EntregaListItem): string | null {
+  return isApproximateLocation(d) ? "Localização aproximada" : null;
 }
 
 export function countRoutePedidos(groupedStops: GroupedStop[]): number {
@@ -592,6 +633,14 @@ export function getFirstPendingRouteIndex(
     if ((statusMap[routeOrder[i]] ?? "pendente") === "pendente") return i;
   }
   return routeOrder.length;
+}
+
+/** True se ainda há pedido pendente na ordem da rota. */
+export function routeHasPendingDeliveries(
+  routeOrder: number[],
+  statusMap: Record<number, RouteDeliveryStatus>
+): boolean {
+  return getFirstPendingRouteIndex(routeOrder, statusMap) < routeOrder.length;
 }
 
 /** Grupo 0-based da parada operacional atual (primeira parada com pendentes). */

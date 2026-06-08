@@ -1,3 +1,5 @@
+export type CoordPrecision = "rooftop" | "street" | "approx";
+
 export interface EntregaListItem {
   id_saida: number;
   codigo: string | null;
@@ -9,6 +11,8 @@ export interface EntregaListItem {
   endereco: string | null;
   numero?: string | null;
   cep?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
   contato: string | null;
   data: string | null;
   data_hora_entrega: string | null;
@@ -16,6 +20,7 @@ export interface EntregaListItem {
   longitude?: number | null;
   endereco_formatado?: string | null;
   endereco_origem?: string | null;
+  coord_precision?: CoordPrecision | null;
   possui_endereco?: boolean;
   tentativa?: number | null;
   tem_comprovante?: boolean;
@@ -56,6 +61,15 @@ export interface MarcacaoEntregaResponse {
   entrega_atrasada?: boolean;
   data_operacional?: string;
   complemento?: boolean;
+  rota_sync?: RotaSyncInfo;
+}
+
+export interface RotaSyncInfo {
+  in_active_route: boolean;
+  rota_finalizada: boolean;
+  rota_id?: string | null;
+  parada_atual?: number | null;
+  ordem?: number[] | null;
 }
 
 export interface RotasResumo {
@@ -105,6 +119,7 @@ export interface FinalizarLoteResponse {
   finalizados: FinalizarLoteItemOut[];
   bloqueados: FinalizarLoteBloqueadoOut[];
   erros: FinalizarLoteErroOut[];
+  rota_sync?: RotaSyncInfo | null;
 }
 
 export type ExtratoStatusFiltro = "todos" | "grupo_entregue" | "cancelados";
@@ -162,6 +177,9 @@ export interface EnderecoSugestoesBody {
   longitude?: number;
   hints?: EnderecoSugestoesHints;
   limit?: number;
+  session_token?: string;
+  allow_google_fallback?: boolean;
+  google_fallback_reason?: "user_requested" | "timeout" | "auto" | "no_results";
 }
 
 export interface EnderecoSugestaoApi {
@@ -169,8 +187,8 @@ export interface EnderecoSugestaoApi {
   rua: string;
   numero?: string;
   bairro?: string;
-  cidade: string;
-  estado: string;
+  cidade?: string;
+  estado?: string;
   cep?: string;
   latitude: number;
   longitude: number;
@@ -178,8 +196,13 @@ export interface EnderecoSugestaoApi {
   confidence?: number;
   source: string;
   distance_km?: number | null;
+  distance_meters?: number | null;
   badge?: string | null;
   already_used?: boolean;
+  main_text?: string | null;
+  secondary_text?: string | null;
+  place_id?: string | null;
+  requires_place_details?: boolean;
 }
 
 export interface EnderecoSugestoesResponse {
@@ -188,4 +211,18 @@ export interface EnderecoSugestoesResponse {
     original_query: string;
     suggestion: EnderecoSugestaoApi;
   } | null;
+  used_google?: boolean;
+}
+
+export interface PlaceDetailsBody {
+  place_id: string;
+  session_token?: string;
+  query?: string;
+  latitude?: number;
+  longitude?: number;
+  hints?: EnderecoSugestoesHints;
+}
+
+export interface PlaceDetailsResponse {
+  suggestion: EnderecoSugestaoApi | null;
 }

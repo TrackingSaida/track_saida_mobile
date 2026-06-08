@@ -107,7 +107,7 @@ export default function PrepScanSheet({
         <View style={styles.box}>
           <Text style={styles.title}>Escanear pacote</Text>
           <Text style={styles.hint}>
-            Aponte para o QR da etiqueta. Ao encontrar, abriremos o cadastro de endereço.
+            Aponte para o QR da etiqueta. Se o pacote já tiver endereço, você poderá editá-lo.
           </Text>
           {!permission?.granted ? (
             <TouchableOpacity style={styles.btn} onPress={requestPermission}>

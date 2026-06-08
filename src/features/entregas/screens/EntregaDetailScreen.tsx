@@ -16,7 +16,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import * as ImagePicker from "expo-image-picker";
-import { getEntrega, marcarEntregue, marcarAusente, fetchComprovanteImageDataUri } from "../api";
+import { getEntrega, fetchComprovanteImageDataUri } from "../api";
 import type { EntregaListItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
@@ -27,7 +27,7 @@ import { pickBestOcrAddress, parseVoiceAddress, type ParsedAddress } from "../ut
 import VoiceAddressModal from "../components/VoiceAddressModal";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import type { GeocodeResult } from "../utils/geocode";
-import { isValidGeocodeCoords } from "../utils/geocode";
+import { inferCoordPrecision, isValidGeocodeCoords } from "../utils/geocode";
 import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregaDetail">;
@@ -161,6 +161,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [loadingComprovante, setLoadingComprovante] = useState(false);
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
+  const markDelivered = useDeliveryStore((s) => s.markDelivered);
+  const markAbsent = useDeliveryStore((s) => s.markAbsent);
   const pendingDeliveries = useDeliveryStore((s) => s.pendingDeliveries);
   const novaTentativa = useDeliveryStore((s) => s.novaTentativa);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
@@ -209,12 +211,15 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     photoUris: string[];
   }) => {
     try {
-      const marcacao = await marcarAusente(idSaida, motivoId, observacao);
+      const marcacao = await markAbsent(idSaida, motivoId, observacao);
       setModalAusente(false);
       runPostFinalizeFeedback({
         tipo: "ausente",
         codigo: entrega?.codigo,
         entregaAtrasada: marcacao.entrega_atrasada ?? false,
+        routeJustCompleted: marcacao.routeJustCompleted,
+        rotaIdForResumo: marcacao.rotaIdForResumo,
+        isRouteFlow: marcacao.rota_sync?.in_active_route ?? false,
         onAfterIndividualAlert: () => navigation.goBack(),
       });
     } catch (e: unknown) {
@@ -344,6 +349,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       const body = {
         ...vals,
         origem,
+        coord_precision: inferCoordPrecision(origem),
         ...(isValidGeocodeCoords(coords?.latitude, coords?.longitude)
           ? { latitude: coords!.latitude, longitude: coords!.longitude }
           : {}),
@@ -631,7 +637,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         idSaida={idSaida}
         destinatarioPreenchido={entrega?.cliente ?? undefined}
         requiredFields={entrega?.campos_obrigatorios_entregue || []}
-        onConfirm={async (body) => marcarEntregue(idSaida, body)}
+        onConfirm={async (body) => markDelivered(idSaida, body)}
         onClose={() => setShowEntregueModal(false)}
         onSuccess={async (marcacao) => {
           await load();
@@ -639,6 +645,9 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             tipo: "entregue",
             codigo: entrega?.codigo,
             entregaAtrasada: marcacao?.entrega_atrasada ?? false,
+            routeJustCompleted: marcacao?.routeJustCompleted ?? false,
+            rotaIdForResumo: marcacao?.rotaIdForResumo ?? null,
+            isRouteFlow: marcacao?.rota_sync?.in_active_route ?? false,
             onAfterIndividualAlert: () => navigation.goBack(),
           });
         }}

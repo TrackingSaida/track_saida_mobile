@@ -50,3 +50,23 @@ export function navigateToMinhasEntregasHoje(navigation: NavigationProp<ParamLis
   }
   navigation.navigate("MinhasEntregas", { presetPeriodoHoje: true });
 }
+
+/** Abre Minhas Entregas (tab Mais). */
+export function navigateToMinhasEntregas(navigation: NavigationProp<ParamListBase>): void {
+  const tabNav = getTabNavigator(navigation);
+  if (tabNav?.navigate) {
+    tabNav.navigate("Mais", { screen: "MinhasEntregas" });
+    return;
+  }
+  navigation.navigate("MinhasEntregas");
+}
+
+/** Abre Preferências (tab Mais). */
+export function navigateToConfiguracoes(navigation: NavigationProp<ParamListBase>): void {
+  const tabNav = getTabNavigator(navigation);
+  if (tabNav?.navigate) {
+    tabNav.navigate("Mais", { screen: "Configuracoes" });
+    return;
+  }
+  navigation.navigate("Configuracoes");
+}

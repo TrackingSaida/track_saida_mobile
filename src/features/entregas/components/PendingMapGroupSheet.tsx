@@ -14,6 +14,7 @@ import type { GroupedStop } from "../utils/routeUtils";
 import {
   getStopAddressLineFromGroup,
   getStopCodigosList,
+  getApproximateLocationLabel,
 } from "../utils/routeUtils";
 
 interface PendingMapGroupSheetProps {
@@ -57,6 +58,12 @@ export default function PendingMapGroupSheet({
         title: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 4 },
         subtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 8 },
         address: { fontSize: 14, color: colors.text, marginBottom: 12, lineHeight: 20 },
+        approxBadge: {
+          fontSize: 12,
+          fontWeight: "600",
+          color: colors.warning,
+          marginBottom: 12,
+        },
         codigosWrap: { marginBottom: 16 },
         codigosLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 4 },
         codigosText: { fontSize: 14, color: colors.text, fontWeight: "600" },
@@ -85,6 +92,9 @@ export default function PendingMapGroupSheet({
 
   const codigos = group ? getStopCodigosList(group) : [];
   const count = group?.deliveries.length ?? 0;
+  const approximateLabel = group
+    ? getApproximateLocationLabel(group.representativeDelivery)
+    : null;
 
   const handleClose = () => {
     setShowPedidos(false);
@@ -105,6 +115,9 @@ export default function PendingMapGroupSheet({
           </Text>
           <Text style={styles.subtitle}>Endereço agrupado por localização</Text>
           <Text style={styles.address}>{getStopAddressLineFromGroup(group)}</Text>
+          {approximateLabel ? (
+            <Text style={styles.approxBadge}>{approximateLabel}</Text>
+          ) : null}
 
           <View style={styles.codigosWrap}>
             <Text style={styles.codigosLabel}>Códigos</Text>
@@ -178,12 +191,24 @@ export default function PendingMapGroupSheet({
   );
 }
 
-export function confirmCreateRouteFromGroup(
+import type { RouteReconcileResult } from "../utils/routeReconcile";
+
+export async function confirmCreateRouteFromGroup(
   onConfirm: () => void,
-  activeRouteId: string | null
-): void {
-  if (activeRouteId != null) {
-    Alert.alert("Atenção", "Finalize a rota ativa antes de montar outra.");
+  options: {
+    getActiveRouteId: () => string | null;
+    reconcileActiveRoute: () => Promise<RouteReconcileResult>;
+    onContinueRoute: () => void;
+  }
+): Promise<void> {
+  if (options.getActiveRouteId() != null) {
+    await options.reconcileActiveRoute();
+  }
+  if (options.getActiveRouteId() != null) {
+    Alert.alert("Atenção", "Finalize a rota ativa antes de montar outra.", [
+      { text: "Continuar rota", onPress: options.onContinueRoute },
+      { text: "Cancelar", style: "cancel" },
+    ]);
     return;
   }
   onConfirm();

@@ -32,7 +32,7 @@ import BatchSelectionBar, { BATCH_SELECTION_LIST_PADDING } from "../components/B
 import BatchAusenteConfirmModal from "../components/BatchAusenteConfirmModal";
 import BatchFinalizeResultModal from "../components/BatchFinalizeResultModal";
 import { useDeliveryStore } from "../../../store/deliveryStore";
-import { geocodeAddressFromValues, isValidGeocodeCoords, type GeocodeResult } from "../utils/geocode";
+import { geocodeDelivery, isValidGeocodeCoords, resolveGeocodeDefaults, type GeocodeResult } from "../utils/geocode";
 import {
   buildPendingMapGroups,
   countPendingMapStats,
@@ -55,6 +55,8 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import { ScanFrameOverlay } from "../../operacao/components/ScanFrameOverlay";
+import { getIdsInActiveRoute } from "../utils/routeActiveSync";
+import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
 import {
   getDestinationLabel,
   openNavigationToStop,
@@ -132,6 +134,26 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           alignItems: "center",
         },
         btnSugerirRotaText: { color: colors.primaryContrast, fontSize: 15, fontWeight: "600" },
+        activeRouteBanner: {
+          marginHorizontal: 16,
+          marginTop: 8,
+          padding: 12,
+          borderRadius: 10,
+          backgroundColor: hexToRgba(colors.primary, 0.1),
+          borderWidth: 1,
+          borderColor: hexToRgba(colors.primary, 0.25),
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+        },
+        activeRouteBannerText: { flex: 1, fontSize: 13, color: colors.text, fontWeight: "600" },
+        activeRouteBannerBtn: {
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: 8,
+          backgroundColor: colors.primary,
+        },
+        activeRouteBannerBtnText: { color: colors.primaryContrast, fontSize: 13, fontWeight: "700" },
         toggleRow: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
         filterRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 4, gap: 8 },
         searchRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingTop: 8 },
@@ -514,6 +536,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     loading: storeLoading,
     routeStarted,
     activeRouteId,
+    routeOrder,
     setRouteDeliveries,
     clearActiveRouteState,
     optimizeRoute,
@@ -521,6 +544,8 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     currentLocation,
     setCurrentLocation,
     finalizePendingBatch,
+    ensureActiveRouteLoaded,
+    reconcileActiveRoute,
   } = useDeliveryStore();
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
@@ -541,10 +566,14 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   const scanLockedRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const geocodedIdsRef = useRef<Set<number>>(new Set());
+  const geocodedCoordsRef = useRef(geocodedCoords);
+  geocodedCoordsRef.current = geocodedCoords;
   const mapRef = useRef<MapView>(null);
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
   const setSomenteHojePendentes = useMotoboyPrefsStore((s) => s.setSomenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
+  const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
+  const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const [totalPendentesCount, setTotalPendentesCount] = useState(0);
 
   const listForTab = (tab === "pendente" ? pendingDeliveries : list) ?? [];
@@ -591,6 +620,21 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     void setSomenteHojePendentes(false);
     navigation.setParams({ todosPendentes: undefined });
   }, [route.params?.todosPendentes, navigation, setSomenteHojePendentes]);
+
+  useEffect(() => {
+    if (route.params?.initialMapMode !== "map") return;
+    setTab("pendente");
+    setMapMode("map");
+    navigation.setParams({ initialMapMode: undefined });
+  }, [route.params?.initialMapMode, navigation, setMapMode]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (tab === "pendente" && roteirizacaoHabilitada) {
+        void ensureActiveRouteLoaded();
+      }
+    }, [tab, roteirizacaoHabilitada, ensureActiveRouteLoaded])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -715,6 +759,15 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       ),
     [pendingMapPointsWithDisplay]
   );
+
+  const pendingMapPointsSig = useMemo(
+    () =>
+      pendingMapPointsWithDisplay
+        .map((p) => `${p.group.stopKey}:${p.displayLatitude.toFixed(5)},${p.displayLongitude.toFixed(5)}`)
+        .join("|"),
+    [pendingMapPointsWithDisplay]
+  );
+
   const getServiceRowStyle = useCallback(
     (servico?: string | null) => {
       const tipo = servicoTipo(servico);
@@ -754,14 +807,23 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   const badgeTextColor = themeMode === "dark" ? "#ffffff" : "#111111";
 
   useEffect(() => {
-    if (mapMode !== "map" || tab !== "pendente") return;
+    const ids = new Set((pendingDeliveries ?? []).map((d) => d.id_saida));
+    for (const id of geocodedIdsRef.current) {
+      if (!ids.has(id)) geocodedIdsRef.current.delete(id);
+    }
+  }, [pendingDeliveries]);
+
+  useEffect(() => {
+    if (tab !== "pendente") return;
     const toGeocode = (pendingDeliveries ?? []).filter(
       (d) =>
         (d.possui_endereco || (d.endereco_formatado ?? "").trim() || (d.endereco ?? "").trim()) &&
         (d.latitude == null || d.longitude == null) &&
+        !geocodedCoordsRef.current[d.id_saida] &&
         !geocodedIdsRef.current.has(d.id_saida)
     );
     if (toGeocode.length === 0) return;
+    const batchIds = new Set(toGeocode.map((d) => d.id_saida));
     let cancelled = false;
     (async () => {
       let pendingBatch: Record<number, { latitude: number; longitude: number }> = {};
@@ -773,16 +835,13 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       };
       for (const d of toGeocode) {
         if (cancelled) break;
+        const coords = await geocodeDelivery(
+          d,
+          resolveGeocodeDefaults(d, cidadePadrao, estadoPadrao)
+        );
+        if (cancelled) break;
         geocodedIdsRef.current.add(d.id_saida);
-        const address = (d.endereco_formatado || d.endereco || "").trim();
-        if (!address) continue;
-        const coords = await geocodeAddressFromValues({
-          rua: d.endereco ?? undefined,
-          numero: d.numero ?? undefined,
-          bairro: d.bairro ?? undefined,
-          cep: d.cep ?? undefined,
-        });
-        if (cancelled || !coords) continue;
+        if (!coords) continue;
         pendingBatch[d.id_saida] = coords;
         if (Object.keys(pendingBatch).length >= GEOCODE_BATCH_SIZE) {
           flushBatch();
@@ -793,8 +852,13 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     })();
     return () => {
       cancelled = true;
+      for (const id of batchIds) {
+        if (!geocodedCoordsRef.current[id]) {
+          geocodedIdsRef.current.delete(id);
+        }
+      }
     };
-  }, [mapMode, tab, pendingDeliveries]);
+  }, [tab, pendingDeliveries, cidadePadrao, estadoPadrao]);
 
   const firstDestForNav = useMemo(() => orderedPendentes[0] ?? null, [orderedPendentes]);
 
@@ -872,29 +936,30 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       Alert.alert("Aviso", "Nenhuma entrega para navegação.");
       return;
     }
-    await openNavigationToStop(firstDestForNav, "google");
+    await openNavigationToStop(firstDestForNav, "google", { geocodedCoords });
     setShowNavegarModal(false);
-  }, [firstDestForNav]);
+  }, [firstDestForNav, geocodedCoords]);
 
   const openWaze = useCallback(async () => {
     if (!firstDestForNav) {
       Alert.alert("Aviso", "Nenhuma entrega para navegação.");
       return;
     }
-    await openNavigationToStop(firstDestForNav, "waze");
+    await openNavigationToStop(firstDestForNav, "waze", { geocodedCoords });
     setShowNavegarModal(false);
-  }, [firstDestForNav]);
+  }, [firstDestForNav, geocodedCoords]);
 
   const openNavegador = useCallback(async () => {
     if (!firstDestForNav) {
       Alert.alert("Aviso", "Nenhuma entrega para navegação.");
       return;
     }
-    await openNavigationToStop(firstDestForNav, "google");
+    await openNavigationToStop(firstDestForNav, "google", { geocodedCoords });
     setShowNavegarModal(false);
-  }, [firstDestForNav]);
+  }, [firstDestForNav, geocodedCoords]);
   const mapInitialRegion = useMemo(() => {
-    const points = persistedMapGroups;
+    const points =
+      pendingMapGroups.length > 0 ? pendingMapGroups : persistedMapGroups;
     if (points.length === 0) {
       if (currentLocation) {
         return {
@@ -917,34 +982,47 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       latitudeDelta: Math.max(0.02, (maxLat - minLat) * 1.6 || 0.08),
       longitudeDelta: Math.max(0.02, (maxLon - minLon) * 1.6 || 0.08),
     };
-  }, [persistedMapGroups, currentLocation]);
+  }, [pendingMapGroups, persistedMapGroups, currentLocation]);
+
+  const mapFitSigRef = useRef("");
 
   useEffect(() => {
     if (mapMode !== "map" || tab !== "pendente") {
       mapRegionInitializedRef.current = false;
+      mapFitSigRef.current = "";
       return;
     }
-    if (mapRegionInitializedRef.current || persistedMapGroups.length === 0) return;
+    const fitPoints =
+      pendingMapGroups.length > 0 ? pendingMapGroups : persistedMapGroups;
+    if (fitPoints.length === 0) return;
+    const sig = fitPoints.map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`).join("|");
+    if (mapFitSigRef.current === sig) return;
+    const hadPreviousFit = mapFitSigRef.current !== "";
+    mapFitSigRef.current = sig;
     mapRegionInitializedRef.current = true;
-    const coords = persistedMapGroups.map((p) => ({
+    const coords = fitPoints.map((p) => ({
       latitude: p.latitude,
       longitude: p.longitude,
     }));
-    mapRef.current?.fitToCoordinates(coords, {
-      edgePadding: { top: 80, right: 48, bottom: 140, left: 48 },
-      animated: false,
-    });
-  }, [mapMode, tab, persistedMapGroups]);
+    const fit = () => {
+      mapRef.current?.fitToCoordinates(coords, {
+        edgePadding: { top: 80, right: 48, bottom: 140, left: 48 },
+        animated: hadPreviousFit,
+      });
+    };
+    requestAnimationFrame(fit);
+  }, [mapMode, tab, pendingMapGroups, persistedMapGroups]);
 
   useEffect(() => {
-    if (pendingMapPointsWithDisplay.length === 0) {
-      setMarkersReady(true);
-      return;
-    }
+    if (mapMode !== "map" || tab !== "pendente") return;
+    if (pendingMapPointsWithDisplay.length === 0) return;
     setMarkersReady(false);
-    const t = setTimeout(() => setMarkersReady(true), Platform.OS === "android" ? 500 : 300);
+    const t = setTimeout(
+      () => setMarkersReady(true),
+      Platform.OS === "android" ? 500 : 1500
+    );
     return () => clearTimeout(t);
-  }, [pendingMapPointsWithDisplay]);
+  }, [mapMode, tab, pendingMapPointsSig, pendingMapPointsWithDisplay.length]);
 
   const centerOnCoords = useCallback((latitude: number, longitude: number) => {
     mapRef.current?.animateToRegion(
@@ -991,34 +1069,43 @@ export default function EntregasListScreen({ navigation, route }: Props) {
 
   const handleCriarRotaFromGroup = useCallback(
     (group: GroupedStop) => {
-      confirmCreateRouteFromGroup(() => {
-        void (async () => {
-          const withCoords = group.deliveries.filter((d) => resolveDeliveryCoords(d, geocodedCoords));
-          if (withCoords.length === 0) {
-            Alert.alert("Atenção", "Nenhum pedido deste endereço possui coordenadas.");
-            return;
-          }
-          try {
-            if (activeRouteId === null) clearActiveRouteState();
-            setRouteDeliveries(withCoords);
-            if (withCoords.length >= 2) {
-              await optimizeRoute();
+      void confirmCreateRouteFromGroup(
+        () => {
+          void (async () => {
+            const withCoords = group.deliveries.filter((d) => resolveDeliveryCoords(d, geocodedCoords));
+            if (withCoords.length === 0) {
+              Alert.alert("Atenção", "Nenhum pedido deste endereço possui coordenadas.");
+              return;
             }
-            setSelectedPendingGroup(null);
-            navigation.navigate("RouteBuilder");
-          } catch (e) {
-            Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
-          }
-        })();
-      }, activeRouteId);
+            try {
+              if (useDeliveryStore.getState().activeRouteId == null) {
+                clearActiveRouteState();
+              }
+              setRouteDeliveries(withCoords);
+              if (withCoords.length >= 2) {
+                await optimizeRoute();
+              }
+              setSelectedPendingGroup(null);
+              navigation.navigate("RouteBuilder");
+            } catch (e) {
+              Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
+            }
+          })();
+        },
+        {
+          getActiveRouteId: () => useDeliveryStore.getState().activeRouteId,
+          reconcileActiveRoute,
+          onContinueRoute: () => navigation.navigate("RouteBuilder"),
+        }
+      );
     },
     [
-      activeRouteId,
       clearActiveRouteState,
       geocodedCoords,
       navigation,
       setRouteDeliveries,
       optimizeRoute,
+      reconcileActiveRoute,
     ]
   );
 
@@ -1148,9 +1235,21 @@ export default function EntregasListScreen({ navigation, route }: Props) {
 
   const selectedIdsArray = useMemo(() => Array.from(selectedIds), [selectedIds]);
 
+  const assertBatchNotInActiveRoute = useCallback((): boolean => {
+    if (!activeRouteId || routeOrder.length === 0) return true;
+    const inRoute = getIdsInActiveRoute(routeOrder, selectedIdsArray);
+    if (inRoute.length === 0) return true;
+    Alert.alert(
+      "Rota ativa",
+      "Esses pedidos fazem parte da rota ativa. Finalize pela rota ou individualmente — finalização em lote não está disponível para pedidos da rota."
+    );
+    return false;
+  }, [activeRouteId, routeOrder, selectedIdsArray]);
+
   const handleBatchEntregue = useCallback(() => {
     const count = selectedIds.size;
     if (count === 0) return;
+    if (!assertBatchNotInActiveRoute()) return;
     if (count > FINALIZAR_LOTE_MAX_IDS) {
       Alert.alert(
         "Limite de seleção",
@@ -1176,6 +1275,13 @@ export default function EntregasListScreen({ navigation, route }: Props) {
                 setBatchFinalizadosCount(resp.finalizados.length);
                 setBatchBloqueados(resp.bloqueados);
                 setBatchResultVisible(true);
+                if (resp.routeJustCompleted && resp.rotaIdForResumo) {
+                  runPostFinalizeFeedback({
+                    tipo: "entregue",
+                    routeJustCompleted: true,
+                    rotaIdForResumo: resp.rotaIdForResumo,
+                  });
+                }
                 const finalizedSet = new Set(resp.finalizados.map((f) => f.id_saida));
                 const remaining = selectedIdsArray.filter((id) => !finalizedSet.has(id));
                 setSelectedIds(new Set(remaining));
@@ -1190,10 +1296,11 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         },
       ]
     );
-  }, [selectedIds.size, selectedIdsArray, finalizePendingBatch]);
+  }, [selectedIds.size, selectedIdsArray, finalizePendingBatch, assertBatchNotInActiveRoute]);
 
   const handleBatchAusenteConfirm = useCallback(
     async (data: { motivoId: number; observacao?: string }) => {
+      if (!assertBatchNotInActiveRoute()) return;
       if (selectedIds.size > FINALIZAR_LOTE_MAX_IDS) {
         Alert.alert(
           "Limite de seleção",
@@ -1213,6 +1320,13 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         setBatchFinalizadosCount(resp.finalizados.length);
         setBatchBloqueados(resp.bloqueados);
         setBatchResultVisible(true);
+        if (resp.routeJustCompleted && resp.rotaIdForResumo) {
+          runPostFinalizeFeedback({
+            tipo: "ausente",
+            routeJustCompleted: true,
+            rotaIdForResumo: resp.rotaIdForResumo,
+          });
+        }
         const finalizedSet = new Set(resp.finalizados.map((f) => f.id_saida));
         const remaining = selectedIdsArray.filter((id) => !finalizedSet.has(id));
         setSelectedIds(new Set(remaining));
@@ -1223,7 +1337,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         setBatchLoading(false);
       }
     },
-    [selectedIdsArray, finalizePendingBatch]
+    [selectedIdsArray, finalizePendingBatch, assertBatchNotInActiveRoute]
   );
 
   const handleVerBloqueados = useCallback(() => {
@@ -1269,6 +1383,18 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         >
           <Text style={styles.btnSugerirRotaText}>🧭 Preparar Rota</Text>
         </TouchableOpacity>
+      )}
+
+      {tab === "pendente" && roteirizacaoHabilitada && activeRouteId != null && (
+        <View style={styles.activeRouteBanner}>
+          <Text style={styles.activeRouteBannerText}>Existe uma rota ativa em andamento</Text>
+          <TouchableOpacity
+            style={styles.activeRouteBannerBtn}
+            onPress={() => navigation.navigate("RouteBuilder")}
+          >
+            <Text style={styles.activeRouteBannerBtnText}>Voltar para rota</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {tab === "pendente" && (
@@ -1435,9 +1561,13 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           >
             {pendingMapDisplayItems.map((item, idx) => {
               if (item.type === "cluster") {
+                const clusterKey = item.points
+                  .map((p) => p.group.stopKey)
+                  .sort()
+                  .join("-");
                 return (
                   <Marker
-                    key={`pending-cluster-${idx}`}
+                    key={`pending-cluster-${clusterKey}`}
                     coordinate={{ latitude: item.latitude, longitude: item.longitude }}
                     onPress={() => handleClusterPress(item.points)}
                     anchor={{ x: 0.5, y: 0.5 }}
@@ -1450,7 +1580,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
               const point = item.point;
               return (
                 <Marker
-                  key={`pending-${point.group.stopKey}-${point.mapIndex}`}
+                  key={`pending-${point.group.stopKey}`}
                   coordinate={{ latitude: point.displayLatitude, longitude: point.displayLongitude }}
                   onPress={() => setSelectedPendingGroup(point.group)}
                   anchor={{ x: 0.5, y: 0.5 }}

@@ -25,7 +25,10 @@ import {
   findLocalAddressSuggestions,
   formatAddressSummary,
   formatSelectedAddress,
+  isGooglePendingSuggestion,
   isSelectableAddressSuggestion,
+  resetAddressSessionToken,
+  resolveGooglePlaceSuggestion,
   sanitizeAddressFormValues,
   needsAddressEnrichment,
   searchAddressSuggestions,
@@ -93,6 +96,9 @@ export default function AddressQuickForm({
   const [autoApplied, setAutoApplied] = useState(false);
   const [selectedCoords, setSelectedCoords] = useState<GeocodeResult | null>(null);
   const [searching, setSearching] = useState(false);
+  const [resolvingPlace, setResolvingPlace] = useState(false);
+  const [searchEmpty, setSearchEmpty] = useState(false);
+  const [selectedOrigem, setSelectedOrigem] = useState<AddressOrigem>("manual");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const freeTextRef = useRef<TextInput>(null);
@@ -113,26 +119,55 @@ export default function AddressQuickForm({
   >(async () => {});
 
   const applySuggestion = useCallback(
-    (s: AddressSuggestion, fromAuto = false) => {
+    async (s: AddressSuggestion, fromAuto = false) => {
       if (!isSelectableAddressSuggestion(s)) return;
+
+      let resolved = s;
+      if (isGooglePendingSuggestion(s)) {
+        setResolvingPlace(true);
+        onFlowStateChange?.("searching");
+        const query = buildSearchQuery(parsedInternalRef.current, defaults);
+        const full = await resolveGooglePlaceSuggestion(s, {
+          query,
+          hints: parsedInternalRef.current,
+          defaults,
+        });
+        setResolvingPlace(false);
+        onFlowStateChange?.("idle");
+        if (!full) {
+          Alert.alert(
+            "Endereço",
+            "Nenhum endereço encontrado. Verifique rua, número e cidade."
+          );
+          return;
+        }
+        resolved = full;
+        resetAddressSessionToken();
+      }
 
       const parsedNumero = (parsedInternalRef.current.numero ?? "").trim();
       const vals: AddressFormValues = sanitizeAddressFormValues({
-        ...s.values,
-        numero: (s.values.numero ?? "").trim() || parsedNumero,
+        ...resolved.values,
+        numero: (resolved.values.numero ?? "").trim() || parsedNumero,
         destinatario: destinatario.trim() || delivery.cliente || "",
         complemento: complemento.trim(),
       });
+      const origem: AddressOrigem =
+        resolved.provider === "google_places" ? "google_places" : "suggestion";
       setParsedInternal(vals);
-      setSelectedCoords({ latitude: s.latitude, longitude: s.longitude });
-      setFreeText(formatSelectedAddress({ ...s, values: vals }));
-      setSelectedSuggestionId(s.id);
+      setSelectedCoords({ latitude: resolved.latitude, longitude: resolved.longitude });
+      setFreeText(formatSelectedAddress({ ...resolved, values: vals }));
+      setSelectedSuggestionId(resolved.id);
+      setSelectedOrigem(origem);
       setAutoApplied(fromAuto);
-      setSuggestions([s]);
+      setSuggestions([resolved]);
+      setSearchEmpty(false);
     },
-    [destinatario, complemento, delivery.cliente]
+    [destinatario, complemento, delivery.cliente, defaults, onFlowStateChange]
   );
-  applySuggestionRef.current = applySuggestion;
+  applySuggestionRef.current = (s, fromAuto) => {
+    void applySuggestion(s, fromAuto);
+  };
 
   const runSearch = useCallback(
     async (
@@ -152,35 +187,56 @@ export default function AddressQuickForm({
         onFlowStateChange?.("idle");
         return;
       }
+      if (query.replace(/\s/g, "").length < 4) {
+        setSuggestions([]);
+        setDidYouMean(null);
+        setSearchEmpty(false);
+        setSearching(false);
+        onFlowStateChange?.("idle");
+        return;
+      }
       lastSearchQueryRef.current = query;
+      resetAddressSessionToken();
       const requestId = ++searchRequestIdRef.current;
       setSearching(true);
+      setSearchEmpty(false);
       onFlowStateChange?.("searching");
-      const local = findLocalAddressSuggestions(vals, knownDeliveries, defaults);
-      if (local.length > 0) {
-        setSuggestions(filterSelectableSuggestions(local));
-      }
-      const { suggestions: remote, didYouMean: dym } = await searchAddressSuggestions(query, {
-        hints: vals,
-        defaults,
-      });
-      if (requestId !== searchRequestIdRef.current) return;
+      try {
+        const local = findLocalAddressSuggestions(vals, knownDeliveries, defaults);
+        if (local.length > 0) {
+          setSuggestions(filterSelectableSuggestions(local));
+        }
+        const { suggestions: remote, didYouMean: dym } = await searchAddressSuggestions(query, {
+          hints: vals,
+          defaults,
+        });
+        if (requestId !== searchRequestIdRef.current) return;
 
-      const localIds = new Set(local.map((s) => s.id));
-      const merged = filterSelectableSuggestions([
-        ...local,
-        ...remote.filter((s) => !localIds.has(s.id)),
-      ]);
-      setSearching(false);
-      onFlowStateChange?.("idle");
-      setSuggestions(merged);
-      setDidYouMean(dym);
+        const localIds = new Set(local.map((s) => s.id));
+        const merged = filterSelectableSuggestions([
+          ...local,
+          ...remote.filter((s) => !localIds.has(s.id)),
+        ]);
+        setSuggestions(merged);
+        setDidYouMean(dym);
+        setSearchEmpty(merged.length === 0 && !dym);
 
-      if (options?.autoApply && merged.length === 1 && isSelectableAddressSuggestion(merged[0])) {
-        applySuggestionRef.current(merged[0], true);
-      } else {
-        setAutoApplied(false);
-        setSelectedSuggestionId(null);
+        if (
+          options?.autoApply &&
+          merged.length === 1 &&
+          isSelectableAddressSuggestion(merged[0]) &&
+          !isGooglePendingSuggestion(merged[0])
+        ) {
+          applySuggestionRef.current(merged[0], true);
+        } else {
+          setAutoApplied(false);
+          setSelectedSuggestionId(null);
+        }
+      } finally {
+        if (requestId === searchRequestIdRef.current) {
+          setSearching(false);
+          onFlowStateChange?.("idle");
+        }
       }
     },
     [defaults, knownDeliveries, onFlowStateChange]
@@ -197,6 +253,10 @@ export default function AddressQuickForm({
     setSelectedSuggestionId(null);
     setAutoApplied(false);
     setSelectedCoords(null);
+    setSearchEmpty(false);
+    setResolvingPlace(false);
+    setSelectedOrigem("manual");
+    resetAddressSessionToken();
     lastSearchQueryRef.current = "";
     searchRequestIdRef.current += 1;
     externalParsedKeyRef.current = null;
@@ -240,8 +300,11 @@ export default function AddressQuickForm({
         setAutoApplied(false);
         setSelectedCoords(null);
         lastSearchQueryRef.current = "";
+        resetAddressSessionToken();
+        setSearchEmpty(false);
         return;
       }
+      resetAddressSessionToken();
       onFlowStateChange?.("parsing");
       const parsed = parseFreeTextAddress(text, defaults);
       const vals = parsedToFormValues(parsed);
@@ -263,6 +326,8 @@ export default function AddressQuickForm({
     setSelectedSuggestionId(null);
     setAutoApplied(false);
     setSelectedCoords(null);
+    setSelectedOrigem("manual");
+    resetAddressSessionToken();
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => runParse(text), 500);
   };
@@ -333,7 +398,7 @@ export default function AddressQuickForm({
     try {
       const origem: AddressOrigem =
         selectedSuggestionId && isValidGeocodeCoords(selectedCoords?.latitude, selectedCoords?.longitude)
-          ? "suggestion"
+          ? selectedOrigem
           : "manual";
       await onSaveAndNext(vals, selectedCoords, origem);
     } finally {
@@ -420,9 +485,11 @@ export default function AddressQuickForm({
       ? "Ouvindo…"
       : flowState === "parsing"
         ? "Interpretando endereço…"
-        : searching || flowState === "searching"
-          ? "Buscando endereço completo…"
-          : flowState === "geocoding"
+        : resolvingPlace
+          ? "Carregando endereço…"
+          : searching || flowState === "searching"
+            ? "Buscando endereço…"
+            : flowState === "geocoding"
             ? "Localizando no mapa…"
             : flowState === "saving"
               ? "Salvando…"
@@ -448,12 +515,14 @@ export default function AddressQuickForm({
         )}
 
         <Text style={styles.label}>
-          {showInputActions ? "Digite, dite ou fotografe o endereço" : "Digite o endereço"}
+          {showInputActions
+            ? "Digite, dite ou fotografe: rua, bairro e número"
+            : "Digite o endereço (rua, bairro e número)"}
         </Text>
         <TextInput
           ref={freeTextRef}
           style={styles.input}
-          placeholder="Ex.: Rua Dona Flor 123 Jandira"
+          placeholder="Ex.: Av. Paulista, Bela Vista, 1000"
           placeholderTextColor={colors.placeholder}
           value={freeText}
           onChangeText={handleFreeTextChange}
@@ -463,12 +532,13 @@ export default function AddressQuickForm({
 
         <AddressSuggestionList
           suggestions={suggestions}
-          loading={searching}
+          loading={searching || resolvingPlace}
           selectedId={selectedSuggestionId}
           autoApplied={autoApplied}
           didYouMean={didYouMean}
-          onSelect={(s) => applySuggestion(s, false)}
-          onSelectDidYouMean={(s) => applySuggestion(s, false)}
+          searchEmpty={searchEmpty}
+          onSelect={(s) => void applySuggestion(s, false)}
+          onSelectDidYouMean={(s) => void applySuggestion(s, false)}
         />
 
         {showParsedPreview && (

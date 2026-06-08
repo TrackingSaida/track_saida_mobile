@@ -21,9 +21,13 @@ interface AddressSuggestionListProps {
   selectedId?: string | null;
   autoApplied?: boolean;
   didYouMean?: AddressSuggestion | null;
+  searchEmpty?: boolean;
   onSelect: (suggestion: AddressSuggestion) => void;
   onSelectDidYouMean?: (suggestion: AddressSuggestion) => void;
 }
+
+const SEARCH_EMPTY_MESSAGE =
+  "Nenhum endereço encontrado. Verifique rua, número e cidade.";
 
 export default function AddressSuggestionList({
   suggestions,
@@ -31,6 +35,7 @@ export default function AddressSuggestionList({
   selectedId,
   autoApplied,
   didYouMean,
+  searchEmpty,
   onSelect,
   onSelectDidYouMean,
 }: AddressSuggestionListProps) {
@@ -96,6 +101,12 @@ export default function AddressSuggestionList({
         },
         cardBadgeText: { fontSize: 11, fontWeight: "600", color: colors.primary },
         loader: { paddingVertical: 12, alignItems: "center" },
+        emptyText: {
+          fontSize: 13,
+          color: colors.textSecondary,
+          lineHeight: 20,
+          marginTop: 4,
+        },
       }),
     [colors]
   );
@@ -111,8 +122,16 @@ export default function AddressSuggestionList({
       <View style={styles.wrap}>
         <View style={styles.loader}>
           <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={[styles.headerText, { marginTop: 8 }]}>Buscando endereço completo…</Text>
+          <Text style={[styles.headerText, { marginTop: 8 }]}>Buscando endereço…</Text>
         </View>
+      </View>
+    );
+  }
+
+  if (searchEmpty && selectableSuggestions.length === 0 && !showDidYouMean) {
+    return (
+      <View style={styles.wrap}>
+        <Text style={styles.emptyText}>{SEARCH_EMPTY_MESSAGE}</Text>
       </View>
     );
   }
@@ -192,6 +211,7 @@ export default function AddressSuggestionList({
           </TouchableOpacity>
         );
       })}
+
     </View>
   );
 }

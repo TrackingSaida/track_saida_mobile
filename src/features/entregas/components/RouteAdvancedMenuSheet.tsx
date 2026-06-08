@@ -30,9 +30,12 @@ interface RouteAdvancedMenuSheetProps {
   onImport: () => void;
   onLocate: () => void;
   onToggleList: () => void;
+  onIniciar?: () => void;
   listExpanded: boolean;
   optimizing?: boolean;
+  iniciando?: boolean;
   canOptimize?: boolean;
+  showPlanningActions?: boolean;
 }
 
 export default function RouteAdvancedMenuSheet({
@@ -43,9 +46,12 @@ export default function RouteAdvancedMenuSheet({
   onImport,
   onLocate,
   onToggleList,
+  onIniciar,
   listExpanded,
   optimizing = false,
+  iniciando = false,
   canOptimize = true,
+  showPlanningActions = false,
 }: RouteAdvancedMenuSheetProps) {
   const colors = useThemeColors();
 
@@ -100,6 +106,36 @@ export default function RouteAdvancedMenuSheet({
   );
 
   const items: MenuItem[] = [
+    ...(showPlanningActions && onIniciar
+      ? [
+          {
+            key: "iniciar",
+            label: "Iniciar entrega",
+            icon: "play-circle-outline" as IoniconName,
+            onPress: onIniciar,
+            loading: iniciando,
+            disabled: iniciando || optimizing,
+          },
+        ]
+      : []),
+    ...(showPlanningActions
+      ? [
+          {
+            key: "optimize",
+            label: "Otimizar rota",
+            icon: "git-branch-outline" as IoniconName,
+            onPress: onOptimize,
+            loading: optimizing,
+            disabled: !canOptimize || optimizing,
+          },
+          {
+            key: "locate",
+            label: "Localizar pacote",
+            icon: "scan-outline" as IoniconName,
+            onPress: onLocate,
+          },
+        ]
+      : []),
     {
       key: "add",
       label: "+ Parada",
@@ -112,12 +148,16 @@ export default function RouteAdvancedMenuSheet({
       icon: "cloud-upload-outline",
       onPress: onImport,
     },
-    {
-      key: "list",
-      label: listExpanded ? "Ver mapa" : "Lista da rota",
-      icon: listExpanded ? "map-outline" : "list-outline",
-      onPress: onToggleList,
-    },
+    ...(!listExpanded
+      ? [
+          {
+            key: "list",
+            label: "Lista da rota",
+            icon: "list-outline" as IoniconName,
+            onPress: onToggleList,
+          },
+        ]
+      : []),
   ];
 
   const handleItem = (item: MenuItem) => {

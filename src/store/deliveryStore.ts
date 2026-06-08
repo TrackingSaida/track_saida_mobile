@@ -4,6 +4,7 @@ import type {
   FinalizarLoteBody,
   FinalizarLoteResponse,
   MarcacaoEntregaResponse,
+  RotaSyncInfo,
 } from "../features/entregas/types";
 import {
   getEntregas,
@@ -25,7 +26,7 @@ import {
   type EntregueBody,
   type RotasAtivaResponse,
 } from "../features/entregas/api";
-import { geocodeAddressFromValues, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
+import { geocodeAddressFromValues, inferCoordPrecision, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
 import {
   clusterRouteOrderByAddress,
   flattenGroupsToRouteOrder,
@@ -34,7 +35,18 @@ import {
   getOrderedRouteDeliveries,
   groupOrderedByAddress,
   moveGroupInOrder,
+  routeHasPendingDeliveries,
 } from "../features/entregas/utils/routeUtils";
+import {
+  applyRouteSyncFromResponse,
+  getIdsInActiveRoute,
+  type RouteFinalizeSyncResult,
+} from "../features/entregas/utils/routeActiveSync";
+import {
+  buildRouteReconcileDeps,
+  reconcileActiveRouteState,
+  type RouteReconcileResult,
+} from "../features/entregas/utils/routeReconcile";
 import { formatApiError } from "../utils/formatApiError";
 import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
@@ -59,6 +71,10 @@ export type RouteOptimizationMode =
   | "priority_soft"
   | "local_fallback"
   | null;
+
+export type MarkDeliveryResult = MarcacaoEntregaResponse & RouteFinalizeSyncResult;
+
+export type FinalizeBatchResult = FinalizarLoteResponse & RouteFinalizeSyncResult;
 
 export type OptimizeRouteResult = {
   ok: boolean;
@@ -113,9 +129,9 @@ interface DeliveryState {
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
   startRoute: (deliveryIds?: number[]) => Promise<number>;
   suggestRoute: (fromLat?: number, fromLon?: number) => void;
-  markDelivered: (idSaida: number, body?: EntregueBody) => Promise<MarcacaoEntregaResponse>;
-  markAbsent: (idSaida: number, motivoId: number, observacao?: string) => Promise<MarcacaoEntregaResponse>;
-  finalizePendingBatch: (body: FinalizarLoteBody) => Promise<FinalizarLoteResponse>;
+  markDelivered: (idSaida: number, body?: EntregueBody) => Promise<MarkDeliveryResult>;
+  markAbsent: (idSaida: number, motivoId: number, observacao?: string) => Promise<MarkDeliveryResult>;
+  finalizePendingBatch: (body: FinalizarLoteBody) => Promise<FinalizeBatchResult>;
   setSelectedDelivery: (d: EntregaListItem | null) => void;
   setMapMode: (mode: MapMode) => void;
   clearSuggestedOrder: () => void;
@@ -142,6 +158,10 @@ interface DeliveryState {
   completeStop: () => Promise<void>;
   syncActiveStopIndex: () => void;
   finishRoute: () => Promise<void>;
+  ensureActiveRouteLoaded: () => Promise<void>;
+  reconcileActiveRoute: () => Promise<RouteReconcileResult>;
+  getActiveRouteDeliveryIds: () => number[];
+  applyRouteSync: (sync?: RotaSyncInfo | null) => Promise<RouteFinalizeSyncResult>;
   restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
   novaTentativa: (idSaida: number) => Promise<void>;
 }
@@ -205,6 +225,23 @@ function optimizeRouteLocal(
   return sortedWithCoords.map((d) => d.id_saida).concat(orderedWithout, missingWithout);
 }
 
+function loteStatusToRouteStatus(status: string): "entregue" | "ausente" {
+  const s = status.toLowerCase();
+  if (s.includes("ausent")) return "ausente";
+  return "entregue";
+}
+
+function buildApplyRouteSyncDeps(get: () => DeliveryState, set: (p: Partial<DeliveryState>) => void) {
+  return {
+    getActiveRouteId: () => get().activeRouteId,
+    getRouteOrder: () => get().routeOrder,
+    getRouteDeliveryStatus: () => get().routeDeliveryStatus,
+    restoreActiveRoute: (payload: RotasAtivaResponse) => get().restoreActiveRoute(payload),
+    clearActiveRouteState: () => get().clearActiveRouteState(),
+    setActiveStopIndex: (index: number) => set({ activeStopIndex: index }),
+  };
+}
+
 async function persistActiveRouteOrder(
   activeRouteId: string,
   routeOrder: number[]
@@ -266,16 +303,36 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   saveAddress: async (idSaida, body) => {
     let finalBody = body;
     if (!isValidGeocodeCoords(body.latitude, body.longitude)) {
-      const coords = await geocodeAddressFromValues({
-        rua: body.rua,
-        numero: body.numero,
-        bairro: body.bairro,
-        cidade: body.cidade,
-        estado: body.estado,
-        cep: body.cep,
-      });
+      const enderecoFormatado = [
+        body.rua,
+        body.numero,
+        body.complemento,
+        body.bairro,
+        body.cidade,
+        body.estado,
+        body.cep,
+      ]
+        .filter((p) => (p ?? "").trim())
+        .join(", ");
+      const coords = await geocodeAddressFromValues(
+        {
+          rua: body.rua,
+          numero: body.numero,
+          bairro: body.bairro,
+          cidade: body.cidade,
+          estado: body.estado,
+          cep: body.cep,
+        },
+        { cidade: body.cidade, estado: body.estado },
+        { enderecoFormatado }
+      );
       if (coords) {
-        finalBody = { ...body, latitude: coords.latitude, longitude: coords.longitude };
+        finalBody = {
+          ...body,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          coord_precision: body.coord_precision ?? inferCoordPrecision(body.origem ?? "manual"),
+        };
       }
     }
     try {
@@ -336,16 +393,31 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     const { activeRouteId } = get();
     if (!activeRouteId) return;
     await stopBackgroundTracking();
-    await postRotasFinalizar(activeRouteId);
-    set({
-      activeRouteId: null,
-      activeStopIndex: 0,
-      routeDeliveries: [],
-      routeOrder: [],
-      routeDeliveryStatus: {},
-      currentLocation: null,
-    });
+    try {
+      await postRotasFinalizar(activeRouteId);
+    } catch {
+      /* rota pode já ter sido finalizada pelo backend */
+    }
+    get().clearActiveRouteState();
   },
+
+  applyRouteSync: async (sync) => {
+    return applyRouteSyncFromResponse(sync, buildApplyRouteSyncDeps(get, set));
+  },
+
+  reconcileActiveRoute: async () => {
+    return reconcileActiveRouteState(buildRouteReconcileDeps(get));
+  },
+
+  ensureActiveRouteLoaded: async () => {
+    try {
+      await get().reconcileActiveRoute();
+    } catch {
+      /* ignore */
+    }
+  },
+
+  getActiveRouteDeliveryIds: () => get().routeOrder,
 
   novaTentativa: async (idSaida) => {
     await postNovaTentativa(idSaida);
@@ -403,6 +475,11 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDeliveryStatus,
     });
     get().syncActiveStopIndex();
+
+    const reconcile = await reconcileActiveRouteState(buildRouteReconcileDeps(get));
+    if (!reconcile.stillActive) {
+      return;
+    }
     await startBackgroundTracking();
   },
 
@@ -443,8 +520,22 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       ),
       routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: "entregue" as const },
     }));
-    if (get().activeRouteId) get().syncActiveStopIndex();
-    return response;
+    const syncResult = await applyRouteSyncFromResponse(
+      response.rota_sync,
+      buildApplyRouteSyncDeps(get, set)
+    );
+    if (syncResult.routeJustCompleted) {
+      return { ...response, ...syncResult };
+    }
+    const reconcile = await reconcileActiveRouteState(buildRouteReconcileDeps(get));
+    if (reconcile.wasCompleted && reconcile.rotaIdForResumo) {
+      return {
+        ...response,
+        routeJustCompleted: true,
+        rotaIdForResumo: reconcile.rotaIdForResumo,
+      };
+    }
+    return { ...response, ...syncResult };
   },
 
   markAbsent: async (idSaida, motivoId, observacao) => {
@@ -459,25 +550,72 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       ),
       routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: "ausente" as const },
     }));
-    if (get().activeRouteId) get().syncActiveStopIndex();
-    return response;
+    const syncResult = await applyRouteSyncFromResponse(
+      response.rota_sync,
+      buildApplyRouteSyncDeps(get, set)
+    );
+    if (syncResult.routeJustCompleted) {
+      return { ...response, ...syncResult };
+    }
+    const reconcile = await reconcileActiveRouteState(buildRouteReconcileDeps(get));
+    if (reconcile.wasCompleted && reconcile.rotaIdForResumo) {
+      return {
+        ...response,
+        routeJustCompleted: true,
+        rotaIdForResumo: reconcile.rotaIdForResumo,
+      };
+    }
+    return { ...response, ...syncResult };
   },
 
   finalizePendingBatch: async (body) => {
     const response = await finalizarLote(body);
     const finalizedIds = new Set(response.finalizados.map((f) => f.id_saida));
     if (finalizedIds.size > 0) {
-      set((state) => ({
-        pendingDeliveries: state.pendingDeliveries.filter((d) => !finalizedIds.has(d.id_saida)),
-        deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => !finalizedIds.has(d.id_saida)),
-        deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => !finalizedIds.has(d.id_saida)),
-        selectedDelivery:
-          state.selectedDelivery && finalizedIds.has(state.selectedDelivery.id_saida)
-            ? null
-            : state.selectedDelivery,
-      }));
+      set((state) => {
+        const routeDeliveryStatus = { ...state.routeDeliveryStatus };
+        for (const item of response.finalizados) {
+          routeDeliveryStatus[item.id_saida] = loteStatusToRouteStatus(item.status);
+        }
+        return {
+          pendingDeliveries: state.pendingDeliveries.filter((d) => !finalizedIds.has(d.id_saida)),
+          deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => !finalizedIds.has(d.id_saida)),
+          deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter(
+            (d) => !finalizedIds.has(d.id_saida)
+          ),
+          selectedDelivery:
+            state.selectedDelivery && finalizedIds.has(state.selectedDelivery.id_saida)
+              ? null
+              : state.selectedDelivery,
+          routeDeliveries: state.routeDeliveries.map((d) => {
+            if (!finalizedIds.has(d.id_saida)) return d;
+            const st = routeDeliveryStatus[d.id_saida];
+            return {
+              ...d,
+              exibicao: st === "ausente" ? "Ausente" : "Entregue",
+              status: st === "ausente" ? "Ausente" : "Entregue",
+            };
+          }),
+          routeDeliveryStatus,
+        };
+      });
     }
-    return response;
+    const syncResult = await applyRouteSyncFromResponse(
+      response.rota_sync ?? undefined,
+      buildApplyRouteSyncDeps(get, set)
+    );
+    if (syncResult.routeJustCompleted) {
+      return { ...response, ...syncResult };
+    }
+    const reconcile = await reconcileActiveRouteState(buildRouteReconcileDeps(get));
+    if (reconcile.wasCompleted && reconcile.rotaIdForResumo) {
+      return {
+        ...response,
+        routeJustCompleted: true,
+        rotaIdForResumo: reconcile.rotaIdForResumo,
+      };
+    }
+    return { ...response, ...syncResult };
   },
 
   setSelectedDelivery: (d) => set({ selectedDelivery: d }),
@@ -486,7 +624,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
 
   setRouteDeliveries: (deliveries) => {
     const state = get();
-    if (state.activeRouteId != null) {
+    if (
+      state.activeRouteId != null &&
+      routeHasPendingDeliveries(state.routeOrder, state.routeDeliveryStatus)
+    ) {
       return;
     }
     const order = clusterRouteOrderByAddress(

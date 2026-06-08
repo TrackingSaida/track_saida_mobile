@@ -199,6 +199,7 @@ export default function RouteBottomSheet({
   collapsed: collapsedProp,
   onCollapsedChange,
   defaultCollapsed = true,
+  planningHeaderCollapsed = false,
 }: {
   disableDrag?: boolean;
   activeGroupIndex?: number;
@@ -207,6 +208,8 @@ export default function RouteBottomSheet({
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   defaultCollapsed?: boolean;
+  /** Header "Rota pronta" recolhido — lista pode ocupar mais altura */
+  planningHeaderCollapsed?: boolean;
 }) {
   const colors = useThemeColors();
   const [collapsedInternal, setCollapsedInternal] = useState(defaultCollapsed);
@@ -255,19 +258,24 @@ export default function RouteBottomSheet({
   );
 
   const handleOptimize = useCallback(async () => {
-    if (groupedStops.length < 2) return;
+    if (groupedStops.length < 2 || optimizing) return;
     setOptimizing(true);
     try {
       await runOptimizeRouteWithFeedback(optimizeRoute);
     } finally {
       setOptimizing(false);
     }
-  }, [groupedStops.length, optimizeRoute]);
+  }, [groupedStops.length, optimizeRoute, optimizing]);
 
   const expandList = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setCollapsed(false);
-  }, [setCollapsed]);
+    if (!disableDrag) {
+      setTimeout(() => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }, 120);
+    }
+  }, [setCollapsed, disableDrag]);
 
   const collapseList = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -418,8 +426,11 @@ export default function RouteBottomSheet({
   );
 
   const windowHeight = Dimensions.get("window").height;
-  const CHROME_HEIGHT = 110;
-  const maxExpandedHeight = Math.round(windowHeight * 0.52);
+  const planningMapBarHeight = !disableDrag && !collapsed ? 56 : 0;
+  const CHROME_HEIGHT = 110 + planningMapBarHeight;
+  const maxExpandedHeight = planningHeaderCollapsed
+    ? Math.round(windowHeight * 0.68)
+    : Math.round(windowHeight * 0.52);
   const contentHeight = CHROME_HEIGHT + total * ROW_HEIGHT + 16;
   const expandedHeight = Math.min(
     maxExpandedHeight,
@@ -503,6 +514,22 @@ export default function RouteBottomSheet({
           alignItems: "center",
         },
         emptyText: { fontSize: 14, color: colors.textSecondary },
+        mapBarPrimary: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          marginHorizontal: 16,
+          marginBottom: 8,
+          paddingVertical: 14,
+          borderRadius: 10,
+          backgroundColor: colors.primary,
+        },
+        mapBarPrimaryText: {
+          fontSize: 16,
+          fontWeight: "700",
+          color: colors.primaryContrast,
+        },
       }),
     [colors, collapsed]
   );
@@ -537,6 +564,17 @@ export default function RouteBottomSheet({
             <View style={styles.handleBar} />
           </TouchableOpacity>
 
+          {!disableDrag && (
+            <TouchableOpacity
+              style={styles.mapBarPrimary}
+              onPress={collapseList}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="map" size={20} color={colors.primaryContrast} />
+              <Text style={styles.mapBarPrimaryText}>Ver mapa</Text>
+            </TouchableOpacity>
+          )}
+
           <View style={styles.header}>
             <View style={{ flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 }}>
               <Text style={styles.totalText} numberOfLines={1} ellipsizeMode="tail">
@@ -545,10 +583,12 @@ export default function RouteBottomSheet({
                   : `${total} parada${total !== 1 ? "s" : ""}`}
               </Text>
             </View>
-            <TouchableOpacity style={styles.mapToggleBtn} onPress={collapseList} activeOpacity={0.85}>
-              <Ionicons name="map" size={16} color={colors.primary} />
-              <Text style={styles.mapToggleText}>Mapa</Text>
-            </TouchableOpacity>
+            {disableDrag && (
+              <TouchableOpacity style={styles.mapToggleBtn} onPress={collapseList} activeOpacity={0.85}>
+                <Ionicons name="map" size={16} color={colors.primary} />
+                <Text style={styles.mapToggleText}>Mapa</Text>
+              </TouchableOpacity>
+            )}
             {!disableDrag && (
               <TouchableOpacity
                 style={[styles.optimizeBtn, { marginLeft: 8 }]}

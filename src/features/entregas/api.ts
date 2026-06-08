@@ -14,6 +14,8 @@ import type {
   FinalizarLoteResponse,
   EnderecoSugestoesBody,
   EnderecoSugestoesResponse,
+  PlaceDetailsBody,
+  PlaceDetailsResponse,
 } from "./types";
 
 function getAuthHeaders(): Record<string, string> {
@@ -239,7 +241,8 @@ export interface EnderecoBody {
   cep: string;
   latitude?: number | null;
   longitude?: number | null;
-  origem?: "manual" | "ocr" | "voz" | "suggestion" | "autocomplete" | "mapa";
+  origem?: "manual" | "ocr" | "voz" | "suggestion" | "autocomplete" | "mapa" | "google_places";
+  coord_precision?: "rooftop" | "street" | "approx" | null;
 }
 
 export async function putEndereco(idSaida: number, body: EnderecoBody): Promise<EntregaListItem> {
@@ -247,10 +250,24 @@ export async function putEndereco(idSaida: number, body: EnderecoBody): Promise<
   return data;
 }
 
+const ENDERECO_SUGESTOES_TIMEOUT_MS = 20_000;
+const ROUTE_OPTIMIZE_TIMEOUT_MS = 30_000;
+
 export async function postEnderecoSugestoes(
   body: EnderecoSugestoesBody
 ): Promise<EnderecoSugestoesResponse> {
-  const { data } = await client.post<EnderecoSugestoesResponse>("/mobile/enderecos/sugestoes", body);
+  const { data } = await client.post<EnderecoSugestoesResponse>(
+    "/mobile/enderecos/sugestoes",
+    body,
+    { timeout: ENDERECO_SUGESTOES_TIMEOUT_MS }
+  );
+  return data;
+}
+
+export async function postEnderecoPlaceDetails(
+  body: PlaceDetailsBody
+): Promise<PlaceDetailsResponse> {
+  const { data } = await client.post<PlaceDetailsResponse>("/mobile/enderecos/place-details", body);
   return data;
 }
 
@@ -421,7 +438,9 @@ export async function postRotasOtimizar(
   };
   if (start) body.start = start;
   if (priority) body.priority = priority;
-  const { data } = await client.post<RotasOtimizarResponse>("/mobile/rotas/otimizar", body);
+  const { data } = await client.post<RotasOtimizarResponse>("/mobile/rotas/otimizar", body, {
+    timeout: ROUTE_OPTIMIZE_TIMEOUT_MS,
+  });
   return data;
 }
 

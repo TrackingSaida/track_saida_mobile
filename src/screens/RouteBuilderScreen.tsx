@@ -61,20 +61,23 @@ import { playSound } from "../utils/sound";
 import { runPostFinalizeFeedback } from "../features/entregas/utils/finalizeEntregaFeedback";
 import { formatApiError } from "../utils/formatApiError";
 import {
-  geocodeAddress,
   geocodeAddressFromValues,
+  geocodeDelivery,
+  inferCoordPrecision,
   isValidGeocodeCoords,
+  resolveGeocodeDefaults,
   type GeocodeResult,
 } from "../features/entregas/utils/geocode";
 import type { EntregaListItem } from "../features/entregas/types";
 import { useMotoboyPrefsStore } from "../store/motoboyPrefsStore";
 import { runOptimizeRouteWithFeedback } from "../features/entregas/utils/optimizeRouteFeedback";
+import { formatAddressSummary } from "../features/entregas/utils/addressSuggestions";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RouteBuilder">;
 
 type NavSheetTarget = { group: GroupedStop; stopNumber: number };
 
-export default function RouteBuilderScreen({ navigation }: Props) {
+export default function RouteBuilderScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const [selectedDelivery, setSelectedDelivery] = useState<EntregaListItem | null>(null);
@@ -94,8 +97,6 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const routeDurationS = useDeliveryStore((s) => s.routeDurationS);
   const activeStopIndex = useDeliveryStore((s) => s.activeStopIndex);
   const startActiveRoute = useDeliveryStore((s) => s.startActiveRoute);
-  const completeStop = useDeliveryStore((s) => s.completeStop);
-  const finishRoute = useDeliveryStore((s) => s.finishRoute);
   const optimizeRoute = useDeliveryStore((s) => s.optimizeRoute);
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
   const removeFromRoute = useDeliveryStore((s) => s.removeFromRoute);
@@ -129,6 +130,8 @@ export default function RouteBuilderScreen({ navigation }: Props) {
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const routePriority = useMotoboyPrefsStore((s) => s.routePriority);
   const setRoutePriority = useMotoboyPrefsStore((s) => s.setRoutePriority);
+  const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
+  const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const [showPriorityModal, setShowPriorityModal] = useState(false);
 
   useFocusEffect(
@@ -137,6 +140,15 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         navigation.replace("EntregasList");
       }
     }, [roteirizacaoHabilitada, navigation])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (route.params?.openLocatePackage) {
+        setShowLocateSheet(true);
+        navigation.setParams({ openLocatePackage: undefined });
+      }
+    }, [route.params?.openLocatePackage, navigation])
   );
 
   const ordered = useMemo(
@@ -231,16 +243,17 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       const next: Record<number, { latitude: number; longitude: number }> = {};
       for (const d of withoutCoords) {
         if (cancelled) return;
-        const addr = d.endereco_formatado || [d.endereco, d.bairro].filter(Boolean).join(", ");
-            if (!addr.trim()) continue;
-            const res = await geocodeAddress(addr);
-            if (cancelled) return;
-            if (res) next[d.id_saida] = res;
-          }
+        const res = await geocodeDelivery(
+          d,
+          resolveGeocodeDefaults(d, cidadePadrao, estadoPadrao)
+        );
+        if (cancelled) return;
+        if (res) next[d.id_saida] = res;
+      }
       if (!cancelled) setGeocodedCoords((prev) => ({ ...prev, ...next }));
     })();
     return () => { cancelled = true; };
-  }, [ordered]);
+  }, [ordered, cidadePadrao, estadoPadrao]);
 
   const findGroupForDelivery = useCallback(
     (d: EntregaListItem): GroupedStop | undefined =>
@@ -312,11 +325,13 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       const group = groupedStops[stopNumber - 1];
       if (!group) return;
       const target = getFirstPendingInGroup(group, routeDeliveryStatus) ?? group.deliveries[0];
-      setSelectedDelivery(target);
       setCenterOnStopId(target.id_saida);
-      setRouteListCollapsed(true);
+      if (isRouteActive) {
+        setSelectedDelivery(target);
+        setRouteListCollapsed(true);
+      }
     },
-    [groupedStops, routeDeliveryStatus]
+    [groupedStops, routeDeliveryStatus, isRouteActive]
   );
 
   const handleCloseCard = useCallback(() => {
@@ -383,24 +398,21 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       for (let i = 0; i < pendingEntregueIds.length; i++) {
         const res = await markDelivered(pendingEntregueIds[i], body);
         if (res.entrega_atrasada) entregaAtrasada = true;
+        if (res.routeJustCompleted) {
+          routeJustCompleted = true;
+          rotaIdForResumo = res.rotaIdForResumo;
+        }
       }
-      if (isRouteActive && activeRouteId && pendingEntregueIds.length > 0) {
-        const rotaId = activeRouteId;
-        await completeStop();
+      if (isRouteActive && activeRouteId && !routeJustCompleted) {
         recalcPolyline();
         const nextIdx = useDeliveryStore.getState().activeStopIndex;
         const order = useDeliveryStore.getState().routeOrder;
-        if (nextIdx >= order.length) {
-          routeJustCompleted = true;
-          rotaIdForResumo = rotaId;
-          await finishRoute();
-          playSound("success");
-        } else {
+        if (nextIdx < order.length) {
           playSound("success");
           setCenterOnStopId(order[nextIdx]);
           openNextStopNavigation();
         }
-      } else if (pendingEntregueIds && pendingEntregueIds.length > 0) {
+      } else if (routeJustCompleted || (pendingEntregueIds.length > 0 && !isRouteActive)) {
         playSound("success");
       }
       setPendingEntregueIds(null);
@@ -414,7 +426,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         isRouteFlow: isRouteActive,
       });
     },
-    [pendingEntregueIds, markDelivered, isRouteActive, activeRouteId, completeStop, finishRoute, selectedDelivery, recalcPolyline, openNextStopNavigation]
+    [pendingEntregueIds, markDelivered, isRouteActive, activeRouteId, selectedDelivery, recalcPolyline, openNextStopNavigation]
   );
 
   const openAusenteModal = useCallback(() => {
@@ -480,9 +492,12 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       for (let i = 0; i < idsToMark.length; i++) {
         const res = await markAbsent(idsToMark[i], motivoId, observacao);
         if (res.entrega_atrasada) entregaAtrasada = true;
+        if (res.routeJustCompleted) {
+          routeJustCompleted = true;
+          rotaIdForResumo = res.rotaIdForResumo;
+        }
       }
-      if (activeRotaId && idsToMark.length > 0) {
-        await completeStop();
+      if (activeRotaId && !routeJustCompleted) {
         recalcPolyline();
         const nextIdx = useDeliveryStore.getState().activeStopIndex;
         const order = useDeliveryStore.getState().routeOrder;
@@ -491,13 +506,10 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           setCenterOnStopId(order[nextIdx]);
           openNextStopNavigation();
         } else {
-          routeJustCompleted = true;
-          rotaIdForResumo = activeRotaId;
-          await finishRoute();
-          playSound("success");
+          playSound("warn");
         }
       } else {
-        playSound("warn");
+        playSound(routeJustCompleted ? "success" : "warn");
       }
       const codigoFeedback = deliveryForAusente.codigo;
       closeAusenteModal();
@@ -519,8 +531,6 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       deliveryForAusente,
       pendingAusenteIds,
       markAbsent,
-      completeStop,
-      finishRoute,
       findGroupForDelivery,
       routeDeliveryStatus,
       recalcPolyline,
@@ -611,10 +621,30 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     setOptimizingHeader(true);
     try {
       await runPartialOptimize();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Erro ao otimizar a rota.";
+      Alert.alert("Erro ao otimizar", msg);
     } finally {
       setOptimizingHeader(false);
     }
   }, [groupedStops.length, optimizingHeader, runPartialOptimize]);
+
+  const handleSavePriority = useCallback(
+    async (p: typeof routePriority) => {
+      await setRoutePriority(p);
+      if (p.type !== "none" && groupedStops.length >= 2) {
+        Alert.alert(
+          "Preferência salva",
+          "Deseja reotimizar a rota agora com essa prioridade?",
+          [
+            { text: "Agora não", style: "cancel" },
+            { text: "Reotimizar", onPress: () => void handleHeaderOptimize() },
+          ]
+        );
+      }
+    },
+    [setRoutePriority, groupedStops.length, handleHeaderOptimize]
+  );
 
   const handleSaveAddress = useCallback(
     async (values: AddressFormValues, coords?: GeocodeResult | null) => {
@@ -623,6 +653,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         const body = {
           ...values,
           origem: "manual" as const,
+          coord_precision: inferCoordPrecision("manual"),
           ...(isValidGeocodeCoords(coords?.latitude, coords?.longitude)
             ? { latitude: coords!.latitude, longitude: coords!.longitude }
             : {}),
@@ -635,7 +666,14 @@ export default function RouteBuilderScreen({ navigation }: Props) {
             [updated.id_saida]: { latitude: updated.latitude!, longitude: updated.longitude! },
           }));
         } else {
-          const geo = await geocodeAddressFromValues(values);
+          const geo = await geocodeAddressFromValues(
+            values,
+            {
+              cidade: values.cidade || cidadePadrao,
+              estado: values.estado || estadoPadrao,
+            },
+            { enderecoFormatado: formatAddressSummary(values) }
+          );
           if (geo) {
             updateRouteDelivery(editDelivery.id_saida, {
               latitude: geo.latitude,
@@ -795,7 +833,34 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           marginBottom: 8,
         },
         priorityText: { fontSize: 13, color: colors.textSecondary, flex: 1 },
+        priorityBadge: {
+          flex: 1,
+          backgroundColor: colors.primarySoft,
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          borderRadius: 20,
+        },
+        priorityBadgeText: {
+          fontSize: 15,
+          fontWeight: "700",
+          color: colors.primary,
+        },
         priorityLink: { fontSize: 13, fontWeight: "600", color: colors.primary },
+        mapHeaderBtn: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          paddingHorizontal: 18,
+          paddingVertical: 12,
+          borderRadius: 10,
+          backgroundColor: colors.primary,
+          marginRight: 8,
+        },
+        mapHeaderBtnText: {
+          fontSize: 16,
+          fontWeight: "700",
+          color: colors.primaryContrast,
+        },
         headerStats: {
           flexDirection: "row",
           flexWrap: "wrap",
@@ -919,15 +984,17 @@ export default function RouteBuilderScreen({ navigation }: Props) {
     : "pendente";
 
   const headerCompact = selectedDelivery != null;
+  const listModeOpen = !isRouteActive && !routeListCollapsed;
+  const showPlanningDetails = !isRouteActive && routeListCollapsed && !headerCompact;
   const selectedPackageCount = selectedGroup?.deliveries.length ?? 1;
 
   const cardMaxScrollHeight = useMemo(() => {
     const screenHeight = Dimensions.get("window").height;
-    const headerReserved = headerCompact ? 64 : isRouteActive ? 200 : 300;
+    const headerReserved = headerCompact ? 64 : listModeOpen ? 56 : isRouteActive ? 200 : 300;
     const bottomReserved = routeListCollapsed ? 100 : 220;
     const cardChrome = 88;
     return Math.max(140, screenHeight - insets.top - headerReserved - bottomReserved - cardChrome);
-  }, [headerCompact, routeListCollapsed, insets.top, isRouteActive]);
+  }, [headerCompact, listModeOpen, routeListCollapsed, insets.top, isRouteActive]);
 
   useEffect(() => {
     if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -957,12 +1024,23 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         />
       </View>
 
-      <View style={[styles.header, headerCompact && styles.headerCompact]}>
-        <View style={styles.headerRow}>
+      <View style={[styles.header, (headerCompact || listModeOpen) && styles.headerCompact]}>
+        <View style={[styles.headerRow, listModeOpen && { marginBottom: 0 }]}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Text style={styles.backText}>← Voltar</Text>
           </TouchableOpacity>
-          {!headerCompact && !isRouteActive && ordered.length > 0 && (
+          <View style={{ flex: 1 }} />
+          {listModeOpen && (
+            <TouchableOpacity
+              style={styles.mapHeaderBtn}
+              onPress={() => setRouteListCollapsed(true)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="map" size={18} color={colors.primaryContrast} />
+              <Text style={styles.mapHeaderBtnText}>Ver mapa</Text>
+            </TouchableOpacity>
+          )}
+          {!headerCompact && !isRouteActive && !listModeOpen && ordered.length > 0 && (
             <TouchableOpacity style={styles.menuBtn} onPress={() => setShowAdvancedMenu(true)}>
               <Ionicons name="ellipsis-horizontal" size={22} color={colors.text} />
             </TouchableOpacity>
@@ -977,7 +1055,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
             {selectedPackageCount !== 1 ? "s" : ""}
           </Text>
         )}
-        {ordered.length > 0 && !headerCompact && !isRouteActive && (
+        {ordered.length > 0 && showPlanningDetails && (
           <>
             <RouteReadySummaryCard
               pedidoCount={headerStats.pedidoCount}
@@ -990,7 +1068,15 @@ export default function RouteBuilderScreen({ navigation }: Props) {
               onReviewPress={() => setShowReviewModal(true)}
             />
             <View style={styles.priorityRow}>
-              <Text style={styles.priorityText}>Priorizar por: {priorityDisplayLabel}</Text>
+              {routePriority.type !== "none" ? (
+                <View style={styles.priorityBadge}>
+                  <Text style={styles.priorityBadgeText}>
+                    Priorizar por: {priorityDisplayLabel}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.priorityText}>Priorizar por: {priorityDisplayLabel}</Text>
+              )}
               <TouchableOpacity onPress={() => setShowPriorityModal(true)}>
                 <Text style={styles.priorityLink}>Alterar</Text>
               </TouchableOpacity>
@@ -1026,7 +1112,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
             <TouchableOpacity
               style={styles.startDeliveryBtn}
               onPress={() => void handleIniciarEntrega()}
-              disabled={iniciandoRota}
+              disabled={iniciandoRota || optimizingHeader}
             >
               {iniciandoRota ? (
                 <ActivityIndicator color={colors.primaryContrast} />
@@ -1106,6 +1192,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
           collapsed={routeListCollapsed}
           onCollapsedChange={setRouteListCollapsed}
           defaultCollapsed
+          planningHeaderCollapsed={listModeOpen}
         />
       </View>
 
@@ -1114,7 +1201,7 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         current={routePriority}
         packages={routeDeliveries}
         onClose={() => setShowPriorityModal(false)}
-        onSave={(p) => void setRoutePriority(p)}
+        onSave={(p) => void handleSavePriority(p)}
       />
 
       <RouteAdvancedMenuSheet
@@ -1124,10 +1211,13 @@ export default function RouteBuilderScreen({ navigation }: Props) {
         onAddStop={() => setShowQuickAdd(true)}
         onImport={() => setShowBulkImport(true)}
         onLocate={() => setShowLocateSheet(true)}
+        onIniciar={() => void handleIniciarEntrega()}
         onToggleList={() => setRouteListCollapsed((c) => !c)}
         listExpanded={!routeListCollapsed}
         optimizing={optimizingHeader}
+        iniciando={iniciandoRota}
         canOptimize={groupedStops.length >= 2}
+        showPlanningActions={!isRouteActive}
       />
 
       <RouteStopActionSheet
@@ -1186,7 +1276,6 @@ export default function RouteBuilderScreen({ navigation }: Props) {
       <RouteLocatePackageSheet
         visible={showLocateSheet}
         totalStops={groupedStops.length}
-        geocodedCoords={geocodedCoords}
         onFindByCodigo={(codigo) => {
           const found = findInRouteByCodigo(codigo);
           if (!found) return null;
@@ -1197,7 +1286,6 @@ export default function RouteBuilderScreen({ navigation }: Props) {
             totalStops: groupedStops.length,
           };
         }}
-        onGoToStop={(idSaida) => setCenterOnStopId(idSaida)}
         onClose={() => setShowLocateSheet(false)}
       />
 

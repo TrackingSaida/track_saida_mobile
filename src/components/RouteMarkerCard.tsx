@@ -14,6 +14,7 @@ import { useThemeColors } from "../theme/colors";
 import type { EntregaListItem } from "../features/entregas/types";
 import {
   getStopAddressLine,
+  getApproximateLocationLabel,
   type GroupedStop,
   type RouteDeliveryStatus,
 } from "../features/entregas/utils/routeUtils";
@@ -136,6 +137,12 @@ export default function RouteMarkerCard({
           marginTop: 4,
         },
         addressValue: { fontSize: 14, color: colors.text, lineHeight: 20, marginBottom: 16 },
+        approxBadge: {
+          fontSize: 12,
+          fontWeight: "600",
+          color: colors.warning,
+          marginBottom: 8,
+        },
         actionRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
         actionBtn: {
           flex: 1,
@@ -184,6 +191,7 @@ export default function RouteMarkerCard({
     !canMarkDelivery &&
     deliveriesList.some((d) => (deliveryStatusMap[d.id_saida] ?? "pendente") === "pendente");
   const selectedCodigo = delivery.codigo?.trim() || "—";
+  const approximateLabel = getApproximateLocationLabel(displayDelivery);
 
   const renderPackageRow = (d: EntregaListItem) => {
     const dStatus = deliveryStatusMap[d.id_saida] ?? "pendente";
@@ -293,6 +301,9 @@ export default function RouteMarkerCard({
         )}
 
         <Text style={styles.addressValue}>{getStopAddressLine(displayDelivery)}</Text>
+        {approximateLabel ? (
+          <Text style={styles.approxBadge}>{approximateLabel}</Text>
+        ) : null}
 
         <View style={styles.actionRow}>
           {temCoords && (

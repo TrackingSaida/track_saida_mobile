@@ -40,7 +40,8 @@ export type AddressOrigem =
   | "voz"
   | "suggestion"
   | "autocomplete"
-  | "mapa";
+  | "mapa"
+  | "google_places";
 
 interface ViaCepResponse {
   logradouro?: string;

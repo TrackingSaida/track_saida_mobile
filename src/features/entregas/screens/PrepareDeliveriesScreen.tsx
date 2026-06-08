@@ -25,6 +25,7 @@ import AddressQuickForm, { type QuickFormFlowState } from "../components/Address
 import AddressPreviewSheet from "../components/AddressPreviewSheet";
 import GeocodeFailureSheet from "../components/GeocodeFailureSheet";
 import PrepProgressList from "../components/PrepProgressList";
+import PrepAddressExistsModal from "../components/PrepAddressExistsModal";
 import PrepScanSheet from "../components/PrepScanSheet";
 import VoiceAddressModal from "../components/VoiceAddressModal";
 import type { EntregaListItem } from "../types";
@@ -43,6 +44,7 @@ import {
 } from "../utils/ocrAddress";
 import {
   geocodeAddressFromValues,
+  inferCoordPrecision,
   isValidGeocodeCoords,
   type GeocodeResult,
 } from "../utils/geocode";
@@ -51,11 +53,15 @@ import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import RoutePriorityModal from "../components/RoutePriorityModal";
 import { routePriorityLabel } from "../utils/routePriority";
 import { formatApiError } from "../../../utils/formatApiError";
+import { deliveryToFreeText } from "../utils/deliveryAddress";
 import {
   enrichParsedAddress,
   formatAddressSummary,
+  isGooglePendingSuggestion,
   isSelectableAddressSuggestion,
   needsAddressEnrichment,
+  resetAddressSessionToken,
+  resolveGooglePlaceSuggestion,
   suggestionToParsed,
   type AddressSuggestion,
 } from "../utils/addressSuggestions";
@@ -63,6 +69,7 @@ import {
 type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
 type AfterSaveMode = "scan" | "queue" | "none";
+type FormMode = "new" | "edit";
 
 export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -79,6 +86,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     clearActiveRouteState,
     activeRouteId,
     optimizeRoute,
+    reconcileActiveRoute,
   } = useDeliveryStore();
 
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
@@ -92,12 +100,16 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const setRoutePriority = useMotoboyPrefsStore((s) => s.setRoutePriority);
 
   const [showScanSheet, setShowScanSheet] = useState(false);
+  const [addressExistsDelivery, setAddressExistsDelivery] = useState<EntregaListItem | null>(
+    null
+  );
   const [showQuickForm, setShowQuickForm] = useState(false);
   const [showAdvancedForm, setShowAdvancedForm] = useState(false);
   const [activeDelivery, setActiveDelivery] = useState<EntregaListItem | null>(null);
   const [queue, setQueue] = useState<EntregaListItem[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
   const [afterSaveMode, setAfterSaveMode] = useState<AfterSaveMode>("none");
+  const [formMode, setFormMode] = useState<FormMode>("new");
   const [flowState, setFlowState] = useState<QuickFormFlowState>("idle");
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [externalParsed, setExternalParsed] = useState<ParsedAddress | null>(null);
@@ -301,10 +313,19 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       setFlowState("geocoding");
       try {
         if (!opts.skipGeocodeCheck) {
-          const geoDefaults = { cidade: cidadePadrao, estado: estadoPadrao };
-          const geo = isValidGeocodeCoords(opts.coords?.latitude, opts.coords?.longitude)
-            ? opts.coords!
-            : await geocodeAddressFromValues(vals, geoDefaults);
+          const geoDefaults = {
+            cidade: (vals.cidade ?? "").trim() || cidadePadrao,
+            estado: (vals.estado ?? "").trim() || estadoPadrao,
+          };
+          const hasClientCoords = isValidGeocodeCoords(opts.coords?.latitude, opts.coords?.longitude);
+          const geo =
+            hasClientCoords && (origem === "google_places" || origem === "suggestion")
+              ? opts.coords!
+              : hasClientCoords
+                ? opts.coords!
+                : await geocodeAddressFromValues(vals, geoDefaults, {
+                    enderecoFormatado: formatAddressSummary(vals),
+                  });
           if (!geo) {
             setPendingSaveValues(vals);
             setPendingSaveOrigem(origem);
@@ -318,6 +339,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
             origem,
             latitude: geo.latitude,
             longitude: geo.longitude,
+            coord_precision: inferCoordPrecision(origem),
           };
           setFlowState("saving");
           await saveAddress(activeDelivery.id_saida, body);
@@ -325,10 +347,13 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           setFlowState("saving");
           await saveAddress(activeDelivery.id_saida, { ...vals, origem });
         }
-        setFeedbackMessage("Endereço salvo. Próximo pacote.");
+        setFeedbackMessage(
+          formMode === "edit" ? "Endereço atualizado." : "Endereço salvo. Próximo pacote."
+        );
         setExternalParsed(null);
         setShowGeocodeFailure(false);
         setPendingSaveValues(null);
+        setFormMode("new");
 
         if (afterSaveMode === "scan") {
           setShowQuickForm(false);
@@ -369,11 +394,25 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       activeDelivery,
       saveAddress,
       afterSaveMode,
+      formMode,
       refreshQueue,
       showAdvancedForm,
       cidadePadrao,
       estadoPadrao,
     ]
+  );
+
+  const openAddressForm = useCallback(
+    (delivery: EntregaListItem, options: { mode: FormMode; afterSave: AfterSaveMode }) => {
+      setShowScanSheet(false);
+      setActiveDelivery(delivery);
+      setFormMode(options.mode);
+      setAfterSaveMode(options.afterSave);
+      setShowQuickForm(true);
+      setShowAdvancedForm(false);
+      setExternalParsed(null);
+    },
+    []
   );
 
   const handleSaveAndNext = useCallback(
@@ -406,11 +445,23 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   );
 
   const handleScanFound = (delivery: EntregaListItem) => {
-    setShowScanSheet(false);
-    setActiveDelivery(delivery);
-    setAfterSaveMode("scan");
-    setShowQuickForm(true);
-    setExternalParsed(null);
+    if (delivery.possui_endereco) {
+      setAddressExistsDelivery(delivery);
+      return;
+    }
+    openAddressForm(delivery, { mode: "new", afterSave: "scan" });
+  };
+
+  const handleAddressExistsEdit = () => {
+    const delivery = addressExistsDelivery;
+    setAddressExistsDelivery(null);
+    if (delivery) {
+      openAddressForm(delivery, { mode: "edit", afterSave: "none" });
+    }
+  };
+
+  const handleAddressExistsDismiss = () => {
+    setAddressExistsDelivery(null);
   };
 
   const handleStartScan = () => {
@@ -427,10 +478,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     }
     setQueue(q);
     setQueueIndex(q.indexOf(next));
-    setActiveDelivery(next);
-    setAfterSaveMode("queue");
-    setShowQuickForm(true);
-    setExternalParsed(null);
+    openAddressForm(next, { mode: "new", afterSave: "queue" });
   };
 
   const handleProgressPress = (item: EntregaListItem) => {
@@ -438,10 +486,11 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     const q = refreshQueue();
     setQueue(q);
     setQueueIndex(q.findIndex((d) => d.id_saida === item.id_saida));
-    setActiveDelivery(item);
-    setAfterSaveMode("queue");
-    setShowQuickForm(true);
-    setExternalParsed(null);
+    openAddressForm(item, { mode: "new", afterSave: "queue" });
+  };
+
+  const handleEditAddress = (item: EntregaListItem) => {
+    openAddressForm(item, { mode: "edit", afterSave: "none" });
   };
 
   const captureOcrParsed = useCallback(async (): Promise<ParsedAddress | null> => {
@@ -528,17 +577,35 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     [cidadePadrao, estadoPadrao, mergePreviewValues, setPreviewPending]
   );
 
-  const handlePreviewSelectSuggestion = useCallback((s: AddressSuggestion) => {
-    if (!isSelectableAddressSuggestion(s)) return;
-    const enriched = suggestionToParsed(s);
-    setPreviewParsed(enriched);
-    setPreviewPending(mergePreviewValues(s.values), {
-      coords: { latitude: s.latitude, longitude: s.longitude },
-      fromSuggestion: true,
-    });
-    setPreviewSelectedSuggestionId(s.id);
-    setPreviewAutoApplied(false);
-  }, [mergePreviewValues, setPreviewPending]);
+  const handlePreviewSelectSuggestion = useCallback(
+    async (s: AddressSuggestion) => {
+      if (!isSelectableAddressSuggestion(s)) return;
+      let resolved = s;
+      if (isGooglePendingSuggestion(s)) {
+        setPreviewSuggestionsLoading(true);
+        const full = await resolveGooglePlaceSuggestion(s, {
+          defaults: { cidade: cidadePadrao, estado: estadoPadrao },
+        });
+        setPreviewSuggestionsLoading(false);
+        if (!full) {
+          Alert.alert("Endereço", "Não foi possível obter os detalhes deste endereço.");
+          return;
+        }
+        resolved = full;
+        resetAddressSessionToken();
+      }
+      const enriched = suggestionToParsed(resolved);
+      setPreviewParsed(enriched);
+      setPreviewPending(mergePreviewValues(resolved.values), {
+        coords: { latitude: resolved.latitude, longitude: resolved.longitude },
+        origem: resolved.provider === "google_places" ? "google_places" : "suggestion",
+        fromSuggestion: resolved.provider !== "google_places",
+      });
+      setPreviewSelectedSuggestionId(resolved.id);
+      setPreviewAutoApplied(false);
+    },
+    [cidadePadrao, estadoPadrao, mergePreviewValues, setPreviewPending]
+  );
 
   const handleOcr = useCallback(async () => {
     setFlowState("parsing");
@@ -672,8 +739,14 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   };
 
   const handleCriarRota = useCallback(async () => {
-    if (activeRouteId != null) {
-      Alert.alert("Atenção", "Finalize a rota ativa antes de montar outra.");
+    if (useDeliveryStore.getState().activeRouteId != null) {
+      await reconcileActiveRoute();
+    }
+    if (useDeliveryStore.getState().activeRouteId != null) {
+      Alert.alert("Atenção", "Finalize a rota ativa antes de montar outra.", [
+        { text: "Continuar rota", onPress: () => navigation.navigate("RouteBuilder") },
+        { text: "Cancelar", style: "cancel" },
+      ]);
       return;
     }
     if (withCoords.length < 2) {
@@ -683,7 +756,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     const runCreate = async () => {
       setOptimizing(true);
       try {
-        if (activeRouteId === null) clearActiveRouteState();
+        clearActiveRouteState();
         setRouteDeliveries(withCoords);
         await optimizeRoute();
         navigation.navigate("RouteBuilder");
@@ -709,12 +782,12 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   }, [
     withCoords,
     semEndereco,
-    activeRouteId,
     clearActiveRouteState,
     setRouteDeliveries,
     optimizeRoute,
     navigation,
     handleNextPending,
+    reconcileActiveRoute,
   ]);
 
   const handleSalvarAdvanced = async (vals: AddressFormValues, origem?: AddressOrigem) => {
@@ -836,25 +909,44 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
 
       <View style={[styles.listSection, { flex: 1 }]}>
         <Text style={styles.listTitle}>Pacotes</Text>
-        <PrepProgressList items={progressItems} onPressItem={handleProgressPress} />
+        <PrepProgressList
+          items={progressItems}
+          onPressItem={handleProgressPress}
+          onEditAddress={handleEditAddress}
+        />
       </View>
 
       <PrepScanSheet
         visible={showScanSheet}
         pendingDeliveries={pendingDeliveries}
         onFound={handleScanFound}
-        onClose={() => setShowScanSheet(false)}
+        onClose={() => {
+          setShowScanSheet(false);
+          setAddressExistsDelivery(null);
+        }}
+      />
+
+      <PrepAddressExistsModal
+        visible={addressExistsDelivery != null}
+        delivery={addressExistsDelivery}
+        onEdit={handleAddressExistsEdit}
+        onDismiss={handleAddressExistsDismiss}
       />
 
       <Modal visible={showQuickForm && activeDelivery != null} animationType="slide">
         <View style={[styles.modalWrap, { paddingTop: insets.top }]}>
           {activeDelivery && (
             <AddressQuickForm
+              key={`${activeDelivery.id_saida}-${formMode}`}
               delivery={activeDelivery}
               flowState={flowState}
               cidadePadrao={cidadePadrao}
               estadoPadrao={estadoPadrao}
               knownDeliveries={knownDeliveriesForForm}
+              initialFreeText={
+                formMode === "edit" ? deliveryToFreeText(activeDelivery) : ""
+              }
+              submitLabel={formMode === "edit" ? "Salvar endereço" : "Salvar e próximo"}
               externalParsed={externalParsed}
               onFlowStateChange={setFlowState}
               onSaveAndNext={(vals, coords, origem) =>
@@ -865,6 +957,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
               onCancel={() => {
                 setShowQuickForm(false);
                 setActiveDelivery(null);
+                setFormMode("new");
               }}
             />
           )}

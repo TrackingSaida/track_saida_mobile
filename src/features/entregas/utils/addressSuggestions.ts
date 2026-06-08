@@ -1,6 +1,6 @@
 import * as Location from "expo-location";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
-import { postEnderecoSugestoes } from "../api";
+import { postEnderecoPlaceDetails, postEnderecoSugestoes } from "../api";
 import type { EnderecoSugestaoApi, EntregaListItem } from "../types";
 import { normalizeAddressQuery, normalizeEstadoUf } from "./addressQueryNormalizer";
 import { isValidGeocodeCoords, type GeocodeResult } from "./geocode";
@@ -23,14 +23,40 @@ export type AddressSuggestion = {
   provider?: string;
   confidence?: number;
   distanceKm?: number | null;
+  distanceMeters?: number | null;
   badge?: string | null;
   alreadyUsed?: boolean;
+  placeId?: string;
+  mainText?: string;
+  secondaryText?: string;
+  requiresPlaceDetails?: boolean;
+  advancedSource?: boolean;
 };
 
 export type AddressSearchResult = {
   suggestions: AddressSuggestion[];
   didYouMean: AddressSuggestion | null;
+  usedGoogle?: boolean;
 };
+
+export type GoogleFallbackReason = "user_requested" | "timeout" | "auto" | "no_results";
+
+function createSessionToken(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+let addressSessionToken = createSessionToken();
+
+export function getAddressSessionToken(): string {
+  return addressSessionToken;
+}
+
+export function resetAddressSessionToken(): void {
+  addressSessionToken = createSessionToken();
+}
 
 export type AddressSavePayload = {
   values: AddressFormValues;
@@ -48,10 +74,20 @@ export function formatSuggestionDistance(km: number | null | undefined): string 
   return `📍 ${formatted} km`;
 }
 
+export function formatSuggestionDistanceMeters(meters: number | null | undefined): string | null {
+  if (meters == null || !Number.isFinite(meters)) return null;
+  if (meters < 1000) return `📍 ${Math.round(meters)} m`;
+  return formatSuggestionDistance(meters / 1000);
+}
+
 export function suggestionBadgeLabel(s: AddressSuggestion): string | null {
   if (s.alreadyUsed || s.badge === "used") return "Endereço já utilizado";
   if (s.badge === "frequente") return "Frequente";
   return null;
+}
+
+export function isGooglePendingSuggestion(s: AddressSuggestion): boolean {
+  return Boolean(s.requiresPlaceDetails && s.placeId && s.provider === "google_places");
 }
 
 export function formatSuggestionLines(s: AddressSuggestion): {
@@ -66,6 +102,20 @@ export function formatSuggestionLines(s: AddressSuggestion): {
   const cidade = (v.cidade ?? "").trim();
   const estado = normalizeEstadoUf(v.estado) || (v.estado ?? "").trim().toUpperCase();
   const line3FromValues = cidade && estado ? `${cidade} - ${estado}` : cidade || estado;
+  const cepDigits = normalizeCep(v.cep ?? "");
+
+  if (s.mainText || s.secondaryText) {
+    return {
+      line1: (s.mainText ?? "").trim(),
+      line2: (s.secondaryText ?? "").trim(),
+      line3: line3FromValues,
+      line4: cepDigits.length === 8 ? `CEP ${cepDigits}` : "",
+      distance:
+        formatSuggestionDistanceMeters(s.distanceMeters) ??
+        formatSuggestionDistance(s.distanceKm),
+      badge: suggestionBadgeLabel(s),
+    };
+  }
 
   const multiline = suggestionLabel(s).includes("\n");
   if (multiline) {
@@ -75,14 +125,15 @@ export function formatSuggestionLines(s: AddressSuggestion): {
       line2: parts[1] ?? "",
       line3: (line3FromValues || parts[2]) ?? "",
       line4: parts[3] ?? "",
-      distance: formatSuggestionDistance(s.distanceKm),
+      distance:
+        formatSuggestionDistanceMeters(s.distanceMeters) ??
+        formatSuggestionDistance(s.distanceKm),
       badge: suggestionBadgeLabel(s),
     };
   }
   const line1 = [v.rua, v.numero].filter(Boolean).join(", ");
   const line2 = (v.bairro ?? "").trim();
   const line3 = line3FromValues;
-  const cepDigits = normalizeCep(v.cep ?? "");
   const line4 = cepDigits.length === 8 ? `CEP ${cepDigits}` : "";
   return {
     line1,
@@ -109,15 +160,20 @@ function normalizeNumeroForDedup(num: string): string {
 }
 
 export function isSelectableAddressSuggestion(s: AddressSuggestion): boolean {
+  if (isGooglePendingSuggestion(s)) return true;
   if (!isValidGeocodeCoords(s.latitude, s.longitude)) return false;
   const cidade = (s.values.cidade ?? "").trim();
   const estado = (s.values.estado ?? "").trim();
   const rua = (s.values.rua ?? "").trim();
   const label = suggestionLabel(s).trim();
-  if (!cidade) return false;
-  if (!estado || estado.length < 2) return false;
+  if (!cidade && !isGooglePendingSuggestion(s)) return false;
+  if ((!estado || estado.length < 2) && !isGooglePendingSuggestion(s)) return false;
   if (!rua && !label) return false;
   return true;
+}
+
+export function isDisplayableAddressSuggestion(s: AddressSuggestion): boolean {
+  return isSelectableAddressSuggestion(s);
 }
 
 /** @deprecated use isSelectableAddressSuggestion */
@@ -126,7 +182,7 @@ export function isSelectableSuggestion(s: AddressSuggestion): boolean {
 }
 
 export function filterSelectableSuggestions(list: AddressSuggestion[]): AddressSuggestion[] {
-  return list.filter(isSelectableAddressSuggestion);
+  return list.filter(isDisplayableAddressSuggestion);
 }
 
 /** Critério mais permissivo para exibir bloco "Você quis dizer?" (não auto-aplica). */
@@ -284,7 +340,7 @@ export function sanitizeAddressFormValues(values: AddressFormValues): AddressFor
   };
 }
 
-function valuesFromEnderecoFormatado(formatted: string): Partial<AddressFormValues> | null {
+export function valuesFromEnderecoFormatado(formatted: string): Partial<AddressFormValues> | null {
   const parts = formatted.split(",").map((p) => p.trim()).filter(Boolean);
   if (parts.length < 5) return null;
   const cep = normalizeCep(parts[parts.length - 1]);
@@ -326,6 +382,21 @@ function valuesFromEnderecoFormatado(formatted: string): Partial<AddressFormValu
     };
   }
   return null;
+}
+
+/** Cidade/estado para geocode: endereço salvo > prefs do motoboy. */
+export function resolveGeocodeDefaults(
+  d: EntregaListItem,
+  cidadePadrao?: string,
+  estadoPadrao?: string
+): { cidade: string; estado: string } {
+  const parsed = d.endereco_formatado ? valuesFromEnderecoFormatado(d.endereco_formatado) : null;
+  const fromApiCidade = (d.cidade ?? "").trim();
+  const fromApiEstado = (d.estado ?? "").trim();
+  return {
+    cidade: fromApiCidade || (parsed?.cidade ?? "").trim() || (cidadePadrao ?? "").trim(),
+    estado: fromApiEstado || (parsed?.estado ?? "").trim() || (estadoPadrao ?? "").trim(),
+  };
 }
 
 /** Mescla número/rua digitados pelo usuário quando o Nominatim retorna só o logradouro. */
@@ -530,8 +601,18 @@ function mapApiSuggestionToAddress(
     hints
   );
   values = applyDefaultsToValues(values, defaults);
-  const id = `${api.source}|${api.latitude}|${api.longitude}|${api.rua}|${api.numero ?? ""}`;
+  const placeId = (api.place_id ?? "").trim();
+  const requiresDetails = Boolean(api.requires_place_details && placeId);
+  const id = placeId
+    ? `google|${placeId}`
+    : `${api.source}|${api.latitude}|${api.longitude}|${api.rua}|${api.numero ?? ""}`;
   const label = (api.label ?? "").trim() || formatSuggestionDisplayName(values);
+  if (requiresDetails && (api.main_text || api.rua)) {
+    values = {
+      ...values,
+      rua: (api.main_text ?? api.rua ?? values.rua).trim(),
+    };
+  }
   return makeSuggestion({
     id,
     label,
@@ -541,9 +622,56 @@ function mapApiSuggestionToAddress(
     provider: api.source,
     confidence: api.confidence ?? api.score / 100,
     distanceKm: api.distance_km,
+    distanceMeters: api.distance_meters ?? undefined,
     badge: api.badge,
     alreadyUsed: api.already_used,
+    placeId: placeId || undefined,
+    mainText: api.main_text ?? undefined,
+    secondaryText: api.secondary_text ?? undefined,
+    requiresPlaceDetails: requiresDetails,
   });
+}
+
+export async function resolveGooglePlaceSuggestion(
+  suggestion: AddressSuggestion,
+  options?: {
+    query?: string;
+    hints?: Partial<AddressFormValues>;
+    defaults?: { cidade?: string; estado?: string };
+    gps?: { latitude: number; longitude: number } | null;
+  }
+): Promise<AddressSuggestion | null> {
+  if (!suggestion.placeId) return null;
+  try {
+    const gps = options?.gps !== undefined ? options.gps : await getSearchGpsCached();
+    const response = await postEnderecoPlaceDetails({
+      place_id: suggestion.placeId,
+      session_token: getAddressSessionToken(),
+      query: options?.query,
+      latitude: gps?.latitude,
+      longitude: gps?.longitude,
+      hints: options?.hints
+        ? {
+            rua: options.hints.rua,
+            numero: options.hints.numero,
+            bairro: options.hints.bairro,
+            cidade: options.hints.cidade || options?.defaults?.cidade,
+            estado: options.hints.estado || options?.defaults?.estado,
+            cep: options.hints.cep,
+          }
+        : undefined,
+    });
+    if (!response.suggestion) return null;
+    const resolved = mapApiSuggestionToAddress(
+      response.suggestion,
+      options?.hints,
+      options?.defaults
+    );
+    resolved.requiresPlaceDetails = false;
+    return resolved;
+  } catch {
+    return null;
+  }
 }
 
 export async function searchAddressSuggestions(
@@ -553,13 +681,14 @@ export async function searchAddressSuggestions(
     hints?: Partial<AddressFormValues>;
     defaults?: { cidade?: string; estado?: string };
     gps?: { latitude: number; longitude: number } | null;
+    sessionToken?: string;
   }
 ): Promise<AddressSearchResult> {
   const q = normalizeAddressQuery(query.trim());
   const hints = options?.hints;
   const limit = options?.limit ?? 5;
   const hintRua = (hints?.rua ?? "").trim();
-  const canSearch = q.length >= 3 || hintRua.length >= 3;
+  const canSearch = q.replace(/\s/g, "").length >= 4 || hintRua.length >= 4;
 
   if (!canSearch) {
     return { suggestions: [], didYouMean: null };
@@ -582,12 +711,14 @@ export async function searchAddressSuggestions(
           }
         : undefined,
       limit,
+      session_token: options?.sessionToken ?? getAddressSessionToken(),
     });
 
+    const mapped = (response.suggestions ?? []).map((s) =>
+      mapApiSuggestionToAddress(s, hints, options?.defaults)
+    );
     const suggestions = filterSelectableSuggestions(
-      (response.suggestions ?? [])
-        .map((s) => mapApiSuggestionToAddress(s, hints, options?.defaults))
-        .filter((s) => s.values.rua.trim().length > 0)
+      mapped.filter((s) => s.values.rua.trim().length > 0 || isGooglePendingSuggestion(s))
     );
 
     const dym = response.did_you_mean?.suggestion;
@@ -595,9 +726,9 @@ export async function searchAddressSuggestions(
       ? mapApiSuggestionToAddress(dym, hints, options?.defaults)
       : null;
 
-    return { suggestions, didYouMean };
+    return { suggestions, didYouMean, usedGoogle: response.used_google };
   } catch {
-    return { suggestions: [], didYouMean: null };
+    return { suggestions: [], didYouMean: null, usedGoogle: false };
   }
 }
 

@@ -15,6 +15,7 @@ import {
   VALOR_ROTA_LABEL,
 } from "../../../store/diaRotaConcluidaStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
+import { recordHomeRouteCompleted } from "../../../store/homeRouteStore";
 
 export interface PostFinalizeFeedbackOptions {
   tipo: "entregue" | "ausente";
@@ -52,6 +53,7 @@ async function openDayCompletedModal(): Promise<boolean> {
 
 async function openRouteCompletedModal(rotaId: string | number): Promise<boolean> {
   const resumo = await getRotaResumo(rotaId);
+  await recordHomeRouteCompleted(rotaId, resumo.paradas, resumo.pedidos).catch(() => undefined);
   useDiaRotaConcluidaStore.getState().open({
     variant: "route",
     paradas: resumo.paradas,

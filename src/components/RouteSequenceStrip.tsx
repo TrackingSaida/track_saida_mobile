@@ -53,7 +53,7 @@ export default function RouteSequenceStrip({
 
   useEffect(() => {
     if (groupedStops.length === 0) return;
-    const chipWidth = 44;
+    const chipWidth = 52;
     scrollRef.current?.scrollTo({ x: Math.max(0, focusIndex * chipWidth - 80), animated: true });
   }, [focusIndex, groupedStops.length]);
 
@@ -69,15 +69,15 @@ export default function RouteSequenceStrip({
         scroll: { paddingHorizontal: 12 },
         row: { flexDirection: "row", alignItems: "center" },
         chip: {
-          minWidth: 32,
-          height: 32,
-          borderRadius: 16,
+          minWidth: 40,
+          height: 40,
+          borderRadius: 20,
           justifyContent: "center",
           alignItems: "center",
           paddingHorizontal: 8,
         },
-        chipText: { fontSize: 13, fontWeight: "800", color: "#fff" },
-        arrow: { fontSize: 12, color: colors.textSecondary, marginHorizontal: 2 },
+        chipText: { fontSize: 17, fontWeight: "800", color: "#fff" },
+        arrow: { fontSize: 14, color: colors.textSecondary, marginHorizontal: 2 },
       }),
     [colors]
   );

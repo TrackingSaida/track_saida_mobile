@@ -30,7 +30,12 @@ import RouteBuilderScreen from "./src/screens/RouteBuilderScreen";
 import MinhasEntregasScreen from "./src/features/entregas/screens/MinhasEntregasScreen";
 import MinhasEntregasDiaScreen from "./src/features/entregas/screens/MinhasEntregasDiaScreen";
 import DiaRotaConcluidaModal from "./src/features/entregas/components/DiaRotaConcluidaModal";
+import RotasHistoricoScreen from "./src/features/home/screens/RotasHistoricoScreen";
 import StaffHomeStack from "./src/navigation/StaffHomeStack";
+import {
+  navigateToConfiguracoes,
+  navigateToMinhasEntregas,
+} from "./src/features/entregas/utils/navigationHelpers";
 import { isMotoboyRole } from "./src/utils/role";
 
 import type { EntregasListInitialTab } from "./src/features/entregas/types";
@@ -39,11 +44,18 @@ export type { EntregasListInitialTab };
 
 export type RootStackParamList = {
   HomeInicio: undefined;
-  EntregasList: { initialTab?: EntregasListInitialTab; todosPendentes?: boolean } | undefined;
+  EntregasList:
+    | {
+        initialTab?: EntregasListInitialTab;
+        todosPendentes?: boolean;
+        initialMapMode?: "map";
+      }
+    | undefined;
   EntregaDetail: { idSaida: number };
   Scan: undefined;
   PrepareDeliveries: undefined;
-  RouteBuilder: undefined;
+  RouteBuilder: { openLocatePackage?: boolean } | undefined;
+  RotasHistorico: undefined;
 };
 
 export type AuthStackParamList = {
@@ -67,17 +79,21 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <HomeStack.Screen name="HomeInicio">
         {({ navigation }) => (
           <HomeScreen
-            onLogout={onLogout}
             onNavigateEntregas={(tab, opts) =>
-              navigation.navigate(
-                "EntregasList",
-                tab || opts?.todosPendentes
-                  ? { initialTab: tab, todosPendentes: opts?.todosPendentes }
-                  : undefined
-              )
+              navigation.navigate("EntregasList", {
+                ...(tab ? { initialTab: tab } : {}),
+                ...(opts?.todosPendentes ? { todosPendentes: true } : {}),
+                ...(opts?.initialMapMode ? { initialMapMode: opts.initialMapMode } : {}),
+              })
             }
             onNavigateScan={() => navigation.navigate("Scan")}
-            onNavigateRouteBuilder={() => navigation.navigate("RouteBuilder")}
+            onNavigatePrepareRoute={() => navigation.navigate("PrepareDeliveries")}
+            onNavigateRouteBuilder={(opts) =>
+              navigation.navigate("RouteBuilder", opts?.openLocatePackage ? { openLocatePackage: true } : undefined)
+            }
+            onNavigateRotasHistorico={() => navigation.navigate("RotasHistorico")}
+            onNavigateMinhasEntregas={() => navigateToMinhasEntregas(navigation)}
+            onNavigatePreferencias={() => navigateToConfiguracoes(navigation)}
           />
         )}
       </HomeStack.Screen>
@@ -90,6 +106,7 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
         options={{ title: "Preparar Rota" }}
       />
       <HomeStack.Screen name="RouteBuilder" component={RouteBuilderScreen} />
+      <HomeStack.Screen name="RotasHistorico" component={RotasHistoricoScreen} />
     </HomeStack.Navigator>
   );
 }

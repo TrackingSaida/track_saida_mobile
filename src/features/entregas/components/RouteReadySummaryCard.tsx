@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
+import { getEstimatedRouteDurationParts } from "../utils/routeUtils";
 
 interface RouteReadySummaryCardProps {
   pedidoCount: number;
@@ -11,6 +12,10 @@ interface RouteReadySummaryCardProps {
   reviewCount?: number;
   priorityLabel?: string | null;
   onReviewPress?: () => void;
+}
+
+function MetricSep({ style }: { style: object }) {
+  return <Text style={style}> · </Text>;
 }
 
 export default function RouteReadySummaryCard({
@@ -24,6 +29,11 @@ export default function RouteReadySummaryCard({
   onReviewPress,
 }: RouteReadySummaryCardProps) {
   const colors = useThemeColors();
+
+  const durationParts = useMemo(
+    () => getEstimatedRouteDurationParts(estimatedMinutes),
+    [estimatedMinutes]
+  );
 
   const styles = useMemo(
     () =>
@@ -51,34 +61,41 @@ export default function RouteReadySummaryCard({
           fontWeight: "700",
           color: colors.text,
         },
-        metricsGrid: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 12,
+        metricsLine: {
+          fontSize: 15,
+          lineHeight: 22,
         },
-        metric: {
-          minWidth: "42%",
+        metricsLineSecond: {
+          marginTop: 2,
         },
         metricValue: {
-          fontSize: 18,
           fontWeight: "700",
           color: colors.text,
         },
         metricLabel: {
-          fontSize: 12,
+          fontWeight: "400",
           color: colors.textSecondary,
-          marginTop: 2,
+        },
+        metricSep: {
+          color: colors.textSecondary,
+          fontWeight: "400",
         },
         priorityLine: {
-          fontSize: 13,
+          fontSize: 14,
           color: colors.text,
           marginTop: 8,
-          fontWeight: "600",
+        },
+        priorityValue: {
+          fontWeight: "700",
+        },
+        priorityLabel: {
+          fontWeight: "400",
+          color: colors.textSecondary,
         },
         subLine: {
           fontSize: 12,
           color: colors.textSecondary,
-          marginTop: 10,
+          marginTop: 8,
         },
         reviewLink: {
           fontSize: 12,
@@ -96,30 +113,34 @@ export default function RouteReadySummaryCard({
         <Text style={styles.check}>✓</Text>
         <Text style={styles.title}>Rota pronta</Text>
       </View>
-      <View style={styles.metricsGrid}>
-        <View style={styles.metric}>
-          <Text style={styles.metricValue}>{pedidoCount}</Text>
-          <Text style={styles.metricLabel}>
-            pedido{pedidoCount !== 1 ? "s" : ""}
-          </Text>
-        </View>
-        <View style={styles.metric}>
-          <Text style={styles.metricValue}>{stopCount}</Text>
-          <Text style={styles.metricLabel}>
-            parada{stopCount !== 1 ? "s" : ""}
-          </Text>
-        </View>
-        <View style={styles.metric}>
-          <Text style={styles.metricValue}>{distanceKm.toFixed(1)}</Text>
-          <Text style={styles.metricLabel}>km</Text>
-        </View>
-        <View style={styles.metric}>
-          <Text style={styles.metricValue}>~{estimatedMinutes}</Text>
-          <Text style={styles.metricLabel}>min estimados</Text>
-        </View>
-      </View>
+
+      <Text style={styles.metricsLine}>
+        <Text style={styles.metricValue}>{pedidoCount}</Text>
+        <Text style={styles.metricLabel}>
+          {" "}
+          pedido{pedidoCount !== 1 ? "s" : ""}
+        </Text>
+        <MetricSep style={styles.metricSep} />
+        <Text style={styles.metricValue}>{stopCount}</Text>
+        <Text style={styles.metricLabel}>
+          {" "}
+          parada{stopCount !== 1 ? "s" : ""}
+        </Text>
+      </Text>
+
+      <Text style={[styles.metricsLine, styles.metricsLineSecond]}>
+        <Text style={styles.metricValue}>{distanceKm.toFixed(1)}</Text>
+        <Text style={styles.metricLabel}> km</Text>
+        <MetricSep style={styles.metricSep} />
+        <Text style={styles.metricValue}>{durationParts.value}</Text>
+        <Text style={styles.metricLabel}> {durationParts.label}</Text>
+      </Text>
+
       {priorityLabel ? (
-        <Text style={styles.priorityLine}>Prioridade: {priorityLabel}</Text>
+        <Text style={styles.priorityLine}>
+          <Text style={styles.priorityLabel}>Prioridade: </Text>
+          <Text style={styles.priorityValue}>{priorityLabel}</Text>
+        </Text>
       ) : null}
       {localizedStops != null && (
         <Text style={styles.subLine}>
