@@ -122,18 +122,19 @@ export function deriveHomeOperationalView(input: HomeOperationalInput): HomeOper
   }
 
   if (resumo.pendentes > 0) {
+    const countLabel = `${resumo.pendentes} entrega${resumo.pendentes !== 1 ? "s" : ""} aguardando ação`;
     if (roteirizacaoHabilitada) {
       return {
         heroState: "pending",
         title: "Pacotes aguardando organização",
-        description: `${resumo.pendentes} entrega${resumo.pendentes !== 1 ? "s" : ""} pendente${resumo.pendentes !== 1 ? "s" : ""}`,
+        description: countLabel,
         extraLines: [],
       };
     }
     return {
       heroState: "pending",
       title: "Entregas pendentes",
-      description: `${resumo.pendentes} entrega${resumo.pendentes !== 1 ? "s" : ""} aguardando ação`,
+      description: countLabel,
       extraLines: [],
     };
   }
@@ -148,6 +149,8 @@ export function deriveHomeOperationalView(input: HomeOperationalInput): HomeOper
 
 export type HomeCtaAction =
   | "scan"
+  | "scan_insert"
+  | "scan_deliver"
   | "prepare_route"
   | "view_pending"
   | "start_route"
@@ -160,18 +163,57 @@ export type HomeCtaAction =
 export type HomeCta = {
   label: string;
   action: HomeCtaAction;
+  subtitle?: string;
   primary?: boolean;
+  layout?: "full" | "half";
 };
+
+const SCAN_INSERT_CTA: HomeCta = {
+  label: "Inserir novos pacotes",
+  subtitle: "Ler pacotes da carga",
+  action: "scan_insert",
+  layout: "half",
+};
+
+const SCAN_DELIVER_CTA: HomeCta = {
+  label: "Escanear para entregar",
+  subtitle: "Finalizar uma entrega",
+  action: "scan_deliver",
+  layout: "half",
+};
+
+const VIEW_PENDING_CTA: HomeCta = {
+  label: "Ver pendentes",
+  action: "view_pending",
+  layout: "full",
+};
+
+export type HomeRouteCtas = {
+  layout: "route";
+  primary: HomeCta;
+  secondary: HomeCta[];
+};
+
+export type HomeOperationalActionsCtas = {
+  layout: "operational";
+  viewPending?: HomeCta;
+  scanInsert: HomeCta;
+  scanDeliver?: HomeCta;
+  tertiary?: HomeCta[];
+};
+
+export type HomeCtasResult = HomeRouteCtas | HomeOperationalActionsCtas;
 
 export function deriveHomeCtas(
   view: HomeOperationalView,
   roteirizacaoHabilitada: boolean,
   loadingStartRoute?: boolean
-): { primary: HomeCta; secondary: HomeCta[] } {
+): HomeCtasResult {
   const { heroState } = view;
 
   if (heroState === "route_completed") {
     return {
+      layout: "route",
       primary: { label: "Ver resumo", action: "view_summary", primary: true },
       secondary: [{ label: "Histórico de rotas", action: "route_history" }],
     };
@@ -179,6 +221,7 @@ export function deriveHomeCtas(
 
   if (heroState === "route_active") {
     return {
+      layout: "route",
       primary: { label: "Continuar rota", action: "continue_route", primary: true },
       secondary: [{ label: "Localizar pacote", action: "locate_package" }],
     };
@@ -186,6 +229,7 @@ export function deriveHomeCtas(
 
   if (heroState === "route_ready") {
     return {
+      layout: "route",
       primary: {
         label: loadingStartRoute ? "Iniciando…" : "Iniciar rota",
         action: "start_route",
@@ -199,20 +243,20 @@ export function deriveHomeCtas(
   }
 
   if (heroState === "pending") {
-    if (roteirizacaoHabilitada) {
-      return {
-        primary: { label: "Preparar rota", action: "prepare_route", primary: true },
-        secondary: [{ label: "Ver pendentes", action: "view_pending" }],
-      };
-    }
+    const tertiary = roteirizacaoHabilitada
+      ? [{ label: "Preparar rota", action: "prepare_route" as const, layout: "full" as const }]
+      : undefined;
     return {
-      primary: { label: "Ver pendentes", action: "view_pending", primary: true },
-      secondary: [{ label: "Escanear pacotes", action: "scan" }],
+      layout: "operational",
+      viewPending: VIEW_PENDING_CTA,
+      scanInsert: SCAN_INSERT_CTA,
+      scanDeliver: SCAN_DELIVER_CTA,
+      tertiary,
     };
   }
 
   return {
-    primary: { label: "Escanear pacotes", action: "scan", primary: true },
-    secondary: [],
+    layout: "operational",
+    scanInsert: { ...SCAN_INSERT_CTA, layout: "full" },
   };
 }

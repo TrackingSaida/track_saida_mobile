@@ -1,99 +1,45 @@
 /**
- * Geocoding via Nominatim (OpenStreetMap) para obter lat/long a partir do endereço.
+ * Geocoding — façade que delega ao geocoder strict quando possível.
  */
 import type { AddressFormValues } from "../components/AddressForm";
 import type { CoordPrecision, EntregaListItem } from "../types";
 import {
-  buildNominatimStructuredSearchUrl,
-  buildSearchQuery,
+  extractAddressFields,
   resolveGeocodeDefaults,
   valuesFromEnderecoFormatado,
-} from "./addressSuggestions";
+} from "./addressBuild";
+import { isValidGeocodeCoords } from "./coordsUtils";
+import { geocodeAddressStrict } from "./geocodeStrict";
+
+export { isValidGeocodeCoords } from "./coordsUtils";
 
 export interface GeocodeResult {
   latitude: number;
   longitude: number;
 }
 
-export function isValidGeocodeCoords(
-  latitude?: number | null,
-  longitude?: number | null
-): boolean {
-  if (latitude == null || longitude == null) return false;
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
-  if (latitude === 0 && longitude === 0) return false;
-  return true;
-}
-
-async function fetchNominatimGeocode(url: string): Promise<GeocodeResult | null> {
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "TrackSaidaMobile/1.0" },
-    });
-    const data = (await res.json()) as { lat?: string; lon?: string }[];
-    const first = data?.[0];
-    if (first?.lat != null && first?.lon != null) {
-      const latitude = parseFloat(first.lat);
-      const longitude = parseFloat(first.lon);
-      if (isValidGeocodeCoords(latitude, longitude)) {
-        return { latitude, longitude };
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function resolvedCityState(
-  vals: Partial<AddressFormValues>,
-  defaults?: { cidade?: string; estado?: string }
-): { cidade: string; estado: string } {
-  return {
-    cidade: (vals.cidade ?? defaults?.cidade ?? "").trim(),
-    estado: (vals.estado ?? defaults?.estado ?? "").trim(),
-  };
-}
-
-/** Geocode estruturado a partir dos campos do formulário (sem duplicar partes do endereço). */
+/** Geocode estruturado — delega ao strict (sem limit=1 sem validação). */
 export async function geocodeAddressFromValues(
   vals: Partial<AddressFormValues>,
-  defaults?: { cidade?: string; estado?: string },
-  options?: { enderecoFormatado?: string }
+  defaults?: { cidade?: string; estado?: string }
 ): Promise<GeocodeResult | null> {
-  const formatted = (options?.enderecoFormatado ?? "").trim();
-  if (formatted.length >= 10) {
-    const fromFormatted = await geocodeAddress(formatted);
-    if (fromFormatted) return fromFormatted;
-  }
-
+  const cidade = (vals.cidade ?? defaults?.cidade ?? "").trim();
+  const estado = (vals.estado ?? defaults?.estado ?? "").trim();
   const rua = (vals.rua ?? "").trim();
-  const numero = (vals.numero ?? "").trim();
-  const { cidade, estado } = resolvedCityState(vals, defaults);
-  const hasCep = (vals.cep ?? "").replace(/\D/g, "").length >= 8;
+  if (!cidade || !estado || rua.length < 3) return null;
 
-  if (rua.length > 2 && numero.length > 0 && cidade.length > 0) {
-    const structured = await fetchNominatimGeocode(
-      buildNominatimStructuredSearchUrl(vals, { cidade, estado }, 1)
-    );
-    if (structured) return structured;
-  }
-
-  if (!cidade && !hasCep) return null;
-
-  const query = buildSearchQuery(vals, { cidade, estado });
-  if (query.trim().length >= 6) {
-    const url =
-      `https://nominatim.openstreetmap.org/search?` +
-      `q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=br`;
-    const freeText = await fetchNominatimGeocode(url);
-    if (freeText) return freeText;
-  }
-
-  return null;
+  const result = await geocodeAddressStrict({
+    rua,
+    numero: (vals.numero ?? "").trim(),
+    bairro: (vals.bairro ?? "").trim(),
+    cidade,
+    estado,
+    cep: (vals.cep ?? "").trim(),
+  });
+  if (!result) return null;
+  return { latitude: result.latitude, longitude: result.longitude };
 }
 
-/** Campos estruturados a partir de EntregaListItem (rua separada de número/complemento). */
 export function deliveryToGeocodeValues(d: EntregaListItem): Partial<AddressFormValues> {
   const parsedFmt = d.endereco_formatado
     ? valuesFromEnderecoFormatado(d.endereco_formatado)
@@ -123,41 +69,37 @@ export function inferCoordPrecision(origem: string): CoordPrecision {
   return "approx";
 }
 
-/** Geocode unificado para entregas (rota, pendentes, store). */
+/** Geocode unificado para entregas — usa geocodeAddressStrict. */
 export async function geocodeDelivery(
   d: EntregaListItem,
   defaults?: { cidade?: string; estado?: string }
 ): Promise<GeocodeResult | null> {
-  const vals = deliveryToGeocodeValues(d);
-  const mergedDefaults = resolveGeocodeDefaults(
-    d,
-    defaults?.cidade,
-    defaults?.estado
-  );
-  const hasRua = (vals.rua ?? "").trim().length > 2;
-  const hasCep = (vals.cep ?? "").replace(/\D/g, "").length >= 8;
-  if (!hasRua && !hasCep) return null;
+  const merged = resolveGeocodeDefaults(d, defaults?.cidade, defaults?.estado);
+  const fields = extractAddressFields(d);
+  if (merged.cidade) fields.cidade = merged.cidade;
+  if (merged.estado) fields.estado = merged.estado;
 
-  const formatted = (d.endereco_formatado ?? "").trim();
-  if (formatted.length >= 10) {
-    const fromFormatted = await geocodeAddress(formatted);
-    if (fromFormatted) return fromFormatted;
-  }
-
-  return geocodeAddressFromValues(vals, mergedDefaults, {
-    enderecoFormatado: formatted,
-  });
+  const result = await geocodeAddressStrict(fields);
+  if (!result) return null;
+  return { latitude: result.latitude, longitude: result.longitude };
 }
 
 export { resolveGeocodeDefaults };
 
-/** Geocode por texto livre (importação em massa, linha única). */
+/** Texto livre — só quando já contém cidade (via strict parse). Retorna null se incompleto. */
 export async function geocodeAddress(address: string): Promise<GeocodeResult | null> {
   const q = address.trim();
-  if (!q) return null;
-  const withCountry = /brasil/i.test(q) ? q : `${q}, Brasil`;
-  const url =
-    `https://nominatim.openstreetmap.org/search?` +
-    `q=${encodeURIComponent(withCountry)}&format=json&limit=1&countrycodes=br`;
-  return fetchNominatimGeocode(url);
+  if (!q || q.length < 15) return null;
+  const parts = q.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 4) return null;
+  const result = await geocodeAddressStrict({
+    rua: parts[0],
+    numero: parts[1] ?? "",
+    bairro: parts.length > 5 ? parts[2] : "",
+    cidade: parts[parts.length - 3] ?? "",
+    estado: parts[parts.length - 2] ?? "",
+    cep: parts[parts.length - 1] ?? "",
+  });
+  if (!result) return null;
+  return { latitude: result.latitude, longitude: result.longitude };
 }

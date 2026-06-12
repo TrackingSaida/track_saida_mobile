@@ -105,9 +105,9 @@ export default function PrepScanSheet({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.box}>
-          <Text style={styles.title}>Escanear pacote</Text>
+          <Text style={styles.title}>Adicionar endereço por QR Code</Text>
           <Text style={styles.hint}>
-            Aponte para o QR da etiqueta. Se o pacote já tiver endereço, você poderá editá-lo.
+            Leia o QR Code do pacote para localizá-lo e preencher o endereço.
           </Text>
           {!permission?.granted ? (
             <TouchableOpacity style={styles.btn} onPress={requestPermission}>

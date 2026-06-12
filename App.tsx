@@ -5,7 +5,11 @@ import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  DefaultTheme,
+  type NavigatorScreenParams,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,6 +29,7 @@ import ConfiguracoesScreen from "./src/screens/ConfiguracoesScreen";
 import EntregasListScreen from "./src/features/entregas/screens/EntregasListScreen";
 import EntregaDetailScreen from "./src/features/entregas/screens/EntregaDetailScreen";
 import ScanScreen from "./src/features/entregas/screens/ScanScreen";
+import DeliverScanScreen from "./src/features/entregas/screens/DeliverScanScreen";
 import PrepareDeliveriesScreen from "./src/features/entregas/screens/PrepareDeliveriesScreen";
 import RouteBuilderScreen from "./src/screens/RouteBuilderScreen";
 import MinhasEntregasScreen from "./src/features/entregas/screens/MinhasEntregasScreen";
@@ -53,8 +58,15 @@ export type RootStackParamList = {
     | undefined;
   EntregaDetail: { idSaida: number };
   Scan: undefined;
+  DeliverScan: undefined;
   PrepareDeliveries: undefined;
-  RouteBuilder: { openLocatePackage?: boolean } | undefined;
+  RouteBuilder:
+    | {
+        openLocatePackage?: boolean;
+        openSeparation?: boolean;
+        highlightLocatePackage?: boolean;
+      }
+    | undefined;
   RotasHistorico: undefined;
 };
 
@@ -65,7 +77,7 @@ export type AuthStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Mais: undefined;
+  Mais: NavigatorScreenParams<MaisStackParamList> | undefined;
 };
 
 const HomeStack = createNativeStackNavigator<RootStackParamList>();
@@ -87,9 +99,14 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
               })
             }
             onNavigateScan={() => navigation.navigate("Scan")}
+            onNavigateDeliverScan={() => navigation.navigate("DeliverScan")}
             onNavigatePrepareRoute={() => navigation.navigate("PrepareDeliveries")}
             onNavigateRouteBuilder={(opts) =>
-              navigation.navigate("RouteBuilder", opts?.openLocatePackage ? { openLocatePackage: true } : undefined)
+              navigation.navigate("RouteBuilder", {
+                ...(opts?.openLocatePackage ? { openLocatePackage: true } : {}),
+                ...(opts?.openSeparation ? { openSeparation: true } : {}),
+                ...(opts?.highlightLocatePackage ? { highlightLocatePackage: true } : {}),
+              })
             }
             onNavigateRotasHistorico={() => navigation.navigate("RotasHistorico")}
             onNavigateMinhasEntregas={() => navigateToMinhasEntregas(navigation)}
@@ -100,6 +117,7 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <HomeStack.Screen name="EntregasList" component={EntregasListScreen} />
       <HomeStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
       <HomeStack.Screen name="Scan" component={ScanScreen} />
+      <HomeStack.Screen name="DeliverScan" component={DeliverScanScreen} />
       <HomeStack.Screen
         name="PrepareDeliveries"
         component={PrepareDeliveriesScreen}
@@ -175,6 +193,11 @@ function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
           tabBarLabel: "Mais",
           tabBarIcon: ({ color, size }) => <Ionicons name="menu-outline" size={size ?? 24} color={color} />,
         }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.navigate("Mais", { screen: "MaisInicio" });
+          },
+        })}
       >
         {() => <MaisStackScreen onLogout={onLogout} />}
       </Tab.Screen>

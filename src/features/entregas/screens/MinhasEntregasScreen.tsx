@@ -10,6 +10,7 @@ import {
   Modal,
   Pressable,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeColors } from "../../../theme/colors";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { getExtratoFinanceiro, getTodayISO } from "../api";
 import type { ExtratoFinanceiro, ExtratoStatusFiltro } from "../types";
 import { formatCurrencyBRL } from "../utils/currency";
@@ -76,6 +78,8 @@ function formatRealStatus(status: string, fallback: string): string {
 
 export default function MinhasEntregasScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const compactHeader = windowWidth < 360;
   const colors = useThemeColors();
   const quinzena = useMemo(() => getQuinzenaAtualIntervalo(), []);
   const styles = useMemo(
@@ -83,26 +87,19 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         centered: { justifyContent: "center", alignItems: "center" },
-        backBtn: { paddingHorizontal: 16, paddingVertical: 8 },
-        backText: { fontSize: 16, color: colors.primary },
-        title: { fontSize: 22, fontWeight: "700", color: colors.text },
-        headerRow: {
+        headerFilterButton: {
+          minHeight: 36,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.inputBackground,
+          paddingHorizontal: 10,
           flexDirection: "row",
           alignItems: "center",
-          justifyContent: "space-between",
-          paddingHorizontal: 16,
-          marginBottom: 10,
-        },
-        filterIconBtn: {
-          width: 36,
-          height: 36,
-          borderRadius: 18,
-          alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.backgroundCard,
-          borderWidth: 1,
-          borderColor: colors.border,
+          gap: 6,
         },
+        headerFilterButtonText: { fontSize: 13, fontWeight: "700", color: colors.text },
         content: { paddingHorizontal: 16, paddingBottom: 24 },
         topBar: {
           backgroundColor: colors.backgroundCard,
@@ -349,16 +346,22 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: Math.max(24, insets.top) }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>← Voltar</Text>
-      </TouchableOpacity>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Minhas Entregas</Text>
-        <TouchableOpacity style={styles.filterIconBtn} onPress={() => setShowFiltros(true)}>
-          <Ionicons name="filter-outline" size={18} color={colors.text} />
-        </TouchableOpacity>
-      </View>
+    <View style={styles.container}>
+      <ScreenHeaderBar
+        title="Minhas Entregas"
+        onBack={() => navigation.goBack()}
+        paddingTop={Math.max(12, insets.top)}
+        rightElement={
+          <TouchableOpacity
+            style={styles.headerFilterButton}
+            onPress={() => setShowFiltros(true)}
+            accessibilityLabel="Filtros"
+          >
+            <Ionicons name="filter-outline" size={16} color={colors.text} />
+            {!compactHeader ? <Text style={styles.headerFilterButtonText}>Filtro</Text> : null}
+          </TouchableOpacity>
+        }
+      />
 
       <View style={styles.content}>
         <View style={styles.topBar}>

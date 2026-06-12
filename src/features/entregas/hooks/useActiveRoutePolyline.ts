@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { GeocodedMetaMap, LegacyValidationCache } from "../utils/deliveryDestination";
 import {
   buildPendingRoutePoints,
   buildPlanningRoutePoints,
@@ -16,6 +17,8 @@ export function useActiveRoutePolyline(params: {
   activeGroupIndex: number;
   routeDeliveryStatus: Record<number, RouteDeliveryStatus>;
   geocodedCoords?: Record<number, { latitude: number; longitude: number }>;
+  geocodedMeta?: GeocodedMetaMap;
+  legacyValidationCache?: LegacyValidationCache;
   currentLocation?: { latitude: number; longitude: number } | null;
 }) {
   const {
@@ -24,6 +27,8 @@ export function useActiveRoutePolyline(params: {
     activeGroupIndex,
     routeDeliveryStatus,
     geocodedCoords,
+    geocodedMeta,
+    legacyValidationCache,
     currentLocation,
   } = params;
 
@@ -44,16 +49,25 @@ export function useActiveRoutePolyline(params: {
         activeGroupIndex,
         routeDeliveryStatus,
         geocodedCoords,
+        geocodedMeta,
+        legacyCache: legacyValidationCache,
         currentLocation,
       });
     }
-    return buildPlanningRoutePoints({ groupedStops, geocodedCoords });
+    return buildPlanningRoutePoints({
+      groupedStops,
+      geocodedCoords,
+      geocodedMeta,
+      legacyCache: legacyValidationCache,
+    });
   }, [
     isRouteActive,
     groupedStops,
     activeGroupIndex,
     routeDeliveryStatus,
     geocodedCoords,
+    geocodedMeta,
+    legacyValidationCache,
     currentLocation,
   ]);
 
@@ -66,7 +80,6 @@ export function useActiveRoutePolyline(params: {
 
     const hash = waypointsHash(points);
     if (!force && hash === lastHashRef.current) return;
-    lastHashRef.current = hash;
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -80,6 +93,8 @@ export function useActiveRoutePolyline(params: {
       if (controller.signal.aborted) return;
 
       if (result && result.length >= 2) {
+        // Marca como feito só no sucesso: fetch abortado/falho deve ser retentado.
+        lastHashRef.current = hash;
         setPolyline(result);
         setLastValidPolyline(result);
         lastValidRef.current = result;

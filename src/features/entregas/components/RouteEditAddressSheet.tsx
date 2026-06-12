@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, Modal, StyleSheet, Alert } from "react-na
 import { useThemeColors } from "../../../theme/colors";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import type { EntregaListItem } from "../types";
-import type { AddressFormValues } from "./AddressForm";
+import type { AddressFormValues, AddressOrigem } from "./AddressForm";
 import type { GeocodeResult } from "../utils/geocode";
 import AddressQuickForm, { type QuickFormFlowState } from "./AddressQuickForm";
 import { deliveryToFreeText } from "../utils/deliveryAddress";
@@ -12,7 +12,11 @@ import { getStopAddressLine, getStopPedidoLabel } from "../utils/routeUtils";
 interface RouteEditAddressSheetProps {
   visible: boolean;
   delivery: EntregaListItem | null;
-  onSave: (values: AddressFormValues, coords?: GeocodeResult | null) => Promise<void>;
+  onSave: (
+    values: AddressFormValues,
+    coords?: GeocodeResult | null,
+    origem?: AddressOrigem
+  ) => Promise<void>;
   onClose: () => void;
 }
 
@@ -90,7 +94,7 @@ export default function RouteEditAddressSheet({
               showInputActions={false}
               submitLabel="Salvar endereço"
               onFlowStateChange={setFlowState}
-              onSaveAndNext={(vals, coords) => onSave(vals, coords)}
+              onSaveAndNext={(vals, coords, origem) => onSave(vals, coords, origem)}
               onDictate={() =>
                 Alert.alert("Indisponível", "Use o campo de texto para editar o endereço.")
               }

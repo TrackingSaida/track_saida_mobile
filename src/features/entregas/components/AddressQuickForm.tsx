@@ -117,6 +117,7 @@ export default function AddressQuickForm({
   const runSearchRef = useRef<
     (vals: Partial<AddressFormValues>, options?: { autoApply?: boolean }) => Promise<void>
   >(async () => {});
+  const runParseRef = useRef<(text: string, options?: { autoApply?: boolean }) => void>(() => {});
 
   const applySuggestion = useCallback(
     async (s: AddressSuggestion, fromAuto = false) => {
@@ -243,6 +244,36 @@ export default function AddressQuickForm({
   );
   runSearchRef.current = runSearch;
 
+  const runParse = useCallback(
+    (text: string, options?: { autoApply?: boolean }) => {
+      if (!text.trim()) {
+        setParsedInternal({});
+        setSuggestions([]);
+        setDidYouMean(null);
+        setSelectedSuggestionId(null);
+        setAutoApplied(false);
+        setSelectedCoords(null);
+        lastSearchQueryRef.current = "";
+        resetAddressSessionToken();
+        setSearchEmpty(false);
+        return;
+      }
+      resetAddressSessionToken();
+      onFlowStateChange?.("parsing");
+      const parsed = parseFreeTextAddress(text, defaults);
+      const vals = parsedToFormValues(parsed);
+      setParsedInternal(vals);
+      onFlowStateChange?.("idle");
+
+      if (searchRef.current) clearTimeout(searchRef.current);
+      searchRef.current = setTimeout(() => {
+        void runSearchRef.current(vals, { autoApply: options?.autoApply });
+      }, 500);
+    },
+    [defaults, onFlowStateChange]
+  );
+  runParseRef.current = runParse;
+
   useEffect(() => {
     setFreeText(initialFreeText);
     setDestinatario(delivery.cliente ?? "");
@@ -282,42 +313,12 @@ export default function AddressQuickForm({
     externalParsedKeyRef.current = key;
 
     const vals = parsedToFormValues(externalParsed);
-    setParsedInternal(vals);
-    const summary = formatAddressSummary(vals);
-    if (summary) setFreeText(summary);
+    const text = (externalParsed.rawText ?? "").trim() || formatAddressSummary(vals);
+    if (text) setFreeText(text);
     if (vals.destinatario) setDestinatario(vals.destinatario);
     if (vals.complemento) setComplemento(vals.complemento);
-    void runSearchRef.current(vals, { autoApply: true });
+    runParseRef.current(text, { autoApply: true });
   }, [externalParsed]);
-
-  const runParse = useCallback(
-    (text: string) => {
-      if (!text.trim()) {
-        setParsedInternal({});
-        setSuggestions([]);
-        setDidYouMean(null);
-        setSelectedSuggestionId(null);
-        setAutoApplied(false);
-        setSelectedCoords(null);
-        lastSearchQueryRef.current = "";
-        resetAddressSessionToken();
-        setSearchEmpty(false);
-        return;
-      }
-      resetAddressSessionToken();
-      onFlowStateChange?.("parsing");
-      const parsed = parseFreeTextAddress(text, defaults);
-      const vals = parsedToFormValues(parsed);
-      setParsedInternal(vals);
-      onFlowStateChange?.("idle");
-
-      if (searchRef.current) clearTimeout(searchRef.current);
-      searchRef.current = setTimeout(() => {
-        void runSearchRef.current(vals);
-      }, 500);
-    },
-    [defaults, onFlowStateChange]
-  );
 
   const handleFreeTextChange = (text: string) => {
     searchRequestIdRef.current += 1;

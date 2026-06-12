@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from "react";
+import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../App";
 import { useThemeColors } from "../theme/colors";
+import { HeaderBackButton } from "../components/ScreenHeaderBar";
 import DeliveryMap from "../components/DeliveryMap";
 import RouteBottomSheet from "../components/RouteBottomSheet";
 import RouteMarkerCard from "../components/RouteMarkerCard";
@@ -54,24 +55,32 @@ import RouteQuickAddSheet from "../features/entregas/components/RouteQuickAddShe
 import RouteBulkImportSheet from "../features/entregas/components/RouteBulkImportSheet";
 import RouteReadySummaryCard from "../features/entregas/components/RouteReadySummaryCard";
 import RouteAdvancedMenuSheet from "../features/entregas/components/RouteAdvancedMenuSheet";
+import PrepSeparatePackagesSheet from "../features/entregas/components/PrepSeparatePackagesSheet";
 import RoutePriorityModal from "../features/entregas/components/RoutePriorityModal";
 import { routePriorityLabel } from "../features/entregas/utils/routePriority";
-import type { AddressFormValues } from "../features/entregas/components/AddressForm";
+import type { AddressFormValues, AddressOrigem } from "../features/entregas/components/AddressForm";
 import { playSound } from "../utils/sound";
 import { runPostFinalizeFeedback } from "../features/entregas/utils/finalizeEntregaFeedback";
 import { formatApiError } from "../utils/formatApiError";
+import { inferCoordPrecision, isValidGeocodeCoords, type GeocodeResult } from "../features/entregas/utils/geocode";
+import { extractAddressFields } from "../features/entregas/utils/addressBuild";
 import {
-  geocodeAddressFromValues,
-  geocodeDelivery,
-  inferCoordPrecision,
-  isValidGeocodeCoords,
-  resolveGeocodeDefaults,
-  type GeocodeResult,
-} from "../features/entregas/utils/geocode";
+  countUntrustedDeliveries,
+  resolveDeliveryDestination,
+  needsStoredCoordsValidation,
+  validateStoredCoordsAgainstAddress,
+  type GeocodedMetaMap,
+  type LegacyValidationCache,
+} from "../features/entregas/utils/deliveryDestination";
+import { geocodeAddressStrict } from "../features/entregas/utils/geocodeStrict";
 import type { EntregaListItem } from "../features/entregas/types";
 import { useMotoboyPrefsStore } from "../store/motoboyPrefsStore";
 import { runOptimizeRouteWithFeedback } from "../features/entregas/utils/optimizeRouteFeedback";
-import { formatAddressSummary } from "../features/entregas/utils/addressSuggestions";
+import PulsingTouchable from "../components/PulsingTouchable";
+
+const LOCATE_PACKAGE_LABEL = "Buscar pacote e anotar parada";
+const LOCATE_PACKAGE_HINT =
+  "Anote o número da parada em cada pacote. Busque pelo código antes de sair.";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RouteBuilder">;
 
@@ -95,6 +104,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const activeRouteId = useDeliveryStore((s) => s.activeRouteId);
   const routeDistanceM = useDeliveryStore((s) => s.routeDistanceM);
   const routeDurationS = useDeliveryStore((s) => s.routeDurationS);
+  const routeOptimizationMode = useDeliveryStore((s) => s.routeOptimizationMode);
+  const acknowledgeRouteSeparation = useDeliveryStore((s) => s.acknowledgeRouteSeparation);
+  const routeSeparationAcknowledged = useDeliveryStore((s) => s.routeSeparationAcknowledged);
   const activeStopIndex = useDeliveryStore((s) => s.activeStopIndex);
   const startActiveRoute = useDeliveryStore((s) => s.startActiveRoute);
   const optimizeRoute = useDeliveryStore((s) => s.optimizeRoute);
@@ -119,6 +131,8 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const [pedidosGroup, setPedidosGroup] = useState<GroupedStop | null>(null);
   const [editDelivery, setEditDelivery] = useState<EntregaListItem | null>(null);
   const [showLocateSheet, setShowLocateSheet] = useState(false);
+  const [showLocateHint, setShowLocateHint] = useState(false);
+  const [showSeparationSheet, setShowSeparationSheet] = useState(false);
   const [routeListCollapsed, setRouteListCollapsed] = useState(true);
   const [optimizingHeader, setOptimizingHeader] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -126,6 +140,10 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const [showAdvancedMenu, setShowAdvancedMenu] = useState(false);
   const [pendingEntregueIds, setPendingEntregueIds] = useState<number[] | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<number, { latitude: number; longitude: number }>>({});
+  const [geocodedMeta, setGeocodedMeta] = useState<GeocodedMetaMap>({});
+  const [legacyValidationCache, setLegacyValidationCache] = useState<LegacyValidationCache>({});
+  const legacyValidationCacheRef = useRef(legacyValidationCache);
+  legacyValidationCacheRef.current = legacyValidationCache;
   const currentLocation = useDeliveryStore((s) => s.currentLocation);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const routePriority = useMotoboyPrefsStore((s) => s.routePriority);
@@ -148,14 +166,46 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         setShowLocateSheet(true);
         navigation.setParams({ openLocatePackage: undefined });
       }
-    }, [route.params?.openLocatePackage, navigation])
+      if (route.params?.openSeparation) {
+        setShowSeparationSheet(true);
+        navigation.setParams({ openSeparation: undefined });
+      }
+      if (route.params?.highlightLocatePackage) {
+        setShowLocateHint(true);
+        navigation.setParams({ highlightLocatePackage: undefined });
+      } else if (
+        !routeSeparationAcknowledged &&
+        useDeliveryStore.getState().activeRouteId == null &&
+        useDeliveryStore.getState().routeOrder.length > 0
+      ) {
+        setShowLocateHint(true);
+      }
+    }, [
+      route.params?.openLocatePackage,
+      route.params?.openSeparation,
+      route.params?.highlightLocatePackage,
+      routeSeparationAcknowledged,
+      navigation,
+    ])
   );
+
+  const dismissLocateHint = useCallback(() => {
+    setShowLocateHint(false);
+    acknowledgeRouteSeparation();
+  }, [acknowledgeRouteSeparation]);
+
+  const openLocatePackage = useCallback(() => {
+    dismissLocateHint();
+    setShowLocateSheet(true);
+  }, [dismissLocateHint]);
 
   const ordered = useMemo(
     () => getOrderedRouteDeliveries(routeDeliveries, routeOrder),
     [routeDeliveries, routeOrder]
   );
   const groupedStops = useMemo(() => groupOrderedByAddress(ordered), [ordered]);
+  const showHeaderOptimize =
+    !isRouteActive && routeOptimizationMode == null && groupedStops.length >= 2;
   const fallbackRouteStats = useMemo(
     () =>
       groupedStops.length > 0
@@ -174,8 +224,20 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     return fallbackRouteStats;
   }, [routeDistanceM, routeDurationS, groupedStops.length, fallbackRouteStats]);
   const headerStats = useMemo(
-    () => computeRouteHeaderStats(groupedStops, geocodedCoords),
-    [groupedStops, geocodedCoords]
+    () =>
+      computeRouteHeaderStats(
+        groupedStops,
+        geocodedCoords,
+        geocodedMeta,
+        legacyValidationCache
+      ),
+    [groupedStops, geocodedCoords, geocodedMeta, legacyValidationCache]
+  );
+
+  const untrustedCount = useMemo(
+    () =>
+      countUntrustedDeliveries(ordered, geocodedCoords, geocodedMeta, legacyValidationCache),
+    [ordered, geocodedCoords, geocodedMeta, legacyValidationCache]
   );
   const activeGroupIndex = useMemo(
     () => (isRouteActive ? getActiveGroupIndex(groupedStops, activeStopIndex) : -1),
@@ -222,9 +284,14 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
 
   const nextGroupCanNavigate = useMemo(() => {
     if (!nextGroup) return false;
-    const target = resolveGroupNavigationTarget(nextGroup, geocodedCoords);
+    const target = resolveGroupNavigationTarget(
+      nextGroup,
+      geocodedCoords,
+      geocodedMeta,
+      legacyValidationCache
+    );
     return target.mode === "coords" || (target.mode === "address" && Boolean(target.address));
-  }, [nextGroup, geocodedCoords]);
+  }, [nextGroup, geocodedCoords, geocodedMeta, legacyValidationCache]);
 
   const { polyline: routePolyline, polylineWarning, recalcPolyline } = useActiveRoutePolyline({
     isRouteActive,
@@ -232,28 +299,80 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     activeGroupIndex: effectiveCurrentGroupIndex,
     routeDeliveryStatus,
     geocodedCoords,
+    geocodedMeta,
+    legacyValidationCache,
     currentLocation,
   });
 
   useEffect(() => {
-    const withoutCoords = ordered.filter((d) => d.latitude == null || d.longitude == null);
-    if (withoutCoords.length === 0) return;
     let cancelled = false;
     (async () => {
-      const next: Record<number, { latitude: number; longitude: number }> = {};
-      for (const d of withoutCoords) {
+      for (const d of ordered) {
         if (cancelled) return;
-        const res = await geocodeDelivery(
-          d,
-          resolveGeocodeDefaults(d, cidadePadrao, estadoPadrao)
-        );
+        if (!needsStoredCoordsValidation(d)) continue;
+        if (legacyValidationCacheRef.current[d.id_saida] !== undefined) continue;
+
+        const confidence = await validateStoredCoordsAgainstAddress(d);
         if (cancelled) return;
-        if (res) next[d.id_saida] = res;
+        setLegacyValidationCache((prev) => {
+          if (prev[d.id_saida] !== undefined) return prev;
+          return { ...prev, [d.id_saida]: confidence };
+        });
       }
-      if (!cancelled) setGeocodedCoords((prev) => ({ ...prev, ...next }));
     })();
-    return () => { cancelled = true; };
-  }, [ordered, cidadePadrao, estadoPadrao]);
+    return () => {
+      cancelled = true;
+    };
+  }, [ordered]);
+
+  const geocodeAttemptRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const nextCoords: Record<number, { latitude: number; longitude: number }> = {};
+      const nextMeta: GeocodedMetaMap = {};
+      for (const d of ordered) {
+        if (cancelled) return;
+        if (geocodeAttemptRef.current.has(d.id_saida)) continue;
+        const existing = resolveDeliveryDestination(
+          d,
+          {},
+          {},
+          legacyValidationCache
+        );
+        if (existing.hasTrustedCoords) continue;
+        geocodeAttemptRef.current.add(d.id_saida);
+
+        const fields = extractAddressFields(d);
+        if (!fields.cidade && cidadePadrao) fields.cidade = cidadePadrao;
+        if (!fields.estado && estadoPadrao) fields.estado = estadoPadrao;
+
+        const res = await geocodeAddressStrict(fields);
+        if (cancelled) return;
+        if (!res) continue;
+
+        nextCoords[d.id_saida] = { latitude: res.latitude, longitude: res.longitude };
+        nextMeta[d.id_saida] = {
+          confidence: res.confidence,
+          source: "app_geocoded",
+          validated: true,
+        };
+        await new Promise((r) => setTimeout(r, 1100));
+      }
+      if (!cancelled) {
+        if (Object.keys(nextCoords).length > 0) {
+          setGeocodedCoords((prev) => ({ ...prev, ...nextCoords }));
+        }
+        if (Object.keys(nextMeta).length > 0) {
+          setGeocodedMeta((prev) => ({ ...prev, ...nextMeta }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ordered, cidadePadrao, estadoPadrao, legacyValidationCache]);
 
   const findGroupForDelivery = useCallback(
     (d: EntregaListItem): GroupedStop | undefined =>
@@ -647,15 +766,20 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   );
 
   const handleSaveAddress = useCallback(
-    async (values: AddressFormValues, coords?: GeocodeResult | null) => {
+    async (values: AddressFormValues, coords?: GeocodeResult | null, origem?: AddressOrigem) => {
       if (!editDelivery) return;
       try {
+        const effectiveOrigem = origem ?? "manual";
+        const hasClientCoords = isValidGeocodeCoords(coords?.latitude, coords?.longitude);
         const body = {
           ...values,
-          origem: "manual" as const,
-          coord_precision: inferCoordPrecision("manual"),
-          ...(isValidGeocodeCoords(coords?.latitude, coords?.longitude)
-            ? { latitude: coords!.latitude, longitude: coords!.longitude }
+          origem: effectiveOrigem,
+          ...(hasClientCoords
+            ? {
+                latitude: coords!.latitude,
+                longitude: coords!.longitude,
+                coord_precision: inferCoordPrecision(effectiveOrigem),
+              }
             : {}),
         };
         const updated = await saveAddress(editDelivery.id_saida, body);
@@ -666,22 +790,29 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
             [updated.id_saida]: { latitude: updated.latitude!, longitude: updated.longitude! },
           }));
         } else {
-          const geo = await geocodeAddressFromValues(
-            values,
-            {
-              cidade: values.cidade || cidadePadrao,
-              estado: values.estado || estadoPadrao,
-            },
-            { enderecoFormatado: formatAddressSummary(values) }
-          );
+          const geo = await geocodeAddressStrict({
+            rua: values.rua,
+            numero: values.numero,
+            bairro: values.bairro,
+            cidade: values.cidade || cidadePadrao,
+            estado: values.estado || estadoPadrao,
+            cep: values.cep,
+          });
           if (geo) {
-            updateRouteDelivery(editDelivery.id_saida, {
-              latitude: geo.latitude,
-              longitude: geo.longitude,
-            });
+            setGeocodedMeta((prev) => ({
+              ...prev,
+              [editDelivery.id_saida]: {
+                confidence: geo.confidence,
+                source: "app_geocoded",
+                validated: true,
+              },
+            }));
             setGeocodedCoords((prev) => ({
               ...prev,
-              [editDelivery.id_saida]: geo,
+              [editDelivery.id_saida]: {
+                latitude: geo.latitude,
+                longitude: geo.longitude,
+              },
             }));
           }
         }
@@ -691,7 +822,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         Alert.alert("Erro ao salvar", formatApiError(e, "Não foi possível salvar o endereço."));
       }
     },
-    [editDelivery, saveAddress, updateRouteDelivery, runPartialOptimize, isRouteActive]
+    [editDelivery, saveAddress, updateRouteDelivery, runPartialOptimize, isRouteActive, cidadePadrao, estadoPadrao]
   );
 
   const handleAlterarPosicao = useCallback(
@@ -793,7 +924,6 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           justifyContent: "space-between",
           marginBottom: 8,
         },
-        backText: { fontSize: 16, color: colors.primary },
         menuBtn: { padding: 4 },
         startDeliveryBtn: {
           paddingVertical: 14,
@@ -825,6 +955,35 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           fontSize: 13,
           fontWeight: "600",
           color: colors.primary,
+          textAlign: "center",
+        },
+        locateHintBanner: {
+          backgroundColor: colors.primarySoft,
+          borderRadius: 10,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          marginBottom: 8,
+          borderWidth: 1,
+          borderColor: colors.primary + "33",
+        },
+        locateHintText: {
+          fontSize: 13,
+          color: colors.text,
+          lineHeight: 18,
+          marginBottom: 8,
+        },
+        locateHintDismiss: {
+          alignSelf: "flex-start",
+          paddingVertical: 4,
+        },
+        locateHintDismissText: {
+          fontSize: 13,
+          fontWeight: "700",
+          color: colors.primary,
+        },
+        secondaryActionBtnPulse: {
+          borderColor: colors.primary,
+          borderWidth: 2,
         },
         priorityRow: {
           flexDirection: "row",
@@ -1014,6 +1173,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           selectedId={selectedDelivery?.id_saida ?? null}
           centerOnStopId={centerOnStopId}
           geocodedCoords={geocodedCoords}
+          geocodedMeta={geocodedMeta}
+          legacyValidationCache={legacyValidationCache}
+          untrustedCount={untrustedCount}
           routePolyline={routePolyline ?? undefined}
           routeMode
           isRouteActive={isRouteActive}
@@ -1026,9 +1188,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
 
       <View style={[styles.header, (headerCompact || listModeOpen) && styles.headerCompact]}>
         <View style={[styles.headerRow, listModeOpen && { marginBottom: 0 }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.backText}>← Voltar</Text>
-          </TouchableOpacity>
+          <HeaderBackButton onPress={() => navigation.goBack()} />
           <View style={{ flex: 1 }} />
           {listModeOpen && (
             <TouchableOpacity
@@ -1090,13 +1250,26 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
                 onPressStop={handleSequenceStopPress}
               />
             </View>
+            {showLocateHint ? (
+              <View style={styles.locateHintBanner}>
+                <Text style={styles.locateHintText}>{LOCATE_PACKAGE_HINT}</Text>
+                <TouchableOpacity style={styles.locateHintDismiss} onPress={dismissLocateHint}>
+                  <Text style={styles.locateHintDismissText}>Entendi</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <View style={styles.secondaryActionsRow}>
-              <TouchableOpacity
-                style={styles.secondaryActionBtn}
-                onPress={() => setShowLocateSheet(true)}
+              <PulsingTouchable
+                pulsing={showLocateHint}
+                style={[
+                  styles.secondaryActionBtn,
+                  showLocateHint ? styles.secondaryActionBtnPulse : null,
+                ]}
+                onPress={openLocatePackage}
               >
-                <Text style={styles.secondaryActionBtnText}>Localizar pacote</Text>
-              </TouchableOpacity>
+                <Text style={styles.secondaryActionBtnText}>{LOCATE_PACKAGE_LABEL}</Text>
+              </PulsingTouchable>
+              {showHeaderOptimize ? (
               <TouchableOpacity
                 style={styles.secondaryActionBtn}
                 onPress={() => void handleHeaderOptimize()}
@@ -1108,6 +1281,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
                   <Text style={styles.secondaryActionBtnText}>Otimizar rota</Text>
                 )}
               </TouchableOpacity>
+              ) : null}
             </View>
             <TouchableOpacity
               style={styles.startDeliveryBtn}
@@ -1126,9 +1300,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           <>
             <TouchableOpacity
               style={[styles.secondaryActionBtn, { marginBottom: 8, alignSelf: "flex-start", paddingHorizontal: 14 }]}
-              onPress={() => setShowLocateSheet(true)}
+              onPress={openLocatePackage}
             >
-              <Text style={styles.secondaryActionBtnText}>Localizar pacote</Text>
+              <Text style={styles.secondaryActionBtnText}>{LOCATE_PACKAGE_LABEL}</Text>
             </TouchableOpacity>
             <Text style={styles.statsLine}>
               <Text style={styles.statValue}>{headerStats.stopCount}</Text> parada
@@ -1262,6 +1436,8 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         visible={showReviewModal}
         deliveries={headerStats.reviewDeliveries}
         geocodedCoords={geocodedCoords}
+        geocodedMeta={geocodedMeta}
+        legacyValidationCache={legacyValidationCache}
         onClose={() => setShowReviewModal(false)}
         onCorrigir={handleCorrigirReview}
       />
@@ -1287,6 +1463,17 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           };
         }}
         onClose={() => setShowLocateSheet(false)}
+      />
+
+      <PrepSeparatePackagesSheet
+        visible={showSeparationSheet}
+        routeDeliveries={routeDeliveries}
+        routeOrder={routeOrder}
+        onConfirm={() => {
+          acknowledgeRouteSeparation();
+          setShowSeparationSheet(false);
+        }}
+        onClose={() => setShowSeparationSheet(false)}
       />
 
       <RouteQuickAddSheet
@@ -1331,7 +1518,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
             onMarcarEntregueFor={handleMarcarEntregueFor}
             onMarcarAusenteFor={handleMarcarAusenteFor}
             onNavegar={openNavegarModal}
-            onLocalizarPacote={() => setShowLocateSheet(true)}
+            onLocalizarPacote={openLocatePackage}
             onEditarParada={() => setEditDelivery(selectedGroup?.representativeDelivery ?? selectedDelivery)}
             onSelectDelivery={setSelectedDelivery}
           />
@@ -1366,6 +1553,8 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         stopNumber={navSheetTarget?.stopNumber ?? 1}
         totalStops={groupedStops.length}
         geocodedCoords={geocodedCoords}
+        geocodedMeta={geocodedMeta}
+        legacyValidationCache={legacyValidationCache}
         onContinue={() => setNavSheetTarget(null)}
         onClose={() => setNavSheetTarget(null)}
       />

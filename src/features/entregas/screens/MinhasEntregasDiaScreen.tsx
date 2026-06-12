@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator }
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeColors } from "../../../theme/colors";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { getEntregas } from "../api";
 import type { EntregaListItem } from "../types";
 import { formatarDiaParaExibicao } from "../utils/quinzena";
@@ -46,9 +47,6 @@ export default function MinhasEntregasDiaScreen({ route, navigation }: Props) {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         centered: { justifyContent: "center", alignItems: "center" },
-        backBtn: { paddingHorizontal: 16, paddingVertical: 8, marginBottom: 8 },
-        backText: { fontSize: 16, color: colors.primary },
-        title: { fontSize: 22, fontWeight: "700", marginBottom: 12, paddingHorizontal: 16, color: colors.text },
         listContent: { padding: 16, paddingBottom: 48 },
         card: {
           backgroundColor: colors.backgroundCard,
@@ -117,11 +115,12 @@ export default function MinhasEntregasDiaScreen({ route, navigation }: Props) {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: Math.max(24, insets.top) }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>← Voltar</Text>
-      </TouchableOpacity>
-      <Text style={styles.title}>{tituloDia}</Text>
+    <View style={styles.container}>
+      <ScreenHeaderBar
+        title={tituloDia}
+        onBack={() => navigation.goBack()}
+        paddingTop={Math.max(12, insets.top)}
+      />
       <FlatList
         data={entregas}
         keyExtractor={(item) => String(item.id_saida)}

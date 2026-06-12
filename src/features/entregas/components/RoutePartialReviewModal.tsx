@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
 import type { EntregaListItem } from "../types";
+import type { GeocodedMetaMap, LegacyValidationCache } from "../utils/deliveryDestination";
 import {
   ADDRESS_REVIEW_LABELS,
   getAddressReviewIssue,
@@ -19,6 +20,8 @@ interface RoutePartialReviewModalProps {
   visible: boolean;
   deliveries: EntregaListItem[];
   geocodedCoords?: Record<number, { latitude: number; longitude: number }>;
+  geocodedMeta?: GeocodedMetaMap;
+  legacyValidationCache?: LegacyValidationCache;
   onClose: () => void;
   onCorrigir: (delivery: EntregaListItem) => void;
 }
@@ -27,6 +30,8 @@ export default function RoutePartialReviewModal({
   visible,
   deliveries,
   geocodedCoords,
+  geocodedMeta,
+  legacyValidationCache,
   onClose,
   onCorrigir,
 }: RoutePartialReviewModalProps) {
@@ -83,7 +88,12 @@ export default function RoutePartialReviewModal({
             data={deliveries}
             keyExtractor={(item) => String(item.id_saida)}
             renderItem={({ item }) => {
-              const issue = getAddressReviewIssue(item, geocodedCoords);
+              const issue = getAddressReviewIssue(
+                item,
+                geocodedCoords,
+                geocodedMeta,
+                legacyValidationCache
+              );
               return (
                 <View style={styles.row}>
                   <Text style={styles.pedido}>{getStopPedidoLabel(item)}</Text>

@@ -1,4 +1,13 @@
 import type { EntregaListItem } from "../types";
+import { haversineDistanceKm } from "./coordsUtils";
+import {
+  resolveDeliveryDestination,
+  resolveGroupDestination,
+  type GeocodedMetaMap,
+  type LegacyValidationCache,
+} from "./deliveryDestination";
+
+export { haversineDistanceKm } from "./coordsUtils";
 
 export type ServicoTipo = "Shopee" | "Flex" | "Avulso";
 
@@ -200,12 +209,13 @@ export function groupDeliveriesByStopKey(deliveries: EntregaListItem[]): Grouped
 
 export function resolveDeliveryCoords(
   d: EntregaListItem,
-  geocodedCoords: Record<number, { latitude: number; longitude: number }> = {}
+  geocodedCoords: Record<number, { latitude: number; longitude: number }> = {},
+  geocodedMeta: GeocodedMetaMap = {},
+  legacyCache?: LegacyValidationCache
 ): { latitude: number; longitude: number } | null {
-  const lat = d.latitude ?? geocodedCoords[d.id_saida]?.latitude;
-  const lon = d.longitude ?? geocodedCoords[d.id_saida]?.longitude;
-  if (lat == null || lon == null) return null;
-  return { latitude: lat, longitude: lon };
+  const dest = resolveDeliveryDestination(d, geocodedCoords, geocodedMeta, legacyCache);
+  if (!dest.hasTrustedCoords || dest.latitude == null || dest.longitude == null) return null;
+  return { latitude: dest.latitude, longitude: dest.longitude };
 }
 
 /** Proxy de atraso: data operacional (campo data) anterior ao dia de referência. */
@@ -246,15 +256,17 @@ export type PendingMapGroupPoint = {
 export function buildPendingMapGroups(
   pending: EntregaListItem[],
   geocodedCoords: Record<number, { latitude: number; longitude: number }>,
-  todayIso: string
+  todayIso: string,
+  geocodedMeta: GeocodedMetaMap = {},
+  legacyCache?: LegacyValidationCache
 ): PendingMapGroupPoint[] {
   const grouped = groupDeliveriesByStopKey(pending);
   const result: PendingMapGroupPoint[] = [];
   let mapIndex = 0;
   for (const group of grouped) {
-    const withCoords = group.deliveries.find((d) => resolveDeliveryCoords(d, geocodedCoords));
-    if (!withCoords) continue;
-    const coords = resolveDeliveryCoords(withCoords, geocodedCoords)!;
+    const dest = resolveGroupDestination(group, geocodedCoords, geocodedMeta, legacyCache);
+    if (!dest.hasTrustedCoords || dest.latitude == null || dest.longitude == null) continue;
+    const coords = { latitude: dest.latitude, longitude: dest.longitude };
     mapIndex++;
     result.push({
       group,
@@ -285,26 +297,6 @@ export function getOrderedRouteDeliveries(
     if (list && list.length > 0) ordered.push(list.shift()!);
   }
   return ordered;
-}
-
-/** Raio da Terra em km para Haversine */
-const EARTH_RADIUS_KM = 6371;
-
-/** Distância entre dois pontos em km (fórmula de Haversine). */
-function haversineDistanceKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return EARTH_RADIUS_KM * c;
 }
 
 /** Estatísticas da rota: distância total (km) e tempo estimado (minutos). Regras: 2 min/parada + deslocamento a 30 km/h. */
@@ -386,7 +378,9 @@ export const ADDRESS_REVIEW_LABELS: Record<AddressReviewIssue, string> = {
 
 export function getAddressReviewIssue(
   d: EntregaListItem,
-  geocodedCoords?: Record<number, { latitude: number; longitude: number }>
+  geocodedCoords?: Record<number, { latitude: number; longitude: number }>,
+  geocodedMeta: GeocodedMetaMap = {},
+  legacyCache?: LegacyValidationCache
 ): AddressReviewIssue | null {
   if (!d.possui_endereco) {
     const rua = (d.endereco ?? "").trim();
@@ -396,11 +390,8 @@ export function getAddressReviewIssue(
   if (!(d.numero ?? "").trim()) return "sem_numero";
   const cep = (d.cep ?? "").replace(/\D/g, "");
   if (!cep || cep.length !== 8) return "cep_invalido";
-  const hasCoords =
-    (d.latitude != null && d.longitude != null) ||
-    (geocodedCoords?.[d.id_saida]?.latitude != null &&
-      geocodedCoords?.[d.id_saida]?.longitude != null);
-  if (!hasCoords) return "sem_coordenadas";
+  const dest = resolveDeliveryDestination(d, geocodedCoords ?? {}, geocodedMeta, legacyCache);
+  if (!dest.hasTrustedCoords) return "sem_coordenadas";
   return null;
 }
 
@@ -567,7 +558,9 @@ export type RouteHeaderStats = {
 
 export function computeRouteHeaderStats(
   groupedStops: GroupedStop[],
-  geocodedCoords?: Record<number, { latitude: number; longitude: number }>
+  geocodedCoords?: Record<number, { latitude: number; longitude: number }>,
+  geocodedMeta: GeocodedMetaMap = {},
+  legacyCache?: LegacyValidationCache
 ): RouteHeaderStats {
   const pedidoCount = countRoutePedidos(groupedStops);
   const stopCount = groupedStops.length;
@@ -576,16 +569,16 @@ export function computeRouteHeaderStats(
   const seenIds = new Set<number>();
 
   for (const group of groupedStops) {
-    const hasCoords = group.deliveries.some(
-      (d) =>
-        (d.latitude != null && d.longitude != null) ||
-        (geocodedCoords?.[d.id_saida]?.latitude != null &&
-          geocodedCoords?.[d.id_saida]?.longitude != null)
+    const dest = resolveGroupDestination(
+      group,
+      geocodedCoords ?? {},
+      geocodedMeta,
+      legacyCache
     );
-    if (hasCoords) localizedStops++;
+    if (dest.hasTrustedCoords) localizedStops++;
     for (const d of group.deliveries) {
       if (seenIds.has(d.id_saida)) continue;
-      const issue = getAddressReviewIssue(d, geocodedCoords);
+      const issue = getAddressReviewIssue(d, geocodedCoords, geocodedMeta, legacyCache);
       if (issue) {
         seenIds.add(d.id_saida);
         reviewDeliveries.push(d);
@@ -824,6 +817,8 @@ export function buildPendingRoutePoints(params: {
   activeGroupIndex: number;
   routeDeliveryStatus: Record<number, RouteDeliveryStatus>;
   geocodedCoords?: Record<number, { latitude: number; longitude: number }>;
+  geocodedMeta?: GeocodedMetaMap;
+  legacyCache?: LegacyValidationCache;
   currentLocation?: { latitude: number; longitude: number } | null;
 }): RoutePoint[] {
   const {
@@ -831,6 +826,8 @@ export function buildPendingRoutePoints(params: {
     activeGroupIndex,
     routeDeliveryStatus,
     geocodedCoords = {},
+    geocodedMeta = {},
+    legacyCache,
     currentLocation,
   } = params;
 
@@ -849,17 +846,9 @@ export function buildPendingRoutePoints(params: {
     const group = groupedStops[i];
     if (getGroupStatus(group.deliveries, routeDeliveryStatus) !== "pendente") continue;
 
-    const d =
-      group.deliveries.find((del) => del.latitude != null && del.longitude != null) ??
-      group.deliveries[0];
-    if (!d) continue;
-
-    const geo = geocodedCoords[d.id_saida];
-    const lat = d.latitude ?? geo?.latitude;
-    const lon = d.longitude ?? geo?.longitude;
-    if (lat == null || lon == null) continue;
-
-    points.push({ latitude: lat, longitude: lon });
+    const dest = resolveGroupDestination(group, geocodedCoords, geocodedMeta, legacyCache);
+    if (!dest.hasTrustedCoords || dest.latitude == null || dest.longitude == null) continue;
+    points.push({ latitude: dest.latitude, longitude: dest.longitude });
   }
 
   return points;
@@ -869,22 +858,16 @@ export function buildPendingRoutePoints(params: {
 export function buildPlanningRoutePoints(params: {
   groupedStops: GroupedStop[];
   geocodedCoords?: Record<number, { latitude: number; longitude: number }>;
+  geocodedMeta?: GeocodedMetaMap;
+  legacyCache?: LegacyValidationCache;
 }): RoutePoint[] {
-  const { groupedStops, geocodedCoords = {} } = params;
+  const { groupedStops, geocodedCoords = {}, geocodedMeta = {}, legacyCache } = params;
   const points: RoutePoint[] = [];
 
   for (const group of groupedStops) {
-    const d =
-      group.deliveries.find((del) => del.latitude != null && del.longitude != null) ??
-      group.deliveries[0];
-    if (!d) continue;
-
-    const geo = geocodedCoords[d.id_saida];
-    const lat = d.latitude ?? geo?.latitude;
-    const lon = d.longitude ?? geo?.longitude;
-    if (lat == null || lon == null) continue;
-
-    points.push({ latitude: lat, longitude: lon });
+    const dest = resolveGroupDestination(group, geocodedCoords, geocodedMeta, legacyCache);
+    if (!dest.hasTrustedCoords || dest.latitude == null || dest.longitude == null) continue;
+    points.push({ latitude: dest.latitude, longitude: dest.longitude });
   }
 
   return points;

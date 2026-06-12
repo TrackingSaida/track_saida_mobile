@@ -15,8 +15,13 @@ type Props = {
     opts?: { todosPendentes?: boolean; initialMapMode?: "map" }
   ) => void;
   onNavigateScan: () => void;
+  onNavigateDeliverScan: () => void;
   onNavigatePrepareRoute: () => void;
-  onNavigateRouteBuilder: (opts?: { openLocatePackage?: boolean }) => void;
+  onNavigateRouteBuilder: (opts?: {
+    openLocatePackage?: boolean;
+    openSeparation?: boolean;
+    highlightLocatePackage?: boolean;
+  }) => void;
   onNavigateRotasHistorico: () => void;
   onNavigateMinhasEntregas: () => void;
   onNavigatePreferencias: () => void;
@@ -25,6 +30,7 @@ type Props = {
 export default function HomeScreen({
   onNavigateEntregas,
   onNavigateScan,
+  onNavigateDeliverScan,
   onNavigatePrepareRoute,
   onNavigateRouteBuilder,
   onNavigateRotasHistorico,
@@ -48,6 +54,7 @@ export default function HomeScreen({
 
   const callbacks: HomePagerCallbacks = {
     onScan: onNavigateScan,
+    onScanForDeliver: onNavigateDeliverScan,
     onPrepareRoute: onNavigatePrepareRoute,
     onViewPending: () => onNavigateEntregas("pendente"),
     onContinueRoute: () => onNavigateRouteBuilder(),

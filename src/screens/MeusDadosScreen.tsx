@@ -1,10 +1,11 @@
 import React, { useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { decodeJwtPayload } from "../utils/jwt";
+import ScreenHeaderBar from "../components/ScreenHeaderBar";
 import type { MaisStackParamList } from "./MaisScreen";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "MeusDados">;
@@ -17,9 +18,6 @@ export default function MeusDadosScreen({ navigation }: Props) {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 16, paddingBottom: 48 },
-        backBtn: { marginBottom: 16 },
-        backText: { fontSize: 16, color: colors.primary },
-        title: { fontSize: 22, fontWeight: "700", marginBottom: 16, color: colors.text },
         card: {
           backgroundColor: colors.backgroundCard,
           borderRadius: 12,
@@ -43,25 +41,25 @@ export default function MeusDadosScreen({ navigation }: Props) {
   const subBase = claims.sub_base ?? "—";
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: Math.max(24, insets.top) }]}
-    >
-      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>← Voltar</Text>
-      </TouchableOpacity>
-      <Text style={styles.title}>Meus dados</Text>
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <Text style={styles.label}>Usuário</Text>
-          <Text style={styles.value}>{username}</Text>
+    <View style={styles.container}>
+      <ScreenHeaderBar
+        title="Meus dados"
+        onBack={() => navigation.goBack()}
+        paddingTop={Math.max(12, insets.top)}
+      />
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.card}>
+          <View style={styles.row}>
+            <Text style={styles.label}>Usuário</Text>
+            <Text style={styles.value}>{username}</Text>
+          </View>
+          <View style={styles.separator} />
+          <View style={styles.row}>
+            <Text style={styles.label}>Base</Text>
+            <Text style={styles.value}>{subBase}</Text>
+          </View>
         </View>
-        <View style={styles.separator} />
-        <View style={styles.row}>
-          <Text style={styles.label}>Base</Text>
-          <Text style={styles.value}>{subBase}</Text>
-        </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }

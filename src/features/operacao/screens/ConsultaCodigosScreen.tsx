@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -33,11 +33,13 @@ import { formatApiError } from "../../../utils/formatApiError";
 import {
   gerarEtiquetaArquivo,
   listSaidas,
+  searchCodigosCascade,
   listMotoboysOperacao,
   lerSaidaAdmin,
   updateSaidaAdmin,
   type ListSaidasParams,
   type SaidaListItem,
+  type SearchCodigosMode,
   getSaidaDetail,
   getSaidaHistorico,
   type SaidaDetail,
@@ -45,6 +47,11 @@ import {
   type MotoboyItem,
 } from "../saidasApi";
 import { parseCodigoQrRaw, inferServicoSaida, classifyCodigoParaOperacao } from "../parseCodigoQr";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import OperacaoFilterButton from "../components/OperacaoFilterButton";
+import ConsultaCodigoCard from "../components/ConsultaCodigoCard";
+import ConsultaPacoteDetailModal from "../components/ConsultaPacoteDetailModal";
+import OperacaoEmptyState from "../components/OperacaoEmptyState";
 
 /** Consulta por câmera: apenas QR (moldura central), como na leitura de coleta. */
 const CONSULTA_BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -111,23 +118,6 @@ function filtrarSaidasPelaSubBaseDoUsuario(
     if (sb == null || sb === "") return true;
     return sb === u;
   });
-}
-
-function formatarDataHoraUsuario(iso?: string | null): string {
-  if (iso == null || String(iso).trim() === "") return "—";
-  const d = new Date(String(iso));
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(d);
-}
-
-function coresBadgeServico(servico?: string | null): { bg: string; fg: string } {
-  const s = (servico || "").trim().toLowerCase();
-  if (s.includes("shopee")) return { bg: "rgba(238,77,45,0.15)", fg: "#ee4d2d" };
-  if (s.includes("mercado") || s.includes("livre")) return { bg: "rgba(255,230,0,0.35)", fg: "#2d3277" };
-  return { bg: "rgba(13,110,253,0.12)", fg: "#0d6efd" };
 }
 
 type StatusFilterUi = "" | "Saiu para entrega" | "Entregue";
@@ -211,8 +201,11 @@ export default function ConsultaCodigosScreen() {
   const [pendingNaoColetado, setPendingNaoColetado] = useState<{ codigo: string; rawScan?: string } | null>(
     null
   );
-  /** Última busca usou código com correspondência exata (consulta por código). */
-  const [buscaComCodigoExato, setBuscaComCodigoExato] = useState(false);
+  /** Modo da última busca por código. */
+  const [searchMode, setSearchMode] = useState<SearchCodigosMode>("none");
+  const [searchTruncated, setSearchTruncated] = useState(false);
+  const [partialHint, setPartialHint] = useState<string | null>(null);
+  const buscaComCodigoExato = searchMode === "exact" && results.length <= 1;
 
   useEffect(() => {
     return () => {
@@ -222,24 +215,12 @@ export default function ConsultaCodigosScreen() {
     };
   }, [etiquetaUri]);
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <TouchableOpacity
-          onPress={() => {
-            setDraftStatus(appliedStatus);
-            setDraftPeriod(appliedPeriod);
-            setFilterSheetVisible(true);
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }}
-          style={{ paddingHorizontal: 12, paddingVertical: 6 }}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Ionicons name="options-outline" size={26} color={colors.primary} />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation, colors.primary, appliedStatus, appliedPeriod]);
+  const filterActiveCount = useMemo(() => {
+    let count = 0;
+    if (appliedStatus) count += 1;
+    if (appliedPeriod !== "none") count += 1;
+    return count;
+  }, [appliedStatus, appliedPeriod]);
 
   const styles = useMemo(
     () =>
@@ -452,6 +433,11 @@ export default function ConsultaCodigosScreen() {
         detailActionDanger: {
           backgroundColor: "#dc3545",
         },
+        detailActionDangerOutline: {
+          backgroundColor: "transparent",
+          borderWidth: 1.5,
+          borderColor: "#dc3545",
+        },
         detailActionText: {
           color: colors.primaryContrast,
           fontSize: 14,
@@ -483,12 +469,6 @@ export default function ConsultaCodigosScreen() {
           borderTopColor: colors.inputBorder,
         },
         detailTitle: { fontSize: 18, fontWeight: "700", color: colors.text },
-        timelineStep: { flexDirection: "row", alignItems: "flex-start", marginBottom: 12, gap: 10 },
-        timelineIcon: { marginTop: 2 },
-        timelineText: { flex: 1 },
-        timelineLabel: { fontSize: 14, fontWeight: "600", color: colors.text },
-        timelineSub: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-        histLine: { fontSize: 13, color: colors.textSecondary, marginBottom: 6 },
         loadingOverlay: {
           ...StyleSheet.absoluteFillObject,
           backgroundColor: "rgba(0,0,0,0.1)",
@@ -542,7 +522,7 @@ export default function ConsultaCodigosScreen() {
   );
 
   const executarBusca = useCallback(
-    async (nextOffset = 0, opts?: { codigoOverride?: string }) => {
+    async (nextOffset = 0, opts?: { codigoOverride?: string; forceExact?: boolean }) => {
       if (!podeLerSaida) {
         Alert.alert("Sem permissão", "Sem permissão para consultar saídas.");
         return;
@@ -552,37 +532,77 @@ export default function ConsultaCodigosScreen() {
       if (nextOffset === 0) setLoading(true);
       else setLoadingMore(true);
       setNotFound(false);
+      setPartialHint(null);
       try {
-        const params = buildParams({ offset: nextOffset, codigoOverride: opts?.codigoOverride });
-        const codigoUsado = params.codigo?.trim() ?? "";
-        setBuscaComCodigoExato(Boolean(params.codigoExato));
-        if (codigoUsado) lastCodigoConsultaRef.current = codigoUsado;
-        const res = await listSaidas(params);
-        let rows = filtrarSaidasPelaSubBaseDoUsuario(res.rows ?? [], currentUser?.sub_base);
-        if (params.codigoExato && params.codigo) {
-          const want = params.codigo.trim().toLowerCase();
-          rows = rows.filter((r) => (String(r.codigo || "").trim().toLowerCase() === want));
-        }
-        if (nextOffset === 0) {
-          setResults(rows);
-          setNotFound(rows.length === 0 && Boolean(codigoUsado));
-          void Haptics.notificationAsync(
-            rows.length > 0
-              ? Haptics.NotificationFeedbackType.Success
-              : Haptics.NotificationFeedbackType.Warning
-          );
-          if (rows.length > 0) {
-            setTimeout(() => {
-              lastRawLeituraRef.current = null;
-              setSearchInput("");
-            }, 400);
-          }
-        } else {
+        const range = getPeriodRange(appliedPeriod);
+        const baseParams: Omit<ListSaidasParams, "codigo" | "codigoExato" | "localizar"> = {
+          status: appliedStatus || undefined,
+          de: range.de,
+          ate: range.ate,
+          sort: "recentes",
+        };
+        const raw = opts?.codigoOverride !== undefined ? opts.codigoOverride : searchInput;
+        const parsed = parseCodigoQrRaw(String(raw || ""));
+        const codigoTrim = parsed.codigo.trim();
+
+        if (nextOffset > 0) {
+          const params = buildParams({ offset: nextOffset, codigoOverride: opts?.codigoOverride });
+          const res = await listSaidas(params);
+          let rows = filtrarSaidasPelaSubBaseDoUsuario(res.rows ?? [], currentUser?.sub_base);
           setResults((prev) => [...prev, ...rows]);
+          setTotal(res.total ?? null);
+          setHasMore(res.hasMore);
+          setOffset(nextOffset);
+          return;
         }
-        setTotal(res.total ?? null);
-        setHasMore(res.hasMore);
-        setOffset(nextOffset);
+
+        if (!codigoTrim) {
+          const params = buildParams({ offset: 0 });
+          const res = await listSaidas(params);
+          let rows = filtrarSaidasPelaSubBaseDoUsuario(res.rows ?? [], currentUser?.sub_base);
+          setSearchMode("none");
+          setSearchTruncated(false);
+          setResults(rows);
+          setNotFound(false);
+          setTotal(res.total ?? null);
+          setHasMore(res.hasMore);
+          setOffset(0);
+          return;
+        }
+
+        lastCodigoConsultaRef.current = codigoTrim;
+        const cascade = await searchCodigosCascade(baseParams, codigoTrim, {
+          forceExact: opts?.forceExact,
+        });
+        let rows = filtrarSaidasPelaSubBaseDoUsuario(cascade.rows ?? [], currentUser?.sub_base);
+
+        if (cascade.mode === "exact" && cascade.rows.length === 1 && opts?.forceExact !== true) {
+          const want = codigoTrim.toLowerCase();
+          rows = rows.filter((r) => String(r.codigo || "").trim().toLowerCase() === want);
+        }
+
+        setSearchMode(cascade.mode);
+        setSearchTruncated(cascade.truncated);
+        setResults(rows);
+        setNotFound(rows.length === 0 && Boolean(codigoTrim));
+        if (rows.length === 0 && codigoTrim.length > 0 && codigoTrim.length < 4 && !opts?.forceExact) {
+          setPartialHint("Digite pelo menos 4 caracteres para busca parcial.");
+        }
+        setTotal(cascade.total ?? rows.length);
+        setHasMore(false);
+        setOffset(0);
+
+        void Haptics.notificationAsync(
+          rows.length > 0
+            ? Haptics.NotificationFeedbackType.Success
+            : Haptics.NotificationFeedbackType.Warning
+        );
+        if (rows.length > 0 && cascade.mode === "exact") {
+          setTimeout(() => {
+            lastRawLeituraRef.current = null;
+            setSearchInput("");
+          }, 400);
+        }
       } catch {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert("Erro", "Falha ao buscar registros.");
@@ -592,7 +612,7 @@ export default function ConsultaCodigosScreen() {
         setLoadingMore(false);
       }
     },
-    [buildParams, podeLerSaida, currentUser?.sub_base]
+    [buildParams, podeLerSaida, currentUser?.sub_base, searchInput, appliedStatus, appliedPeriod]
   );
 
   const handleVoiceNotice = useCallback((message: string) => {
@@ -775,7 +795,7 @@ export default function ConsultaCodigosScreen() {
       Alert.alert("Indisponível", "Não foi possível identificar este registro.");
       return;
     }
-    Alert.alert("Cancelar registro", "Deseja alterar o status para cancelado?", [
+    Alert.alert("Cancelar pacote", "Deseja alterar o status para cancelado?", [
       { text: "Voltar", style: "cancel" },
       {
         text: "Confirmar",
@@ -952,7 +972,7 @@ export default function ConsultaCodigosScreen() {
       setCameraAtiva(false);
       lastRawLeituraRef.current = rawScan;
       setSearchInput(t);
-      void executarBusca(0, { codigoOverride: t });
+      void executarBusca(0, { codigoOverride: t, forceExact: true });
     },
     [loading, lerLoading, executarBusca]
   );
@@ -1005,138 +1025,37 @@ export default function ConsultaCodigosScreen() {
     });
   }, [motoboys, motoboyId, searchInput, processarLer]);
 
-  const statusVisual = (s?: string | null) => {
-    const u = (s || "").toLowerCase().replace(/\s+/g, "_");
-    if (u.includes("cancelad")) {
-      return {
-        label: s || "Cancelado",
-        bg: "rgba(220,53,69,0.14)",
-        fg: "#dc3545",
-      };
-    }
-    if (u.includes("entregue")) {
-      return {
-        label: s || "Entregue",
-        bg: "rgba(25,135,84,0.15)",
-        fg: "#198754",
-      };
-    }
-    if (u.includes("rota") || u.includes("saiu") || u === "em_rota") {
-      return {
-        label: s || "Em rota",
-        bg: "rgba(13,110,253,0.12)",
-        fg: "#0d6efd",
-      };
-    }
-    if (u.includes("nao_coletado") || u.includes("não_coletado") || u.includes("coletado") === false) {
-      if (u.includes("nao") || u.includes("não")) {
-        return { label: s || "Não coletado", bg: "rgba(108,117,125,0.2)", fg: "#6c757d" };
-      }
-    }
-    if (u.includes("ausente") || u.includes("erro")) {
-      return { label: s || "—", bg: "rgba(220,53,69,0.12)", fg: "#dc3545" };
-    }
-    return { label: s || "—", bg: "rgba(13,110,253,0.10)", fg: "#0d6efd" };
-  };
-
-  const timelineForDetail = (detail: SaidaDetail | null, historico: SaidaHistoricoItem[]) => {
-    const st = (detail?.status || "").toLowerCase();
-    const cancelado = st.includes("cancelad");
-    const entregue = st.includes("entregue");
-    const rota =
-      st.includes("saiu") || st.includes("rota") || st.includes("em_rota") || st.includes("entrega");
-    const naoColetado = st.includes("não coletado") || st.includes("nao coletado");
-
-    return (
-      <View style={{ marginTop: 12, marginBottom: 8 }}>
-        {cancelado ? (
-          <View style={styles.timelineStep}>
-            <Ionicons style={styles.timelineIcon} name="close-circle" size={22} color="#dc3545" />
-            <View style={styles.timelineText}>
-              <Text style={styles.timelineLabel}>Cancelado</Text>
-              <Text style={styles.timelineSub}>Este registro foi cancelado.</Text>
-            </View>
-          </View>
-        ) : null}
-        <View style={styles.timelineStep}>
-          <Ionicons
-            style={styles.timelineIcon}
-            name={!naoColetado ? "checkmark-circle" : "ellipse-outline"}
-            size={22}
-            color={!naoColetado ? "#198754" : colors.textSecondary}
-          />
-          <View style={styles.timelineText}>
-            <Text style={styles.timelineLabel}>Coletado</Text>
-            <Text style={styles.timelineSub}>
-              {naoColetado ? "Código ainda não coletado no fluxo." : "Pacote vinculado à operação."}
-            </Text>
-          </View>
-        </View>
-        <View style={styles.timelineStep}>
-          <Ionicons
-            name={rota || entregue ? "checkmark-circle" : "ellipse-outline"}
-            size={22}
-            color={rota || entregue ? "#0d6efd" : colors.textSecondary}
-          />
-          <View style={styles.timelineText}>
-            <Text style={styles.timelineLabel}>Em rota</Text>
-            <Text style={styles.timelineSub}>Base: {detail?.base || "—"}</Text>
-          </View>
-        </View>
-        <View style={styles.timelineStep}>
-          <Ionicons
-            name={entregue ? "checkmark-circle" : "ellipse-outline"}
-            size={22}
-            color={entregue ? "#198754" : colors.textSecondary}
-          />
-          <View style={styles.timelineText}>
-            <Text style={styles.timelineLabel}>Entregue</Text>
-            <Text style={styles.timelineSub}>{formatarDataHoraUsuario(detail?.data_hora_entrega as string | undefined)}</Text>
-          </View>
-        </View>
-        <Text style={[styles.timelineLabel, { marginTop: 12 }]}>Histórico</Text>
-        {historico.length === 0 ? (
-          <Text style={styles.histLine}>Sem histórico disponível.</Text>
-        ) : (
-          historico.map((h) => {
-            const key = String(h.id ?? `${h.evento}-${h.timestamp}`);
-            const quando = formatarDataHoraUsuario(h.timestamp as string | undefined);
-            const quem = h.usuario_nome ? ` · ${h.usuario_nome}` : "";
-            return (
-              <Text key={key} style={[styles.histLine, { marginBottom: 10 }]}>
-                <Text style={{ fontWeight: "600", color: colors.text }}>{h.evento || "Evento"}</Text>
-                {"\n"}
-                <Text style={{ color: colors.textSecondary }}>
-                  {quando}
-                  {quem}
-                </Text>
-              </Text>
-            );
-          })
-        )}
-      </View>
-    );
-  };
-
   const primeiro = results[0];
-  const restantes = buscaComCodigoExato ? [] : results.slice(1);
+  const multiResultados = results.length > 1 || (searchMode !== "exact" && results.length > 0);
+  const restantes = multiResultados ? results : results.length > 1 ? results.slice(1) : [];
   const VoiceModalResolved = voiceModalComp;
-  const detalheCancelado = String(selectedDetail?.status ?? "")
-    .toLowerCase()
-    .includes("cancelad");
 
   return (
     <>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <ScreenHeaderBar
+          title="Consulta de códigos"
+          onBack={() => navigation.goBack()}
+          paddingTop={Math.max(12, insets.top)}
+          rightElement={
+            <OperacaoFilterButton
+              activeCount={filterActiveCount}
+              onPress={() => {
+                setDraftStatus(appliedStatus);
+                setDraftPeriod(appliedPeriod);
+                setFilterSheetVisible(true);
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            />
+          }
+        />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
           style={styles.container}
-          contentContainerStyle={[
-            styles.content,
-            { paddingTop: Math.max(12, insets.top), paddingBottom: 48 + insets.bottom },
-          ]}
+          contentContainerStyle={[styles.content, { paddingBottom: 48 + insets.bottom }]}
           keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.hint}>
@@ -1188,17 +1107,22 @@ export default function ConsultaCodigosScreen() {
             </>
           ) : null}
 
+          {partialHint ? (
+            <OperacaoEmptyState message={partialHint} icon="information-circle-outline" />
+          ) : null}
+
           {notFound ? (
             <View style={styles.notFoundBox}>
-              <Text style={styles.notFoundTitle}>Código não encontrado</Text>
+              <Text style={styles.notFoundTitle}>Nenhum código encontrado</Text>
               <Text style={{ fontSize: 14, color: colors.textSecondary }}>
-                Não há saída com esse código nos filtros atuais.
+                Nenhum código encontrado para este termo.
               </Text>
               <TouchableOpacity
                 style={styles.btnPrimary}
                 onPress={() => {
                   lastRawLeituraRef.current = null;
                   setSearchInput("");
+                  setPartialHint(null);
                 }}
               >
                 <Text style={styles.btnTextPrimary}>Tentar novamente</Text>
@@ -1213,95 +1137,51 @@ export default function ConsultaCodigosScreen() {
             </View>
           ) : null}
 
-          {primeiro && !notFound ? (
-            <TouchableOpacity
-              style={styles.heroCard}
-              activeOpacity={0.85}
-              onPress={() => handleAbrirDetalhe(primeiro)}
-            >
-              <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 4 }}>
-                {buscaComCodigoExato ? "Código encontrado" : "Resultado principal"}
-              </Text>
-              <View style={styles.cardRowTop}>
-                <Text style={styles.cardCodigo}>{primeiro.codigo || "—"}</Text>
-                {(() => {
-                  const sv = statusVisual(primeiro.status as string);
-                  return (
-                    <View style={[styles.metaPill, { backgroundColor: sv.bg }]}>
-                      <Text style={[styles.metaPillText, { color: sv.fg, fontWeight: "700" }]}>
-                        {sv.label}
-                      </Text>
-                    </View>
-                  );
-                })()}
-              </View>
-              <View style={styles.metaRow}>
-                {primeiro.entregador ? (
-                  <View style={styles.metaPill}>
-                    <Text style={styles.metaPillText}>Entregador: {primeiro.entregador}</Text>
-                  </View>
-                ) : null}
-                {primeiro.servico
-                  ? (() => {
-                      const sv = coresBadgeServico(primeiro.servico);
-                      return (
-                        <View style={[styles.servicoBadge, { backgroundColor: sv.bg }]}>
-                          <Text style={[styles.servicoBadgeText, { color: sv.fg }]}>{primeiro.servico}</Text>
-                        </View>
-                      );
-                    })()
-                  : null}
-              </View>
-              <View style={styles.heroTapHint}>
-                <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
-                <Text style={styles.heroTapHintText}>Toque no card para ver os detalhes do pedido.</Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.primary} />
-              </View>
-            </TouchableOpacity>
+          {primeiro && !notFound && !multiResultados ? (
+            <ConsultaCodigoCard item={primeiro} onPress={() => handleAbrirDetalhe(primeiro)} />
           ) : null}
 
-          {restantes.length > 0 ? (
+          {multiResultados && !notFound ? (
+            <>
+              <View style={styles.resultsHeader}>
+                <Text style={styles.resultsHeaderText}>
+                  Encontrados {results.length} códigos
+                </Text>
+              </View>
+              {searchTruncated ? (
+                <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 10 }}>
+                  Mostrando os 20 primeiros resultados
+                </Text>
+              ) : null}
+              {results.map((r) => {
+                const kid = getIdSaidaFromItem(r) ?? r.codigo;
+                return (
+                  <ConsultaCodigoCard
+                    key={String(kid)}
+                    item={r}
+                    compact
+                    onPress={() => handleAbrirDetalhe(r)}
+                  />
+                );
+              })}
+            </>
+          ) : null}
+
+          {restantes.length > 0 && !multiResultados ? (
             <>
               <View style={styles.resultsHeader}>
                 <Text style={styles.resultsHeaderText}>Mais resultados</Text>
                 <Text style={styles.resultsHeaderText}>{restantes.length}</Text>
               </View>
               {restantes.map((r) => {
-                const sv = statusVisual(r.status as string);
                 const kid = getIdSaidaFromItem(r) ?? r.codigo;
                 return (
-                  <TouchableOpacity
+                  <ConsultaCodigoCard
                     key={String(kid)}
-                    style={styles.card}
-                    activeOpacity={0.85}
+                    item={r}
+                    compact
                     onPress={() => handleAbrirDetalhe(r)}
-                  >
-                    <View style={styles.cardRowTop}>
-                      <Text style={styles.cardCodigo}>{r.codigo || "—"}</Text>
-                      <View style={[styles.metaPill, { backgroundColor: sv.bg }]}>
-                        <Text style={[styles.metaPillText, { color: sv.fg, fontWeight: "700" }]}>
-                          {sv.label}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.metaRow}>
-                      {r.entregador ? (
-                        <View style={styles.metaPill}>
-                          <Text style={styles.metaPillText}>{r.entregador}</Text>
-                        </View>
-                      ) : null}
-                      {r.servico
-                        ? (() => {
-                            const sv = coresBadgeServico(r.servico);
-                            return (
-                              <View style={[styles.servicoBadge, { backgroundColor: sv.bg }]}>
-                                <Text style={[styles.servicoBadgeText, { color: sv.fg }]}>{r.servico}</Text>
-                              </View>
-                            );
-                          })()
-                        : null}
-                    </View>
-                  </TouchableOpacity>
+                  />
                 );
               })}
             </>
@@ -1326,6 +1206,7 @@ export default function ConsultaCodigosScreen() {
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
+      </View>
 
       {loading && results.length > 0 ? (
         <View style={styles.loadingOverlay}>
@@ -1516,81 +1397,20 @@ export default function ConsultaCodigosScreen() {
         </View>
       </Modal>
 
-      <Modal visible={detailVisible} transparent animationType="fade" onRequestClose={handleFecharDetalhe}>
-        <View style={styles.detailModalOverlay}>
-          <View style={styles.detailCard}>
-            {detailLoading ? (
-              <ActivityIndicator color={colors.primary} style={{ marginVertical: 24 }} />
-            ) : (
-              <ScrollView>
-                <Text style={styles.detailTitle}>{selectedDetail?.codigo || "Detalhe"}</Text>
-                <View style={{ marginBottom: 14, marginTop: 4 }}>
-                  <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 4 }}>Entregador</Text>
-                  <Text style={{ fontSize: 17, fontWeight: "600", color: colors.text }}>
-                    {selectedDetail?.entregador || "—"}
-                  </Text>
-                </View>
-                <View style={{ marginBottom: 16 }}>
-                  <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 6 }}>Serviço</Text>
-                  {(() => {
-                    const sv = coresBadgeServico(selectedDetail?.servico);
-                    return (
-                      <View
-                        style={{
-                          alignSelf: "flex-start",
-                          paddingHorizontal: 12,
-                          paddingVertical: 6,
-                          borderRadius: 999,
-                          backgroundColor: sv.bg,
-                        }}
-                      >
-                        <Text style={{ fontSize: 15, fontWeight: "700", color: sv.fg }}>
-                          {selectedDetail?.servico || "—"}
-                        </Text>
-                      </View>
-                    );
-                  })()}
-                </View>
-                {timelineForDetail(selectedDetail, selectedHistorico)}
-                <View style={styles.detailActionsRow}>
-                  {podeGerarEtiqueta ? (
-                    <TouchableOpacity
-                      style={[styles.detailActionBtn, styles.detailActionPrimary]}
-                      onPress={() => void handleGerarEtiqueta()}
-                      disabled={gerandoEtiqueta || cancelandoSaida}
-                    >
-                      {gerandoEtiqueta ? (
-                        <ActivityIndicator color={colors.primaryContrast} />
-                      ) : (
-                        <Text style={styles.detailActionText}>Gerar etiqueta</Text>
-                      )}
-                    </TouchableOpacity>
-                  ) : null}
-                  {podeCancelarSaida && !detalheCancelado ? (
-                    <TouchableOpacity
-                      style={[styles.detailActionBtn, styles.detailActionDanger]}
-                      onPress={handleCancelarSaida}
-                      disabled={cancelandoSaida || gerandoEtiqueta}
-                    >
-                      {cancelandoSaida ? (
-                        <ActivityIndicator color={colors.primaryContrast} />
-                      ) : (
-                        <Text style={styles.detailActionText}>Cancelar</Text>
-                      )}
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              </ScrollView>
-            )}
-            <TouchableOpacity
-              style={{ alignSelf: "flex-end", marginTop: 12, padding: 10 }}
-              onPress={handleFecharDetalhe}
-            >
-              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 16 }}>Fechar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <ConsultaPacoteDetailModal
+        visible={detailVisible}
+        loading={detailLoading}
+        detail={selectedDetail}
+        historico={selectedHistorico}
+        idSaida={selectedDetailId}
+        podeGerarEtiqueta={podeGerarEtiqueta}
+        podeCancelarSaida={podeCancelarSaida}
+        gerandoEtiqueta={gerandoEtiqueta}
+        cancelandoSaida={cancelandoSaida}
+        onClose={handleFecharDetalhe}
+        onGerarEtiqueta={() => void handleGerarEtiqueta()}
+        onCancelarSaida={handleCancelarSaida}
+      />
 
       <Modal
         visible={previewEtiquetaVisible}

@@ -3,6 +3,9 @@ import type { AddressFormValues, AddressOrigem } from "../components/AddressForm
 import { postEnderecoPlaceDetails, postEnderecoSugestoes } from "../api";
 import type { EnderecoSugestaoApi, EntregaListItem } from "../types";
 import { normalizeAddressQuery, normalizeEstadoUf } from "./addressQueryNormalizer";
+import { valuesFromEnderecoFormatado } from "./addressBuild";
+
+export { resolveGeocodeDefaults, valuesFromEnderecoFormatado } from "./addressBuild";
 import { isValidGeocodeCoords, type GeocodeResult } from "./geocode";
 import { parsedToFormValues, type ParsedAddress } from "./ocrAddress";
 import {
@@ -337,65 +340,6 @@ export function sanitizeAddressFormValues(values: AddressFormValues): AddressFor
     cidade,
     estado,
     cep,
-  };
-}
-
-export function valuesFromEnderecoFormatado(formatted: string): Partial<AddressFormValues> | null {
-  const parts = formatted.split(",").map((p) => p.trim()).filter(Boolean);
-  if (parts.length < 5) return null;
-  const cep = normalizeCep(parts[parts.length - 1]);
-  if (cep.length !== 8) return null;
-  const estado = parts[parts.length - 2].toUpperCase().slice(0, 2);
-  const cidade = parts[parts.length - 3];
-
-  if (parts.length === 5) {
-    return {
-      rua: parts[0],
-      numero: parts[1],
-      bairro: "",
-      complemento: "",
-      cidade,
-      estado,
-      cep,
-    };
-  }
-  if (parts.length === 6) {
-    return {
-      rua: parts[0],
-      numero: parts[1],
-      bairro: parts[2],
-      complemento: "",
-      cidade,
-      estado,
-      cep,
-    };
-  }
-  if (parts.length >= 7) {
-    return {
-      rua: parts[0],
-      numero: parts[1],
-      complemento: parts[2],
-      bairro: parts[3],
-      cidade,
-      estado,
-      cep,
-    };
-  }
-  return null;
-}
-
-/** Cidade/estado para geocode: endereço salvo > prefs do motoboy. */
-export function resolveGeocodeDefaults(
-  d: EntregaListItem,
-  cidadePadrao?: string,
-  estadoPadrao?: string
-): { cidade: string; estado: string } {
-  const parsed = d.endereco_formatado ? valuesFromEnderecoFormatado(d.endereco_formatado) : null;
-  const fromApiCidade = (d.cidade ?? "").trim();
-  const fromApiEstado = (d.estado ?? "").trim();
-  return {
-    cidade: fromApiCidade || (parsed?.cidade ?? "").trim() || (cidadePadrao ?? "").trim(),
-    estado: fromApiEstado || (parsed?.estado ?? "").trim() || (estadoPadrao ?? "").trim(),
   };
 }
 

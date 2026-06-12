@@ -8,17 +8,20 @@ import {
 import { useThemeColors } from "../../../theme/colors";
 import { space } from "../../../theme/spacing";
 import HomeStateHero from "./HomeStateHero";
+import HomeOperationalActions from "./HomeOperationalActions";
 import {
   deriveHomeCtas,
   deriveHomeOperationalView,
   type HomeCtaAction,
 } from "../utils/homeOperationalState";
+import { ctaActionToIcon } from "../../../theme/operationalIcons";
 import type { useHomeData } from "../hooks/useHomeData";
 
 type HomeData = ReturnType<typeof useHomeData>;
 
 export type HomeNavigationHandlers = {
   onScan: () => void;
+  onScanForDeliver: () => void;
   onPrepareRoute: () => void;
   onViewPending: () => void;
   onContinueRoute: () => void;
@@ -75,7 +78,11 @@ export default function HomeProximoPage({ data, navigation }: Props) {
     (action: HomeCtaAction) => {
       switch (action) {
         case "scan":
+        case "scan_insert":
           navigation.onScan();
+          break;
+        case "scan_deliver":
+          navigation.onScanForDeliver();
           break;
         case "prepare_route":
           navigation.onPrepareRoute();
@@ -118,6 +125,28 @@ export default function HomeProximoPage({ data, navigation }: Props) {
     );
   }
 
+  if (ctas.layout === "operational") {
+    return (
+      <View style={styles.container}>
+        <HomeStateHero
+          state={view.heroState}
+          title={view.title}
+          description={view.description}
+          extraLines={view.extraLines}
+          footer={
+            <HomeOperationalActions
+              viewPending={ctas.viewPending}
+              scanInsert={ctas.scanInsert}
+              scanDeliver={ctas.scanDeliver}
+              tertiary={ctas.tertiary}
+              onAction={runAction}
+            />
+          }
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <HomeStateHero
@@ -129,10 +158,12 @@ export default function HomeProximoPage({ data, navigation }: Props) {
           label: ctas.primary.label,
           onPress: () => runAction(ctas.primary.action),
           loading: ctas.primary.action === "start_route" && data.iniciandoRota,
+          iconKey: ctaActionToIcon(ctas.primary.action) ?? undefined,
         }}
         secondaryCtas={ctas.secondary.map((cta) => ({
           label: cta.label,
           onPress: () => runAction(cta.action),
+          iconKey: ctaActionToIcon(cta.action) ?? undefined,
         }))}
       />
     </View>

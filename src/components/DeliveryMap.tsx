@@ -12,6 +12,11 @@ import {
   getStopMarkerOperationalState,
   spreadOverlappingStopCoords,
 } from "../features/entregas/utils/routeUtils";
+import {
+  resolveGroupDestination,
+  type GeocodedMetaMap,
+  type LegacyValidationCache,
+} from "../features/entregas/utils/deliveryDestination";
 import type { EntregaListItem } from "../features/entregas/types";
 import RouteStopMarker from "./RouteStopMarker";
 import { clusterMapPoints } from "../features/entregas/utils/mapClusterUtils";
@@ -40,6 +45,9 @@ export interface DeliveryMapProps {
   selectedId?: number | null;
   centerOnStopId?: number | null;
   geocodedCoords?: Record<number, { latitude: number; longitude: number }>;
+  geocodedMeta?: GeocodedMetaMap;
+  legacyValidationCache?: LegacyValidationCache;
+  untrustedCount?: number;
   routePolyline?: Array<{ latitude: number; longitude: number }>;
   routeMode?: boolean;
   isRouteActive?: boolean;
@@ -55,6 +63,9 @@ export default function DeliveryMap({
   selectedId,
   centerOnStopId,
   geocodedCoords = {},
+  geocodedMeta = {},
+  legacyValidationCache,
+  untrustedCount = 0,
   routePolyline,
   routeMode = true,
   isRouteActive: isRouteActiveProp,
@@ -89,27 +100,28 @@ export default function DeliveryMap({
     const statusMap = routeDeliveryStatus;
     for (let i = 0; i < groupedStops.length; i++) {
       const group = groupedStops[i];
-      const withCoords = group.deliveries.find(
-        (d) =>
-          (d.latitude != null && d.longitude != null) ||
-          (geocodedCoords[d.id_saida]?.latitude != null && geocodedCoords[d.id_saida]?.longitude != null)
+      const dest = resolveGroupDestination(
+        group,
+        geocodedCoords,
+        geocodedMeta,
+        legacyValidationCache
       );
-      if (!withCoords) continue;
-      const lat = withCoords.latitude ?? geocodedCoords[withCoords.id_saida]?.latitude;
-      const lon = withCoords.longitude ?? geocodedCoords[withCoords.id_saida]?.longitude;
-      if (lat == null || lon == null) continue;
+      if (!dest.hasTrustedCoords || dest.latitude == null || dest.longitude == null) continue;
+      const rep =
+        group.deliveries.find((d) => d.id_saida === group.representativeDelivery.id_saida) ??
+        group.deliveries[0];
       result.push({
         paradaIndex: i + 1,
         groupIndex: i,
         packageCount: group.deliveries.length,
-        latitude: lat,
-        longitude: lon,
-        firstDelivery: withCoords,
+        latitude: dest.latitude,
+        longitude: dest.longitude,
+        firstDelivery: rep,
         status: getGroupStatus(group.deliveries, statusMap),
       });
     }
     return result;
-  }, [groupedStops, routeDeliveryStatus, geocodedCoords]);
+  }, [groupedStops, routeDeliveryStatus, geocodedCoords, geocodedMeta, legacyValidationCache]);
 
   const withCoords = groupedPointsWithCoords;
 
@@ -180,7 +192,17 @@ export default function DeliveryMap({
   const tracksMarkerChanges = !markersReady || markerResnapshotActive;
 
   const region = useMemo(() => {
-    if (withCoords.length === 0) return DEFAULT_REGION;
+    if (withCoords.length === 0) {
+      if (currentLocation) {
+        return {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          latitudeDelta: 0.04,
+          longitudeDelta: 0.04,
+        };
+      }
+      return DEFAULT_REGION;
+    }
     const lats = withCoords.map((p) => p.latitude);
     const lons = withCoords.map((p) => p.longitude);
     const minLat = Math.min(...lats);
@@ -194,7 +216,7 @@ export default function DeliveryMap({
       latitudeDelta: Math.max(0.02, maxLat - minLat + pad * 2),
       longitudeDelta: Math.max(0.02, maxLon - minLon + pad * 2),
     };
-  }, [withCoords]);
+  }, [withCoords, currentLocation]);
 
   const prevCountRef = useRef(0);
   useEffect(() => {
@@ -276,6 +298,19 @@ export default function DeliveryMap({
           borderColor: "rgba(0,0,0,0.08)",
         },
         polylineWarningText: { fontSize: 12, color: "#555", textAlign: "center" },
+        untrustedBanner: {
+          position: "absolute",
+          bottom: 56,
+          left: 12,
+          right: 12,
+          backgroundColor: "rgba(255,243,224,0.95)",
+          borderRadius: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderWidth: 1,
+          borderColor: "rgba(230,126,34,0.35)",
+        },
+        untrustedBannerText: { fontSize: 12, color: "#7a4a00", textAlign: "center", lineHeight: 18 },
         motoboyMarker: {
           width: 14,
           height: 14,
@@ -486,7 +521,16 @@ export default function DeliveryMap({
       {showEmptyMessage && (
         <View style={styles.emptyOverlay} pointerEvents="none">
           <Text style={styles.emptyText}>
-            Nenhuma entrega com endereço válido.{"\n"}Adicione endereços para montar sua rota.
+            {untrustedCount > 0
+              ? `${untrustedCount} entrega(s) com endereço sem coordenada confiável.\nRevise cidade, CEP e número antes de navegar.`
+              : "Nenhuma entrega com coordenada confiável.\nAdicione endereços completos para montar sua rota."}
+          </Text>
+        </View>
+      )}
+      {!showEmptyMessage && untrustedCount > 0 && (
+        <View style={styles.untrustedBanner} pointerEvents="none">
+          <Text style={styles.untrustedBannerText}>
+            {untrustedCount} entrega(s) sem coordenada confiável — revise o endereço
           </Text>
         </View>
       )}

@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "rea
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
 
-export const BATCH_SELECTION_LIST_PADDING = 180;
+export const BATCH_SELECTION_LIST_PADDING = 148;
 
 export interface BatchSelectionBarProps {
   count: number;
@@ -35,8 +35,8 @@ export default function BatchSelectionBar({
           bottom: 0,
           backgroundColor: colors.backgroundCard,
           paddingHorizontal: 16,
-          paddingTop: 12,
-          paddingBottom: insets.bottom + 12,
+          paddingTop: 10,
+          paddingBottom: Math.max(8, insets.bottom),
           borderTopWidth: 1,
           borderTopColor: colors.separator,
           shadowColor: colors.shadowColor,
@@ -50,13 +50,13 @@ export default function BatchSelectionBar({
           fontSize: 14,
           fontWeight: "600",
           color: colors.text,
-          marginBottom: 4,
+          marginBottom: 2,
           textAlign: "center",
         },
         limitText: {
           fontSize: 12,
           color: colors.warning,
-          marginBottom: 10,
+          marginBottom: 8,
           textAlign: "center",
         },
         btnDisabled: { opacity: 0.45 },
@@ -66,7 +66,7 @@ export default function BatchSelectionBar({
         },
         btn: {
           flex: 1,
-          paddingVertical: 10,
+          paddingVertical: 9,
           borderRadius: 8,
           alignItems: "center",
         },
@@ -125,7 +125,7 @@ export default function BatchSelectionBar({
         </TouchableOpacity>
       </View>
       <TouchableOpacity
-        style={[styles.btn, styles.btnCancel, { marginTop: 8 }, loading && styles.btnDisabled]}
+        style={[styles.btn, styles.btnCancel, { marginTop: 6 }, loading && styles.btnDisabled]}
         onPress={onCancelar}
         disabled={loading}
       >

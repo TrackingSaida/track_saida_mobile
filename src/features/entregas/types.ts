@@ -21,6 +21,9 @@ export interface EntregaListItem {
   endereco_formatado?: string | null;
   endereco_origem?: string | null;
   coord_precision?: CoordPrecision | null;
+  geocode_source?: string | null;
+  geocode_score?: number | null;
+  geocoded_at?: string | null;
   possui_endereco?: boolean;
   tentativa?: number | null;
   tem_comprovante?: boolean;
@@ -30,6 +33,9 @@ export interface EntregaListItem {
   numero_documento?: string | null;
   observacao_entrega?: string | null;
   observacao_ocorrencia?: string | null;
+  motivo_ocorrencia?: string | null;
+  complemento?: string | null;
+  data_hora_ocorrencia?: string | null;
   campos_obrigatorios?: string[];
   campos_obrigatorios_entregue?: string[];
   campos_obrigatorios_ausente?: string[];

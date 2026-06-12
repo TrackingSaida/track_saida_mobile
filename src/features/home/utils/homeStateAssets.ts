@@ -1,6 +1,4 @@
-import type { ComponentProps } from "react";
-import type { Ionicons } from "@expo/vector-icons";
-import type { ImageSourcePropType } from "react-native";
+import type { OperationalIconKey } from "../../../theme/operationalIcons";
 
 export type HomeHeroState =
   | "idle"
@@ -9,46 +7,60 @@ export type HomeHeroState =
   | "route_active"
   | "route_completed";
 
-type IoniconName = ComponentProps<typeof Ionicons>["name"];
+export type HomeStateIconColorKey = "primary" | "success" | "warning" | "custom";
 
 export type HomeStateVisual = {
-  image: ImageSourcePropType;
   gradient: readonly [string, string];
-  fallbackIcon: IoniconName;
-  fallbackIconColor: string;
+  operationalIcon: OperationalIconKey;
+  iconColorKey: HomeStateIconColorKey;
+  /** Usado quando iconColorKey === "custom". */
+  customIconColor?: string;
 };
 
 export const HOME_STATE_ASSETS: Record<HomeHeroState, HomeStateVisual> = {
   idle: {
-    image: require("../../../assets/homeStates/home-scan.png"),
     gradient: ["#2563eb", "#1d4ed8"],
-    fallbackIcon: "scan-outline",
-    fallbackIconColor: "#2563eb",
+    operationalIcon: "readyToScan",
+    iconColorKey: "primary",
   },
   pending: {
-    image: require("../../../assets/homeStates/home-pending.png"),
     gradient: ["#2563eb", "#ea580c"],
-    fallbackIcon: "cube-outline",
-    fallbackIconColor: "#ea580c",
+    operationalIcon: "packagesWaiting",
+    iconColorKey: "custom",
+    customIconColor: "#F97316",
   },
   route_ready: {
-    image: require("../../../assets/homeStates/home-route-ready.png"),
     gradient: ["#6366f1", "#2563eb"],
-    fallbackIcon: "map-outline",
-    fallbackIconColor: "#6366f1",
+    operationalIcon: "prepareRoute",
+    iconColorKey: "primary",
   },
   route_active: {
-    image: require("../../../assets/homeStates/home-route-active.png"),
     gradient: ["#0a6e42", "#059669"],
-    fallbackIcon: "navigate-outline",
-    fallbackIconColor: "#0a6e42",
+    operationalIcon: "routeActive",
+    iconColorKey: "success",
   },
   route_completed: {
-    image: require("../../../assets/homeStates/home-route-completed.png"),
     gradient: ["#059669", "#10b981"],
-    fallbackIcon: "checkmark-circle-outline",
-    fallbackIconColor: "#059669",
+    operationalIcon: "delivered",
+    iconColorKey: "success",
   },
 };
 
-export const HOME_PAGE_LABELS = ["Próximo", "Hoje", "Atalhos"] as const;
+export const HOME_PAGE_LABELS = ["Agora", "Resumo", "Atalhos"] as const;
+
+export function resolveHomeStateIconColor(
+  visual: HomeStateVisual,
+  colors: { primary: string; success: string; warning: string }
+): string {
+  switch (visual.iconColorKey) {
+    case "success":
+      return colors.success;
+    case "warning":
+      return colors.warning;
+    case "custom":
+      return visual.customIconColor ?? colors.primary;
+    case "primary":
+    default:
+      return colors.primary;
+  }
+}

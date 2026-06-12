@@ -11,6 +11,7 @@ import { useThemeColors } from "../../../theme/colors";
 import type { GroupedStop } from "../utils/routeUtils";
 import { getStopAddressLineFromGroup } from "../utils/routeUtils";
 import {
+  canNavigate,
   getDestinationLabel,
   getNavigationOptions,
   openNavigationToStop,
@@ -18,6 +19,7 @@ import {
   type NavigationApp,
   type GeocodedCoordsMap,
 } from "../utils/externalNavigation";
+import type { GeocodedMetaMap, LegacyValidationCache } from "../utils/deliveryDestination";
 
 export interface NextStopNavigationSheetProps {
   visible: boolean;
@@ -25,6 +27,8 @@ export interface NextStopNavigationSheetProps {
   stopNumber: number;
   totalStops: number;
   geocodedCoords?: GeocodedCoordsMap;
+  geocodedMeta?: GeocodedMetaMap;
+  legacyValidationCache?: LegacyValidationCache;
   onContinue: () => void;
   onClose: () => void;
 }
@@ -35,11 +39,15 @@ export default function NextStopNavigationSheet({
   stopNumber,
   totalStops,
   geocodedCoords = {},
+  geocodedMeta = {},
+  legacyValidationCache,
   onContinue,
   onClose,
 }: NextStopNavigationSheetProps) {
   const colors = useThemeColors();
-  const navTarget = group ? resolveGroupNavigationTarget(group, geocodedCoords) : null;
+  const navTarget = group
+    ? resolveGroupNavigationTarget(group, geocodedCoords, geocodedMeta, legacyValidationCache)
+    : null;
   const destinationLabel = navTarget ? getDestinationLabel(navTarget) : null;
   const navOptions = useMemo(() => getNavigationOptions(), []);
 
@@ -99,19 +107,17 @@ export default function NextStopNavigationSheet({
 
   const handleNav = async (app: NavigationApp) => {
     if (!group) return;
-    const needsConfirm =
-      navTarget?.mode === "address" ||
-      (navTarget?.mode === "coords" && navTarget.precision === "geocoded");
+    const needsConfirm = navTarget?.mode === "address" && !navTarget.trusted;
     await openNavigationToStop(group.representativeDelivery, app, {
       geocodedCoords,
+      geocodedMeta,
+      legacyCache: legacyValidationCache,
       skipApproximateConfirm: !needsConfirm,
     });
     onClose();
   };
 
-  const canNavigate =
-    navTarget &&
-    (navTarget.mode === "coords" || (navTarget.mode === "address" && navTarget.address));
+  const navigationEnabled = navTarget ? canNavigate(navTarget) : false;
 
   if (!group) return null;
 
@@ -132,7 +138,7 @@ export default function NextStopNavigationSheet({
             <Text style={styles.destLabel}>{destinationLabel}</Text>
           )}
 
-          {canNavigate ? (
+          {navigationEnabled ? (
             navOptions.map((opt) => (
               <TouchableOpacity
                 key={opt.id}
@@ -143,7 +149,9 @@ export default function NextStopNavigationSheet({
               </TouchableOpacity>
             ))
           ) : (
-            <Text style={styles.pedidos}>Endereço indisponível para navegação.</Text>
+            <Text style={styles.pedidos}>
+              {navTarget?.mode === "none" ? navTarget.reason : "Endereço insuficiente para navegação."}
+            </Text>
           )}
 
           <TouchableOpacity style={styles.primaryBtn} onPress={onContinue}>

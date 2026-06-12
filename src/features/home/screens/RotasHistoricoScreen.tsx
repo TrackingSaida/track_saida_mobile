@@ -3,7 +3,6 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Ionicons } from "@expo/vector-icons";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import { space, radius } from "../../../theme/spacing";
@@ -14,6 +13,7 @@ import {
   useDiaRotaConcluidaStore,
   VALOR_ROTA_LABEL,
 } from "../../../store/diaRotaConcluidaStore";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RotasHistorico">;
 
@@ -41,17 +41,6 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        header: {
-          flexDirection: "row",
-          alignItems: "center",
-          paddingTop: insets.top + space.sm,
-          paddingHorizontal: space.md,
-          paddingBottom: space.md,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: colors.border,
-        },
-        backBtn: { padding: space.xs, marginRight: space.sm },
-        title: { fontSize: 18, fontWeight: "800", color: colors.text, flex: 1 },
         list: { padding: space.md },
         empty: {
           padding: space.xl,
@@ -70,7 +59,7 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
         cardMeta: { marginTop: 4, color: colors.textSecondary, fontSize: typo.bodySmall },
         cardLink: { marginTop: space.sm, color: colors.primary, fontWeight: "700" },
       }),
-    [colors, insets.top]
+    [colors]
   );
 
   useFocusEffect(
@@ -95,12 +84,11 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} accessibilityLabel="Voltar">
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Histórico de rotas</Text>
-      </View>
+      <ScreenHeaderBar
+        title="Histórico de rotas"
+        onBack={() => navigation.goBack()}
+        paddingTop={Math.max(12, insets.top)}
+      />
 
       {history.length === 0 ? (
         <View style={styles.empty}>

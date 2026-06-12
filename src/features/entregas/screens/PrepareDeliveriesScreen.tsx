@@ -8,6 +8,8 @@ import {
   Modal,
   Alert,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import type { ComponentProps } from "react";
 import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,6 +17,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import AddressForm, {
   type AddressFormValues,
@@ -22,16 +25,15 @@ import AddressForm, {
   type AddressCandidate,
 } from "../components/AddressForm";
 import AddressQuickForm, { type QuickFormFlowState } from "../components/AddressQuickForm";
-import AddressPreviewSheet from "../components/AddressPreviewSheet";
 import GeocodeFailureSheet from "../components/GeocodeFailureSheet";
 import PrepProgressList from "../components/PrepProgressList";
 import PrepAddressExistsModal from "../components/PrepAddressExistsModal";
 import PrepScanSheet from "../components/PrepScanSheet";
+import PrepSeparatePackagesSheet from "../components/PrepSeparatePackagesSheet";
 import VoiceAddressModal from "../components/VoiceAddressModal";
 import type { EntregaListItem } from "../types";
 import {
   buildPrepQueue,
-  prepOrdemLabel,
   type PrepOrdemModo,
   type ServicoTipo,
   SERVICO_ORDER,
@@ -50,23 +52,20 @@ import {
 } from "../utils/geocode";
 import type { EnderecoBody } from "../api";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
-import RoutePriorityModal from "../components/RoutePriorityModal";
-import { routePriorityLabel } from "../utils/routePriority";
 import { formatApiError } from "../../../utils/formatApiError";
-import { deliveryToFreeText } from "../utils/deliveryAddress";
+import { operationalIcons } from "../../../theme/operationalIcons";
 import {
-  enrichParsedAddress,
-  formatAddressSummary,
-  isGooglePendingSuggestion,
-  isSelectableAddressSuggestion,
-  needsAddressEnrichment,
-  resetAddressSessionToken,
-  resolveGooglePlaceSuggestion,
-  suggestionToParsed,
-  type AddressSuggestion,
-} from "../utils/addressSuggestions";
+  derivePrepFlowView,
+  type PrepPrimaryAction,
+  type PrepSecondaryAction,
+} from "../utils/prepFlowState";
+import { runOptimizeRouteWithFeedback } from "../utils/optimizeRouteFeedback";
+import { deliveryToFreeText } from "../utils/deliveryAddress";
+import { formatAddressSummary } from "../utils/addressSuggestions";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
+
+type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
 type AfterSaveMode = "scan" | "queue" | "none";
 type FormMode = "new" | "edit";
@@ -85,7 +84,12 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     setRouteDeliveries,
     clearActiveRouteState,
     activeRouteId,
+    routeOrder,
+    routeDeliveries,
+    routeSeparationAcknowledged,
+    acknowledgeRouteSeparation,
     optimizeRoute,
+    startActiveRoute,
     reconcileActiveRoute,
   } = useDeliveryStore();
 
@@ -96,8 +100,6 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const setPrepOrdem = useMotoboyPrefsStore((s) => s.setPrepOrdem);
-  const routePriority = useMotoboyPrefsStore((s) => s.routePriority);
-  const setRoutePriority = useMotoboyPrefsStore((s) => s.setRoutePriority);
 
   const [showScanSheet, setShowScanSheet] = useState(false);
   const [addressExistsDelivery, setAddressExistsDelivery] = useState<EntregaListItem | null>(
@@ -114,30 +116,16 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [externalParsed, setExternalParsed] = useState<ParsedAddress | null>(null);
 
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewParsed, setPreviewParsed] = useState<ParsedAddress | null>(null);
-  const [previewSource, setPreviewSource] = useState<"voice" | "ocr">("voice");
-  const [pendingPreviewSave, setPendingPreviewSave] = useState<{
-    values: AddressFormValues;
-    coords: GeocodeResult | null;
-    origem: AddressOrigem;
-  } | null>(null);
-  const [previewSuggestions, setPreviewSuggestions] = useState<AddressSuggestion[]>([]);
-  const [previewDidYouMean, setPreviewDidYouMean] = useState<AddressSuggestion | null>(null);
-  const [previewSuggestionsLoading, setPreviewSuggestionsLoading] = useState(false);
-  const [previewSelectedSuggestionId, setPreviewSelectedSuggestionId] = useState<string | null>(null);
-  const [previewAutoApplied, setPreviewAutoApplied] = useState(false);
-
   const [showGeocodeFailure, setShowGeocodeFailure] = useState(false);
   const [geocodeQuery, setGeocodeQuery] = useState("");
   const [pendingSaveValues, setPendingSaveValues] = useState<AddressFormValues | null>(null);
   const [pendingSaveOrigem, setPendingSaveOrigem] = useState<AddressOrigem>("manual");
 
   const [showOrdemModal, setShowOrdemModal] = useState(false);
-  const [showPriorityModal, setShowPriorityModal] = useState(false);
   const [ordemDraftModo, setOrdemDraftModo] = useState<PrepOrdemModo>(prepOrdemModo);
   const [ordemDraftServico, setOrdemDraftServico] = useState<ServicoTipo>(prepServicoInicio);
   const [optimizing, setOptimizing] = useState(false);
+  const [showSeparationSheet, setShowSeparationSheet] = useState(false);
 
   const voiceResolveRef = useRef<(v: AddressCandidate[] | AddressCandidate | null) => void>(
     () => {}
@@ -154,9 +142,6 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         center: { flex: 1, justifyContent: "center", alignItems: "center" },
-        header: { paddingHorizontal: 20, paddingBottom: 12 },
-        backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
-        title: { fontSize: 22, fontWeight: "700", color: colors.text },
         card: {
           marginHorizontal: 20,
           backgroundColor: colors.backgroundCard,
@@ -168,16 +153,58 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         row: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
         label: { fontSize: 14, color: colors.textSecondary },
         value: { fontSize: 16, fontWeight: "600", color: colors.text },
-        ordemRow: {
+        statusChip: {
+          alignSelf: "flex-start",
+          marginTop: 8,
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 8,
+        },
+        statusChipText: { fontSize: 12, fontWeight: "700" },
+        statusHint: {
+          marginTop: 8,
+          fontSize: 13,
+          color: colors.warning,
+          lineHeight: 18,
+        },
+        statusMessage: {
+          marginHorizontal: 20,
+          marginBottom: 10,
+          fontSize: 13,
+          color: colors.success,
+          fontWeight: "600",
+          textAlign: "center",
+        },
+        btnInner: {
           flexDirection: "row",
           alignItems: "center",
-          flexWrap: "wrap",
-          marginHorizontal: 20,
-          marginBottom: 12,
+          justifyContent: "center",
           gap: 8,
         },
-        ordemText: { fontSize: 13, color: colors.textSecondary, flex: 1 },
-        ordemLink: { fontSize: 13, fontWeight: "600", color: colors.primary },
+        btnOutlineInner: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+        },
+        btnOutlineTextWrap: {
+          flex: 1,
+          alignItems: "center",
+        },
+        btnOutlineSubtext: {
+          fontSize: 12,
+          color: colors.textSecondary,
+          textAlign: "center",
+          marginTop: 2,
+        },
+        actionsBlock: { marginBottom: 8 },
+        linkBtn: {
+          marginHorizontal: 20,
+          paddingVertical: 8,
+          alignItems: "center",
+          marginBottom: 8,
+        },
+        linkBtnText: { fontSize: 13, color: colors.textSecondary, fontWeight: "600" },
         btn: {
           marginHorizontal: 20,
           backgroundColor: colors.primary,
@@ -267,6 +294,42 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     [deliveriesWithAddress]
   );
 
+  const prepFlow = useMemo(
+    () =>
+      derivePrepFlowView({
+        totalPedidos: total,
+        comEndereco,
+        semEndereco,
+        withCoordsCount: withCoords.length,
+        routeOrderLength: routeOrder.length,
+        activeRouteId,
+        separationViewed: routeSeparationAcknowledged,
+      }),
+    [
+      total,
+      comEndereco,
+      semEndereco,
+      withCoords.length,
+      routeOrder.length,
+      activeRouteId,
+      routeSeparationAcknowledged,
+    ]
+  );
+
+  const statusChipStyle = useMemo(() => {
+    switch (prepFlow.statusChip) {
+      case "ready":
+      case "route_ready":
+        return { bg: colors.success + "22", fg: colors.success };
+      case "missing_addresses":
+        return { bg: colors.warning + "22", fg: colors.warning };
+      case "route_active":
+        return { bg: colors.primary + "22", fg: colors.primary };
+      default:
+        return { bg: colors.chipBackground, fg: colors.textSecondary };
+    }
+  }, [prepFlow.statusChip, colors]);
+
   const knownDeliveriesForForm = useMemo(() => {
     if (!activeDelivery) return deliveriesWithAddress;
     return deliveriesWithAddress.filter((d) => d.id_saida !== activeDelivery.id_saida);
@@ -310,12 +373,41 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       if (!activeDelivery) return;
       const opts: CommitSaveOptions =
         typeof options === "boolean" ? { skipGeocodeCheck: options } : options;
+
+      const finalVals: AddressFormValues = {
+        ...vals,
+        destinatario:
+          (vals.destinatario ?? "").trim() || (activeDelivery.cliente ?? "").trim() || "—",
+        rua: (vals.rua ?? "").trim(),
+        numero: (vals.numero ?? "").trim(),
+        bairro: (vals.bairro ?? "").trim(),
+        complemento: (vals.complemento ?? "").trim(),
+        cidade: (vals.cidade ?? "").trim() || cidadePadrao,
+        estado: (vals.estado ?? "").trim() || estadoPadrao,
+        cep: (vals.cep ?? "").replace(/\D/g, ""),
+      };
+
+      const missingRequired =
+        !finalVals.rua ||
+        !finalVals.numero ||
+        !finalVals.bairro ||
+        finalVals.cep.length !== 8;
+
+      if (missingRequired) {
+        setExternalParsed(finalVals);
+        setShowQuickForm(false);
+        setShowAdvancedForm(true);
+        setFeedbackMessage("Complete os campos faltantes para salvar.");
+        setFlowState("idle");
+        return;
+      }
+
       setFlowState("geocoding");
       try {
         if (!opts.skipGeocodeCheck) {
           const geoDefaults = {
-            cidade: (vals.cidade ?? "").trim() || cidadePadrao,
-            estado: (vals.estado ?? "").trim() || estadoPadrao,
+            cidade: finalVals.cidade,
+            estado: finalVals.estado,
           };
           const hasClientCoords = isValidGeocodeCoords(opts.coords?.latitude, opts.coords?.longitude);
           const geo =
@@ -323,19 +415,17 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
               ? opts.coords!
               : hasClientCoords
                 ? opts.coords!
-                : await geocodeAddressFromValues(vals, geoDefaults, {
-                    enderecoFormatado: formatAddressSummary(vals),
-                  });
+                : await geocodeAddressFromValues(finalVals, geoDefaults);
           if (!geo) {
-            setPendingSaveValues(vals);
+            setPendingSaveValues(finalVals);
             setPendingSaveOrigem(origem);
-            setGeocodeQuery(formatAddressSummary(vals));
+            setGeocodeQuery(formatAddressSummary(finalVals));
             setShowGeocodeFailure(true);
             setFlowState("idle");
             return;
           }
           const body: EnderecoBody = {
-            ...vals,
+            ...finalVals,
             origem,
             latitude: geo.latitude,
             longitude: geo.longitude,
@@ -345,7 +435,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           await saveAddress(activeDelivery.id_saida, body);
         } else {
           setFlowState("saving");
-          await saveAddress(activeDelivery.id_saida, { ...vals, origem });
+          await saveAddress(activeDelivery.id_saida, { ...finalVals, origem });
         }
         setFeedbackMessage(
           formMode === "edit" ? "Endereço atualizado." : "Endereço salvo. Próximo pacote."
@@ -426,23 +516,14 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     [commitSave]
   );
 
-  const setPreviewPending = useCallback(
-    (
-      values: AddressFormValues,
-      opts?: { coords?: GeocodeResult | null; origem?: AddressOrigem; fromSuggestion?: boolean }
-    ) => {
-      const coords = opts?.coords ?? null;
-      const origem =
-        opts?.origem ??
-        (opts?.fromSuggestion && isValidGeocodeCoords(coords?.latitude, coords?.longitude)
-          ? "suggestion"
-          : previewSource === "voice"
-            ? "voz"
-            : "ocr");
-      setPendingPreviewSave({ values, coords, origem });
-    },
-    [previewSource]
-  );
+  const injectAddressIntoQuickForm = useCallback((parsed: ParsedAddress, rawText: string) => {
+    const text =
+      rawText.trim() ||
+      (parsed.rawText ?? "").trim() ||
+      formatAddressSummary(parsedToFormValues(parsed));
+    setExternalParsed({ ...parsed, rawText: text });
+    setFlowState("idle");
+  }, []);
 
   const handleScanFound = (delivery: EntregaListItem) => {
     if (delivery.possui_endereco) {
@@ -531,82 +612,6 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     return pickBestOcrAddress(lines);
   }, []);
 
-  const mergePreviewValues = useCallback(
-    (vals: AddressFormValues): AddressFormValues => ({
-      ...vals,
-      destinatario: vals.destinatario.trim() || activeDelivery?.cliente || "",
-    }),
-    [activeDelivery?.cliente]
-  );
-
-  const openPreviewWithEnrichment = useCallback(
-    async (parsed: ParsedAddress, source: "voice" | "ocr") => {
-      setPreviewParsed(parsed);
-      setPreviewSource(source);
-      setPreviewPending(mergePreviewValues(parsedToFormValues(parsed)));
-      setPreviewSuggestions([]);
-      setPreviewDidYouMean(null);
-      setPreviewSelectedSuggestionId(null);
-      setPreviewAutoApplied(false);
-      setShowPreview(true);
-
-      if (!needsAddressEnrichment(parsedToFormValues(parsed))) return;
-
-      setPreviewSuggestionsLoading(true);
-      try {
-        const { suggestions, autoSelected, didYouMean } = await enrichParsedAddress(parsed, {
-          cidade: cidadePadrao || undefined,
-          estado: estadoPadrao || undefined,
-        });
-        setPreviewSuggestions(suggestions);
-        setPreviewDidYouMean(didYouMean);
-        if (autoSelected) {
-          const enriched = suggestionToParsed(autoSelected);
-          setPreviewParsed(enriched);
-          setPreviewPending(mergePreviewValues(autoSelected.values), {
-            coords: { latitude: autoSelected.latitude, longitude: autoSelected.longitude },
-            fromSuggestion: true,
-          });
-          setPreviewSelectedSuggestionId(autoSelected.id);
-          setPreviewAutoApplied(true);
-        }
-      } finally {
-        setPreviewSuggestionsLoading(false);
-      }
-    },
-    [cidadePadrao, estadoPadrao, mergePreviewValues, setPreviewPending]
-  );
-
-  const handlePreviewSelectSuggestion = useCallback(
-    async (s: AddressSuggestion) => {
-      if (!isSelectableAddressSuggestion(s)) return;
-      let resolved = s;
-      if (isGooglePendingSuggestion(s)) {
-        setPreviewSuggestionsLoading(true);
-        const full = await resolveGooglePlaceSuggestion(s, {
-          defaults: { cidade: cidadePadrao, estado: estadoPadrao },
-        });
-        setPreviewSuggestionsLoading(false);
-        if (!full) {
-          Alert.alert("Endereço", "Não foi possível obter os detalhes deste endereço.");
-          return;
-        }
-        resolved = full;
-        resetAddressSessionToken();
-      }
-      const enriched = suggestionToParsed(resolved);
-      setPreviewParsed(enriched);
-      setPreviewPending(mergePreviewValues(resolved.values), {
-        coords: { latitude: resolved.latitude, longitude: resolved.longitude },
-        origem: resolved.provider === "google_places" ? "google_places" : "suggestion",
-        fromSuggestion: resolved.provider !== "google_places",
-      });
-      setPreviewSelectedSuggestionId(resolved.id);
-      setPreviewAutoApplied(false);
-    },
-    [cidadePadrao, estadoPadrao, mergePreviewValues, setPreviewPending]
-  );
-
   const handleOcr = useCallback(async () => {
     setFlowState("parsing");
     try {
@@ -615,18 +620,14 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         setFlowState("idle");
         return;
       }
-      if (!(parsed.rua ?? "").trim() && parsed.rawText) {
-        setExternalParsed(parsed);
-        setFlowState("idle");
-        return;
-      }
-      await openPreviewWithEnrichment(parsed, "ocr");
+      const rawText =
+        (parsed.rawText ?? "").trim() || formatAddressSummary(parsedToFormValues(parsed));
+      injectAddressIntoQuickForm(parsed, rawText);
     } catch {
       Alert.alert("Erro", "Não foi possível ler a imagem.");
-    } finally {
       setFlowState("idle");
     }
-  }, [captureOcrParsed, openPreviewWithEnrichment]);
+  }, [captureOcrParsed, injectAddressIntoQuickForm]);
 
   const handleRequestOcrAdvanced = useCallback(async () => {
     const parsed = await captureOcrParsed();
@@ -698,15 +699,9 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       setShowVoiceModal(false);
       setSpeechModule(null);
       setFlowState("parsing");
-      if (!(parsed.rua ?? "").trim()) {
-        setExternalParsed({ rawText: transcript, confidence: "low" });
-        setFlowState("idle");
-        return;
-      }
-      void openPreviewWithEnrichment(parsed, "voice");
-      setFlowState("idle");
+      injectAddressIntoQuickForm(parsed, transcript);
     },
-    [cidadePadrao, estadoPadrao, showAdvancedForm, openPreviewWithEnrichment]
+    [cidadePadrao, estadoPadrao, showAdvancedForm, injectAddressIntoQuickForm]
   );
 
   const handleVoiceCancel = useCallback(() => {
@@ -719,26 +714,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     setFlowState("idle");
   }, [showAdvancedForm]);
 
-  const handlePreviewSave = async () => {
-    if (!pendingPreviewSave) return;
-    setShowPreview(false);
-    setExternalParsed(previewParsed);
-    await handleSaveAndNext(
-      pendingPreviewSave.values,
-      pendingPreviewSave.origem,
-      pendingPreviewSave.coords
-    );
-    setPendingPreviewSave(null);
-    setPreviewParsed(null);
-  };
-
-  const handlePreviewEdit = () => {
-    setShowPreview(false);
-    if (previewParsed) setExternalParsed(previewParsed);
-    setPendingPreviewSave(null);
-  };
-
-  const handleCriarRota = useCallback(async () => {
+  const handleGerarRotaOtimizada = useCallback(async () => {
     if (useDeliveryStore.getState().activeRouteId != null) {
       await reconcileActiveRoute();
     }
@@ -753,42 +729,121 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para criar a rota.");
       return;
     }
-    const runCreate = async () => {
-      setOptimizing(true);
-      try {
-        clearActiveRouteState();
-        setRouteDeliveries(withCoords);
-        await optimizeRoute();
-        navigation.navigate("RouteBuilder");
-      } catch (e) {
-        Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
-      } finally {
-        setOptimizing(false);
-      }
-    };
-    if (semEndereco > 0) {
-      Alert.alert(
-        "Rota parcial",
-        `${semEndereco} pedido${semEndereco !== 1 ? "s" : ""} sem endereço não entrarão na rota agora.`,
-        [
-          { text: "Adicionar pendentes", onPress: handleNextPending },
-          { text: "Continuar", onPress: () => void runCreate() },
-          { text: "Cancelar", style: "cancel" },
-        ]
-      );
-    } else {
-      await runCreate();
+    setOptimizing(true);
+    try {
+      clearActiveRouteState();
+      setRouteDeliveries(withCoords);
+      const result = await runOptimizeRouteWithFeedback(optimizeRoute);
+      if (!result?.ok) return;
+      navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
+    } catch (e) {
+      Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
+    } finally {
+      setOptimizing(false);
     }
   }, [
     withCoords,
-    semEndereco,
     clearActiveRouteState,
     setRouteDeliveries,
     optimizeRoute,
     navigation,
-    handleNextPending,
     reconcileActiveRoute,
   ]);
+
+  const handleIniciarRota = useCallback(async () => {
+    if (activeRouteId != null) {
+      navigation.navigate("RouteBuilder");
+      return;
+    }
+    if (routeOrder.length === 0) {
+      Alert.alert("Atenção", "Gere a rota antes de iniciar a entrega.");
+      return;
+    }
+    if (withCoords.length < 2) {
+      Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para iniciar a rota.");
+      return;
+    }
+    setOptimizing(true);
+    try {
+      await startActiveRoute();
+      navigation.navigate("RouteBuilder");
+    } catch (e) {
+      Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao iniciar rota.");
+    } finally {
+      setOptimizing(false);
+    }
+  }, [activeRouteId, routeOrder.length, withCoords.length, startActiveRoute, navigation]);
+
+  const handleOpenAdvancedForm = useCallback(() => {
+    const q = refreshQueue();
+    const next = q[0];
+    if (!next) {
+      Alert.alert("Atenção", "Não há pedidos pendentes.");
+      return;
+    }
+    setActiveDelivery(next);
+    setAfterSaveMode("queue");
+    setShowAdvancedForm(true);
+  }, [refreshQueue]);
+
+  const handlePrimaryAction = useCallback(() => {
+    switch (prepFlow.primaryAction) {
+      case "scan":
+        handleStartScan();
+        break;
+      case "add_address":
+        handleNextPending();
+        break;
+      case "generate_route":
+        void handleGerarRotaOtimizada();
+        break;
+      case "separate_packages":
+        setShowSeparationSheet(true);
+        break;
+      case "start_route":
+        void handleIniciarRota();
+        break;
+      default:
+        break;
+    }
+  }, [
+    prepFlow.primaryAction,
+    handleGerarRotaOtimizada,
+    handleIniciarRota,
+    handleStartScan,
+    handleNextPending,
+  ]);
+
+  const handleSecondaryAction = useCallback(
+    (action: PrepSecondaryAction) => {
+      switch (action) {
+        case "scan_more":
+          handleStartScan();
+          break;
+        case "edit_ordering":
+          setOrdemDraftModo(prepOrdemModo);
+          setOrdemDraftServico(prepServicoInicio);
+          setShowOrdemModal(true);
+          break;
+        case "locate_package":
+          navigation.navigate("RouteBuilder", { openLocatePackage: true });
+          break;
+        case "open_route_builder":
+          navigation.navigate("RouteBuilder");
+          break;
+        default:
+          break;
+      }
+    },
+    [navigation, prepOrdemModo, prepServicoInicio]
+  );
+
+  const primaryDisabled =
+    optimizing ||
+    (prepFlow.primaryAction === "generate_route" && withCoords.length < 2) ||
+    (prepFlow.primaryAction === "start_route" &&
+      routeOrder.length === 0 &&
+      activeRouteId == null);
 
   const handleSalvarAdvanced = async (vals: AddressFormValues, origem?: AddressOrigem) => {
     setAfterSaveMode("queue");
@@ -810,54 +865,33 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: Math.max(16, insets.top) }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>← Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Preparar Rota</Text>
-      </View>
+    <View style={styles.container}>
+      <ScreenHeaderBar
+        title="Preparar Rota"
+        onBack={() => navigation.goBack()}
+        paddingTop={Math.max(12, insets.top)}
+      />
 
       <View style={styles.card}>
         <Text style={styles.totalValue}>{total} pedidos</Text>
         <View style={styles.row}>
-          <Text style={styles.label}>Com endereço</Text>
-          <Text style={styles.value}>{comEndereco}</Text>
+          <Text style={styles.label}>Prontos para rota</Text>
+          <Text style={styles.value}>{prepFlow.prontosParaRota}</Text>
         </View>
         <View style={styles.row}>
-          <Text style={styles.label}>Pendentes</Text>
-          <Text style={styles.value}>{semEndereco}</Text>
+          <Text style={styles.label}>Precisam de endereço</Text>
+          <Text style={styles.value}>{prepFlow.precisamEndereco}</Text>
         </View>
-      </View>
-
-      <View style={styles.ordemRow}>
-        <Text style={styles.ordemText}>
-          Ordenação: {prepOrdemLabel(prepOrdemModo, prepServicoInicio)}
-        </Text>
-        <TouchableOpacity
-          onPress={() => {
-            setOrdemDraftModo(prepOrdemModo);
-            setOrdemDraftServico(prepServicoInicio);
-            setShowOrdemModal(true);
-          }}
-        >
-          <Text style={styles.ordemLink}>Alterar</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.ordemRow}>
-        <Text style={styles.ordemText}>
-          Priorizar por:{" "}
-          {routePriority.type === "delivery"
-            ? routePriorityLabel(
-                routePriority,
-                withCoords.find((d) => d.id_saida === routePriority.idSaida)?.codigo ?? undefined
-              )
-            : routePriorityLabel(routePriority)}
-        </Text>
-        <TouchableOpacity onPress={() => setShowPriorityModal(true)}>
-          <Text style={styles.ordemLink}>Alterar</Text>
-        </TouchableOpacity>
+        {prepFlow.statusChipLabel ? (
+          <View style={[styles.statusChip, { backgroundColor: statusChipStyle.bg }]}>
+            <Text style={[styles.statusChipText, { color: statusChipStyle.fg }]}>
+              {prepFlow.statusChipLabel}
+            </Text>
+          </View>
+        ) : null}
+        {prepFlow.statusHint ? (
+          <Text style={styles.statusHint}>{prepFlow.statusHint}</Text>
+        ) : null}
       </View>
 
       {feedbackMessage ? (
@@ -866,46 +900,60 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         </View>
       ) : null}
 
-      <TouchableOpacity style={styles.btn} onPress={handleStartScan}>
-        <Text style={styles.btnText}>Escanear pacote</Text>
-      </TouchableOpacity>
+      {prepFlow.addressCompleteMessage ? (
+        <Text style={styles.statusMessage}>{prepFlow.addressCompleteMessage}</Text>
+      ) : null}
 
-      <TouchableOpacity
-        style={[styles.btnOutline, semEndereco === 0 && styles.btnDisabled]}
-        onPress={handleNextPending}
-        disabled={semEndereco === 0}
-      >
-        <Text style={styles.btnOutlineText}>Adicionar endereço ao próximo</Text>
-      </TouchableOpacity>
+      <View style={styles.actionsBlock}>
+        <TouchableOpacity
+          style={[styles.btn, primaryDisabled && styles.btnDisabled]}
+          onPress={handlePrimaryAction}
+          disabled={primaryDisabled}
+          activeOpacity={0.92}
+        >
+          {optimizing &&
+          (prepFlow.primaryAction === "generate_route" ||
+            prepFlow.primaryAction === "start_route") ? (
+            <ActivityIndicator color={colors.primaryContrast} />
+          ) : (
+            <View style={styles.btnInner}>
+              <Ionicons
+                name={operationalIcons[prepFlow.primaryIconKey] as IoniconName}
+                size={20}
+                color={colors.primaryContrast}
+              />
+              <Text style={styles.btnText}>{prepFlow.primaryLabel}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
-      <TouchableOpacity
-        style={[styles.btn, withCoords.length < 2 && styles.btnDisabled]}
-        onPress={() => void handleCriarRota()}
-        disabled={withCoords.length < 2 || optimizing}
-      >
-        {optimizing ? (
-          <ActivityIndicator color={colors.primaryContrast} />
-        ) : (
-          <Text style={styles.btnText}>Criar rota</Text>
-        )}
-      </TouchableOpacity>
+        {prepFlow.secondaryActions.map((sec) => (
+          <TouchableOpacity
+            key={sec.action}
+            style={styles.btnOutline}
+            onPress={() => handleSecondaryAction(sec.action)}
+            activeOpacity={0.85}
+          >
+            <View style={styles.btnOutlineInner}>
+              <Ionicons
+                name={operationalIcons[sec.iconKey] as IoniconName}
+                size={18}
+                color={colors.primary}
+              />
+              <View style={sec.subtitle ? styles.btnOutlineTextWrap : undefined}>
+                <Text style={styles.btnOutlineText}>{sec.label}</Text>
+                {sec.subtitle ? (
+                  <Text style={styles.btnOutlineSubtext}>{sec.subtitle}</Text>
+                ) : null}
+              </View>
+            </View>
+          </TouchableOpacity>
+        ))}
 
-      <TouchableOpacity
-        style={styles.btnGhost}
-        onPress={() => {
-          const q = refreshQueue();
-          const next = q[0];
-          if (!next) {
-            Alert.alert("Atenção", "Não há pedidos pendentes.");
-            return;
-          }
-          setActiveDelivery(next);
-          setAfterSaveMode("queue");
-          setShowAdvancedForm(true);
-        }}
-      >
-        <Text style={styles.btnGhostText}>Modo avançado (CEP em passos)</Text>
-      </TouchableOpacity>
+        <TouchableOpacity style={styles.linkBtn} onPress={handleOpenAdvancedForm} activeOpacity={0.85}>
+          <Text style={styles.linkBtnText}>Opções de preenchimento</Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={[styles.listSection, { flex: 1 }]}>
         <Text style={styles.listTitle}>Pacotes</Text>
@@ -915,6 +963,17 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           onEditAddress={handleEditAddress}
         />
       </View>
+
+      <PrepSeparatePackagesSheet
+        visible={showSeparationSheet}
+        routeDeliveries={routeDeliveries}
+        routeOrder={routeOrder}
+        onConfirm={() => {
+          acknowledgeRouteSeparation();
+          setShowSeparationSheet(false);
+        }}
+        onClose={() => setShowSeparationSheet(false)}
+      />
 
       <PrepScanSheet
         visible={showScanSheet}
@@ -992,22 +1051,6 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         </View>
       </Modal>
 
-      <AddressPreviewSheet
-        visible={showPreview}
-        source={previewSource}
-        parsed={previewParsed}
-        suggestions={previewSuggestions}
-        suggestionsLoading={previewSuggestionsLoading}
-        selectedSuggestionId={previewSelectedSuggestionId}
-        autoApplied={previewAutoApplied}
-        didYouMean={previewDidYouMean}
-        onSelectSuggestion={handlePreviewSelectSuggestion}
-        onSaveAndNext={() => void handlePreviewSave()}
-        onEdit={handlePreviewEdit}
-        onRetry={previewSource === "voice" ? handleDictate : handleOcr}
-        onClose={() => setShowPreview(false)}
-      />
-
       <GeocodeFailureSheet
         visible={showGeocodeFailure}
         addressQuery={geocodeQuery}
@@ -1022,14 +1065,6 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           }
         }}
         onClose={() => setShowGeocodeFailure(false)}
-      />
-
-      <RoutePriorityModal
-        visible={showPriorityModal}
-        current={routePriority}
-        packages={withCoords}
-        onClose={() => setShowPriorityModal(false)}
-        onSave={(p) => void setRoutePriority(p)}
       />
 
       <Modal visible={showOrdemModal} transparent animationType="fade">

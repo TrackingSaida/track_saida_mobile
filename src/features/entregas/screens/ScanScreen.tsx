@@ -75,7 +75,12 @@ const CORNER_COLOR = "#00bfff"; // azul claro visível sobre a câmera
 const FEEDBACK_MS = 1100;
 
 type FeedbackTipo = "sucesso" | "duplicado" | "erro" | "info";
-type ScanConflictLocal = { conflito: true; motoboy_atual: string; id_saida: number };
+type ScanConflictLocal = {
+  conflito: true;
+  motoboy_atual: string;
+  id_saida: number;
+  status_atual?: string;
+};
 type ScanSuccessLocal = {
   conflito: false;
   ja_existia?: boolean;
@@ -313,7 +318,11 @@ export default function ScanScreen({ navigation }: Props) {
   const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
   const [showAvulsoModal, setShowAvulsoModal] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [conflito, setConflito] = useState<{ motoboy_atual: string; id_saida: number } | null>(null);
+  const [conflito, setConflito] = useState<{
+    motoboy_atual: string;
+    id_saida: number;
+    status_atual?: string;
+  } | null>(null);
   const [conflitoDiaAnterior, setConflitoDiaAnterior] = useState<{
     id_saida: number;
     data_operacional_anterior: string;
@@ -491,6 +500,7 @@ export default function ScanScreen({ navigation }: Props) {
           setConflito({
             motoboy_atual: nomeMotoboy || "outro motoboy",
             id_saida: conflitoResult.id_saida ?? 0,
+            status_atual: (conflitoResult as { status_atual?: string }).status_atual,
           });
         } else if ((result as ScanSuccessLocal).entrega) {
           const sucessoResult = result as ScanSuccessLocal;
@@ -585,7 +595,14 @@ export default function ScanScreen({ navigation }: Props) {
       setConflito(null);
       scanLocked.current = false;
       playSound("success");
-      pushFeedback("sucesso", "Leitura assumida", entrega.codigo ?? String(conflito.id_saida));
+      const eraEntregue = String(conflito.status_atual ?? "")
+        .toLowerCase()
+        .includes("entregue");
+      pushFeedback(
+        "sucesso",
+        eraEntregue ? "Reatribuído — Em rota" : "Leitura assumida",
+        entrega.codigo ?? String(conflito.id_saida)
+      );
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
       const msg = ax?.response?.data?.detail ?? "Erro ao assumir.";
@@ -716,9 +733,15 @@ export default function ScanScreen({ navigation }: Props) {
         <Modal visible={!!conflito} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={styles.modalBox}>
-              <Text style={styles.modalTitle}>Conflito</Text>
+              <Text style={styles.modalTitle}>
+                {String(conflito?.status_atual ?? "").toLowerCase().includes("entregue")
+                  ? "Pedido já entregue"
+                  : "Conflito"}
+              </Text>
               <Text style={styles.modalMessage}>
-                Pedido já atribuído ao motoboy {conflito?.motoboy_atual}. Deseja assumir?
+                {String(conflito?.status_atual ?? "").toLowerCase().includes("entregue")
+                  ? `Pedido já entregue pelo motoboy ${conflito?.motoboy_atual}. Deseja reassumir e colocar Em rota?`
+                  : `Pedido já atribuído ao motoboy ${conflito?.motoboy_atual}. Deseja assumir?`}
               </Text>
               <View style={styles.modalActions}>
                 <TouchableOpacity
@@ -923,9 +946,15 @@ export default function ScanScreen({ navigation }: Props) {
       <Modal visible={!!conflito} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Conflito</Text>
+            <Text style={styles.modalTitle}>
+              {String(conflito?.status_atual ?? "").toLowerCase().includes("entregue")
+                ? "Pedido já entregue"
+                : "Conflito"}
+            </Text>
             <Text style={styles.modalMessage}>
-              Pedido já atribuído ao motoboy {conflito?.motoboy_atual}. Deseja assumir?
+              {String(conflito?.status_atual ?? "").toLowerCase().includes("entregue")
+                ? `Pedido já entregue pelo motoboy ${conflito?.motoboy_atual}. Deseja reassumir e colocar Em rota?`
+                : `Pedido já atribuído ao motoboy ${conflito?.motoboy_atual}. Deseja assumir?`}
             </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity

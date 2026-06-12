@@ -26,7 +26,8 @@ import {
   type EntregueBody,
   type RotasAtivaResponse,
 } from "../features/entregas/api";
-import { geocodeAddressFromValues, inferCoordPrecision, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
+import { inferCoordPrecision, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
+import { geocodeAddressStrict } from "../features/entregas/utils/geocodeStrict";
 import {
   clusterRouteOrderByAddress,
   flattenGroupsToRouteOrder,
@@ -124,6 +125,9 @@ interface DeliveryState {
   routeDistanceM: number | null;
   /** Duração total da última otimização (segundos), quando disponível via OSRM. */
   routeDurationS: number | null;
+  /** Motoboy conferiu lista Pacote→Parada antes de iniciar. */
+  routeSeparationAcknowledged: boolean;
+  acknowledgeRouteSeparation: () => void;
 
   loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<void>;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
@@ -268,6 +272,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   routeOptimizationMode: null,
   routeDistanceM: null,
   routeDurationS: null,
+  routeSeparationAcknowledged: false,
   setCurrentLocation: (location) => set({ currentLocation: location }),
 
   loadDeliveries: async (opts) => {
@@ -303,37 +308,41 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   saveAddress: async (idSaida, body) => {
     let finalBody = body;
     if (!isValidGeocodeCoords(body.latitude, body.longitude)) {
-      const enderecoFormatado = [
-        body.rua,
-        body.numero,
-        body.complemento,
-        body.bairro,
-        body.cidade,
-        body.estado,
-        body.cep,
-      ]
-        .filter((p) => (p ?? "").trim())
-        .join(", ");
-      const coords = await geocodeAddressFromValues(
-        {
-          rua: body.rua,
-          numero: body.numero,
-          bairro: body.bairro,
-          cidade: body.cidade,
-          estado: body.estado,
-          cep: body.cep,
-        },
-        { cidade: body.cidade, estado: body.estado },
-        { enderecoFormatado }
-      );
-      if (coords) {
+      const strict = await geocodeAddressStrict({
+        rua: body.rua,
+        numero: body.numero,
+        bairro: body.bairro,
+        cidade: body.cidade,
+        estado: body.estado,
+        cep: body.cep,
+      });
+      if (strict) {
         finalBody = {
           ...body,
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          coord_precision: body.coord_precision ?? inferCoordPrecision(body.origem ?? "manual"),
+          latitude: strict.latitude,
+          longitude: strict.longitude,
+          coord_precision:
+            body.coord_precision ??
+            (strict.confidence === "alta" ? "rooftop" : "street"),
+          geocode_source: body.geocode_source ?? "nominatim_strict",
+          geocode_score: body.geocode_score ?? (strict.confidence === "alta" ? 90 : 70),
+        };
+      } else {
+        finalBody = {
+          ...body,
+          latitude: null,
+          longitude: null,
+          coord_precision: null,
+          geocode_source: null,
+          geocode_score: null,
         };
       }
+    } else if (!body.geocode_source && body.origem) {
+      finalBody = {
+        ...body,
+        geocode_source: body.geocode_source ?? body.origem,
+        coord_precision: body.coord_precision ?? inferCoordPrecision(body.origem ?? "manual"),
+      };
     }
     try {
       const updated = await putEndereco(idSaida, finalBody);
@@ -638,8 +647,14 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     deliveries.forEach((d) => {
       routeDeliveryStatus[d.id_saida] = "pendente";
     });
-    set({ routeDeliveries: deliveries, routeOrder: order, routeDeliveryStatus });
+    set({
+      routeDeliveries: deliveries,
+      routeOrder: order,
+      routeDeliveryStatus,
+      routeSeparationAcknowledged: false,
+    });
   },
+  acknowledgeRouteSeparation: () => set({ routeSeparationAcknowledged: true }),
   clearRoute: () =>
     set({
       routeDeliveries: [],
@@ -648,6 +663,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeOptimizationMode: null,
       routeDistanceM: null,
       routeDurationS: null,
+      routeSeparationAcknowledged: false,
     }),
   clearActiveRouteState: () => {
     stopBackgroundTracking().catch(() => {});
@@ -661,6 +677,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeOptimizationMode: null,
       routeDistanceM: null,
       routeDurationS: null,
+      routeSeparationAcknowledged: false,
     });
   },
   optimizeRoute: async (opts) => {

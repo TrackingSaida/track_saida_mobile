@@ -16,6 +16,7 @@ import { useThemeStore, type ThemeMode } from "../store/themeStore";
 import { useAuthStore } from "../store/authStore";
 import { useMotoboyPrefsStore } from "../store/motoboyPrefsStore";
 import { useThemeColors } from "../theme/colors";
+import ScreenHeaderBar from "../components/ScreenHeaderBar";
 import { getBiometricEnabled } from "../services/settingsService";
 import SettingsSection from "../components/settings/SettingsSection";
 import SettingsToggleRow from "../components/settings/SettingsToggleRow";
@@ -27,7 +28,7 @@ type Props = NativeStackScreenProps<MaisStackParamList, "Configuracoes">;
 const APP_VERSION =
   Constants.expoConfig?.version ??
   (typeof Constants.nativeAppVersion === "string" ? Constants.nativeAppVersion : null) ??
-  "1.0.4";
+  "1.1.0";
 
 export default function ConfiguracoesScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -53,9 +54,6 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 16, paddingBottom: 32 },
-        backBtn: { marginBottom: 8 },
-        backText: { fontSize: 16, color: colors.primary },
-        title: { fontSize: 22, fontWeight: "700", marginBottom: 20, color: colors.text },
         themeOption: {
           flexDirection: "row",
           alignItems: "center",
@@ -172,15 +170,12 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: Math.max(16, insets.top) }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>← Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Configurações</Text>
-
+      <ScreenHeaderBar
+        title="Configurações"
+        onBack={() => navigation.goBack()}
+        paddingTop={Math.max(12, insets.top)}
+      />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <SettingsSection title="Aparência">
           {renderThemeOption("light", "Modo Claro")}
           {renderThemeOption("dark", "Modo Escuro", true)}

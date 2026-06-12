@@ -243,6 +243,8 @@ export interface EnderecoBody {
   longitude?: number | null;
   origem?: "manual" | "ocr" | "voz" | "suggestion" | "autocomplete" | "mapa" | "google_places";
   coord_precision?: "rooftop" | "street" | "approx" | null;
+  geocode_source?: string | null;
+  geocode_score?: number | null;
 }
 
 export async function putEndereco(idSaida: number, body: EnderecoBody): Promise<EntregaListItem> {

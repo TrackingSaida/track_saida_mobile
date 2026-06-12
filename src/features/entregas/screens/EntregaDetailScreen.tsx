@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   ScrollView,
-  Linking,
   Alert,
   Modal,
   Image,
@@ -29,17 +28,17 @@ import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import type { GeocodeResult } from "../utils/geocode";
 import { inferCoordPrecision, isValidGeocodeCoords } from "../utils/geocode";
 import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import DetailStatusHero from "../components/detail/DetailStatusHero";
+import DetailAddressBlock from "../components/detail/DetailAddressBlock";
+import DetailOccurrenceBlock from "../components/detail/DetailOccurrenceBlock";
+import DetailPersonBlock from "../components/detail/DetailPersonBlock";
+import DetailComprovanteBlock from "../components/detail/DetailComprovanteBlock";
+import DetailInfoBlock, { DetailFieldRow } from "../components/detail/DetailInfoBlock";
+import { resolveDetailStatusKind } from "../components/detail/detailFormatters";
+import { openNavigationToStop } from "../utils/externalNavigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregaDetail">;
-
-function FieldRow({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof StyleSheet.create> }) {
-  return (
-    <>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
-    </>
-  );
-}
 
 export default function EntregaDetailScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -50,45 +49,38 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 16, paddingBottom: 48 },
         center: { flex: 1, justifyContent: "center", alignItems: "center" },
-        header: { marginBottom: 16 },
-        backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
-        title: { fontSize: 22, fontWeight: "700", color: colors.text },
-        tentativaLabel: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
         avisoRota: {
-          backgroundColor: colors.warning,
+          backgroundColor: colors.warning + "33",
           padding: 12,
-          borderRadius: 8,
-          marginBottom: 16,
+          borderRadius: 10,
+          marginBottom: 12,
+          borderWidth: 1,
+          borderColor: colors.warning + "55",
         },
-        avisoRotaText: { fontSize: 14, color: colors.text },
-        card: {
-          backgroundColor: colors.backgroundCard,
-          padding: 20,
-          borderRadius: 12,
-          marginBottom: 24,
-          shadowColor: colors.shadowColor,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 4,
-          elevation: 2,
-        },
-        label: { fontSize: 12, color: colors.textSecondary, marginTop: 12, marginBottom: 4 },
-        value: { fontSize: 16, color: colors.text },
-        valueSec: { fontSize: 14, color: colors.textSecondary, marginTop: 2 },
-        link: { fontSize: 16, color: colors.primary },
+        avisoRotaText: { fontSize: 14, color: colors.text, fontWeight: "600" },
+        actions: { marginTop: 8, gap: 12 },
         btnEntregue: {
           backgroundColor: colors.success,
           paddingVertical: 18,
           borderRadius: 12,
           alignItems: "center",
-          marginBottom: 12,
         },
-        btnAusente: { backgroundColor: colors.danger, paddingVertical: 18, borderRadius: 12, alignItems: "center" },
-        btnNovaTentativa: { backgroundColor: colors.primary, paddingVertical: 18, borderRadius: 12, alignItems: "center", marginBottom: 12 },
+        btnAusente: {
+          backgroundColor: colors.danger,
+          paddingVertical: 18,
+          borderRadius: 12,
+          alignItems: "center",
+        },
+        btnNovaTentativa: {
+          backgroundColor: colors.primary,
+          paddingVertical: 18,
+          borderRadius: 12,
+          alignItems: "center",
+        },
         btnDisabled: { opacity: 0.7 },
-        btnEntregueText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
-        btnAusenteText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
-        btnNovaTentativaText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        btnEntregueText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "700" },
+        btnAusenteText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "700" },
+        btnNovaTentativaText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "700" },
         modalOverlay: {
           flex: 1,
           backgroundColor: colors.overlay,
@@ -96,18 +88,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           padding: 24,
         },
         modalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 24 },
-        modalBoxForm: { flex: 1, margin: 0, justifyContent: "center" },
         modalMessage: { fontSize: 16, color: colors.text, marginBottom: 16 },
         modalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 16, color: colors.text },
-        btnEndereco: {
-          marginTop: 16,
-          paddingVertical: 12,
-          borderRadius: 8,
-          borderWidth: 1,
-          borderColor: colors.primary,
-          alignItems: "center",
-        },
-        btnEnderecoText: { color: colors.primary, fontSize: 16, fontWeight: "600" },
         radio: {
           paddingVertical: 12,
           paddingHorizontal: 16,
@@ -115,30 +97,9 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           marginBottom: 8,
           backgroundColor: colors.inputBackground,
         },
-        radioActive: { backgroundColor: colors.primary },
         radioText: { fontSize: 16, color: colors.text },
-        input: {
-          borderWidth: 1,
-          borderColor: colors.inputBorder,
-          backgroundColor: colors.inputBackground,
-          borderRadius: 8,
-          padding: 12,
-          marginTop: 12,
-          minHeight: 80,
-          color: colors.text,
-        },
-        modalActions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 24, gap: 12 },
         modalBtnCancel: { paddingVertical: 10, paddingHorizontal: 20 },
         modalBtnCancelText: { color: colors.textSecondary },
-        modalBtnOk: { backgroundColor: colors.primary, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
-        modalBtnOkText: { color: colors.primaryContrast, fontWeight: "600" },
-        photoRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, marginTop: 12 },
-        photoWrap: { width: 64, height: 64, borderRadius: 8, overflow: "hidden", backgroundColor: colors.inputBackground },
-        photoImg: { width: 64, height: 64 },
-        photoRemove: { position: "absolute" as const, top: 2, right: 2, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 10, padding: 2 },
-        photoStatus: { fontSize: 9, color: colors.textSecondary, marginTop: 2 },
-        btnAddPhoto: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.inputBackground },
-        btnAddPhotoText: { fontSize: 13, color: colors.primary },
       }),
     [colors]
   );
@@ -167,14 +128,17 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const novaTentativa = useDeliveryStore((s) => s.novaTentativa);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
+
   const load = async () => {
     setLoading(true);
     try {
       const e = await getEntrega(idSaida);
       setEntrega(e);
-      const exibirComprovante =
-        !!e?.tem_comprovante || e?.exibicao === "Entregue" || e?.exibicao === "Ausente";
-      if (exibirComprovante) {
+      const statusKind = resolveDetailStatusKind(e);
+      const shouldLoadComprovante =
+        !!e?.tem_comprovante &&
+        (statusKind === "entregue" || statusKind === "cancelado" || statusKind === "ausente");
+      if (shouldLoadComprovante) {
         setLoadingComprovante(true);
         try {
           const dataUri = await fetchComprovanteImageDataUri(idSaida);
@@ -186,6 +150,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         }
       } else {
         setComprovanteThumb(null);
+        setLoadingComprovante(false);
       }
     } catch {
       setEntrega(null);
@@ -195,11 +160,10 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   };
 
   useEffect(() => {
-    load();
+    void load();
   }, [idSaida]);
 
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
-
   const handleAbrirAusente = () => setModalAusente(true);
 
   const handleConfirmarAusente = async ({
@@ -297,7 +261,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         return;
       }
       openFormWithDest(nomeOcr || nomeOriginal);
-    } catch (e) {
+    } catch {
       Alert.alert("Erro", "Não foi possível ler o texto da imagem.");
     } finally {
       setOcrLoading(false);
@@ -374,6 +338,11 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     await handleVozEndereco();
   };
 
+  const handleNavigate = async () => {
+    if (!entrega) return;
+    await openNavigationToStop(entrega, "google");
+  };
+
   if (loading || !entrega) {
     return (
       <View style={styles.center}>
@@ -382,190 +351,123 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     );
   }
 
-  const telefone = entrega.contato?.replace(/\D/g, "") || "";
-  const linkTel = telefone.length >= 10 ? `tel:+55${telefone}` : null;
   const statusNorm = (entrega.status || "").toUpperCase();
   const podeFinalizar = statusNorm === "EM_ROTA";
-  const isAusente = entrega.exibicao === "Ausente";
-  const isEntregue = entrega.exibicao === "Entregue";
-  const isCancelado = entrega.exibicao === "Cancelado" || statusNorm === "CANCELADO";
+  const statusKind = resolveDetailStatusKind(entrega);
+  const isAusente = statusKind === "ausente";
+  const isEntregue = statusKind === "entregue";
+  const isCancelado = statusKind === "cancelado";
+  const isPendente = statusKind === "pendente";
   const isFinalizado = isEntregue || isAusente || isCancelado;
   const mostrarAvisoRota = !isFinalizado && !podeFinalizar && !isAusente;
-  const statusLabel = (entrega.exibicao || entrega.status || "—").trim() || "—";
-
-  const temCliente = !!(entrega.cliente || "").trim();
-  const temEndereco = !!(entrega.endereco || "").trim();
-  const temBairro = !!(entrega.bairro || "").trim();
-  const temTelefone = telefone.length >= 10;
-  const temTipoRecebedor = !!(entrega.tipo_recebedor || "").trim();
-  const temNomeRecebedor = !!(entrega.nome_recebedor || "").trim();
-  const temDocumento =
-    !!(entrega.tipo_documento || "").trim() || !!(entrega.numero_documento || "").trim();
-  const documentoTexto = [entrega.tipo_documento, entrega.numero_documento].filter(Boolean).join(" ").trim();
   const temObsEntrega = !!(entrega.observacao_entrega || "").trim();
-  const temObsAusencia = !!(entrega.observacao_ocorrencia || "").trim();
-  const exibirComprovante =
-    !isCancelado &&
-    (!!entrega.tem_comprovante || isEntregue || isAusente || !!comprovanteThumb || loadingComprovante);
-  const temDadosEntrega =
-    temTipoRecebedor ||
-    temNomeRecebedor ||
-    temDocumento ||
-    temObsEntrega ||
-    temObsAusencia ||
-    exibirComprovante;
-  const temDadosEndereco = temCliente || temEndereco || temBairro || temTelefone;
-  const mostrarBlocoEndereco = temDadosEndereco;
-  const mostrarBotaoEndereco = !isFinalizado;
-  const visaoMinima = !temDadosEntrega && !mostrarBlocoEndereco;
-  const tentativaNum = entrega.tentativa ?? 1;
-  const tentativaLabel = tentativaNum >= 2 ? `${tentativaNum}ª tentativa` : null;
+  const showComprovanteBlock =
+    isEntregue || (isCancelado && !!entrega.tem_comprovante) || (isAusente && !!comprovanteThumb);
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: Math.max(16, insets.top) }]}
-    >
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>← Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Detalhe da entrega</Text>
-        {tentativaLabel ? <Text style={styles.tentativaLabel}>{tentativaLabel}</Text> : null}
-      </View>
-
-      {mostrarAvisoRota ? (
-        <View style={styles.avisoRota}>
-          <Text style={styles.avisoRotaText}>
-            Inicie a rota na tela de escaneamento para poder finalizar esta entrega.
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={styles.card}>
-        <FieldRow label="Código" value={entrega.codigo || "—"} styles={styles} />
-        {visaoMinima ? <FieldRow label="Status" value={statusLabel} styles={styles} /> : null}
-
-        {temDadosEntrega ? (
-          <>
-            {temTipoRecebedor ? (
-              <FieldRow label="Tipo do recebedor" value={entrega.tipo_recebedor!.trim()} styles={styles} />
-            ) : null}
-            {temNomeRecebedor ? (
-              <FieldRow label="Recebedor" value={entrega.nome_recebedor!.trim()} styles={styles} />
-            ) : null}
-            {temDocumento ? <FieldRow label="Documento" value={documentoTexto} styles={styles} /> : null}
-            {temObsEntrega ? (
-              <FieldRow label="Observação da entrega" value={entrega.observacao_entrega!.trim()} styles={styles} />
-            ) : null}
-            {temObsAusencia ? (
-              <FieldRow label="Observação (ausência)" value={entrega.observacao_ocorrencia!.trim()} styles={styles} />
-            ) : null}
-            {exibirComprovante ? (
-              <View style={{ marginTop: 14 }}>
-                <Text style={styles.label}>Comprovante</Text>
-                <TouchableOpacity
-                  style={{ marginTop: 6, borderRadius: 8, overflow: "hidden", alignSelf: "flex-start" }}
-                  onPress={() => comprovanteThumb && setShowComprovanteViewer(true)}
-                  disabled={!comprovanteThumb}
-                >
-                  {loadingComprovante ? (
-                    <View
-                      style={{
-                        width: 110,
-                        height: 110,
-                        justifyContent: "center",
-                        alignItems: "center",
-                        backgroundColor: colors.inputBackground,
-                      }}
-                    >
-                      <ActivityIndicator />
-                    </View>
-                  ) : comprovanteThumb ? (
-                    <Image source={{ uri: comprovanteThumb }} style={{ width: 110, height: 110, borderRadius: 8 }} />
-                  ) : (
-                    <View
-                      style={{
-                        width: 110,
-                        height: 110,
-                        justifyContent: "center",
-                        alignItems: "center",
-                        backgroundColor: colors.inputBackground,
-                      }}
-                    >
-                      <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Sem preview</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                {comprovanteThumb ? (
-                  <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>Toque para ampliar</Text>
-                ) : null}
-              </View>
-            ) : null}
-          </>
-        ) : null}
-
-        {!visaoMinima ? <FieldRow label="Status" value={statusLabel} styles={styles} /> : null}
-
-        {mostrarBlocoEndereco ? (
-          <>
-            {temCliente ? <FieldRow label="Cliente" value={entrega.cliente!.trim()} styles={styles} /> : null}
-            {temEndereco ? <FieldRow label="Endereço" value={entrega.endereco!.trim()} styles={styles} /> : null}
-            {temBairro ? <Text style={styles.valueSec}>{entrega.bairro!.trim()}</Text> : null}
-            {temTelefone ? (
-              <>
-                <Text style={styles.label}>Telefone</Text>
-                <TouchableOpacity onPress={() => Linking.openURL(linkTel!)}>
-                  <Text style={styles.link}>{entrega.contato!.trim()}</Text>
-                </TouchableOpacity>
-              </>
-            ) : null}
-          </>
-        ) : null}
-
-        {mostrarBotaoEndereco ? (
-          <TouchableOpacity style={styles.btnEndereco} onPress={handleAbrirEndereco}>
-            <Text style={styles.btnEnderecoText}>
-              {entrega.possui_endereco ? "Editar Endereço" : "Adicionar Endereço"}
+    <View style={styles.container}>
+      <ScreenHeaderBar
+        title="Detalhe da entrega"
+        onBack={() => navigation.goBack()}
+        paddingTop={Math.max(12, insets.top)}
+      />
+      <ScrollView contentContainerStyle={styles.content}>
+        {mostrarAvisoRota ? (
+          <View style={styles.avisoRota}>
+            <Text style={styles.avisoRotaText}>
+              Inicie a rota na tela de escaneamento para poder finalizar esta entrega.
             </Text>
-          </TouchableOpacity>
+          </View>
         ) : null}
-      </View>
 
-      {isAusente ? (
-        <TouchableOpacity
-          style={[styles.btnNovaTentativa, saving && styles.btnDisabled]}
-          onPress={async () => {
-            setSaving(true);
-            try {
-              await novaTentativa(idSaida);
-              Alert.alert("Sucesso", "Pedido colocado em rota para nova tentativa.", [
-                { text: "OK", onPress: () => navigation.goBack() },
-              ]);
-            } catch (e: unknown) {
-              const msg = e && typeof e === "object" && "response" in e
-                ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
-                : "Erro ao solicitar nova tentativa.";
-              Alert.alert("Erro", String(msg));
-            } finally {
-              setSaving(false);
-            }
-          }}
-          disabled={saving}
-        >
-          <Text style={styles.btnNovaTentativaText}>Nova Tentativa</Text>
-        </TouchableOpacity>
-      ) : podeFinalizar ? (
-        <>
-          <TouchableOpacity style={styles.btnEntregue} onPress={handleAbrirEntregueModal}>
-            <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
-          </TouchableOpacity>
+        <DetailStatusHero entrega={entrega} />
 
-          <TouchableOpacity style={styles.btnAusente} onPress={handleAbrirAusente}>
-            <Text style={styles.btnAusenteText}>Marcar como ausente</Text>
-          </TouchableOpacity>
-        </>
-      ) : null}
+        {isPendente ? (
+          <>
+            <DetailAddressBlock
+              entrega={entrega}
+              editable={!isFinalizado}
+              onEditPress={handleAbrirEndereco}
+              onNavigatePress={entrega.possui_endereco ? () => void handleNavigate() : undefined}
+              showPhone
+            />
+          </>
+        ) : null}
+
+        {isAusente ? (
+          <>
+            <DetailOccurrenceBlock entrega={entrega} />
+            <DetailPersonBlock entrega={entrega} mode="cliente" />
+            <DetailAddressBlock entrega={entrega} showPhone />
+            {showComprovanteBlock ? (
+              <DetailComprovanteBlock
+                thumbUri={comprovanteThumb}
+                loading={loadingComprovante}
+                onPressThumb={() => setShowComprovanteViewer(true)}
+              />
+            ) : null}
+          </>
+        ) : null}
+
+        {isEntregue || isCancelado ? (
+          <>
+            {isEntregue ? <DetailPersonBlock entrega={entrega} mode="recebedor" /> : null}
+            {temObsEntrega ? (
+              <DetailInfoBlock title="Observação" icon="document-text-outline">
+                <DetailFieldRow label="Entrega" value={entrega.observacao_entrega!.trim()} />
+              </DetailInfoBlock>
+            ) : null}
+            <DetailAddressBlock entrega={entrega} showPhone={!isCancelado} />
+            {isCancelado ? <DetailOccurrenceBlock entrega={entrega} /> : null}
+            {showComprovanteBlock ? (
+              <DetailComprovanteBlock
+                thumbUri={comprovanteThumb}
+                loading={loadingComprovante}
+                onPressThumb={comprovanteThumb ? () => setShowComprovanteViewer(true) : undefined}
+              />
+            ) : null}
+          </>
+        ) : null}
+
+        <View style={styles.actions}>
+          {isAusente ? (
+            <TouchableOpacity
+              style={[styles.btnNovaTentativa, saving && styles.btnDisabled]}
+              onPress={async () => {
+                setSaving(true);
+                try {
+                  await novaTentativa(idSaida);
+                  Alert.alert("Sucesso", "Pedido colocado em rota para nova tentativa.", [
+                    { text: "OK", onPress: () => navigation.goBack() },
+                  ]);
+                } catch (e: unknown) {
+                  const msg =
+                    e && typeof e === "object" && "response" in e
+                      ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
+                      : "Erro ao solicitar nova tentativa.";
+                  Alert.alert("Erro", String(msg));
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={saving}
+            >
+              <Text style={styles.btnNovaTentativaText}>Nova Tentativa</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {podeFinalizar ? (
+            <>
+              <TouchableOpacity style={styles.btnEntregue} onPress={handleAbrirEntregueModal}>
+                <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.btnAusente} onPress={handleAbrirAusente}>
+                <Text style={styles.btnAusenteText}>Marcar como ausente</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </View>
+      </ScrollView>
 
       <Modal visible={modalEnderecoOpcoes} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -574,17 +476,11 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             <TouchableOpacity style={styles.radio} onPress={handleDigitarEndereco} disabled={ocrLoading}>
               <Text style={styles.radioText}>Digitar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.radio} onPress={handleOcrEndereco} disabled={ocrLoading}>
+            <TouchableOpacity style={styles.radio} onPress={() => void handleOcrEndereco()} disabled={ocrLoading}>
               <Text style={styles.radioText}>{ocrLoading ? "Abrindo câmera…" : "Leitor (OCR)"}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.radio}
-              onPress={handleVozEndereco}
-              disabled={vozLoading}
-            >
-              <Text style={styles.radioText}>
-                {vozLoading ? "Abrindo…" : "Voz"}
-              </Text>
+            <TouchableOpacity style={styles.radio} onPress={() => void handleVozEndereco()} disabled={vozLoading}>
+              <Text style={styles.radioText}>{vozLoading ? "Abrindo…" : "Voz"}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalEnderecoOpcoes(false)}>
               <Text style={styles.modalBtnCancelText}>Cancelar</Text>
@@ -593,7 +489,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         </View>
       </Modal>
 
-      {showVoiceModal && speechModule && (
+      {showVoiceModal && speechModule ? (
         <VoiceAddressModal
           speechModule={speechModule}
           modalStyles={{
@@ -607,7 +503,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           onDone={handleVoiceDone}
           onCancel={handleVoiceCancel}
         />
-      )}
+      ) : null}
 
       <Modal visible={modalEndereco && entrega != null} animationType="slide">
         <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -641,12 +537,13 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         onClose={() => setShowEntregueModal(false)}
         onSuccess={async (marcacao) => {
           await load();
+          const extra = marcacao as { routeJustCompleted?: boolean; rotaIdForResumo?: string | number | null };
           runPostFinalizeFeedback({
             tipo: "entregue",
             codigo: entrega?.codigo,
             entregaAtrasada: marcacao?.entrega_atrasada ?? false,
-            routeJustCompleted: marcacao?.routeJustCompleted ?? false,
-            rotaIdForResumo: marcacao?.rotaIdForResumo ?? null,
+            routeJustCompleted: extra.routeJustCompleted ?? false,
+            rotaIdForResumo: extra.rotaIdForResumo ?? null,
             isRouteFlow: marcacao?.rota_sync?.in_active_route ?? false,
             onAfterIndividualAlert: () => navigation.goBack(),
           });
@@ -662,13 +559,27 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         onClose={() => setModalAusente(false)}
       />
 
-      <Modal visible={showComprovanteViewer} transparent={false} animationType="fade" onRequestClose={() => setShowComprovanteViewer(false)}>
+      <Modal
+        visible={showComprovanteViewer}
+        transparent={false}
+        animationType="fade"
+        onRequestClose={() => setShowComprovanteViewer(false)}
+      >
         <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <View style={{ paddingTop: Math.max(14, insets.top), paddingHorizontal: 16, paddingBottom: 12, backgroundColor: "rgba(0,0,0,0.3)" }}>
+          <View
+            style={{
+              paddingTop: Math.max(14, insets.top),
+              paddingHorizontal: 16,
+              paddingBottom: 12,
+              backgroundColor: "rgba(0,0,0,0.3)",
+            }}
+          >
             <TouchableOpacity onPress={() => setShowComprovanteViewer(false)}>
               <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 6 }}>Fechar</Text>
             </TouchableOpacity>
-            <Text style={{ color: "#fff", fontSize: 14 }}>Comprovante {entrega?.codigo ? `- ${entrega.codigo}` : ""}</Text>
+            <Text style={{ color: "#fff", fontSize: 14 }}>
+              Comprovante {entrega?.codigo ? `- ${entrega.codigo}` : ""}
+            </Text>
           </View>
           {comprovanteThumb ? (
             <Image source={{ uri: comprovanteThumb }} style={{ flex: 1, resizeMode: "contain" }} />
@@ -679,6 +590,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           )}
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }

@@ -1,96 +1,101 @@
 import { Alert, Linking, Platform } from "react-native";
 import { copyToClipboard } from "../../../utils/clipboard";
 import type { EntregaListItem } from "../types";
-import { valuesFromEnderecoFormatado } from "./addressSuggestions";
-import { formatStopAddress, isApproximateLocation, type GroupedStop } from "./routeUtils";
+import {
+  resolveDeliveryDestination,
+  resolveGroupDestination,
+  REVIEW_MESSAGE_INSUFFICIENT,
+  type DeliveryResolvedDestination,
+  type GeocodedCoordsMap,
+  type GeocodedMetaMap,
+  type LegacyValidationCache,
+} from "./deliveryDestination";
+import type { GroupedStop } from "./routeUtils";
 
 export type NavigationApp = "google" | "waze" | "apple" | "copy";
 
 export type NavigationTarget =
-  | { mode: "coords"; latitude: number; longitude: number; precision: "saved" }
-  | { mode: "coords"; latitude: number; longitude: number; precision: "geocoded" }
-  | { mode: "address"; address: string };
+  | { mode: "coords"; latitude: number; longitude: number; precision: "trusted" }
+  | {
+      mode: "address";
+      address: string;
+      /** true: endereço escolhido deliberadamente (coords confiáveis de respaldo); não exige confirmação. */
+      trusted: boolean;
+      fallbackCoords?: { latitude: number; longitude: number };
+    }
+  | { mode: "none"; reason: string };
 
-export type GeocodedCoordsMap = Record<number, { latitude: number; longitude: number }>;
+export type { GeocodedCoordsMap };
 
 const APPROXIMATE_ADDRESS_ALERT =
-  "Esta parada não possui coordenadas precisas. O mapa pode abrir um ponto aproximado.";
+  "Esta parada não possui coordenadas confirmadas. O mapa abrirá pelo endereço completo.";
 
-export function isValidNavigationCoords(
-  latitude?: number | null,
-  longitude?: number | null
-): boolean {
-  if (latitude == null || longitude == null) return false;
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
-  if (latitude === 0 && longitude === 0) return false;
-  if (latitude < -90 || latitude > 90) return false;
-  if (longitude < -180 || longitude > 180) return false;
-  return true;
-}
+/** Origens em que o pin foi escolhido pelo usuário ou veio do Google (coords valem mais que o texto). */
+const PINNED_COORD_ORIGINS = new Set(["mapa", "google_places"]);
 
-function hasParseableCity(stop: EntregaListItem): boolean {
-  if ((stop.cidade ?? "").trim()) return true;
-  const parsed = stop.endereco_formatado
-    ? valuesFromEnderecoFormatado(stop.endereco_formatado)
-    : null;
-  return Boolean((parsed?.cidade ?? "").trim());
-}
-
-function shouldPreferAddressNavigation(stop: EntregaListItem): boolean {
-  if (!hasParseableCity(stop)) return false;
-  if (stop.coord_precision === "approx") return true;
-  return isApproximateLocation(stop);
+export function destinationToNavigationTarget(
+  dest: DeliveryResolvedDestination
+): NavigationTarget {
+  if (dest.hasTrustedCoords && dest.latitude != null && dest.longitude != null) {
+    const pinnedByUser = PINNED_COORD_ORIGINS.has(dest.coordsOrigem ?? "");
+    if (!pinnedByUser && dest.addressHasNumber && dest.addressText.trim()) {
+      // Coords geocodificadas (Nominatim/legado) raramente caem no número exato;
+      // navegar pelo endereço textual evita o navegador mostrar outro número.
+      return {
+        mode: "address",
+        address: dest.addressText.trim(),
+        trusted: true,
+        fallbackCoords: { latitude: dest.latitude, longitude: dest.longitude },
+      };
+    }
+    return {
+      mode: "coords",
+      latitude: dest.latitude,
+      longitude: dest.longitude,
+      precision: "trusted",
+    };
+  }
+  if (dest.source === "address_text" && dest.addressText.trim()) {
+    return { mode: "address", address: dest.addressText.trim(), trusted: false };
+  }
+  return {
+    mode: "none",
+    reason: dest.reviewMessage ?? REVIEW_MESSAGE_INSUFFICIENT,
+  };
 }
 
 export function resolveNavigationTarget(
   stop: EntregaListItem,
-  geocodedCoords: GeocodedCoordsMap = {}
+  geocodedCoords: GeocodedCoordsMap = {},
+  geocodedMeta: GeocodedMetaMap = {},
+  legacyCache?: LegacyValidationCache
 ): NavigationTarget {
-  const address = formatStopAddress(stop);
-  const fullAddress = address === "—" ? "" : address;
-
-  if (shouldPreferAddressNavigation(stop) && fullAddress) {
-    return { mode: "address", address: fullAddress };
-  }
-
-  if (isValidNavigationCoords(stop.latitude, stop.longitude)) {
-    const approx = isApproximateLocation(stop);
-    return {
-      mode: "coords",
-      latitude: stop.latitude!,
-      longitude: stop.longitude!,
-      precision: approx ? "geocoded" : "saved",
-    };
-  }
-
-  const geo = geocodedCoords[stop.id_saida];
-  if (geo && isValidNavigationCoords(geo.latitude, geo.longitude)) {
-    return {
-      mode: "coords",
-      latitude: geo.latitude,
-      longitude: geo.longitude,
-      precision: "geocoded",
-    };
-  }
-
-  return { mode: "address", address: fullAddress };
+  const dest = resolveDeliveryDestination(stop, geocodedCoords, geocodedMeta, legacyCache);
+  return destinationToNavigationTarget(dest);
 }
 
 export function resolveGroupNavigationTarget(
   group: GroupedStop,
-  geocodedCoords: GeocodedCoordsMap = {}
+  geocodedCoords: GeocodedCoordsMap = {},
+  geocodedMeta: GeocodedMetaMap = {},
+  legacyCache?: LegacyValidationCache
 ): NavigationTarget {
-  return resolveNavigationTarget(group.representativeDelivery, geocodedCoords);
+  const dest = resolveGroupDestination(group, geocodedCoords, geocodedMeta, legacyCache);
+  return destinationToNavigationTarget(dest);
 }
 
 export function getDestinationLabel(target: NavigationTarget): string {
+  if (target.mode === "coords") return "Destino: coordenadas confirmadas";
   if (target.mode === "address") {
-    return "Destino: endereço completo";
+    return target.trusted
+      ? "Destino: endereço com número"
+      : "Destino: endereço completo (sem coord confirmada)";
   }
-  if (target.mode === "coords" && target.precision === "saved") {
-    return "Destino: coordenadas salvas";
-  }
-  return "Destino: endereço aproximado";
+  return "Endereço insuficiente para navegação";
+}
+
+export function canNavigate(target: NavigationTarget): boolean {
+  return target.mode === "coords" || target.mode === "address";
 }
 
 export function getGoogleMapsNativeUrl(lat: number, lon: number): string {
@@ -125,16 +130,12 @@ export function getAppleMapsAddressUrl(address: string): string {
   return `http://maps.apple.com/?daddr=${encodeURIComponent(address)}&dirflg=d`;
 }
 
-/** @deprecated Use getAppleMapsCoordsUrl — nunca passa endereço quando há coords */
-export function getAppleMapsUrl(lat: number, lon: number): string {
-  return getAppleMapsCoordsUrl(lat, lon);
-}
-
 function buildNavigationUrls(
   app: NavigationApp,
   target: NavigationTarget
 ): { primary: string; fallback?: string } | null {
   if (app === "copy") return null;
+  if (target.mode === "none") return null;
 
   if (target.mode === "coords") {
     const { latitude: lat, longitude: lon } = target;
@@ -153,13 +154,23 @@ function buildNavigationUrls(
   const address = target.address.trim();
   if (!address) return null;
 
+  const fb = target.fallbackCoords;
   switch (app) {
     case "google":
-      return { primary: getGoogleMapsAddressUrl(address) };
+      return {
+        primary: getGoogleMapsAddressUrl(address),
+        fallback: fb ? getGoogleMapsUrl(fb.latitude, fb.longitude) : undefined,
+      };
     case "waze":
-      return { primary: getWazeAddressUrl(address) };
+      return {
+        primary: getWazeAddressUrl(address),
+        fallback: fb ? getWazeUrl(fb.latitude, fb.longitude) : undefined,
+      };
     case "apple":
-      return { primary: getAppleMapsAddressUrl(address) };
+      return {
+        primary: getAppleMapsAddressUrl(address),
+        fallback: fb ? getAppleMapsCoordsUrl(fb.latitude, fb.longitude) : undefined,
+      };
   }
 }
 
@@ -202,7 +213,8 @@ function confirmApproximateNavigation(): Promise<boolean> {
 
 export interface OpenNavigationOptions {
   geocodedCoords?: GeocodedCoordsMap;
-  /** Pula confirmação para modo address (ex.: usuário já viu o aviso no sheet) */
+  geocodedMeta?: GeocodedMetaMap;
+  legacyCache?: LegacyValidationCache;
   skipApproximateConfirm?: boolean;
 }
 
@@ -211,13 +223,21 @@ export async function openNavigationToStop(
   app: NavigationApp,
   options: OpenNavigationOptions = {}
 ): Promise<boolean> {
-  const target = resolveNavigationTarget(stop, options.geocodedCoords ?? {});
+  const target = resolveNavigationTarget(
+    stop,
+    options.geocodedCoords ?? {},
+    options.geocodedMeta ?? {},
+    options.legacyCache
+  );
 
   if (app === "copy") {
-    const text =
-      target.mode === "address" && target.address
-        ? target.address
-        : formatStopAddress(stop);
+    const dest = resolveDeliveryDestination(
+      stop,
+      options.geocodedCoords ?? {},
+      options.geocodedMeta ?? {},
+      options.legacyCache
+    );
+    const text = dest.addressText;
     if (!text || text === "—") {
       Alert.alert("Atenção", "Endereço indisponível para copiar.");
       return false;
@@ -227,16 +247,12 @@ export async function openNavigationToStop(
     return ok;
   }
 
-  if (target.mode === "address") {
-    if (!target.address) {
-      Alert.alert("Atenção", "Endereço indisponível para navegação.");
-      return false;
-    }
-    if (!options.skipApproximateConfirm) {
-      const confirmed = await confirmApproximateNavigation();
-      if (!confirmed) return false;
-    }
-  } else if (target.precision === "geocoded" && !options.skipApproximateConfirm) {
+  if (target.mode === "none") {
+    Alert.alert("Atenção", target.reason);
+    return false;
+  }
+
+  if (target.mode === "address" && !target.trusted && !options.skipApproximateConfirm) {
     const confirmed = await confirmApproximateNavigation();
     if (!confirmed) return false;
   }
@@ -250,7 +266,6 @@ export async function openNavigationToStop(
   return openNavigationUrl(urls.primary, urls.fallback);
 }
 
-/** @deprecated Use openNavigationToStop */
 export async function openExternalNavigation(
   app: NavigationApp,
   coords: { latitude: number; longitude: number },
@@ -260,6 +275,8 @@ export async function openExternalNavigation(
     id_saida: 0,
     latitude: coords.latitude,
     longitude: coords.longitude,
+    coord_precision: "rooftop",
+    endereco_origem: "mapa",
   } as EntregaListItem;
   return openNavigationToStop(stop, app, { skipApproximateConfirm: true });
 }
