@@ -620,9 +620,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         setFlowState("idle");
         return;
       }
-      const rawText =
-        (parsed.rawText ?? "").trim() || formatAddressSummary(parsedToFormValues(parsed));
-      injectAddressIntoQuickForm(parsed, rawText);
+      // O quick form decide o texto de exibição (resumo p/ OCR multilinha).
+      injectAddressIntoQuickForm(parsed, parsed.rawText ?? "");
     } catch {
       Alert.alert("Erro", "Não foi possível ler a imagem.");
       setFlowState("idle");

@@ -33,6 +33,7 @@ import {
   needsAddressEnrichment,
   searchAddressSuggestions,
   type AddressSuggestion,
+  AddressSearchError,
 } from "../utils/addressSuggestions";
 import AddressSuggestionList from "./AddressSuggestionList";
 import { isValidGeocodeCoords, type GeocodeResult } from "../utils/geocode";
@@ -98,6 +99,7 @@ export default function AddressQuickForm({
   const [searching, setSearching] = useState(false);
   const [resolvingPlace, setResolvingPlace] = useState(false);
   const [searchEmpty, setSearchEmpty] = useState(false);
+  const [searchErrorMessage, setSearchErrorMessage] = useState<string | null>(null);
   const [selectedOrigem, setSelectedOrigem] = useState<AddressOrigem>("manual");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,7 +107,6 @@ export default function AddressQuickForm({
   const lastSearchQueryRef = useRef("");
   const searchRequestIdRef = useRef(0);
   const parsedInternalRef = useRef(parsedInternal);
-  const externalParsedKeyRef = useRef<string | null>(null);
   parsedInternalRef.current = parsedInternal;
 
   const defaults = useMemo(
@@ -117,7 +118,6 @@ export default function AddressQuickForm({
   const runSearchRef = useRef<
     (vals: Partial<AddressFormValues>, options?: { autoApply?: boolean }) => Promise<void>
   >(async () => {});
-  const runParseRef = useRef<(text: string, options?: { autoApply?: boolean }) => void>(() => {});
 
   const applySuggestion = useCallback(
     async (s: AddressSuggestion, fromAuto = false) => {
@@ -201,6 +201,7 @@ export default function AddressQuickForm({
       const requestId = ++searchRequestIdRef.current;
       setSearching(true);
       setSearchEmpty(false);
+      setSearchErrorMessage(null);
       onFlowStateChange?.("searching");
       try {
         const local = findLocalAddressSuggestions(vals, knownDeliveries, defaults);
@@ -214,13 +215,34 @@ export default function AddressQuickForm({
         if (requestId !== searchRequestIdRef.current) return;
 
         const localIds = new Set(local.map((s) => s.id));
-        const merged = filterSelectableSuggestions([
+        let merged = filterSelectableSuggestions([
           ...local,
           ...remote.filter((s) => !localIds.has(s.id)),
         ]);
+        let finalDym = dym;
+
+        // Vazio com número/bairro nos hints: tentar uma vez com query relaxada
+        // (rua + cidade/estado) — o número do usuário é re-mesclado via hints.
+        if (merged.length === 0 && !finalDym) {
+          const hadExtra = (vals.numero ?? "").trim() || (vals.bairro ?? "").trim();
+          const relaxedQuery = buildSearchQuery(
+            { ...vals, numero: "", bairro: "" },
+            defaults
+          );
+          if (hadExtra && relaxedQuery !== query && relaxedQuery.replace(/\s/g, "").length >= 4) {
+            const relaxed = await searchAddressSuggestions(relaxedQuery, {
+              hints: vals,
+              defaults,
+            });
+            if (requestId !== searchRequestIdRef.current) return;
+            merged = filterSelectableSuggestions(relaxed.suggestions);
+            finalDym = relaxed.didYouMean;
+          }
+        }
+
         setSuggestions(merged);
-        setDidYouMean(dym);
-        setSearchEmpty(merged.length === 0 && !dym);
+        setDidYouMean(finalDym);
+        setSearchEmpty(merged.length === 0 && !finalDym);
 
         if (
           options?.autoApply &&
@@ -233,6 +255,16 @@ export default function AddressQuickForm({
           setAutoApplied(false);
           setSelectedSuggestionId(null);
         }
+      } catch (err) {
+        if (requestId !== searchRequestIdRef.current) return;
+        setSuggestions([]);
+        setDidYouMean(null);
+        setSearchEmpty(true);
+        setSearchErrorMessage(
+          err instanceof AddressSearchError
+            ? err.message
+            : "Não foi possível buscar sugestões. Tente novamente."
+        );
       } finally {
         if (requestId === searchRequestIdRef.current) {
           setSearching(false);
@@ -256,6 +288,7 @@ export default function AddressQuickForm({
         lastSearchQueryRef.current = "";
         resetAddressSessionToken();
         setSearchEmpty(false);
+        setSearchErrorMessage(null);
         return;
       }
       resetAddressSessionToken();
@@ -272,7 +305,6 @@ export default function AddressQuickForm({
     },
     [defaults, onFlowStateChange]
   );
-  runParseRef.current = runParse;
 
   useEffect(() => {
     setFreeText(initialFreeText);
@@ -285,12 +317,12 @@ export default function AddressQuickForm({
     setAutoApplied(false);
     setSelectedCoords(null);
     setSearchEmpty(false);
+    setSearchErrorMessage(null);
     setResolvingPlace(false);
     setSelectedOrigem("manual");
     resetAddressSessionToken();
     lastSearchQueryRef.current = "";
     searchRequestIdRef.current += 1;
-    externalParsedKeyRef.current = null;
 
     if (initialFreeText.trim()) {
       const parsed = parseFreeTextAddress(initialFreeText, defaults);
@@ -304,20 +336,24 @@ export default function AddressQuickForm({
   }, [delivery.id_saida]);
 
   useEffect(() => {
-    if (!externalParsed) {
-      externalParsedKeyRef.current = null;
-      return;
-    }
-    const key = externalParsed.rawText ?? JSON.stringify(externalParsed);
-    if (externalParsedKeyRef.current === key) return;
-    externalParsedKeyRef.current = key;
+    if (!externalParsed) return;
+
+    // Cancelar parse/busca pendentes de digitação anterior.
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (searchRef.current) clearTimeout(searchRef.current);
 
     const vals = parsedToFormValues(externalParsed);
-    const text = (externalParsed.rawText ?? "").trim() || formatAddressSummary(vals);
+    const summary = formatAddressSummary(vals);
+    const rawText = (externalParsed.rawText ?? "").trim();
+    // OCR multilinha: exibir o resumo estruturado, não o dump da etiqueta.
+    const text = rawText && !rawText.includes("\n") ? rawText : summary || rawText;
     if (text) setFreeText(text);
     if (vals.destinatario) setDestinatario(vals.destinatario);
     if (vals.complemento) setComplemento(vals.complemento);
-    runParseRef.current(text, { autoApply: true });
+    // Usa o parse estruturado (voz/OCR) como hints da busca — não re-parsear o texto bruto.
+    setParsedInternal(vals);
+    lastSearchQueryRef.current = "";
+    void runSearchRef.current(vals, { autoApply: true });
   }, [externalParsed]);
 
   const handleFreeTextChange = (text: string) => {
@@ -328,6 +364,8 @@ export default function AddressQuickForm({
     setAutoApplied(false);
     setSelectedCoords(null);
     setSelectedOrigem("manual");
+    setSearchEmpty(false);
+    setSearchErrorMessage(null);
     resetAddressSessionToken();
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => runParse(text), 500);
@@ -538,6 +576,7 @@ export default function AddressQuickForm({
           autoApplied={autoApplied}
           didYouMean={didYouMean}
           searchEmpty={searchEmpty}
+          emptyMessage={searchErrorMessage}
           onSelect={(s) => void applySuggestion(s, false)}
           onSelectDidYouMean={(s) => void applySuggestion(s, false)}
         />
