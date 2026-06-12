@@ -8,19 +8,21 @@ import {
 import * as Haptics from "expo-haptics";
 import { generateBeepWav } from "./beepWav";
 
-type SoundType = "success" | "error" | "warn";
+type SoundType = "success" | "error" | "warn" | "celebration";
 
 /** Mapeamento para os mesmos sons do front (leituras saídas/coletas): ok, err, warn */
-const BEEP_KIND: Record<SoundType, "ok" | "warn" | "err"> = {
+const BEEP_KIND: Record<SoundType, "ok" | "warn" | "err" | "celebration"> = {
   success: "ok",
   error: "err",
   warn: "warn",
+  celebration: "celebration",
 };
 
 const BEEP_FILES: Record<SoundType, string> = {
   success: "beep_ok.wav",
   error: "beep_err.wav",
   warn: "beep_warn.wav",
+  celebration: "beep_celebration.wav",
 };
 
 let cached: Partial<Record<SoundType, AudioPlayer>> = {};

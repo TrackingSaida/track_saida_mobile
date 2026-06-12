@@ -1,4 +1,5 @@
 export interface JwtClaims {
+  sub?: string;
   username?: string;
   sub_base?: string;
   role?: number;

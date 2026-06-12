@@ -5,7 +5,11 @@ import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  DefaultTheme,
+  type NavigatorScreenParams,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,24 +25,49 @@ import ChangePasswordRequiredScreen from "./src/screens/ChangePasswordRequiredSc
 import HomeScreen from "./src/screens/HomeScreen";
 import MaisScreen, { type MaisStackParamList } from "./src/screens/MaisScreen";
 import MeusDadosScreen from "./src/screens/MeusDadosScreen";
-import PreferenciaScreen from "./src/screens/PreferenciaScreen";
+import ConfiguracoesScreen from "./src/screens/ConfiguracoesScreen";
 import EntregasListScreen from "./src/features/entregas/screens/EntregasListScreen";
 import EntregaDetailScreen from "./src/features/entregas/screens/EntregaDetailScreen";
 import ScanScreen from "./src/features/entregas/screens/ScanScreen";
+import DeliverScanScreen from "./src/features/entregas/screens/DeliverScanScreen";
 import PrepareDeliveriesScreen from "./src/features/entregas/screens/PrepareDeliveriesScreen";
 import RouteBuilderScreen from "./src/screens/RouteBuilderScreen";
 import MinhasEntregasScreen from "./src/features/entregas/screens/MinhasEntregasScreen";
 import MinhasEntregasDiaScreen from "./src/features/entregas/screens/MinhasEntregasDiaScreen";
+import DiaRotaConcluidaModal from "./src/features/entregas/components/DiaRotaConcluidaModal";
+import RotasHistoricoScreen from "./src/features/home/screens/RotasHistoricoScreen";
 import StaffHomeStack from "./src/navigation/StaffHomeStack";
+import {
+  navigateToConfiguracoes,
+  navigateToMinhasEntregas,
+} from "./src/features/entregas/utils/navigationHelpers";
 import { isMotoboyRole } from "./src/utils/role";
+
+import type { EntregasListInitialTab } from "./src/features/entregas/types";
+
+export type { EntregasListInitialTab };
 
 export type RootStackParamList = {
   HomeInicio: undefined;
-  EntregasList: undefined;
+  EntregasList:
+    | {
+        initialTab?: EntregasListInitialTab;
+        todosPendentes?: boolean;
+        initialMapMode?: "map";
+      }
+    | undefined;
   EntregaDetail: { idSaida: number };
   Scan: undefined;
+  DeliverScan: undefined;
   PrepareDeliveries: undefined;
-  RouteBuilder: undefined;
+  RouteBuilder:
+    | {
+        openLocatePackage?: boolean;
+        openSeparation?: boolean;
+        highlightLocatePackage?: boolean;
+      }
+    | undefined;
+  RotasHistorico: undefined;
 };
 
 export type AuthStackParamList = {
@@ -48,7 +77,7 @@ export type AuthStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Mais: undefined;
+  Mais: NavigatorScreenParams<MaisStackParamList> | undefined;
 };
 
 const HomeStack = createNativeStackNavigator<RootStackParamList>();
@@ -62,18 +91,40 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <HomeStack.Screen name="HomeInicio">
         {({ navigation }) => (
           <HomeScreen
-            onLogout={onLogout}
-            onNavigateEntregas={() => navigation.navigate("EntregasList")}
+            onNavigateEntregas={(tab, opts) =>
+              navigation.navigate("EntregasList", {
+                ...(tab ? { initialTab: tab } : {}),
+                ...(opts?.todosPendentes ? { todosPendentes: true } : {}),
+                ...(opts?.initialMapMode ? { initialMapMode: opts.initialMapMode } : {}),
+              })
+            }
             onNavigateScan={() => navigation.navigate("Scan")}
-            onNavigateRouteBuilder={() => navigation.navigate("RouteBuilder")}
+            onNavigateDeliverScan={() => navigation.navigate("DeliverScan")}
+            onNavigatePrepareRoute={() => navigation.navigate("PrepareDeliveries")}
+            onNavigateRouteBuilder={(opts) =>
+              navigation.navigate("RouteBuilder", {
+                ...(opts?.openLocatePackage ? { openLocatePackage: true } : {}),
+                ...(opts?.openSeparation ? { openSeparation: true } : {}),
+                ...(opts?.highlightLocatePackage ? { highlightLocatePackage: true } : {}),
+              })
+            }
+            onNavigateRotasHistorico={() => navigation.navigate("RotasHistorico")}
+            onNavigateMinhasEntregas={() => navigateToMinhasEntregas(navigation)}
+            onNavigatePreferencias={() => navigateToConfiguracoes(navigation)}
           />
         )}
       </HomeStack.Screen>
       <HomeStack.Screen name="EntregasList" component={EntregasListScreen} />
       <HomeStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
       <HomeStack.Screen name="Scan" component={ScanScreen} />
-      <HomeStack.Screen name="PrepareDeliveries" component={PrepareDeliveriesScreen} />
+      <HomeStack.Screen name="DeliverScan" component={DeliverScanScreen} />
+      <HomeStack.Screen
+        name="PrepareDeliveries"
+        component={PrepareDeliveriesScreen}
+        options={{ title: "Preparar Rota" }}
+      />
       <HomeStack.Screen name="RouteBuilder" component={RouteBuilderScreen} />
+      <HomeStack.Screen name="RotasHistorico" component={RotasHistoricoScreen} />
     </HomeStack.Navigator>
   );
 }
@@ -85,7 +136,7 @@ function MaisStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
         {(props) => <MaisScreen {...props} onLogout={onLogout} />}
       </MaisStack.Screen>
       <MaisStack.Screen name="MeusDados" component={MeusDadosScreen} />
-      <MaisStack.Screen name="Preferencia" component={PreferenciaScreen} />
+      <MaisStack.Screen name="Configuracoes" component={ConfiguracoesScreen} />
       <MaisStack.Screen name="MinhasEntregas" component={MinhasEntregasScreen} />
       <MaisStack.Screen name="MinhasEntregasDia" component={MinhasEntregasDiaScreen} />
       <MaisStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
@@ -142,6 +193,11 @@ function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
           tabBarLabel: "Mais",
           tabBarIcon: ({ color, size }) => <Ionicons name="menu-outline" size={size ?? 24} color={color} />,
         }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.navigate("Mais", { screen: "MaisInicio" });
+          },
+        })}
       >
         {() => <MaisStackScreen onLogout={onLogout} />}
       </Tab.Screen>
@@ -157,6 +213,7 @@ export default function App() {
 
   const logout = useCallback(async () => {
     useDeliveryStore.getState().clearActiveRouteState();
+    useMotoboyPrefsStore.getState().resetToDefaults();
     await logoutFromStore();
   }, [logoutFromStore]);
 
@@ -230,7 +287,10 @@ export default function App() {
         {pendingChangePassword ? (
           <ChangePasswordRequiredScreen onDone={() => setPendingChangePassword(false)} />
         ) : showMainApp ? (
-          <MainTabs onLogout={logout} />
+          <>
+            <MainTabs onLogout={logout} />
+            <DiaRotaConcluidaModal />
+          </>
         ) : (
           <AuthStack.Navigator screenOptions={{ headerShown: false }}>
             <AuthStack.Screen name="Login">

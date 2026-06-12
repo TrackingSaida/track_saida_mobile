@@ -70,8 +70,10 @@ export default function VoiceAddressModal({
     <Modal visible transparent animationType="fade">
       <View style={modalStyles.modalOverlay}>
         <View style={modalStyles.modalBox}>
-          <Text style={modalStyles.modalTitle}>Voz</Text>
-          <Text style={modalStyles.modalMessage}>Ouvindo… Fale o endereço.</Text>
+          <Text style={modalStyles.modalTitle}>Ditar endereço</Text>
+          <Text style={modalStyles.modalMessage}>
+            Ouvindo… Diga rua, bairro e número.{"\n"}Ex.: Av. Paulista, Bela Vista, 1000
+          </Text>
           <TouchableOpacity style={modalStyles.modalBtnCancel} onPress={onCancel}>
             <Text style={modalStyles.modalBtnCancelText}>Cancelar</Text>
           </TouchableOpacity>

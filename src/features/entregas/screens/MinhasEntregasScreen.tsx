@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Modal,
   Pressable,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,17 +18,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeColors } from "../../../theme/colors";
-import { getExtratoFinanceiro } from "../api";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import { getExtratoFinanceiro, getTodayISO } from "../api";
 import type { ExtratoFinanceiro, ExtratoStatusFiltro } from "../types";
+import { formatCurrencyBRL } from "../utils/currency";
 import { formatarDiaParaExibicao, getQuinzenaAtualIntervalo } from "../utils/quinzena";
 import type { MaisStackParamList } from "../../../screens/MaisScreen";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "MinhasEntregas">;
-
-function formatCurrencyBRL(value: string): string {
-  const num = Number(value || 0);
-  return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function normalizeServico(servico: string): "Shopee" | "Flex" | "Avulso" {
   const s = (servico || "").trim().toLowerCase();
@@ -78,8 +76,10 @@ function formatRealStatus(status: string, fallback: string): string {
     .join(" ");
 }
 
-export default function MinhasEntregasScreen({ navigation }: Props) {
+export default function MinhasEntregasScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const compactHeader = windowWidth < 360;
   const colors = useThemeColors();
   const quinzena = useMemo(() => getQuinzenaAtualIntervalo(), []);
   const styles = useMemo(
@@ -87,26 +87,19 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         centered: { justifyContent: "center", alignItems: "center" },
-        backBtn: { paddingHorizontal: 16, paddingVertical: 8 },
-        backText: { fontSize: 16, color: colors.primary },
-        title: { fontSize: 22, fontWeight: "700", color: colors.text },
-        headerRow: {
+        headerFilterButton: {
+          minHeight: 36,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.inputBackground,
+          paddingHorizontal: 10,
           flexDirection: "row",
           alignItems: "center",
-          justifyContent: "space-between",
-          paddingHorizontal: 16,
-          marginBottom: 10,
-        },
-        filterIconBtn: {
-          width: 36,
-          height: 36,
-          borderRadius: 18,
-          alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.backgroundCard,
-          borderWidth: 1,
-          borderColor: colors.border,
+          gap: 6,
         },
+        headerFilterButtonText: { fontSize: 13, fontWeight: "700", color: colors.text },
         content: { paddingHorizontal: 16, paddingBottom: 24 },
         topBar: {
           backgroundColor: colors.backgroundCard,
@@ -268,6 +261,15 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
     }, [load])
   );
 
+  useEffect(() => {
+    if (!route.params?.presetPeriodoHoje) return;
+    const hoje = getTodayISO();
+    setDataInicio(hoje);
+    setDataFim(hoje);
+    void load({ dataInicio: hoje, dataFim: hoje, statusFiltro: "grupo_entregue" });
+    navigation.setParams({ presetPeriodoHoje: undefined });
+  }, [route.params?.presetPeriodoHoje, load, navigation]);
+
   const abrirPicker = useCallback((campo: "inicio" | "fim") => {
     const valorAtual = campo === "inicio" ? dataInicio : dataFim;
     setPickerData(parseIsoDate(valorAtual) ?? new Date());
@@ -344,16 +346,22 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: Math.max(24, insets.top) }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>← Voltar</Text>
-      </TouchableOpacity>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Minhas Entregas</Text>
-        <TouchableOpacity style={styles.filterIconBtn} onPress={() => setShowFiltros(true)}>
-          <Ionicons name="filter-outline" size={18} color={colors.text} />
-        </TouchableOpacity>
-      </View>
+    <View style={styles.container}>
+      <ScreenHeaderBar
+        title="Minhas Entregas"
+        onBack={() => navigation.goBack()}
+        paddingTop={Math.max(12, insets.top)}
+        rightElement={
+          <TouchableOpacity
+            style={styles.headerFilterButton}
+            onPress={() => setShowFiltros(true)}
+            accessibilityLabel="Filtros"
+          >
+            <Ionicons name="filter-outline" size={16} color={colors.text} />
+            {!compactHeader ? <Text style={styles.headerFilterButtonText}>Filtro</Text> : null}
+          </TouchableOpacity>
+        }
+      />
 
       <View style={styles.content}>
         <View style={styles.topBar}>
@@ -418,12 +426,17 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
                   {item.itens.map((it) => {
                     const statusReal = formatRealStatus(it.status, it.exibicao);
                     return (
-                      <View key={`${item.data}-${it.id_saida}`} style={styles.itemRow}>
+                      <TouchableOpacity
+                        key={`${item.data}-${it.id_saida}`}
+                        style={styles.itemRow}
+                        activeOpacity={0.7}
+                        onPress={() => navigation.navigate("EntregaDetail", { idSaida: it.id_saida })}
+                      >
                         <Text style={styles.itemCodigo}>{it.codigo || "—"}</Text>
                         <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(statusReal)}22` }]}>
                           <Text style={[styles.statusText, { color: getStatusColor(statusReal) }]}>{statusReal}</Text>
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     );
                   })}
                 </View>
@@ -492,6 +505,16 @@ export default function MinhasEntregasScreen({ navigation }: Props) {
                 >
                   <Text style={[styles.chipText, statusFiltro === "todos" && styles.chipTextActive]}>
                     Todos
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.actionsRow, { marginTop: 8 }]}>
+                <TouchableOpacity
+                  style={[styles.chip, statusFiltro === "cancelados" && styles.chipActive]}
+                  onPress={() => setStatusFiltro("cancelados")}
+                >
+                  <Text style={[styles.chipText, statusFiltro === "cancelados" && styles.chipTextActive]}>
+                    Cancelados
                   </Text>
                 </TouchableOpacity>
               </View>

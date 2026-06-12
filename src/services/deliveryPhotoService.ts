@@ -101,6 +101,8 @@ export interface UploadDeliveryPhotoParams {
   uri: string;
   mimeType: string;
   filename: string;
+  validarCamposObrigatorios?: boolean;
+  alterarStatus?: boolean;
 }
 
 function getErrorMessage(e: unknown): string {
@@ -119,7 +121,15 @@ function getErrorMessage(e: unknown): string {
  * Retorna o object_key. Lança em erro de rede ou API com mensagem descritiva.
  */
 export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Promise<string> {
-  const { id_saida, tipo, uri, mimeType, filename } = params;
+  const {
+    id_saida,
+    tipo,
+    uri,
+    mimeType,
+    filename,
+    validarCamposObrigatorios = false,
+    alterarStatus = true,
+  } = params;
 
   let presign: Awaited<ReturnType<typeof getPresignUpload>>;
   try {
@@ -170,7 +180,7 @@ export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Pr
   }
 
   try {
-    await patchFotoSaida(id_saida, presign.object_key, tipo);
+    await patchFotoSaida(id_saida, presign.object_key, tipo, validarCamposObrigatorios, alterarStatus);
   } catch (e) {
     throw new Error(getErrorMessage(e) || "Foto enviada, mas falha ao registrar. Tente novamente.");
   }

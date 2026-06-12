@@ -12,9 +12,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
 import { effectivePodeLerColeta, isStaffOperacaoRole } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
@@ -94,6 +96,7 @@ function classifyCodigo(rawInput: string): ClassifyResult {
 }
 
 export default function LeituraColetasScreen() {
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
@@ -575,9 +578,16 @@ export default function LeituraColetasScreen() {
   }, []);
 
   return (
+    <>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <ScreenHeaderBar
+          title="Leitura de coletas"
+          onBack={() => navigation.goBack()}
+          paddingTop={Math.max(12, insets.top)}
+        />
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: 12 }]}
+      contentContainerStyle={[styles.content, { paddingBottom: 48 + insets.bottom }]}
     >
       <Text style={styles.description}>
         Leia códigos Shopee, Mercado Livre ou avulsos; a base é obrigatória antes de registrar.
@@ -829,5 +839,7 @@ export default function LeituraColetasScreen() {
         </View>
       </Modal>
     </ScrollView>
+      </View>
+    </>
   );
 }
