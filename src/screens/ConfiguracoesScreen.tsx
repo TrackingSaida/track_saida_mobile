@@ -28,7 +28,7 @@ type Props = NativeStackScreenProps<MaisStackParamList, "Configuracoes">;
 const APP_VERSION =
   Constants.expoConfig?.version ??
   (typeof Constants.nativeAppVersion === "string" ? Constants.nativeAppVersion : null) ??
-  "1.1.0";
+  "1.1.1";
 
 export default function ConfiguracoesScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();

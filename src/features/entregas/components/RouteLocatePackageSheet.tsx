@@ -10,10 +10,11 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import { getStopAddressLine } from "../utils/routeUtils";
 import type { EntregaListItem } from "../types";
@@ -42,6 +43,7 @@ export default function RouteLocatePackageSheet({
   onClose,
 }: RouteLocatePackageSheetProps) {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [result, setResult] = useState<LocateResult | null>(null);
   const lastScanRef = useRef(0);
@@ -50,16 +52,6 @@ export default function RouteLocatePackageSheet({
     () =>
       StyleSheet.create({
         screen: { flex: 1, backgroundColor: colors.background },
-        header: {
-          flexDirection: "row",
-          alignItems: "center",
-          paddingHorizontal: 16,
-          paddingVertical: 12,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.separator,
-        },
-        backText: { fontSize: 16, color: colors.primary, fontWeight: "600" },
-        title: { fontSize: 18, fontWeight: "700", color: colors.text, marginLeft: 12, flex: 1 },
         scroll: { flex: 1 },
         scrollContent: { padding: 16, paddingBottom: 32 },
         hint: { fontSize: 14, color: colors.textSecondary, marginBottom: 12 },
@@ -167,13 +159,12 @@ export default function RouteLocatePackageSheet({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
-      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleClose}>
-            <Text style={styles.backText}>← Voltar</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>Localizar pacote</Text>
-        </View>
+      <SafeAreaView style={styles.screen} edges={["bottom"]}>
+        <ScreenHeaderBar
+          title="Localizar pacote"
+          onBack={handleClose}
+          paddingTop={Math.max(12, insets.top)}
+        />
 
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.hint}>
