@@ -22,6 +22,7 @@ interface AddressSuggestionListProps {
   autoApplied?: boolean;
   didYouMean?: AddressSuggestion | null;
   searchEmpty?: boolean;
+  emptyMessage?: string | null;
   onSelect: (suggestion: AddressSuggestion) => void;
   onSelectDidYouMean?: (suggestion: AddressSuggestion) => void;
 }
@@ -36,6 +37,7 @@ export default function AddressSuggestionList({
   autoApplied,
   didYouMean,
   searchEmpty,
+  emptyMessage,
   onSelect,
   onSelectDidYouMean,
 }: AddressSuggestionListProps) {
@@ -131,7 +133,7 @@ export default function AddressSuggestionList({
   if (searchEmpty && selectableSuggestions.length === 0 && !showDidYouMean) {
     return (
       <View style={styles.wrap}>
-        <Text style={styles.emptyText}>{SEARCH_EMPTY_MESSAGE}</Text>
+        <Text style={styles.emptyText}>{emptyMessage || SEARCH_EMPTY_MESSAGE}</Text>
       </View>
     );
   }

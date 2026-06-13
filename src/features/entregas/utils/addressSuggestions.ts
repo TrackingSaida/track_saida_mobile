@@ -44,6 +44,44 @@ export type AddressSearchResult = {
 
 export type GoogleFallbackReason = "user_requested" | "timeout" | "auto" | "no_results";
 
+/** Erro explícito na busca de sugestões (404 backend desatualizado, 5xx, rede). */
+export class AddressSearchError extends Error {
+  readonly statusCode?: number;
+
+  constructor(message: string, statusCode?: number) {
+    super(message);
+    this.name = "AddressSearchError";
+    this.statusCode = statusCode;
+  }
+}
+
+function throwAddressSearchError(err: unknown): never {
+  if (err instanceof AddressSearchError) throw err;
+  const axiosErr = err as { response?: { status?: number }; message?: string; code?: string };
+  const status = axiosErr.response?.status;
+  if (status === 404) {
+    throw new AddressSearchError(
+      "Serviço de sugestões indisponível. Verifique se o backend foi atualizado.",
+      404
+    );
+  }
+  if (status != null && status >= 500) {
+    throw new AddressSearchError(
+      "Serviço de sugestões temporariamente indisponível. Tente novamente.",
+      status
+    );
+  }
+  if (!axiosErr.response) {
+    throw new AddressSearchError(
+      "Não foi possível buscar sugestões. Verifique sua conexão."
+    );
+  }
+  throw new AddressSearchError(
+    axiosErr.message || "Erro ao buscar sugestões de endereço.",
+    status
+  );
+}
+
 function createSessionToken(): string {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -671,8 +709,8 @@ export async function searchAddressSuggestions(
       : null;
 
     return { suggestions, didYouMean, usedGoogle: response.used_google };
-  } catch {
-    return { suggestions: [], didYouMean: null, usedGoogle: false };
+  } catch (err) {
+    throwAddressSearchError(err);
   }
 }
 

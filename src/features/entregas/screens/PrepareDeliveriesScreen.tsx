@@ -18,13 +18,19 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import PrepAddressSaveSuccess from "../components/PrepAddressSaveSuccess";
+import AddressQuickForm, {
+  type AddressQuickFormHandle,
+  type InlineFeedback,
+  type PrepAddressOrigem,
+  type QuickFormFlowState,
+} from "../components/AddressQuickForm";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import AddressForm, {
   type AddressFormValues,
   type AddressOrigem,
   type AddressCandidate,
 } from "../components/AddressForm";
-import AddressQuickForm, { type QuickFormFlowState } from "../components/AddressQuickForm";
 import GeocodeFailureSheet from "../components/GeocodeFailureSheet";
 import PrepProgressList from "../components/PrepProgressList";
 import PrepAddressExistsModal from "../components/PrepAddressExistsModal";
@@ -115,6 +121,13 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const [flowState, setFlowState] = useState<QuickFormFlowState>("idle");
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [externalParsed, setExternalParsed] = useState<ParsedAddress | null>(null);
+  const [postSaveSuccess, setPostSaveSuccess] = useState<{
+    summaryLines: string[];
+    remaining: number;
+  } | null>(null);
+  const [quickFormInlineFeedback, setQuickFormInlineFeedback] = useState<InlineFeedback>(null);
+  const [voiceSessionKey, setVoiceSessionKey] = useState(0);
+  const quickFormRef = useRef<AddressQuickFormHandle>(null);
 
   const [showGeocodeFailure, setShowGeocodeFailure] = useState(false);
   const [geocodeQuery, setGeocodeQuery] = useState("");
@@ -438,38 +451,36 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           await saveAddress(activeDelivery.id_saida, { ...finalVals, origem });
         }
         setFeedbackMessage(
-          formMode === "edit" ? "Endereço atualizado." : "Endereço salvo. Próximo pacote."
+          formMode === "edit" ? "Endereço atualizado." : "Endereço salvo."
         );
         setExternalParsed(null);
         setShowGeocodeFailure(false);
         setPendingSaveValues(null);
         setFormMode("new");
+        setQuickFormInlineFeedback(null);
+
+        const summaryLines = [
+          [finalVals.rua, finalVals.numero].filter(Boolean).join(", "),
+          finalVals.bairro,
+          [finalVals.cidade, finalVals.estado].filter(Boolean).join("/"),
+        ].filter((line) => !!(line && line.trim()));
 
         if (afterSaveMode === "scan") {
           setShowQuickForm(false);
           setShowAdvancedForm(false);
           setActiveDelivery(null);
-          setShowScanSheet(true);
+          setPostSaveSuccess(null);
+          setFeedbackMessage("✓ Endereço salvo");
+          setTimeout(() => setShowScanSheet(true), 400);
         } else if (afterSaveMode === "queue") {
-          const q = refreshQueue();
-          const currentId = activeDelivery.id_saida;
-          const nextPending =
-            q.find((d) => !d.possui_endereco && d.id_saida !== currentId) ?? null;
-          if (nextPending) {
-            setActiveDelivery(nextPending);
-            setQueueIndex(q.indexOf(nextPending));
-            if (!showAdvancedForm) {
-              setShowQuickForm(true);
-            }
-          } else {
-            setShowQuickForm(false);
-            setShowAdvancedForm(false);
-            setActiveDelivery(null);
-          }
+          refreshQueue();
+          const remaining = useDeliveryStore.getState().deliveriesWithoutAddress.length;
+          setPostSaveSuccess({ summaryLines, remaining });
         } else {
           setShowQuickForm(false);
           setShowAdvancedForm(false);
           setActiveDelivery(null);
+          setPostSaveSuccess(null);
         }
       } catch (e) {
         Alert.alert(
@@ -486,7 +497,6 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       afterSaveMode,
       formMode,
       refreshQueue,
-      showAdvancedForm,
       cidadePadrao,
       estadoPadrao,
     ]
@@ -501,9 +511,48 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       setShowQuickForm(true);
       setShowAdvancedForm(false);
       setExternalParsed(null);
+      setPostSaveSuccess(null);
+      setQuickFormInlineFeedback(null);
     },
     []
   );
+
+  const prepOrigem = useMemo((): PrepAddressOrigem => {
+    if (formMode === "edit") return "none";
+    if (afterSaveMode === "scan") return "qr";
+    if (afterSaveMode === "queue") return "pendente";
+    return "none";
+  }, [afterSaveMode, formMode]);
+
+  const quickFormSubmitLabel = useMemo(() => {
+    if (formMode === "edit") return "Salvar endereço";
+    if (afterSaveMode === "scan") return "Salvar e escanear próximo";
+    return "Salvar e próximo";
+  }, [afterSaveMode, formMode]);
+
+  const handleNextPackageFromSuccess = useCallback(() => {
+    const q = refreshQueue();
+    const next = q.find((d) => !d.possui_endereco) ?? null;
+    setPostSaveSuccess(null);
+    setExternalParsed(null);
+    setQuickFormInlineFeedback(null);
+    if (next) {
+      setActiveDelivery(next);
+      setQueueIndex(q.indexOf(next));
+      setShowQuickForm(true);
+    } else {
+      setShowQuickForm(false);
+      setActiveDelivery(null);
+    }
+  }, [refreshQueue]);
+
+  const handleClosePostSaveSuccess = useCallback(() => {
+    setPostSaveSuccess(null);
+    setShowQuickForm(false);
+    setActiveDelivery(null);
+    setExternalParsed(null);
+    setQuickFormInlineFeedback(null);
+  }, []);
 
   const handleSaveAndNext = useCallback(
     async (
@@ -574,7 +623,9 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     openAddressForm(item, { mode: "edit", afterSave: "none" });
   };
 
-  const captureOcrParsed = useCallback(async (): Promise<ParsedAddress | null> => {
+  const captureOcrParsed = useCallback(async (): Promise<
+    ParsedAddress | null | "failed"
+  > => {
     const isExpoGo = Constants.appOwnership === "expo";
     if (isExpoGo) {
       Alert.alert(
@@ -609,29 +660,62 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     });
     if (result.canceled || !result.assets?.[0]?.uri) return null;
     const lines = await extractTextFromImage(result.assets[0].uri);
-    return pickBestOcrAddress(lines);
+    const parsed = pickBestOcrAddress(lines);
+    return parsed ?? "failed";
   }, []);
 
-  const handleOcr = useCallback(async () => {
+  const showOcrFailureAlert = useCallback((onRetry: () => void) => {
+    Alert.alert(
+      "Endereço na foto",
+      "Não foi possível identificar o endereço na imagem.",
+      [
+        { text: "Tentar novamente", onPress: onRetry },
+        {
+          text: "Digitar manualmente",
+          style: "cancel",
+          onPress: () => quickFormRef.current?.focusAddress(),
+        },
+      ]
+    );
+  }, []);
+
+  const runOcrFlow = useCallback(async () => {
     setFlowState("parsing");
+    setQuickFormInlineFeedback({ message: "📷 Analisando imagem…", tone: "info" });
     try {
       const parsed = await captureOcrParsed();
-      if (!parsed) {
+      if (parsed === null) {
         setFlowState("idle");
+        setQuickFormInlineFeedback(null);
         return;
       }
-      const rawText =
-        (parsed.rawText ?? "").trim() || formatAddressSummary(parsedToFormValues(parsed));
-      injectAddressIntoQuickForm(parsed, rawText);
-    } catch {
-      Alert.alert("Erro", "Não foi possível ler a imagem.");
+      if (parsed === "failed") {
+        setFlowState("idle");
+        setQuickFormInlineFeedback({
+          message: "⚠ Não foi possível identificar o endereço na imagem",
+          tone: "warning",
+        });
+        showOcrFailureAlert(() => void runOcrFlow());
+        return;
+      }
+      setQuickFormInlineFeedback({ message: "✓ Endereço encontrado", tone: "success" });
+      injectAddressIntoQuickForm(parsed, parsed.rawText ?? "");
       setFlowState("idle");
+      setTimeout(() => setQuickFormInlineFeedback(null), 2500);
+    } catch {
+      setFlowState("idle");
+      setQuickFormInlineFeedback(null);
+      Alert.alert("Erro", "Não foi possível ler a imagem.");
     }
-  }, [captureOcrParsed, injectAddressIntoQuickForm]);
+  }, [captureOcrParsed, injectAddressIntoQuickForm, showOcrFailureAlert]);
+
+  const handleOcr = useCallback(() => {
+    void runOcrFlow();
+  }, [runOcrFlow]);
 
   const handleRequestOcrAdvanced = useCallback(async () => {
     const parsed = await captureOcrParsed();
-    if (!parsed) return null;
+    if (!parsed || parsed === "failed") return null;
     return Object.keys(parsed).length > 0 ? parsedToFormValues(parsed) : null;
   }, [captureOcrParsed]);
 
@@ -664,6 +748,15 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         }
       })();
     });
+  }, []);
+
+  const handleVoiceRetry = useCallback(() => {
+    setVoiceSessionKey((k) => k + 1);
+    setFlowState("listening");
+  }, []);
+
+  const handleVoiceFocusManual = useCallback(() => {
+    quickFormRef.current?.focusAddress();
   }, []);
 
   const handleDictate = useCallback(async () => {
@@ -700,6 +793,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       setSpeechModule(null);
       setFlowState("parsing");
       injectAddressIntoQuickForm(parsed, transcript);
+      setQuickFormInlineFeedback({ message: "✓ Endereço reconhecido", tone: "success" });
+      setTimeout(() => setQuickFormInlineFeedback(null), 2500);
     },
     [cidadePadrao, estadoPadrao, showAdvancedForm, injectAddressIntoQuickForm]
   );
@@ -993,19 +1088,40 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       />
 
       <Modal visible={showQuickForm && activeDelivery != null} animationType="slide">
-        <View style={[styles.modalWrap, { paddingTop: insets.top }]}>
-          {activeDelivery && (
+        <View style={[styles.modalWrap, { flex: 1 }]}>
+          <ScreenHeaderBar
+            title="Preparar rota"
+            onBack={() => {
+              setShowQuickForm(false);
+              setActiveDelivery(null);
+              setFormMode("new");
+              setPostSaveSuccess(null);
+              setQuickFormInlineFeedback(null);
+            }}
+            paddingTop={Math.max(12, insets.top)}
+          />
+          {activeDelivery && postSaveSuccess ? (
+            <PrepAddressSaveSuccess
+              summaryLines={postSaveSuccess.summaryLines}
+              remaining={postSaveSuccess.remaining}
+              onNext={handleNextPackageFromSuccess}
+              onDone={handleClosePostSaveSuccess}
+            />
+          ) : activeDelivery ? (
             <AddressQuickForm
+              ref={quickFormRef}
               key={`${activeDelivery.id_saida}-${formMode}`}
               delivery={activeDelivery}
               flowState={flowState}
+              prepOrigem={prepOrigem}
               cidadePadrao={cidadePadrao}
               estadoPadrao={estadoPadrao}
               knownDeliveries={knownDeliveriesForForm}
               initialFreeText={
                 formMode === "edit" ? deliveryToFreeText(activeDelivery) : ""
               }
-              submitLabel={formMode === "edit" ? "Salvar endereço" : "Salvar e próximo"}
+              submitLabel={quickFormSubmitLabel}
+              inlineFeedback={quickFormInlineFeedback}
               externalParsed={externalParsed}
               onFlowStateChange={setFlowState}
               onSaveAndNext={(vals, coords, origem) =>
@@ -1017,9 +1133,11 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
                 setShowQuickForm(false);
                 setActiveDelivery(null);
                 setFormMode("new");
+                setPostSaveSuccess(null);
+                setQuickFormInlineFeedback(null);
               }}
             />
-          )}
+          ) : null}
         </View>
       </Modal>
 
@@ -1127,6 +1245,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
 
       {showVoiceModal && speechModule && (
         <VoiceAddressModal
+          key={voiceSessionKey}
           speechModule={speechModule}
           modalStyles={{
             modalOverlay: styles.voiceModalOverlay,
@@ -1138,6 +1257,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           }}
           onDone={handleVoiceDone}
           onCancel={handleVoiceCancel}
+          onRetry={handleVoiceRetry}
+          onFocusManual={handleVoiceFocusManual}
         />
       )}
     </View>
