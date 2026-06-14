@@ -136,6 +136,7 @@ export interface ExtratoPedidoItem {
   status: string;
   exibicao: string;
   servico: string;
+  valor?: string;
 }
 
 export interface ExtratoDiaItem {

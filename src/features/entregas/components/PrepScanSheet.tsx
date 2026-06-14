@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Alert,
   Dimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
@@ -41,6 +42,7 @@ export default function PrepScanSheet({
   onFound,
   onClose,
 }: PrepScanSheetProps) {
+  const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const [permission, requestPermission] = useCameraPermissions();
   const lastScanRef = useRef(0);
@@ -53,28 +55,39 @@ export default function PrepScanSheet({
           backgroundColor: colors.backgroundCard,
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
-          padding: 20,
-          maxHeight: "90%",
+          paddingHorizontal: 20,
+          paddingTop: 16,
         },
-        title: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 8 },
-        hint: { fontSize: 13, color: colors.textSecondary, marginBottom: 12 },
+        headerRow: {
+          flexDirection: "row",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          marginBottom: 8,
+          gap: 12,
+        },
+        headerTextWrap: { flex: 1 },
+        title: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 4 },
+        hint: { fontSize: 13, color: colors.textSecondary },
+        closeBtn: {
+          minHeight: 36,
+          justifyContent: "center",
+          paddingHorizontal: 4,
+        },
+        closeText: { fontSize: 16, color: colors.primary, fontWeight: "600" },
         camera: {
           width: "100%",
           height: Dimensions.get("window").height * 0.45,
           borderRadius: 12,
           overflow: "hidden",
-          marginBottom: 12,
         },
         btn: {
           paddingVertical: 12,
           borderRadius: 8,
           alignItems: "center",
           backgroundColor: colors.primary,
-          marginBottom: 8,
+          marginTop: 12,
         },
         btnText: { fontSize: 15, fontWeight: "600", color: colors.primaryContrast },
-        close: { alignItems: "center", paddingVertical: 12 },
-        closeText: { fontSize: 16, color: colors.textSecondary },
       }),
     [colors]
   );
@@ -104,11 +117,18 @@ export default function PrepScanSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.box}>
-          <Text style={styles.title}>Adicionar endereço por QR Code</Text>
-          <Text style={styles.hint}>
-            Leia o QR Code do pacote para localizá-lo e preencher o endereço.
-          </Text>
+        <View style={[styles.box, { paddingBottom: Math.max(20, insets.bottom + 16) }]}>
+          <View style={styles.headerRow}>
+            <View style={styles.headerTextWrap}>
+              <Text style={styles.title}>Adicionar endereço por QR Code</Text>
+              <Text style={styles.hint}>
+                Leia o QR Code do pacote para localizá-lo e preencher o endereço.
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.closeBtn} onPress={onClose} accessibilityLabel="Fechar">
+              <Text style={styles.closeText}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
           {!permission?.granted ? (
             <TouchableOpacity style={styles.btn} onPress={requestPermission}>
               <Text style={styles.btnText}>Permitir câmera</Text>
@@ -121,9 +141,6 @@ export default function PrepScanSheet({
               onBarcodeScanned={handleBarcode}
             />
           )}
-          <TouchableOpacity style={styles.close} onPress={onClose}>
-            <Text style={styles.closeText}>Fechar</Text>
-          </TouchableOpacity>
         </View>
       </View>
     </Modal>

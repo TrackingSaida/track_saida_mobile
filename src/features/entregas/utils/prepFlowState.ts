@@ -11,7 +11,8 @@ export type PrepSecondaryAction =
   | "scan_more"
   | "edit_ordering"
   | "locate_package"
-  | "open_route_builder";
+  | "open_route_builder"
+  | "generate_partial_route";
 
 export type PrepStatusChip = "empty" | "missing_addresses" | "ready" | "route_ready" | "route_active";
 
@@ -45,6 +46,7 @@ export type PrepFlowView = {
   hideAddAddressButton: boolean;
   addressCompleteMessage: string | null;
   canGenerateRoute: boolean;
+  canGeneratePartialRoute: boolean;
 };
 
 const SCAN_ADDRESS_BY_QR_LABEL = "Adicionar endereço por QR Code";
@@ -60,9 +62,23 @@ function missingAddressChipLabel(count: number): string {
 
 function buildSecondaries(
   input: PrepFlowInput,
-  primary: PrepPrimaryAction
+  primary: PrepPrimaryAction,
+  canGeneratePartialRoute: boolean
 ): PrepSecondaryItem[] {
   const items: PrepSecondaryItem[] = [];
+
+  if (
+    canGeneratePartialRoute &&
+    primary !== "generate_route" &&
+    input.activeRouteId == null &&
+    input.routeOrderLength === 0
+  ) {
+    items.push({
+      action: "generate_partial_route",
+      label: `Gerar rota parcial (${input.withCoordsCount} pacotes)`,
+      iconKey: "prepGenerateRoute",
+    });
+  }
 
   if (primary !== "scan" && input.totalPedidos > 0 && input.semEndereco > 0) {
     items.push({
@@ -94,7 +110,7 @@ function buildSecondaries(
     });
   }
 
-  return items.slice(0, 2);
+  return items.slice(0, 3);
 }
 
 export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
@@ -112,6 +128,8 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
   const addressCompleteMessage =
     semEndereco === 0 && totalPedidos > 0 ? "Todos os endereços foram informados" : null;
   const canGenerateRoute = withCoordsCount >= 2 && semEndereco === 0 && routeOrderLength === 0;
+  const canGeneratePartialRoute =
+    withCoordsCount >= 2 && semEndereco > 0 && routeOrderLength === 0 && activeRouteId == null;
 
   let statusChip: PrepStatusChip = "empty";
   let statusChipLabel = "";
@@ -129,7 +147,9 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
   } else if (semEndereco > 0) {
     statusChip = "missing_addresses";
     statusChipLabel = missingAddressChipLabel(semEndereco);
-    statusHint = "Todos os pacotes precisam de endereço antes de iniciar a rota.";
+    statusHint = canGeneratePartialRoute
+      ? `${semEndereco} pacote${semEndereco !== 1 ? "s" : ""} sem endereço ficarão de fora se gerar rota parcial.`
+      : null;
   } else {
     statusChip = "ready";
     statusChipLabel = "Pronto para gerar rota";
@@ -173,7 +193,7 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
     primaryIconKey = "prepScan";
   }
 
-  const secondaryActions = buildSecondaries(input, primaryAction);
+  const secondaryActions = buildSecondaries(input, primaryAction, canGeneratePartialRoute);
 
   return {
     primaryAction,
@@ -188,5 +208,6 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
     hideAddAddressButton,
     addressCompleteMessage,
     canGenerateRoute,
+    canGeneratePartialRoute,
   };
 }
