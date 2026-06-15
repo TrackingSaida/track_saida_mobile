@@ -42,13 +42,14 @@ export function HeaderBackButton({ onPress, label = "Voltar" }: HeaderBackButton
 }
 
 type Props = {
-  title: string;
+  title?: string;
+  titleNode?: React.ReactNode;
   onBack: () => void;
   rightElement?: React.ReactNode;
   paddingTop?: number;
 };
 
-export default function ScreenHeaderBar({ title, onBack, rightElement, paddingTop = 12 }: Props) {
+export default function ScreenHeaderBar({ title, titleNode, onBack, rightElement, paddingTop = 12 }: Props) {
   const colors = useThemeColors();
 
   const styles = useMemo(
@@ -81,6 +82,11 @@ export default function ScreenHeaderBar({ title, onBack, rightElement, paddingTo
           fontWeight: "700",
           color: colors.text,
         },
+        titleSlot: {
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+        },
       }),
     [colors]
   );
@@ -91,9 +97,13 @@ export default function ScreenHeaderBar({ title, onBack, rightElement, paddingTo
         <View style={styles.sideSlot}>
           <HeaderBackButton onPress={onBack} />
         </View>
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
+        {titleNode ? (
+          <View style={styles.titleSlot}>{titleNode}</View>
+        ) : (
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+        )}
         <View style={[styles.sideSlot, styles.sideSlotRight]}>{rightElement ?? null}</View>
       </View>
     </View>

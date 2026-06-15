@@ -74,6 +74,7 @@ import {
   resolveNavigationTarget,
 } from "../utils/externalNavigation";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import AppBrandTitleLogo from "../../../components/AppBrandTitleLogo";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregasList">;
 
@@ -1675,7 +1676,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   return (
     <View style={styles.container}>
       <ScreenHeaderBar
-        title="Entregas"
+        titleNode={<AppBrandTitleLogo size="header" />}
         onBack={() => navigation.goBack()}
         paddingTop={Math.max(12, insets.top)}
         rightElement={
