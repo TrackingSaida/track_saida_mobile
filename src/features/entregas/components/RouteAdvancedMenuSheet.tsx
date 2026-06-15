@@ -26,6 +26,8 @@ interface RouteAdvancedMenuSheetProps {
   visible: boolean;
   onClose: () => void;
   onOptimize: () => void;
+  onRestoreOriginal?: () => void;
+  canRestoreOriginal?: boolean;
   onAddStop: () => void;
   onImport: () => void;
   onLocate: () => void;
@@ -42,6 +44,8 @@ export default function RouteAdvancedMenuSheet({
   visible,
   onClose,
   onOptimize,
+  onRestoreOriginal,
+  canRestoreOriginal = false,
   onAddStop,
   onImport,
   onLocate,
@@ -122,12 +126,23 @@ export default function RouteAdvancedMenuSheet({
       ? [
           {
             key: "optimize",
-            label: "Otimizar rota",
+            label: "Reotimizar rota completa",
             icon: "git-branch-outline" as IoniconName,
             onPress: onOptimize,
             loading: optimizing,
             disabled: !canOptimize || optimizing,
           },
+          ...(onRestoreOriginal
+            ? [
+                {
+                  key: "restore",
+                  label: "Restaurar rota original",
+                  icon: "refresh-outline" as IoniconName,
+                  onPress: onRestoreOriginal,
+                  disabled: !canRestoreOriginal || optimizing,
+                },
+              ]
+            : []),
           {
             key: "locate",
             label: "Localizar pacote",

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -6,8 +6,8 @@ import {
   ScrollView,
   StyleSheet,
   Dimensions,
+  Alert,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../../theme/colors";
 import {
   getStopAddressLine,
@@ -21,7 +21,8 @@ interface RouteChangePositionSheetProps {
   stopIndex: number;
   totalStops: number;
   minPosition: number;
-  onSelectPosition: (toIndex: number) => void;
+  onConfirmRecalculate: (toIndex: number) => void;
+  onConfirmSwapOnly: (toIndex: number) => void;
   onBack: () => void;
 }
 
@@ -30,7 +31,8 @@ export default function RouteChangePositionSheet({
   stopIndex,
   totalStops,
   minPosition,
-  onSelectPosition,
+  onConfirmRecalculate,
+  onConfirmSwapOnly,
   onBack,
 }: RouteChangePositionSheetProps) {
   const colors = useThemeColors();
@@ -39,8 +41,7 @@ export default function RouteChangePositionSheet({
   const positions = Array.from({ length: totalStops }, (_, i) => i + 1).filter(
     (pos) => pos >= minPosition
   );
-  const canMoveUp = stopIndex > minPosition;
-  const canMoveDown = stopIndex < totalStops;
+  const [pendingPosition, setPendingPosition] = useState<number | null>(null);
 
   const styles = useMemo(
     () =>
@@ -53,21 +54,6 @@ export default function RouteChangePositionSheet({
           color: colors.primary,
           marginBottom: 16,
         },
-        quickRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
-        quickBtn: {
-          flex: 1,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 6,
-          paddingVertical: 12,
-          borderRadius: 10,
-          borderWidth: 1,
-          borderColor: colors.inputBorder,
-          backgroundColor: colors.inputBackground,
-        },
-        quickBtnDisabled: { opacity: 0.4 },
-        quickBtnText: { fontSize: 14, fontWeight: "600", color: colors.text },
         list: { maxHeight: maxListHeight, marginBottom: 8 },
         pickerItem: {
           paddingVertical: 12,
@@ -77,13 +63,54 @@ export default function RouteChangePositionSheet({
           marginBottom: 8,
         },
         pickerItemActive: { borderWidth: 2, borderColor: colors.primary },
+        pickerItemPending: { borderWidth: 2, borderColor: colors.warning },
         pickerItemText: { fontSize: 15, color: colors.text },
         pickerItemSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+        summaryBox: {
+          padding: 14,
+          borderRadius: 10,
+          backgroundColor: colors.inputBackground,
+          marginBottom: 12,
+        },
+        summaryText: { fontSize: 15, color: colors.text, marginBottom: 12 },
+        primaryBtn: {
+          paddingVertical: 14,
+          borderRadius: 10,
+          alignItems: "center",
+          backgroundColor: colors.primary,
+          marginBottom: 8,
+        },
+        primaryBtnText: { fontSize: 16, fontWeight: "700", color: colors.primaryContrast },
+        linkBtn: { alignItems: "center", paddingVertical: 10 },
+        linkText: { fontSize: 14, color: colors.textSecondary, textDecorationLine: "underline" },
         back: { alignItems: "center", paddingVertical: 12, marginTop: 4 },
         backText: { fontSize: 16, color: colors.textSecondary },
       }),
     [colors, maxListHeight]
   );
+
+  const confirmRecalculate = (toIndex: number) => {
+    Alert.alert(
+      "Recalcular rota?",
+      "Esta parada será fixada na nova posição e as próximas serão reorganizadas pela melhor sequência.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Somente trocar posição",
+          onPress: () => onConfirmSwapOnly(toIndex),
+        },
+        {
+          text: "Recalcular rota",
+          onPress: () => onConfirmRecalculate(toIndex),
+        },
+      ]
+    );
+  };
+
+  const handleSelectPosition = (pos: number) => {
+    if (pos === stopIndex) return;
+    setPendingPosition(pos);
+  };
 
   return (
     <View>
@@ -95,49 +122,53 @@ export default function RouteChangePositionSheet({
         {first ? getStopAddressLine(first) : "—"}
       </Text>
       <Text style={styles.currentPos}>
-        Posição atual: {stopIndex} de {totalStops}
+        Parada {stopIndex} de {totalStops}
       </Text>
 
-      <View style={styles.quickRow}>
-        <TouchableOpacity
-          style={[styles.quickBtn, !canMoveUp && styles.quickBtnDisabled]}
-          onPress={() => canMoveUp && onSelectPosition(stopIndex - 2)}
-          disabled={!canMoveUp}
-        >
-          <Ionicons name="arrow-up-outline" size={18} color={colors.text} />
-          <Text style={styles.quickBtnText}>Subir 1</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.quickBtn, !canMoveDown && styles.quickBtnDisabled]}
-          onPress={() => canMoveDown && onSelectPosition(stopIndex)}
-          disabled={!canMoveDown}
-        >
-          <Ionicons name="arrow-down-outline" size={18} color={colors.text} />
-          <Text style={styles.quickBtnText}>Descer 1</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.list} showsVerticalScrollIndicator>
-        {positions.map((pos) => {
-          const isCurrent = pos === stopIndex;
-          return (
-            <TouchableOpacity
-              key={pos}
-              style={[styles.pickerItem, isCurrent && styles.pickerItemActive]}
-              onPress={() => !isCurrent && onSelectPosition(pos - 1)}
-              disabled={isCurrent}
-            >
-              <Text style={styles.pickerItemText}>
-                Posição {pos}
-                {isCurrent ? " (atual)" : ""}
-              </Text>
-              {isCurrent ? (
-                <Text style={styles.pickerItemSub}>Esta é a posição atual da parada</Text>
-              ) : null}
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      {pendingPosition != null ? (
+        <View style={styles.summaryBox}>
+          <Text style={styles.summaryText}>
+            Mover da posição {stopIndex} para posição {pendingPosition}
+          </Text>
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            onPress={() => confirmRecalculate(pendingPosition - 1)}
+          >
+            <Text style={styles.primaryBtnText}>Recalcular rota</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkBtn}
+            onPress={() => onConfirmSwapOnly(pendingPosition - 1)}
+          >
+            <Text style={styles.linkText}>Somente trocar posição</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.linkBtn} onPress={() => setPendingPosition(null)}>
+            <Text style={styles.linkText}>Escolher outra posição</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView style={styles.list} showsVerticalScrollIndicator>
+          {positions.map((pos) => {
+            const isCurrent = pos === stopIndex;
+            return (
+              <TouchableOpacity
+                key={pos}
+                style={[styles.pickerItem, isCurrent && styles.pickerItemActive]}
+                onPress={() => handleSelectPosition(pos)}
+                disabled={isCurrent}
+              >
+                <Text style={styles.pickerItemText}>
+                  Posição {pos}
+                  {isCurrent ? " (atual)" : ""}
+                </Text>
+                {isCurrent ? (
+                  <Text style={styles.pickerItemSub}>Esta é a posição atual da parada</Text>
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
 
       <TouchableOpacity style={styles.back} onPress={onBack}>
         <Text style={styles.backText}>Voltar</Text>

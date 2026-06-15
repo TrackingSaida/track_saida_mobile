@@ -196,6 +196,7 @@ export default function RouteBottomSheet({
   activeGroupIndex = -1,
   isRouteActive = false,
   onStopPress,
+  onStopReorder,
   collapsed: collapsedProp,
   onCollapsedChange,
   defaultCollapsed = true,
@@ -205,6 +206,7 @@ export default function RouteBottomSheet({
   activeGroupIndex?: number;
   isRouteActive?: boolean;
   onStopPress?: (group: GroupedStop, stopIndex: number) => void;
+  onStopReorder?: (fromGroupIndex: number, toGroupIndex: number) => void;
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   defaultCollapsed?: boolean;
@@ -283,11 +285,15 @@ export default function RouteBottomSheet({
   }, [setCollapsed]);
 
   const handleDragEnd = useCallback(
-    ({ data }: DragEndParams<GroupedStop>) => {
+    ({ data, from, to }: DragEndParams<GroupedStop>) => {
+      if (onStopReorder) {
+        if (from !== to) onStopReorder(from, to);
+        return;
+      }
       const newOrder = data.flatMap((g) => g.deliveries.map((d) => d.id_saida));
       reorderRoute(newOrder);
     },
-    [reorderRoute]
+    [onStopReorder, reorderRoute]
   );
 
   const renderItem = useCallback(

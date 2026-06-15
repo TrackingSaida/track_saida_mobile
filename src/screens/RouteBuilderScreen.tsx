@@ -116,7 +116,13 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const moveGroupedStopToStart = useDeliveryStore((s) => s.moveGroupedStopToStart);
   const moveGroupedStopToEnd = useDeliveryStore((s) => s.moveGroupedStopToEnd);
   const updateRouteDelivery = useDeliveryStore((s) => s.updateRouteDelivery);
-  const findInRouteByCodigo = useDeliveryStore((s) => s.findInRouteByCodigo);
+  const findInRouteByQuery = useDeliveryStore((s) => s.findInRouteByQuery);
+  const reoptimizeFromGroupAnchor = useDeliveryStore((s) => s.reoptimizeFromGroupAnchor);
+  const restoreOriginalRoute = useDeliveryStore((s) => s.restoreOriginalRoute);
+  const reoptimizeFullRoute = useDeliveryStore((s) => s.reoptimizeFullRoute);
+  const routeManuallyAdjusted = useDeliveryStore((s) => s.routeManuallyAdjusted);
+  const routeAdjustMode = useDeliveryStore((s) => s.routeAdjustMode);
+  const routeOriginalOrder = useDeliveryStore((s) => s.routeOriginalOrder);
   const appendToRoute = useDeliveryStore((s) => s.appendToRoute);
   const pendingDeliveries = useDeliveryStore((s) => s.pendingDeliveries);
 
@@ -135,6 +141,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const [showSeparationSheet, setShowSeparationSheet] = useState(false);
   const [routeListCollapsed, setRouteListCollapsed] = useState(true);
   const [optimizingHeader, setOptimizingHeader] = useState(false);
+  const [recalculatingRoute, setRecalculatingRoute] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showAdvancedMenu, setShowAdvancedMenu] = useState(false);
@@ -723,6 +730,65 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     recalcPolyline();
   }, [recalcPolyline]);
 
+  const runPreStartReoptimize = useCallback(
+    async (
+      fromGroupIndex: number,
+      toGroupIndex: number,
+      mode: "recalculate" | "swap_only"
+    ) => {
+      setRecalculatingRoute(true);
+      try {
+        const result = await reoptimizeFromGroupAnchor({
+          fromGroupIndex,
+          toGroupIndex,
+          mode,
+        });
+        await refreshActivePolyline();
+        if (!result.ok) {
+          Alert.alert(
+            "Não foi possível recalcular",
+            "A sequência anterior foi mantida."
+          );
+          return;
+        }
+        if (mode === "recalculate") {
+          Alert.alert(
+            "Rota atualizada",
+            `Sequência recalculada a partir da parada ${toGroupIndex + 1}.`
+          );
+        }
+      } finally {
+        setRecalculatingRoute(false);
+      }
+    },
+    [reoptimizeFromGroupAnchor, refreshActivePolyline]
+  );
+
+  const confirmPreStartMove = useCallback(
+    (fromGroupIndex: number, toGroupIndex: number, onDone?: () => void) => {
+      Alert.alert(
+        "Recalcular rota?",
+        "Esta parada será fixada na nova posição e as próximas serão reorganizadas pela melhor sequência.",
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Somente trocar posição",
+            onPress: () => {
+              void runPreStartReoptimize(fromGroupIndex, toGroupIndex, "swap_only").then(onDone);
+            },
+          },
+          {
+            text: "Recalcular rota",
+            onPress: () => {
+              void runPreStartReoptimize(fromGroupIndex, toGroupIndex, "recalculate").then(onDone);
+            },
+          },
+        ]
+      );
+    },
+    [runPreStartReoptimize]
+  );
+
   const runPartialOptimize = useCallback(
     async (fromIndex?: number) => {
       if (groupedStops.length < 2) return;
@@ -817,20 +883,48 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           }
         }
         setEditDelivery(null);
-        if (isRouteActive) await runPartialOptimize();
+        if (isRouteActive) {
+          await runPartialOptimize();
+        } else {
+          const gIdx = groupedStops.findIndex((g) =>
+            g.deliveries.some((d) => d.id_saida === updated.id_saida)
+          );
+          if (gIdx >= 0) {
+            setRecalculatingRoute(true);
+            try {
+              await reoptimizeFromGroupAnchor({
+                fromGroupIndex: gIdx,
+                toGroupIndex: gIdx,
+                mode: "recalculate",
+              });
+              await refreshActivePolyline();
+              Alert.alert("Endereço salvo", "Próximas paradas recalculadas a partir desta parada.");
+            } catch {
+              Alert.alert("Endereço salvo", "Não foi possível recalcular as próximas paradas.");
+            } finally {
+              setRecalculatingRoute(false);
+            }
+          }
+        }
       } catch (e) {
         Alert.alert("Erro ao salvar", formatApiError(e, "Não foi possível salvar o endereço."));
       }
     },
-    [editDelivery, saveAddress, updateRouteDelivery, runPartialOptimize, isRouteActive, cidadePadrao, estadoPadrao]
+    [editDelivery, saveAddress, updateRouteDelivery, runPartialOptimize, isRouteActive, cidadePadrao, estadoPadrao, groupedStops, reoptimizeFromGroupAnchor, refreshActivePolyline]
   );
 
   const handleAlterarPosicao = useCallback(
-    (toIndex: number) => {
-      confirmReorderDuringActiveRoute(async () => {
-        moveGroupedStopToIndex(actionSheetStopIndex - 1, toIndex);
+    (toIndex: number, mode: "recalculate" | "swap_only" = "recalculate") => {
+      const fromGroupIndex = actionSheetStopIndex - 1;
+      if (!isRouteActive) {
         setActionSheetGroup(null);
-        if (isRouteActive) await runPartialOptimize();
+        void runPreStartReoptimize(fromGroupIndex, toIndex, mode);
+        return;
+      }
+      confirmReorderDuringActiveRoute(async () => {
+        moveGroupedStopToIndex(fromGroupIndex, toIndex);
+        setActionSheetGroup(null);
+        await runPartialOptimize();
       });
     },
     [
@@ -839,14 +933,22 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       runPartialOptimize,
       isRouteActive,
       confirmReorderDuringActiveRoute,
+      runPreStartReoptimize,
     ]
   );
 
   const handleMoverInicio = useCallback(() => {
-    confirmReorderDuringActiveRoute(async () => {
-      moveGroupedStopToStart(actionSheetStopIndex - 1);
+    const fromGroupIndex = actionSheetStopIndex - 1;
+    const toGroupIndex = isRouteActive ? effectiveCurrentGroupNumber - 1 : 0;
+    if (!isRouteActive) {
       setActionSheetGroup(null);
-      if (isRouteActive) await runPartialOptimize();
+      confirmPreStartMove(fromGroupIndex, toGroupIndex);
+      return;
+    }
+    confirmReorderDuringActiveRoute(async () => {
+      moveGroupedStopToStart(fromGroupIndex);
+      setActionSheetGroup(null);
+      await runPartialOptimize();
     });
   }, [
     actionSheetStopIndex,
@@ -854,13 +956,22 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     runPartialOptimize,
     isRouteActive,
     confirmReorderDuringActiveRoute,
+    confirmPreStartMove,
+    effectiveCurrentGroupNumber,
   ]);
 
   const handleMoverFim = useCallback(() => {
-    confirmReorderDuringActiveRoute(async () => {
-      moveGroupedStopToEnd(actionSheetStopIndex - 1);
+    const fromGroupIndex = actionSheetStopIndex - 1;
+    const toGroupIndex = groupedStops.length - 1;
+    if (!isRouteActive) {
       setActionSheetGroup(null);
-      if (isRouteActive) await runPartialOptimize();
+      confirmPreStartMove(fromGroupIndex, toGroupIndex);
+      return;
+    }
+    confirmReorderDuringActiveRoute(async () => {
+      moveGroupedStopToEnd(fromGroupIndex);
+      setActionSheetGroup(null);
+      await runPartialOptimize();
     });
   }, [
     actionSheetStopIndex,
@@ -868,7 +979,59 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     runPartialOptimize,
     isRouteActive,
     confirmReorderDuringActiveRoute,
+    confirmPreStartMove,
+    groupedStops.length,
   ]);
+
+  const handleStopReorder = useCallback(
+    (fromGroupIndex: number, toGroupIndex: number) => {
+      if (isRouteActive || fromGroupIndex === toGroupIndex) return;
+      confirmPreStartMove(fromGroupIndex, toGroupIndex);
+    },
+    [isRouteActive, confirmPreStartMove]
+  );
+
+  const handleRestoreOriginal = useCallback(async () => {
+    const result = restoreOriginalRoute();
+    if (!result.ok) {
+      Alert.alert(
+        "Restaurar rota original",
+        result.reason === "unchanged"
+          ? "A ordem atual já é a original."
+          : "Não há rota original salva."
+      );
+      return;
+    }
+    await refreshActivePolyline();
+    Alert.alert("Rota restaurada", "A ordem original foi restaurada.");
+  }, [restoreOriginalRoute, refreshActivePolyline]);
+
+  const handleReoptimizeFullRoute = useCallback(async () => {
+    if (groupedStops.length < 2 || optimizingHeader) return;
+    setOptimizingHeader(true);
+    try {
+      const result = await runOptimizeRouteWithFeedback(() => reoptimizeFullRoute(), {
+        silent: true,
+      });
+      await refreshActivePolyline();
+      if (result?.ok && result.message !== "noop") {
+        Alert.alert("Rota reotimizada", "A rota completa foi reorganizada.");
+      }
+    } finally {
+      setOptimizingHeader(false);
+    }
+  }, [groupedStops.length, optimizingHeader, reoptimizeFullRoute, refreshActivePolyline]);
+
+  const canRestoreOriginal = useMemo(() => {
+    if (!routeOriginalOrder || routeOriginalOrder.length === 0) return false;
+    return routeOriginalOrder.join(",") !== routeOrder.join(",");
+  }, [routeOriginalOrder, routeOrder]);
+
+  const routeStatusLabel = useMemo(() => {
+    if (!routeManuallyAdjusted) return null;
+    if (routeAdjustMode === "swap_only") return "Rota ajustada manualmente";
+    return "Rota recalculada";
+  }, [routeManuallyAdjusted, routeAdjustMode]);
 
   const priorityDisplayLabel = useMemo(() => {
     if (routePriority.type === "delivery") {
@@ -1099,6 +1262,23 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         },
         headerBtnSecondaryText: { fontSize: 13, fontWeight: "600", color: colors.primary },
         mapFull: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+        recalcOverlay: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: "rgba(0,0,0,0.35)",
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 6,
+        },
+        recalcBox: {
+          paddingHorizontal: 24,
+          paddingVertical: 16,
+          borderRadius: 12,
+          backgroundColor: colors.backgroundCard,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+        },
+        recalcText: { fontSize: 15, fontWeight: "600", color: colors.text },
         sheetOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 8 },
         cardOverlay: {
           position: "absolute",
@@ -1184,6 +1364,14 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           selectedStopNumber={selectedOrderNumber ?? null}
           controlsBottomInset={routeListCollapsed ? 100 : 220}
         />
+        {recalculatingRoute && (
+          <View style={styles.recalcOverlay} pointerEvents="auto">
+            <View style={styles.recalcBox}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.recalcText}>Recalculando rota…</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       <View style={[styles.header, (headerCompact || listModeOpen) && styles.headerCompact]}>
@@ -1225,6 +1413,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
               localizedStops={headerStats.localizedStops}
               reviewCount={headerStats.reviewCount}
               priorityLabel={routePriority.type !== "none" ? priorityDisplayLabel : null}
+              routeStatusLabel={routeStatusLabel}
               onReviewPress={() => setShowReviewModal(true)}
             />
             <View style={styles.priorityRow}>
@@ -1359,10 +1548,11 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
 
       <View style={styles.sheetOverlay}>
         <RouteBottomSheet
-          disableDrag={isRouteActive}
+          disableDrag={isRouteActive || recalculatingRoute}
           activeGroupIndex={effectiveCurrentGroupIndex}
           isRouteActive={isRouteActive}
           onStopPress={handleStopPress}
+          onStopReorder={!isRouteActive ? handleStopReorder : undefined}
           collapsed={routeListCollapsed}
           onCollapsedChange={setRouteListCollapsed}
           defaultCollapsed
@@ -1381,14 +1571,16 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       <RouteAdvancedMenuSheet
         visible={showAdvancedMenu}
         onClose={() => setShowAdvancedMenu(false)}
-        onOptimize={() => void handleHeaderOptimize()}
+        onOptimize={() => void handleReoptimizeFullRoute()}
+        onRestoreOriginal={() => void handleRestoreOriginal()}
+        canRestoreOriginal={canRestoreOriginal}
         onAddStop={() => setShowQuickAdd(true)}
         onImport={() => setShowBulkImport(true)}
         onLocate={() => setShowLocateSheet(true)}
         onIniciar={() => void handleIniciarEntrega()}
         onToggleList={() => setRouteListCollapsed((c) => !c)}
         listExpanded={!routeListCollapsed}
-        optimizing={optimizingHeader}
+        optimizing={optimizingHeader || recalculatingRoute}
         iniciando={iniciandoRota}
         canOptimize={groupedStops.length >= 2}
         showPlanningActions={!isRouteActive}
@@ -1400,8 +1592,12 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         stopIndex={actionSheetStopIndex}
         totalStops={groupedStops.length}
         canMutateStop={!isRouteActive || actionSheetStopIndex >= effectiveCurrentGroupNumber}
+        isReviewPhase={!isRouteActive}
         isCurrentStop={isRouteActive && actionSheetStopIndex === effectiveCurrentGroupNumber}
         minPosition={isRouteActive ? effectiveCurrentGroupNumber : 1}
+        geocodedCoords={geocodedCoords}
+        geocodedMeta={geocodedMeta}
+        legacyValidationCache={legacyValidationCache}
         onClose={() => setActionSheetGroup(null)}
         onNavegar={() => actionSheetGroup && handleNavegarGroup(actionSheetGroup)}
         onVerPedidos={() => {
@@ -1411,7 +1607,8 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           }
         }}
         onEditarParada={(d) => setEditDelivery(d)}
-        onAlterarPosicao={(toIndex) => void handleAlterarPosicao(toIndex)}
+        onConfirmRecalculate={(toIndex) => handleAlterarPosicao(toIndex, "recalculate")}
+        onConfirmSwapOnly={(toIndex) => handleAlterarPosicao(toIndex, "swap_only")}
         onMoverInicio={() => void handleMoverInicio()}
         onMoverFim={() => void handleMoverFim()}
         onRemover={handleRemoverGroup}
@@ -1452,15 +1649,48 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       <RouteLocatePackageSheet
         visible={showLocateSheet}
         totalStops={groupedStops.length}
-        onFindByCodigo={(codigo) => {
-          const found = findInRouteByCodigo(codigo);
-          if (!found) return null;
+        onFindByQuery={(query) => {
+          const matches = findInRouteByQuery(query);
+          if (matches.length === 0) return null;
+          const found = matches[0];
           return {
             stopIndex: found.stopIndex,
             delivery: found.delivery,
             sameStopDeliveries: found.sameStopDeliveries,
             totalStops: groupedStops.length,
+            ambiguousMatches:
+              matches.length > 1
+                ? matches.slice(1).map((m) => ({
+                    stopIndex: m.stopIndex,
+                    delivery: m.delivery,
+                    sameStopDeliveries: m.sameStopDeliveries,
+                    totalStops: groupedStops.length,
+                  }))
+                : undefined,
           };
+        }}
+        onViewStop={(stopIndex) => {
+          const group = groupedStops[stopIndex];
+          if (!group) return;
+          setShowLocateSheet(false);
+          setCenterOnStopId(group.deliveries[0]?.id_saida ?? null);
+          setActionSheetGroup(group);
+          setActionSheetStopIndex(stopIndex + 1);
+        }}
+        onNavigate={(stopIndex) => {
+          const group = groupedStops[stopIndex];
+          if (group) handleNavegarGroup(group);
+        }}
+        onEditAddress={(delivery) => {
+          setShowLocateSheet(false);
+          setEditDelivery(delivery);
+        }}
+        onChangePosition={(stopIndex) => {
+          const group = groupedStops[stopIndex];
+          if (!group) return;
+          setShowLocateSheet(false);
+          setActionSheetGroup(group);
+          setActionSheetStopIndex(stopIndex + 1);
         }}
         onClose={() => setShowLocateSheet(false)}
       />
