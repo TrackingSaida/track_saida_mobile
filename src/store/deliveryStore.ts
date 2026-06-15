@@ -184,6 +184,8 @@ interface DeliveryState {
   restoreOriginalRoute: () => RestoreOriginalRouteResult;
   reoptimizeFullRoute: () => Promise<OptimizeRouteResult>;
   appendToRoute: (deliveries: EntregaListItem[]) => void;
+  /** Inclui pacotes no fim da ordem atual, sem re-cluster global. */
+  appendToRouteAtEnd: (deliveries: EntregaListItem[]) => void;
 
   /** Inicia rota persistida com routeOrder atual; retorna rota_id. */
   startActiveRoute: () => Promise<string>;
@@ -1002,6 +1004,28 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         routeDeliveries,
         routeOrder,
         routeDeliveryStatus: nextStatus,
+      };
+    });
+  },
+  appendToRouteAtEnd: (deliveries) => {
+    if (get().activeRouteId != null) return;
+    set((state) => {
+      const existingIds = new Set(state.routeOrder);
+      const newOnes = deliveries.filter((d) => !existingIds.has(d.id_saida));
+      if (newOnes.length === 0) return state;
+      const nextStatus = { ...state.routeDeliveryStatus };
+      for (const d of newOnes) nextStatus[d.id_saida] = "pendente";
+      const routeDeliveries = [...state.routeDeliveries, ...newOnes];
+      const routeOrder = [
+        ...state.routeOrder,
+        ...newOnes.map((d) => d.id_saida),
+      ];
+      return {
+        routeDeliveries,
+        routeOrder,
+        routeDeliveryStatus: nextStatus,
+        routeManuallyAdjusted: true,
+        routeAdjustMode: "swap_only",
       };
     });
   },

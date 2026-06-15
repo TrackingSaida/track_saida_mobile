@@ -25,9 +25,9 @@ import {
 type Props = {
   historico: SaidaHistoricoItem[];
   detail: SaidaDetail | null;
-  comprovanteUri?: string | null;
+  comprovanteUris?: string[];
   comprovanteLoading?: boolean;
-  onVerComprovante?: () => void;
+  onVerComprovante?: (index: number) => void;
 };
 
 function getDetailNested(detail: SaidaDetail | null) {
@@ -51,7 +51,7 @@ function formatJustificativa(motivo?: string | null, observacao?: string | null)
 export default function ConsultaPacoteHistoricoTimeline({
   historico,
   detail,
-  comprovanteUri,
+  comprovanteUris = [],
   comprovanteLoading,
   onVerComprovante,
 }: Props) {
@@ -104,11 +104,10 @@ export default function ConsultaPacoteHistoricoTimeline({
         extraBlock: { marginTop: 8, gap: 4 },
         extraLabel: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
         extraValue: { fontSize: 13, color: colors.text, lineHeight: 18 },
+        thumbRow: { flexDirection: "row", gap: 8, marginTop: 10 },
         thumbWrap: {
-          marginTop: 10,
           borderRadius: 10,
           overflow: "hidden",
-          alignSelf: "flex-start",
         },
         thumb: { width: 80, height: 80, borderRadius: 10 },
       }),
@@ -137,7 +136,7 @@ export default function ConsultaPacoteHistoricoTimeline({
           const showAusenciaExtras = isEventoAusencia(item.evento) && index === lastAusenciaIndex;
           const showCancelExtras = isEventoCancelamento(item.evento);
           const showComprovante =
-            !!comprovanteUri &&
+            comprovanteUris.length > 0 &&
             !comprovanteLoading &&
             ((isEventoEntrega(item.evento) && index === lastEntregaIndex) ||
               (isEventoAusencia(item.evento) && index === lastAusenciaIndex));
@@ -185,14 +184,19 @@ export default function ConsultaPacoteHistoricoTimeline({
                 ) : null}
 
                 {showComprovante && onVerComprovante ? (
-                  <TouchableOpacity
-                    style={styles.thumbWrap}
-                    onPress={onVerComprovante}
-                    activeOpacity={0.88}
-                    accessibilityLabel="Ver comprovante"
-                  >
-                    <Image source={{ uri: comprovanteUri! }} style={styles.thumb} resizeMode="cover" />
-                  </TouchableOpacity>
+                  <View style={styles.thumbRow}>
+                    {comprovanteUris.map((uri, photoIndex) => (
+                      <TouchableOpacity
+                        key={`${photoIndex}-${uri.slice(0, 24)}`}
+                        style={styles.thumbWrap}
+                        onPress={() => onVerComprovante(photoIndex)}
+                        activeOpacity={0.88}
+                        accessibilityLabel={`Ver comprovante ${photoIndex + 1}`}
+                      >
+                        <Image source={{ uri }} style={styles.thumb} resizeMode="cover" />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 ) : null}
               </View>
             </View>

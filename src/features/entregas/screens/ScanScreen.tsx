@@ -25,6 +25,7 @@ import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { playSound } from "../../../utils/sound";
+import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Scan">;
 
@@ -339,6 +340,7 @@ export default function ScanScreen({ navigation }: Props) {
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRoute = useDeliveryStore((s) => s.startRoute);
+  const loadDeliveries = useDeliveryStore((s) => s.loadDeliveries);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -398,6 +400,13 @@ export default function ScanScreen({ navigation }: Props) {
     const serv = classifyServico(ent.servico);
     addLeituraStore({ id_saida: ent.id_saida, codigo: ent.codigo || "", servico: serv });
   }, [addLeituraStore]);
+
+  const handlePostScanDelivery = useCallback(
+    (idSaida: number) => {
+      void runPostScanRouteFlow(idSaida, navigation, loadDeliveries);
+    },
+    [navigation, loadDeliveries]
+  );
 
   const removerLeitura = useCallback(async (id_saida: number) => {
     const snapshot = leiturasSession;
@@ -515,6 +524,7 @@ export default function ScanScreen({ navigation }: Props) {
           setCodigo("");
           playSound("success");
           pushFeedback("sucesso", "Leitura registrada", c);
+          handlePostScanDelivery(sucessoResult.entrega.id_saida);
           setTimeout(() => (scanLocked.current = false), 400);
         }
       } catch (e: unknown) {
@@ -529,7 +539,7 @@ export default function ScanScreen({ navigation }: Props) {
         setLoading(false);
       }
     },
-    [addLeitura, codigosLidosSessao, pushFeedback]
+    [addLeitura, codigosLidosSessao, pushFeedback, handlePostScanDelivery]
   );
 
   const handleBarcodeScanned = useCallback(
@@ -603,6 +613,7 @@ export default function ScanScreen({ navigation }: Props) {
         eraEntregue ? "Reatribuído — Em rota" : "Leitura assumida",
         entrega.codigo ?? String(conflito.id_saida)
       );
+      handlePostScanDelivery(conflito.id_saida);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
       const msg = ax?.response?.data?.detail ?? "Erro ao assumir.";
@@ -622,15 +633,17 @@ export default function ScanScreen({ navigation }: Props) {
 
   const handleConfirmarDiaAnterior = useCallback(async () => {
     if (!conflitoDiaAnterior) return;
+    const idSaida = conflitoDiaAnterior.id_saida;
     setConfirmandoDiaAnterior(true);
     try {
-      await confirmarNovaSaidaMesmoEntregador(conflitoDiaAnterior.id_saida);
-      const entrega = await getEntrega(conflitoDiaAnterior.id_saida);
+      await confirmarNovaSaidaMesmoEntregador(idSaida);
+      const entrega = await getEntrega(idSaida);
       addLeitura(entrega);
       playSound("success");
       pushFeedback("sucesso", "Nova saída confirmada", entrega.codigo ?? conflitoDiaAnterior.codigo);
       setConflitoDiaAnterior(null);
       scanLocked.current = false;
+      handlePostScanDelivery(idSaida);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string; message?: string } } };
       const msg = ax?.response?.data?.detail ?? ax?.response?.data?.message ?? "Erro ao confirmar nova saída.";
@@ -640,7 +653,7 @@ export default function ScanScreen({ navigation }: Props) {
     } finally {
       setConfirmandoDiaAnterior(false);
     }
-  }, [addLeitura, conflitoDiaAnterior, pushFeedback]);
+  }, [addLeitura, conflitoDiaAnterior, pushFeedback, handlePostScanDelivery]);
 
   const handleCancelarDiaAnterior = useCallback(() => {
     setConflitoDiaAnterior(null);

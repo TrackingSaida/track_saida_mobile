@@ -65,6 +65,7 @@ export type RootStackParamList = {
         openLocatePackage?: boolean;
         openSeparation?: boolean;
         highlightLocatePackage?: boolean;
+        pendingAddToRoute?: number;
       }
     | undefined;
   RotasHistorico: undefined;
@@ -106,6 +107,9 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
                 ...(opts?.openLocatePackage ? { openLocatePackage: true } : {}),
                 ...(opts?.openSeparation ? { openSeparation: true } : {}),
                 ...(opts?.highlightLocatePackage ? { highlightLocatePackage: true } : {}),
+                ...(opts?.pendingAddToRoute != null
+                  ? { pendingAddToRoute: opts.pendingAddToRoute }
+                  : {}),
               })
             }
             onNavigateRotasHistorico={() => navigation.navigate("RotasHistorico")}

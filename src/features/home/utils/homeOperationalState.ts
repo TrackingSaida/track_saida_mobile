@@ -215,7 +215,10 @@ export function deriveHomeCtas(
     return {
       layout: "route",
       primary: { label: "Ver resumo", action: "view_summary", primary: true },
-      secondary: [{ label: "Histórico de rotas", action: "route_history" }],
+      secondary: [
+        { label: "Histórico de rotas", action: "route_history" },
+        SCAN_INSERT_CTA,
+      ],
     };
   }
 
@@ -223,7 +226,10 @@ export function deriveHomeCtas(
     return {
       layout: "route",
       primary: { label: "Continuar rota", action: "continue_route", primary: true },
-      secondary: [{ label: "Localizar pacote", action: "locate_package" }],
+      secondary: [
+        { label: "Localizar pacote", action: "locate_package" },
+        SCAN_INSERT_CTA,
+      ],
     };
   }
 
@@ -238,6 +244,7 @@ export function deriveHomeCtas(
       secondary: [
         { label: "Localizar pacote", action: "locate_package" },
         { label: "Editar rota", action: "edit_route" },
+        SCAN_INSERT_CTA,
       ],
     };
   }

@@ -27,6 +27,7 @@ import FormAusenteModal, {
   uploadAusentePhotosForDeliveryIds,
 } from "../features/entregas/components/FormAusenteModal";
 import type { EntregueBody } from "../features/entregas/api";
+import { getEntrega } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
 import {
   getOrderedRouteDeliveries,
@@ -76,6 +77,10 @@ import { geocodeAddressStrict } from "../features/entregas/utils/geocodeStrict";
 import type { EntregaListItem } from "../features/entregas/types";
 import { useMotoboyPrefsStore } from "../store/motoboyPrefsStore";
 import { runOptimizeRouteWithFeedback } from "../features/entregas/utils/optimizeRouteFeedback";
+import {
+  deliveryNeedsAddressForRoute,
+  notifyPendingAdded,
+} from "../features/entregas/utils/postScanRouteFlow";
 import PulsingTouchable from "../components/PulsingTouchable";
 
 const LOCATE_PACKAGE_LABEL = "Buscar pacote e anotar parada";
@@ -124,7 +129,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const routeAdjustMode = useDeliveryStore((s) => s.routeAdjustMode);
   const routeOriginalOrder = useDeliveryStore((s) => s.routeOriginalOrder);
   const appendToRoute = useDeliveryStore((s) => s.appendToRoute);
+  const appendToRouteAtEnd = useDeliveryStore((s) => s.appendToRouteAtEnd);
   const pendingDeliveries = useDeliveryStore((s) => s.pendingDeliveries);
+  const pendingAddToRouteIdRef = useRef<number | null>(null);
 
   const isRouteActive = activeRouteId != null;
 
@@ -730,6 +737,83 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     recalcPolyline();
   }, [recalcPolyline]);
 
+  const applyAppendAtEnd = useCallback(
+    async (delivery: EntregaListItem) => {
+      appendToRouteAtEnd([delivery]);
+      await refreshActivePolyline();
+      Alert.alert("Rota atualizada", "Parada adicionada ao final da rota.");
+    },
+    [appendToRouteAtEnd, refreshActivePolyline]
+  );
+
+  const applyAppendReoptimize = useCallback(
+    async (delivery: EntregaListItem) => {
+      setRecalculatingRoute(true);
+      try {
+        appendToRoute([delivery]);
+        await runOptimizeRouteWithFeedback(() => reoptimizeFullRoute(), { silent: true });
+        await refreshActivePolyline();
+        Alert.alert("Rota reotimizada", "A rota foi reorganizada com o novo pacote.");
+      } finally {
+        setRecalculatingRoute(false);
+      }
+    },
+    [appendToRoute, reoptimizeFullRoute, refreshActivePolyline]
+  );
+
+  const promptPlacementChoice = useCallback(
+    (delivery: EntregaListItem) => {
+      pendingAddToRouteIdRef.current = null;
+      Alert.alert(
+        "Incluir na rota",
+        "Como deseja incluir esta parada na rota planejada?",
+        [
+          { text: "Cancelar", style: "cancel", onPress: notifyPendingAdded },
+          {
+            text: "Última parada",
+            onPress: () => void applyAppendAtEnd(delivery),
+          },
+          {
+            text: "Reotimizar rota",
+            onPress: () => void applyAppendReoptimize(delivery),
+          },
+        ]
+      );
+    },
+    [applyAppendAtEnd, applyAppendReoptimize]
+  );
+
+  const startPendingAddToRouteFlow = useCallback(
+    async (idSaida: number) => {
+      if (isRouteActive) return;
+      let delivery =
+        pendingDeliveries.find((d) => d.id_saida === idSaida) ??
+        routeDeliveries.find((d) => d.id_saida === idSaida);
+      if (!delivery) {
+        try {
+          delivery = await getEntrega(idSaida);
+        } catch {
+          Alert.alert("Erro", "Não foi possível carregar o pacote.");
+          return;
+        }
+      }
+      pendingAddToRouteIdRef.current = idSaida;
+      if (deliveryNeedsAddressForRoute(delivery)) {
+        setEditDelivery(delivery);
+        return;
+      }
+      promptPlacementChoice(delivery);
+    },
+    [isRouteActive, pendingDeliveries, routeDeliveries, promptPlacementChoice]
+  );
+
+  useEffect(() => {
+    const idSaida = route.params?.pendingAddToRoute;
+    if (idSaida == null) return;
+    navigation.setParams({ pendingAddToRoute: undefined });
+    void startPendingAddToRouteFlow(idSaida);
+  }, [route.params?.pendingAddToRoute, navigation, startPendingAddToRouteFlow]);
+
   const runPreStartReoptimize = useCallback(
     async (
       fromGroupIndex: number,
@@ -883,6 +967,12 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           }
         }
         setEditDelivery(null);
+        const pendingAddId = pendingAddToRouteIdRef.current;
+        if (pendingAddId === updated.id_saida && !isRouteActive) {
+          pendingAddToRouteIdRef.current = null;
+          promptPlacementChoice(updated);
+          return;
+        }
         if (isRouteActive) {
           await runPartialOptimize();
         } else {
@@ -910,7 +1000,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         Alert.alert("Erro ao salvar", formatApiError(e, "Não foi possível salvar o endereço."));
       }
     },
-    [editDelivery, saveAddress, updateRouteDelivery, runPartialOptimize, isRouteActive, cidadePadrao, estadoPadrao, groupedStops, reoptimizeFromGroupAnchor, refreshActivePolyline]
+    [editDelivery, saveAddress, updateRouteDelivery, runPartialOptimize, isRouteActive, cidadePadrao, estadoPadrao, groupedStops, reoptimizeFromGroupAnchor, refreshActivePolyline, promptPlacementChoice]
   );
 
   const handleAlterarPosicao = useCallback(

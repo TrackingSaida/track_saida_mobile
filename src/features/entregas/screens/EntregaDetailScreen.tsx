@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -9,13 +9,14 @@ import {
   Alert,
   Modal,
   Image,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import * as ImagePicker from "expo-image-picker";
-import { getEntrega, fetchComprovanteImageDataUri } from "../api";
+import { getEntrega, fetchComprovanteImagesDataUris } from "../api";
 import type { EntregaListItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
@@ -118,9 +119,12 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [speechModule, setSpeechModule] = useState<typeof import("expo-speech-recognition") | null>(null);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [showEntregueModal, setShowEntregueModal] = useState(false);
-  const [comprovanteThumb, setComprovanteThumb] = useState<string | null>(null);
+  const [comprovanteUris, setComprovanteUris] = useState<string[]>([]);
   const [loadingComprovante, setLoadingComprovante] = useState(false);
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
+  const [comprovanteViewerIndex, setComprovanteViewerIndex] = useState(0);
+  const comprovanteViewerRef = useRef<ScrollView>(null);
+  const { width: windowWidth } = useWindowDimensions();
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
   const markDelivered = useDeliveryStore((s) => s.markDelivered);
   const markAbsent = useDeliveryStore((s) => s.markAbsent);
@@ -141,15 +145,15 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       if (shouldLoadComprovante) {
         setLoadingComprovante(true);
         try {
-          const dataUri = await fetchComprovanteImageDataUri(idSaida);
-          setComprovanteThumb(dataUri);
+          const uris = await fetchComprovanteImagesDataUris(idSaida);
+          setComprovanteUris(uris);
         } catch {
-          setComprovanteThumb(null);
+          setComprovanteUris([]);
         } finally {
           setLoadingComprovante(false);
         }
       } else {
-        setComprovanteThumb(null);
+        setComprovanteUris([]);
         setLoadingComprovante(false);
       }
     } catch {
@@ -162,6 +166,16 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   useEffect(() => {
     void load();
   }, [idSaida]);
+
+  useEffect(() => {
+    if (!showComprovanteViewer || comprovanteUris.length === 0) return;
+    requestAnimationFrame(() => {
+      comprovanteViewerRef.current?.scrollTo({
+        x: comprovanteViewerIndex * windowWidth,
+        animated: false,
+      });
+    });
+  }, [showComprovanteViewer, comprovanteViewerIndex, comprovanteUris.length, windowWidth]);
 
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
   const handleAbrirAusente = () => setModalAusente(true);
@@ -362,7 +376,9 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const mostrarAvisoRota = !isFinalizado && !podeFinalizar && !isAusente;
   const temObsEntrega = !!(entrega.observacao_entrega || "").trim();
   const showComprovanteBlock =
-    isEntregue || (isCancelado && !!entrega.tem_comprovante) || (isAusente && !!comprovanteThumb);
+    isEntregue ||
+    (isCancelado && !!entrega.tem_comprovante) ||
+    (isAusente && (comprovanteUris.length > 0 || !!entrega.tem_comprovante));
 
   return (
     <View style={styles.container}>
@@ -401,9 +417,12 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             <DetailAddressBlock entrega={entrega} showPhone />
             {showComprovanteBlock ? (
               <DetailComprovanteBlock
-                thumbUri={comprovanteThumb}
+                thumbUris={comprovanteUris}
                 loading={loadingComprovante}
-                onPressThumb={() => setShowComprovanteViewer(true)}
+                onPressThumb={(index) => {
+                  setComprovanteViewerIndex(index);
+                  setShowComprovanteViewer(true);
+                }}
               />
             ) : null}
           </>
@@ -421,9 +440,16 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             {isCancelado ? <DetailOccurrenceBlock entrega={entrega} /> : null}
             {showComprovanteBlock ? (
               <DetailComprovanteBlock
-                thumbUri={comprovanteThumb}
+                thumbUris={comprovanteUris}
                 loading={loadingComprovante}
-                onPressThumb={comprovanteThumb ? () => setShowComprovanteViewer(true) : undefined}
+                onPressThumb={
+                  comprovanteUris.length
+                    ? (index) => {
+                        setComprovanteViewerIndex(index);
+                        setShowComprovanteViewer(true);
+                      }
+                    : undefined
+                }
               />
             ) : null}
           </>
@@ -579,10 +605,31 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             </TouchableOpacity>
             <Text style={{ color: "#fff", fontSize: 14 }}>
               Comprovante {entrega?.codigo ? `- ${entrega.codigo}` : ""}
+              {comprovanteUris.length > 1
+                ? ` (${comprovanteViewerIndex + 1}/${comprovanteUris.length})`
+                : ""}
             </Text>
           </View>
-          {comprovanteThumb ? (
-            <Image source={{ uri: comprovanteThumb }} style={{ flex: 1, resizeMode: "contain" }} />
+          {comprovanteUris.length > 0 ? (
+            <ScrollView
+              ref={comprovanteViewerRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={{ flex: 1 }}
+              onMomentumScrollEnd={(event) => {
+                const nextIndex = Math.round(event.nativeEvent.contentOffset.x / windowWidth);
+                if (nextIndex >= 0 && nextIndex < comprovanteUris.length) {
+                  setComprovanteViewerIndex(nextIndex);
+                }
+              }}
+            >
+              {comprovanteUris.map((uri, index) => (
+                <View key={`${index}-${uri.slice(0, 24)}`} style={{ width: windowWidth, flex: 1 }}>
+                  <Image source={{ uri }} style={{ width: windowWidth, flex: 1, resizeMode: "contain" }} />
+                </View>
+              ))}
+            </ScrollView>
           ) : (
             <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
               <ActivityIndicator color="#fff" />

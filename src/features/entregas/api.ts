@@ -370,6 +370,7 @@ export async function postNovaTentativa(idSaida: number): Promise<{ tentativa: n
 
 export interface ComprovanteWatermarkResponse {
   tem_comprovante: boolean;
+  image_count?: number;
   image_url?: string | null;
 }
 
@@ -396,18 +397,33 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return out;
 }
 
-/** Baixa o JPEG com watermark via axios (auth) e retorna data URI para <Image>. */
-export async function fetchComprovanteImageDataUri(idSaida: number): Promise<string | null> {
-  const meta = await getComprovanteWatermark(idSaida);
-  if (!meta?.tem_comprovante) return null;
+async function fetchComprovanteImageDataUriAtIndex(idSaida: number, index: number): Promise<string | null> {
   try {
     const { data } = await client.get<ArrayBuffer>(`/upload/saida/${idSaida}/comprovante-watermark/image`, {
       responseType: "arraybuffer",
+      params: { index },
     });
     return `data:image/jpeg;base64,${arrayBufferToBase64(data)}`;
   } catch {
     return null;
   }
+}
+
+/** Baixa todos os JPEGs com watermark via axios (auth) e retorna data URIs para <Image>. */
+export async function fetchComprovanteImagesDataUris(idSaida: number): Promise<string[]> {
+  const meta = await getComprovanteWatermark(idSaida);
+  if (!meta?.tem_comprovante) return [];
+  const count = Math.max(1, meta.image_count ?? 1);
+  const results = await Promise.all(
+    Array.from({ length: count }, (_, index) => fetchComprovanteImageDataUriAtIndex(idSaida, index))
+  );
+  return results.filter((uri): uri is string => !!uri);
+}
+
+/** Baixa o JPEG com watermark via axios (auth) e retorna data URI para <Image>. */
+export async function fetchComprovanteImageDataUri(idSaida: number): Promise<string | null> {
+  const images = await fetchComprovanteImagesDataUris(idSaida);
+  return images[0] ?? null;
 }
 
 // --- Otimização e rotas ativas persistidas ---
