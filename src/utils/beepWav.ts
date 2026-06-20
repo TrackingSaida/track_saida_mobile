@@ -112,21 +112,20 @@ function createWavBuffer(pcm: ArrayBuffer): ArrayBuffer {
   return buf;
 }
 
-/** Mesma sequência do front: ok = dois sines; warn = dois triangles; err = dois squares */
+/** Mesma sequência do front: ok = dois sines; warn = dois triangles; err = dois squares; celebration = arpejo ascendente */
 export function generateBeepWav(
-  kind: "ok" | "warn" | "err"
+  kind: "ok" | "warn" | "err" | "celebration"
 ): ArrayBuffer {
   let durationMs = 0;
   const vol = 1.0;
 
   if (kind === "ok") {
-    // beep 1046 90ms at 0, beep 1318 140ms at 60ms → total 200ms
     durationMs = 200;
   } else if (kind === "warn") {
-    // beep 660 120ms at 0, beep 660 120ms at 160ms → total 280ms
     durationMs = 280;
+  } else if (kind === "celebration") {
+    durationMs = 720;
   } else {
-    // beep 220 240ms at 0, beep 180 220ms at 260ms → total 480ms
     durationMs = 480;
   }
 
@@ -139,6 +138,11 @@ export function generateBeepWav(
   } else if (kind === "warn") {
     addBeep(samples, 660, 120, "triangle", vol, 0);
     addBeep(samples, 660, 120, "triangle", vol, 160);
+  } else if (kind === "celebration") {
+    addBeep(samples, 523, 130, "sine", vol * 0.9, 0);
+    addBeep(samples, 659, 130, "sine", vol * 0.95, 100);
+    addBeep(samples, 784, 140, "sine", vol, 200);
+    addBeep(samples, 1046, 200, "sine", vol, 320);
   } else {
     addBeep(samples, 220, 240, "square", vol, 0);
     addBeep(samples, 180, 220, "square", vol, 260);

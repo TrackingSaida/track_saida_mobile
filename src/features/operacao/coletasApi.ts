@@ -1,36 +1,4 @@
-import axios, { AxiosError } from "axios";
-import { API_BASE_URL } from "../../config/api";
-import { useAuthStore } from "../../store/authStore";
-
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().token;
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
-}
-
-const client = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    Pragma: "no-cache",
-  },
-});
-
-client.interceptors.request.use((config) => {
-  Object.assign(config.headers, getAuthHeaders());
-  return config;
-});
-
-client.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().onUnauthorized();
-    }
-    return Promise.reject(error);
-  }
-);
+import { apiClient as client } from "../../services/apiClient";
 
 export type ServicoColeta = "Shopee" | "Mercado Livre" | "Avulso";
 

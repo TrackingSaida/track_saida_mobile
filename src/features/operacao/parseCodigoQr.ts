@@ -139,6 +139,10 @@ export function parseCodigoQrRaw(rawInput: string): ParseCodigoQrResult {
     return { codigo: raw, fonte: "estruturado" };
   }
 
+  if (/^AVULSO(-[A-Z0-9-]+)?$/i.test(raw)) {
+    return { codigo: raw, fonte: "estruturado" };
+  }
+
   const sh = raw.match(/(?:^|[^A-Z0-9])(BR(?:\d{13}|\d{12}[A-Z]))(?=$|[^A-Z0-9])/i);
   if (sh) {
     return { codigo: sh[1].toUpperCase(), fonte: "estruturado" };

@@ -1,44 +1,24 @@
-import axios, { AxiosError } from "axios";
-import { API_BASE_URL } from "../../config/api";
-import { useAuthStore } from "../../store/authStore";
+import { AxiosError } from "axios";
+import { apiClient } from "../../services/apiClient";
 import type {
   EntregaListItem,
+  EntregaHistoricoItem,
   ResumoEntregas,
   MotivoAusencia,
   ScanConflito,
   ExtratoFinanceiro,
   ExtratoStatusFiltro,
+  MarcacaoEntregaResponse,
+  RotasResumo,
+  FinalizarLoteBody,
+  FinalizarLoteResponse,
+  EnderecoSugestoesBody,
+  EnderecoSugestoesResponse,
+  PlaceDetailsBody,
+  PlaceDetailsResponse,
 } from "./types";
 
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().token;
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
-}
-
-const client = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    Pragma: "no-cache",
-  },
-});
-
-client.interceptors.request.use((config) => {
-  Object.assign(config.headers, getAuthHeaders());
-  return config;
-});
-
-client.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().onUnauthorized();
-    }
-    return Promise.reject(error);
-  }
-);
+const client = apiClient;
 
 export async function getResumoEntregas(): Promise<ResumoEntregas> {
   const dataHoje = getTodayISO();
@@ -57,9 +37,41 @@ export function getTodayISO(): string {
   return `${year}-${month}-${day}`;
 }
 
+export type FinalizadasSubtipo = "entregue" | "cancelado";
+
+export type FinalizadasListParams = { dia?: "hoje"; data?: string };
+
+function sortEntregasDesc(items: EntregaListItem[]): EntregaListItem[] {
+  return [...items].sort((a, b) => {
+    const da = String(a.data_hora_entrega || a.data || "");
+    const db = String(b.data_hora_entrega || b.data || "");
+    return db.localeCompare(da);
+  });
+}
+
+/** Lista finalizadas conforme filtros independentes (entregue / cancelado). */
+export async function fetchFinalizadasFiltradas(
+  params: FinalizadasListParams | undefined,
+  filtros: { entregue: boolean; cancelado: boolean }
+): Promise<EntregaListItem[]> {
+  const { entregue, cancelado } = filtros;
+  if (entregue && cancelado) {
+    const [entregues, cancelados] = await Promise.all([
+      getEntregas("finalizadas", { ...params, subtipo: "entregue" }),
+      getEntregas("finalizadas", { ...params, subtipo: "cancelado" }),
+    ]);
+    const byId = new Map<number, EntregaListItem>();
+    [...entregues, ...cancelados].forEach((d) => byId.set(d.id_saida, d));
+    return sortEntregasDesc(Array.from(byId.values()));
+  }
+  if (entregue) return getEntregas("finalizadas", { ...params, subtipo: "entregue" });
+  if (cancelado) return getEntregas("finalizadas", { ...params, subtipo: "cancelado" });
+  return [];
+}
+
 export async function getEntregas(
   status: "pendente" | "finalizadas" | "ausentes",
-  params?: { dia?: "hoje"; data?: string }
+  params?: { dia?: "hoje"; data?: string; subtipo?: FinalizadasSubtipo }
 ): Promise<EntregaListItem[]> {
   const dataHoje = getTodayISO();
   const useHoje = params?.dia === "hoje";
@@ -70,6 +82,9 @@ export async function getEntregas(
   if (useHoje) {
     query.dia = "hoje";
     query.data = params?.data ?? dataHoje;
+  }
+  if (status === "finalizadas" && params?.subtipo) {
+    query.subtipo = params.subtipo;
   }
   const { data } = await client.get<EntregaListItem[]>("/mobile/entregas", {
     params: query,
@@ -103,6 +118,13 @@ export async function getEntrega(idSaida: number): Promise<EntregaListItem> {
   return data;
 }
 
+export async function getEntregaHistorico(idSaida: number): Promise<EntregaHistoricoItem[]> {
+  const { data } = await client.get<EntregaHistoricoItem[]>(
+    `/mobile/entrega/${encodeURIComponent(String(idSaida))}/historico`
+  );
+  return Array.isArray(data) ? data : [];
+}
+
 export async function iniciarRota(deliveryIds?: number[]): Promise<{ atualizados: number }> {
   const body = deliveryIds?.length ? { delivery_ids: deliveryIds } : {};
   const { data } = await client.post<{ atualizados: number }>("/mobile/iniciar-rota", body);
@@ -117,12 +139,38 @@ export interface EntregueBody {
   observacao_entrega?: string | null;
 }
 
-export async function marcarEntregue(idSaida: number, body?: EntregueBody): Promise<void> {
-  await client.post(`/mobile/entrega/${idSaida}/entregue`, body ?? {});
+export interface CamposObrigatoriosValidationError {
+  code?: string;
+  campos_faltantes?: string[];
+  message?: string;
 }
 
-export async function marcarAusente(idSaida: number, motivoId: number, observacao?: string): Promise<void> {
-  await client.post(`/mobile/entrega/${idSaida}/ausente`, { motivo_id: motivoId, observacao: observacao || null });
+export async function marcarEntregue(
+  idSaida: number,
+  body?: EntregueBody
+): Promise<MarcacaoEntregaResponse> {
+  const { data } = await client.post<MarcacaoEntregaResponse>(
+    `/mobile/entrega/${idSaida}/entregue`,
+    body ?? {}
+  );
+  return data;
+}
+
+export async function marcarAusente(
+  idSaida: number,
+  motivoId: number,
+  observacao?: string
+): Promise<MarcacaoEntregaResponse> {
+  const { data } = await client.post<MarcacaoEntregaResponse>(
+    `/mobile/entrega/${idSaida}/ausente`,
+    { motivo_id: motivoId, observacao: observacao || null }
+  );
+  return data;
+}
+
+export async function finalizarLote(body: FinalizarLoteBody): Promise<FinalizarLoteResponse> {
+  const { data } = await client.post<FinalizarLoteResponse>("/mobile/entregas/finalizar-lote", body);
+  return data;
 }
 
 export interface PresignUploadResponse {
@@ -144,9 +192,16 @@ export async function getPresignUpload(params: {
 export async function patchFotoSaida(
   idSaida: number,
   fotoUrl: string,
-  status: "entregue" | "ausente"
+  status: "entregue" | "ausente",
+  validarCamposObrigatorios = true,
+  alterarStatus = true
 ): Promise<void> {
-  await client.patch(`/saidas/${idSaida}/foto`, { foto_url: fotoUrl, status });
+  await client.patch(`/saidas/${idSaida}/foto`, {
+    foto_url: fotoUrl,
+    status,
+    validar_campos_obrigatorios: !!validarCamposObrigatorios,
+    alterar_status: !!alterarStatus,
+  });
 }
 
 export async function getMotivosAusencia(): Promise<MotivoAusencia[]> {
@@ -165,11 +220,35 @@ export interface EnderecoBody {
   cep: string;
   latitude?: number | null;
   longitude?: number | null;
-  origem?: "manual" | "ocr" | "voz";
+  origem?: "manual" | "ocr" | "voz" | "suggestion" | "autocomplete" | "mapa" | "google_places";
+  coord_precision?: "rooftop" | "street" | "approx" | null;
+  geocode_source?: string | null;
+  geocode_score?: number | null;
 }
 
 export async function putEndereco(idSaida: number, body: EnderecoBody): Promise<EntregaListItem> {
   const { data } = await client.put<EntregaListItem>(`/mobile/entrega/${idSaida}/endereco`, body);
+  return data;
+}
+
+const ENDERECO_SUGESTOES_TIMEOUT_MS = 20_000;
+const ROUTE_OPTIMIZE_TIMEOUT_MS = 30_000;
+
+export async function postEnderecoSugestoes(
+  body: EnderecoSugestoesBody
+): Promise<EnderecoSugestoesResponse> {
+  const { data } = await client.post<EnderecoSugestoesResponse>(
+    "/mobile/enderecos/sugestoes",
+    body,
+    { timeout: ENDERECO_SUGESTOES_TIMEOUT_MS }
+  );
+  return data;
+}
+
+export async function postEnderecoPlaceDetails(
+  body: PlaceDetailsBody
+): Promise<PlaceDetailsResponse> {
+  const { data } = await client.post<PlaceDetailsResponse>("/mobile/enderecos/place-details", body);
   return data;
 }
 
@@ -186,6 +265,23 @@ export interface ScanConflict {
   id_saida: number;
 }
 
+export interface ScanLeituraDiaAnterior {
+  code: "LEITURA_DIA_ANTERIOR";
+  conflito?: false;
+  id_saida: number;
+  data_operacional_anterior: string;
+  status_atual?: string;
+  motoboy_id?: number | null;
+  motoboy_nome?: string | null;
+}
+
+export interface ScanStatusFinalizado {
+  code: "STATUS_FINALIZADO";
+  id_saida?: number;
+  status_atual?: string;
+  message?: string;
+}
+
 /**
  * Envia para /mobile/scan o valor bruto lido do scanner quando disponível.
  * O backend faz normalize_codigo(...) e extrai codigo/servico/qr_payload_raw.
@@ -193,7 +289,7 @@ export interface ScanConflict {
 export async function scanCodigo(
   codigoBrutoOuNormalizado: string,
   origem: "camera" | "manual" = "camera"
-): Promise<ScanSuccess | ScanConflict> {
+): Promise<ScanSuccess | ScanConflict | ScanLeituraDiaAnterior | ScanStatusFinalizado> {
   try {
     const { data } = await client.post<ScanSuccess>("/mobile/scan", {
       codigo: codigoBrutoOuNormalizado,
@@ -201,9 +297,12 @@ export async function scanCodigo(
     });
     return data;
   } catch (err) {
-    const ax = err as AxiosError<ScanConflict>;
-    if (ax.response?.status === 409 && ax.response?.data?.conflito) {
+    const ax = err as AxiosError<ScanConflict | ScanLeituraDiaAnterior | ScanStatusFinalizado>;
+    if (ax.response?.status === 409 && ax.response?.data) {
       return ax.response.data;
+    }
+    if (ax.response?.status === 422 && ax.response?.data && (ax.response.data as ScanStatusFinalizado).code === "STATUS_FINALIZADO") {
+      return ax.response.data as ScanStatusFinalizado;
     }
     throw err;
   }
@@ -211,6 +310,30 @@ export async function scanCodigo(
 
 export async function assumirEntrega(idSaida: number): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/assumir`);
+}
+
+export async function confirmarNovaSaidaMesmoEntregador(idSaida: number): Promise<void> {
+  await client.post(`/mobile/entrega/${idSaida}/confirmar-nova-saida-mesmo-entregador`, { origem: "mobile" });
+}
+
+export interface LancarAvulsoResult {
+  quantidade_criada: number;
+  codigos: string[];
+  saidas: Array<{
+    id_saida: number;
+    codigo: string;
+    servico: string;
+    status: string;
+  }>;
+  mensagem: string;
+}
+
+export async function lancarAvulsoMobile(body: {
+  identificacao?: string | null;
+  quantidade: number;
+}): Promise<LancarAvulsoResult> {
+  const { data } = await client.post<LancarAvulsoResult>("/pedidos/lancar-avulso", body);
+  return data;
 }
 
 export async function removerEntrega(idSaida: number): Promise<void> {
@@ -224,13 +347,112 @@ export async function postNovaTentativa(idSaida: number): Promise<{ tentativa: n
   return { tentativa: data.tentativa };
 }
 
-// --- Rotas ativas persistidas ---
+export interface ComprovanteWatermarkResponse {
+  tem_comprovante: boolean;
+  image_count?: number;
+  image_url?: string | null;
+}
+
+export async function getComprovanteWatermark(idSaida: number): Promise<ComprovanteWatermarkResponse> {
+  const { data } = await client.get<ComprovanteWatermarkResponse>(`/upload/saida/${idSaida}/comprovante-watermark`);
+  return data;
+}
+
+const BASE64_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    out += BASE64_ALPHABET[a >>> 2];
+    out += BASE64_ALPHABET[((a & 3) << 4) | (b >>> 4)];
+    out += i + 1 < bytes.length ? BASE64_ALPHABET[((b & 15) << 2) | (c >>> 6)] : "=";
+    out += i + 2 < bytes.length ? BASE64_ALPHABET[c & 63] : "=";
+  }
+  return out;
+}
+
+async function fetchComprovanteImageDataUriAtIndex(idSaida: number, index: number): Promise<string | null> {
+  try {
+    const { data } = await client.get<ArrayBuffer>(`/upload/saida/${idSaida}/comprovante-watermark/image`, {
+      responseType: "arraybuffer",
+      params: { index },
+    });
+    return `data:image/jpeg;base64,${arrayBufferToBase64(data)}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Baixa todos os JPEGs com watermark via axios (auth) e retorna data URIs para <Image>. */
+export async function fetchComprovanteImagesDataUris(idSaida: number): Promise<string[]> {
+  const meta = await getComprovanteWatermark(idSaida);
+  if (!meta?.tem_comprovante) return [];
+  const count = Math.max(1, meta.image_count ?? 1);
+  const results = await Promise.all(
+    Array.from({ length: count }, (_, index) => fetchComprovanteImageDataUriAtIndex(idSaida, index))
+  );
+  return results.filter((uri): uri is string => !!uri);
+}
+
+/** Baixa o JPEG com watermark via axios (auth) e retorna data URI para <Image>. */
+export async function fetchComprovanteImageDataUri(idSaida: number): Promise<string | null> {
+  const images = await fetchComprovanteImagesDataUris(idSaida);
+  return images[0] ?? null;
+}
+
+// --- Otimização e rotas ativas persistidas ---
+
+export type RotasOtimizarModo = "osrm_trip" | "nearest_fallback" | "priority_soft";
+
+export interface RotasOtimizarResponse {
+  ordem: number[];
+  modo: RotasOtimizarModo;
+  sem_coordenadas: number[];
+  distancia_total_m?: number | null;
+  duracao_total_s?: number | null;
+}
+
+export type RotasOtimizarPriority =
+  | { type: "service"; value: string }
+  | { type: "delivery"; id_saida: number };
+
+export async function postRotasOtimizar(
+  deliveryIds: number[],
+  start?: { latitude: number; longitude: number },
+  priority?: RotasOtimizarPriority
+): Promise<RotasOtimizarResponse> {
+  const body: {
+    delivery_ids: number[];
+    start?: { latitude: number; longitude: number };
+    priority?: RotasOtimizarPriority;
+  } = {
+    delivery_ids: deliveryIds,
+  };
+  if (start) body.start = start;
+  if (priority) body.priority = priority;
+  const { data } = await client.post<RotasOtimizarResponse>("/mobile/rotas/otimizar", body, {
+    timeout: ROUTE_OPTIMIZE_TIMEOUT_MS,
+  });
+  return data;
+}
 
 export interface RotasAtivaResponse {
-  rota_id: string;
+  status?: "sem_rota" | "rota_pronta" | "em_entrega";
+  rota_id?: string | null;
   ordem: number[];
   parada_atual: number;
   data?: string;
+  sub_base?: string;
+  entregador_id?: number;
+  sequencia_preservada?: boolean;
+  started_at?: string | null;
+  updated_at?: string | null;
+  pending_sync?: boolean;
 }
 
 export async function postRotasIniciar(ordem: number[]): Promise<{ rota_id: string }> {
@@ -241,8 +463,16 @@ export async function postRotasIniciar(ordem: number[]): Promise<{ rota_id: stri
 export async function getRotasAtiva(dataHoje?: string): Promise<RotasAtivaResponse | null> {
   const params: Record<string, string | number> = { _: Date.now() };
   if (dataHoje) params.data = dataHoje;
-  const { data } = await client.get<RotasAtivaResponse | null>("/mobile/rotas/ativa", { params });
-  return data ?? null;
+  const { data } = await client.get<RotasAtivaResponse>("/mobile/rotas/ativa", { params });
+  if (!data) return null;
+  if (data.status === "sem_rota" || !data.rota_id) {
+    return { ...data, status: data.status || "sem_rota", ordem: data.ordem || [], parada_atual: data.parada_atual ?? 0 };
+  }
+  return data;
+}
+
+export async function postRotasCancelar(rotaId: string): Promise<void> {
+  await client.post(`/mobile/rotas/${rotaId}/cancelar`);
 }
 
 export async function postRotasAvancar(rotaId: string): Promise<{ parada_atual: number }> {
@@ -252,4 +482,22 @@ export async function postRotasAvancar(rotaId: string): Promise<{ parada_atual: 
 
 export async function postRotasFinalizar(rotaId: string): Promise<void> {
   await client.post(`/mobile/rotas/${rotaId}/finalizar`);
+}
+
+export async function getRotaResumo(rotaId: string | number): Promise<RotasResumo> {
+  const { data } = await client.get<RotasResumo>(`/mobile/rotas/${rotaId}/resumo`);
+  return data;
+}
+
+export interface RotasOrdemResponse {
+  ordem: number[];
+  parada_atual: number;
+}
+
+export async function putRotasOrdem(
+  rotaId: string,
+  ordem: number[]
+): Promise<RotasOrdemResponse> {
+  const { data } = await client.put<RotasOrdemResponse>(`/mobile/rotas/${rotaId}/ordem`, { ordem });
+  return data;
 }

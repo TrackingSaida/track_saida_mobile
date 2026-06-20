@@ -15,17 +15,27 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import type { AxiosError } from "axios";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../../theme/colors";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import OperacaoEmptyState from "../components/OperacaoEmptyState";
 import { useAuthStore } from "../../../store/authStore";
 import { playSound } from "../../../utils/sound";
 import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
 import { effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
-import { lerSaidaAdmin, listMotoboysOperacao, updateSaidaAdmin, type MotoboyItem } from "../saidasApi";
+import {
+  lerSaidaAdmin,
+  lancarAvulso,
+  listMotoboysOperacao,
+  updateSaidaAdmin,
+  confirmarNovaSaidaMesmoEntregadorAdmin,
+  type MotoboyItem,
+} from "../saidasApi";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
 
 const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
@@ -136,6 +146,15 @@ interface ConflitoTrocaEntregador {
   motoboyId: number;
 }
 
+interface ConflitoLeituraDiaAnterior {
+  codigo: string;
+  idSaida: number;
+  dataAnterior: string;
+  motoboyNome: string;
+  novoEntregador: string;
+  motoboyId: number;
+}
+
 function labelResumoStatus(status: StatusLeituraSaida): string {
   switch (status) {
     case "sucesso":
@@ -207,6 +226,7 @@ function coresFeedbackMain(tipo: FeedbackTipo, colors: ReturnType<typeof useThem
 }
 
 export default function LeituraSaidasScreen() {
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
@@ -220,9 +240,14 @@ export default function LeituraSaidasScreen() {
   const [cameraAtiva, setCameraAtiva] = useState(false);
   const [carregandoMotoboys, setCarregandoMotoboys] = useState(false);
   const [conflito, setConflito] = useState<ConflitoTrocaEntregador | null>(null);
+  const [conflitoDiaAnterior, setConflitoDiaAnterior] = useState<ConflitoLeituraDiaAnterior | null>(null);
   const [confirmandoTroca, setConfirmandoTroca] = useState(false);
+  const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
   const [modalSelecaoMotoboyVisible, setModalSelecaoMotoboyVisible] = useState(false);
   const [manualExpanded, setManualExpanded] = useState(false);
+  const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
+  const [avulsoIdentificacao, setAvulsoIdentificacao] = useState("");
+  const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
 
   const scanLocked = useRef(false);
@@ -263,8 +288,17 @@ export default function LeituraSaidasScreen() {
           borderColor: colors.inputBorder,
           marginBottom: 16,
         },
+        motoboyBadge: {
+          alignSelf: "flex-start",
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 999,
+          backgroundColor: colors.primarySoft,
+          marginBottom: 10,
+        },
+        motoboyBadgeText: { fontSize: 11, fontWeight: "700", color: colors.primary, textTransform: "uppercase" },
         motoboyLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 6, fontWeight: "600" },
-        motoboyNome: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 12 },
+        motoboyNome: { fontSize: 22, fontWeight: "800", color: colors.text, marginBottom: 12 },
         motoboyCta: {
           flexDirection: "row",
           alignItems: "center",
@@ -291,6 +325,14 @@ export default function LeituraSaidasScreen() {
           borderColor: colors.inputBorder,
           marginBottom: 16,
         },
+        sessaoTitulo: {
+          fontSize: 13,
+          fontWeight: "700",
+          color: colors.textSecondary,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+          marginBottom: 12,
+        },
         totalGigante: {
           fontSize: 44,
           fontWeight: "800",
@@ -304,7 +346,18 @@ export default function LeituraSaidasScreen() {
           textAlign: "center",
           marginBottom: 16,
         },
-        contadoresRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
+        contadoresRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "space-between" },
+        contadorItem: {
+          flex: 1,
+          minWidth: "45%",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          paddingHorizontal: 10,
+          paddingVertical: 10,
+          borderRadius: 12,
+          backgroundColor: colors.inputBackground,
+        },
         contadorChip: {
           paddingHorizontal: 10,
           paddingVertical: 6,
@@ -312,6 +365,7 @@ export default function LeituraSaidasScreen() {
           backgroundColor: colors.inputBackground,
         },
         contadorChipText: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
+        contadorItemText: { fontSize: 13, color: colors.text, fontWeight: "600", flex: 1 },
         servicoBadgesRow: {
           flexDirection: "row",
           flexWrap: "wrap",
@@ -595,6 +649,7 @@ export default function LeituraSaidasScreen() {
           alignItems: "center",
         },
         modalBtnPrimaryText: { fontSize: 15, fontWeight: "700", color: colors.primaryContrast },
+        modalMessage: { fontSize: 14, color: colors.textSecondary, marginBottom: 10 },
       }),
     [colors, insets.bottom, insets.top]
   );
@@ -843,6 +898,9 @@ export default function LeituraSaidasScreen() {
           code?: string;
           detail?: { code?: string; [key: string]: unknown } | string;
           id_saida?: number;
+          data_operacional_anterior?: string;
+          motoboy_nome?: string;
+          status_atual?: string;
           data?: { id_saida?: number; entregador_atual?: string; username?: string };
           entregador_atual?: string;
           username?: string;
@@ -874,6 +932,26 @@ export default function LeituraSaidasScreen() {
           return;
         }
 
+        if (status === 409 && code === "LEITURA_DIA_ANTERIOR") {
+          const idSaida = Number(body?.id_saida ?? 0);
+          const dataAnterior = String(body?.data_operacional_anterior ?? "").trim();
+          const motoboyNomeAnterior = String(body?.motoboy_nome ?? motoboyNome ?? "Motoboy");
+          if (idSaida > 0 && dataAnterior) {
+            setConflitoDiaAnterior({
+              codigo: c,
+              idSaida,
+              dataAnterior,
+              motoboyNome: motoboyNomeAnterior,
+              novoEntregador: motoboyNome,
+              motoboyId,
+            });
+            playSound("warn");
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            pushFeedback("info", "Pedido já lido em data anterior. Confirme saída hoje.", c);
+            return;
+          }
+        }
+
         if (status === 409 && code === "DUPLICATE_SAIDA") {
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -896,6 +974,11 @@ export default function LeituraSaidasScreen() {
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           pushFeedback("nao_coletado", "Código não coletado", c);
+        } else if (status === 422 && code === "STATUS_FINALIZADO") {
+          const statusAtual = String(body?.status_atual ?? "FINALIZADO");
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("erro", `Pedido bloqueado: status ${statusAtual}.`, c);
         } else {
           setLeituras((prev) => [
             ...prev,
@@ -923,6 +1006,45 @@ export default function LeituraSaidasScreen() {
     }
     await processarLeitura(c, "manual");
   }, [codigoInput, processarLeitura]);
+
+  const handleLancarAvulso = useCallback(async () => {
+    if (!motoboyId || !motoboyNome) {
+      pushFeedback("info", "Selecione um motoboy.");
+      return;
+    }
+    const qtd = Number(avulsoQuantidade);
+    if (!Number.isFinite(qtd) || qtd < 1) {
+      pushFeedback("erro", "Quantidade mínima é 1.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await lancarAvulso({
+        identificacao: avulsoIdentificacao.trim() || null,
+        quantidade: Math.floor(qtd),
+        motoboy_id: motoboyId,
+      });
+      const novos = (res.saidas ?? []).map((s) => ({
+        codigo: String(s.codigo ?? ""),
+        servico: String(s.servico ?? "Avulso"),
+        entregador: motoboyNome,
+        motoboyId,
+        status: "sucesso" as StatusLeituraSaida,
+      }));
+      if (novos.length > 0) {
+        setLeituras((prev) => [...prev, ...novos]);
+      }
+      pushFeedback("sucesso", res.mensagem || "Avulsos lançados com sucesso.");
+      setAvulsoModalVisible(false);
+      setAvulsoIdentificacao("");
+      setAvulsoQuantidade("1");
+      abrirCameraExplicito();
+    } catch (err) {
+      pushFeedback("erro", formatApiError(err, "Erro ao lançar avulso."));
+    } finally {
+      setLoading(false);
+    }
+  }, [motoboyId, motoboyNome, avulsoQuantidade, avulsoIdentificacao, pushFeedback, abrirCameraExplicito]);
 
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult | { nativeEvent: BarcodeScanningResult }) => {
@@ -964,8 +1086,23 @@ export default function LeituraSaidasScreen() {
       setConflito(null);
       pushFeedback("alterado", "Entregador alterado", codigoRef);
     } catch (err) {
-      playSound("error");
-      Alert.alert("Erro", formatApiError(err, "Erro ao alterar entregador."));
+      const ax = err as AxiosError<{ code?: string; status_atual?: string; detail?: { code?: string; status_atual?: string } | string }>;
+      const body = ax.response?.data;
+      const detailObj =
+        body && typeof body.detail === "object" && body.detail
+          ? (body.detail as { code?: string; status_atual?: string })
+          : null;
+      const code = body?.code ?? detailObj?.code;
+      if (ax.response?.status === 422 && code === "STATUS_FINALIZADO") {
+        const statusAtual = String(body?.status_atual ?? detailObj?.status_atual ?? "FINALIZADO");
+        playSound("warn");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        setConflito(null);
+        pushFeedback("erro", `Pedido bloqueado: status ${statusAtual}.`, codigoRef);
+      } else {
+        playSound("error");
+        Alert.alert("Erro", formatApiError(err, "Erro ao alterar entregador."));
+      }
     } finally {
       setConfirmandoTroca(false);
       scanLocked.current = false;
@@ -974,6 +1111,51 @@ export default function LeituraSaidasScreen() {
 
   const handleCancelarTroca = useCallback(() => {
     setConflito(null);
+    scanLocked.current = false;
+  }, []);
+
+  const formatDatePtBr = useCallback((iso: string) => {
+    const p = String(iso || "").split("-");
+    if (p.length !== 3) return iso;
+    return `${p[2]}/${p[1]}/${p[0]}`;
+  }, []);
+
+  const handleConfirmarDiaAnterior = useCallback(async () => {
+    if (!conflitoDiaAnterior) return;
+    const codigoRef = conflitoDiaAnterior.codigo;
+    setConfirmandoDiaAnterior(true);
+    try {
+      const res = await confirmarNovaSaidaMesmoEntregadorAdmin({
+        id_saida: conflitoDiaAnterior.idSaida,
+        motoboy_id: conflitoDiaAnterior.motoboyId,
+        entregador: conflitoDiaAnterior.novoEntregador,
+        origem: "mobile",
+      });
+      setLeituras((prev) => [
+        ...prev,
+        {
+          codigo: conflitoDiaAnterior.codigo,
+          servico: (res.servico ?? null) as string | null,
+          entregador: conflitoDiaAnterior.novoEntregador,
+          motoboyId: conflitoDiaAnterior.motoboyId,
+          status: "sucesso",
+        },
+      ]);
+      playSound("success");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setConflitoDiaAnterior(null);
+      pushFeedback("sucesso", "Nova saída confirmada para hoje", codigoRef);
+    } catch (err) {
+      playSound("error");
+      Alert.alert("Erro", formatApiError(err, "Erro ao confirmar nova saída."));
+    } finally {
+      setConfirmandoDiaAnterior(false);
+      scanLocked.current = false;
+    }
+  }, [conflitoDiaAnterior, pushFeedback]);
+
+  const handleCancelarDiaAnterior = useCallback(() => {
+    setConflitoDiaAnterior(null);
     scanLocked.current = false;
   }, []);
 
@@ -1013,13 +1195,34 @@ export default function LeituraSaidasScreen() {
     }
   };
 
+  const ultimaLeituraCores = (status: StatusLeituraSaida) => {
+    switch (status) {
+      case "sucesso":
+        return { border: "rgba(25,135,84,0.45)", fg: "#198754" };
+      case "alterado":
+        return { border: "rgba(13,110,253,0.45)", fg: "#0d6efd" };
+      case "nao_coletado":
+        return { border: "rgba(255,193,7,0.55)", fg: "#856404" };
+      case "erro":
+        return { border: "rgba(220,53,69,0.45)", fg: "#dc3545" };
+      default:
+        return { border: colors.inputBorder, fg: colors.textSecondary };
+    }
+  };
+
   const motoboySelecionadoOk = Boolean(motoboyId && motoboyNome);
 
   return (
     <>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <ScreenHeaderBar
+          title="Leitura de saídas"
+          onBack={() => navigation.goBack()}
+          paddingTop={Math.max(12, insets.top)}
+        />
       <ScrollView
         style={styles.container}
-        contentContainerStyle={[styles.content, { paddingTop: Math.max(10, insets.top) }]}
+        contentContainerStyle={[styles.content, { paddingBottom: 48 + insets.bottom }]}
       >
         {!hideStaffBadges ? (
           <View style={styles.badgeRow}>
@@ -1037,7 +1240,14 @@ export default function LeituraSaidasScreen() {
         {feedbackVisual && !cameraAtiva ? renderFeedbackStrip("main") : null}
 
         <View style={styles.motoboyBlock}>
-          <Text style={styles.motoboyLabel}>Motoboy selecionado</Text>
+          {motoboySelecionadoOk ? (
+            <View style={styles.motoboyBadge}>
+              <Text style={styles.motoboyBadgeText}>Motoboy selecionado</Text>
+            </View>
+          ) : null}
+          {!motoboySelecionadoOk ? (
+            <Text style={styles.motoboyLabel}>Motoboy</Text>
+          ) : null}
           {motoboySelecionadoOk ? (
             <Text style={styles.motoboyNome} numberOfLines={2}>
               {motoboyNome}
@@ -1072,30 +1282,33 @@ export default function LeituraSaidasScreen() {
             style={styles.cameraCta}
             onPress={abrirCameraExplicito}
             activeOpacity={0.88}
-            accessibilityLabel="Abrir câmera para leitura"
+            accessibilityLabel="Escanear saída"
           >
-            <Text style={styles.cameraCtaText}>Abrir câmera</Text>
+            <Text style={styles.cameraCtaText}>Escanear saída</Text>
           </TouchableOpacity>
         ) : null}
 
         <View style={styles.resumoCard}>
+          <Text style={styles.sessaoTitulo}>Sessão atual</Text>
           <Text style={styles.totalGigante}>{motoboySelecionadoOk ? totalValidas : 0}</Text>
-          <Text style={styles.totalLegenda}>
-            Lidos nesta sessão para o motoboy selecionado (válidos)
-          </Text>
+          <Text style={styles.totalLegenda}>Lidos nesta sessão (válidos)</Text>
           <View style={styles.contadoresRow}>
-            <View style={styles.contadorChip}>
-              <Text style={styles.contadorChipText}>Sucesso: {totalSucesso}</Text>
+            <View style={styles.contadorItem}>
+              <Ionicons name="checkmark-circle" size={18} color="#198754" />
+              <Text style={styles.contadorItemText}>Sucesso: {totalSucesso}</Text>
             </View>
-            <View style={styles.contadorChip}>
-              <Text style={styles.contadorChipText}>Troca: {totalAlterado}</Text>
+            <View style={styles.contadorItem}>
+              <Ionicons name="swap-horizontal" size={18} color="#0d6efd" />
+              <Text style={styles.contadorItemText}>Troca: {totalAlterado}</Text>
             </View>
-            <View style={styles.contadorChip}>
-              <Text style={styles.contadorChipText}>Não col.: {totalNaoColetado}</Text>
+            <View style={styles.contadorItem}>
+              <Ionicons name="alert-circle" size={18} color="#856404" />
+              <Text style={styles.contadorItemText}>Não coletado: {totalNaoColetado}</Text>
             </View>
             {totalErros > 0 ? (
-              <View style={styles.contadorChip}>
-                <Text style={styles.contadorChipText}>Erro: {totalErros}</Text>
+              <View style={styles.contadorItem}>
+                <Ionicons name="close-circle" size={18} color="#dc3545" />
+                <Text style={styles.contadorItemText}>Erro: {totalErros}</Text>
               </View>
             ) : null}
           </View>
@@ -1113,15 +1326,29 @@ export default function LeituraSaidasScreen() {
               })}
             </View>
           ) : null}
-          <View style={styles.ultimaCard}>
+          <View
+            style={[
+              styles.ultimaCard,
+              ultimaLeitura
+                ? { borderColor: ultimaLeituraCores(ultimaLeitura.status).border }
+                : null,
+            ]}
+          >
             <Text style={styles.ultimaTitulo}>Última leitura</Text>
             {ultimaLeitura ? (
               <>
                 <Text style={styles.ultimaCodigo}>{ultimaLeitura.codigo}</Text>
-                <Text style={styles.ultimaStatus}>Status: {labelResumoStatus(ultimaLeitura.status)}</Text>
+                <Text
+                  style={[
+                    styles.ultimaStatus,
+                    { color: ultimaLeituraCores(ultimaLeitura.status).fg, fontWeight: "600" },
+                  ]}
+                >
+                  {labelResumoStatus(ultimaLeitura.status)}
+                </Text>
               </>
             ) : (
-              <Text style={styles.vazioText}>Nenhuma leitura realizada ainda</Text>
+              <Text style={styles.vazioText}>Aguardando primeira leitura</Text>
             )}
           </View>
         </View>
@@ -1159,6 +1386,13 @@ export default function LeituraSaidasScreen() {
                 <Text style={styles.btnTextOutline}>Registrar</Text>
               )}
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btnOutline, { marginTop: 8 }]}
+              onPress={() => setAvulsoModalVisible(true)}
+              disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+            >
+              <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
 
@@ -1168,11 +1402,11 @@ export default function LeituraSaidasScreen() {
             <Text style={styles.listaHeaderText}>até {LISTA_RECENTES_MAX}</Text>
           </View>
           {listaRecentes.length === 0 ? (
-            <Text style={[styles.vazioText, { padding: 16 }]}>
-              {!motoboySelecionadoOk
-                ? "Selecione um motoboy para ver as leituras."
-                : "Nenhuma leitura para este motoboy nesta sessão."}
-            </Text>
+            motoboySelecionadoOk ? (
+              <OperacaoEmptyState message="Nenhuma leitura recente nesta sessão." icon="scan-outline" />
+            ) : (
+              <OperacaoEmptyState message="Selecione um motoboy para ver as leituras." icon="person-outline" />
+            )
           ) : (
             <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
               {listaRecentes.map(({ item: l, key }) => {
@@ -1203,6 +1437,7 @@ export default function LeituraSaidasScreen() {
           </View>
         ) : null}
       </ScrollView>
+      </View>
 
       <Modal visible={cameraAtiva} animationType="slide" onRequestClose={fecharCamera}>
         <View style={styles.cameraModalOverlay}>
@@ -1312,6 +1547,47 @@ export default function LeituraSaidasScreen() {
         </Pressable>
       </Modal>
 
+      <Modal visible={avulsoModalVisible} transparent animationType="fade" onRequestClose={() => setAvulsoModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Lançar Avulso</Text>
+            <Text style={styles.modalMessage}>Identificação do avulso (opcional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex.: Cliente João"
+              placeholderTextColor={colors.placeholder}
+              value={avulsoIdentificacao}
+              onChangeText={setAvulsoIdentificacao}
+              autoCapitalize="words"
+              autoCorrect={false}
+              editable={!loading}
+            />
+            <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="1"
+              placeholderTextColor={colors.placeholder}
+              value={avulsoQuantidade}
+              onChangeText={setAvulsoQuantidade}
+              keyboardType="number-pad"
+              editable={!loading}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setAvulsoModalVisible(false)} disabled={loading}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnPrimary} onPress={() => void handleLancarAvulso()} disabled={loading}>
+                {loading ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.modalBtnPrimaryText}>Confirmar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={!!conflito} transparent animationType="fade" onRequestClose={handleCancelarTroca}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -1352,6 +1628,37 @@ export default function LeituraSaidasScreen() {
                   <ActivityIndicator size="small" color={colors.primaryContrast} />
                 ) : (
                   <Text style={styles.modalBtnPrimaryText}>Trocar entregador</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!conflitoDiaAnterior}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelarDiaAnterior}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Pedido já lido em data anterior</Text>
+            <Text style={styles.modalMessage}>
+              Este pedido já foi lido em {formatDatePtBr(conflitoDiaAnterior?.dataAnterior ?? "")} para o motoboy{" "}
+              {conflitoDiaAnterior?.motoboyNome ?? "Motoboy"}.
+              {"\n\n"}
+              Deseja confirmar que ele está saindo novamente para entrega hoje?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={handleCancelarDiaAnterior} disabled={confirmandoDiaAnterior}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnPrimary} onPress={handleConfirmarDiaAnterior} disabled={confirmandoDiaAnterior}>
+                {confirmandoDiaAnterior ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.modalBtnPrimaryText}>Confirmar saída hoje</Text>
                 )}
               </TouchableOpacity>
             </View>

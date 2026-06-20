@@ -11,6 +11,7 @@ import {
 import { motoboySelectSubBase, normalizeAuthError } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
+import { HeaderBackButton } from "../components/ScreenHeaderBar";
 import { offerBiometricAfterLogin } from "../utils/biometricOffer";
 
 type Props = {
@@ -30,7 +31,7 @@ export default function SelectSubBaseScreen({
   onMustChangePassword,
   onBack,
 }: Props) {
-  const setToken = useAuthStore((s) => s.setToken);
+  const setTokens = useAuthStore((s) => s.setTokens);
   const setBiometricEnabled = useAuthStore((s) => s.setBiometricEnabled);
   const colors = useThemeColors();
   const styles = useMemo(
@@ -39,8 +40,6 @@ export default function SelectSubBaseScreen({
         container: { flex: 1, padding: 24, backgroundColor: colors.background },
         title: { fontSize: 22, fontWeight: "700", marginBottom: 8, color: colors.text },
         subtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 24 },
-        backBtn: { marginBottom: 16 },
-        backBtnText: { fontSize: 16, color: colors.primary },
         loader: { marginTop: 48 },
         item: {
           backgroundColor: colors.backgroundCard,
@@ -64,7 +63,7 @@ export default function SelectSubBaseScreen({
     try {
       const res = await motoboySelectSubBase(identifier, password, subBase);
       if (res.access_token) {
-        await setToken(res.access_token);
+        await setTokens(res.access_token, res.refresh_token);
         if (res.must_change_password && onMustChangePassword) {
           onMustChangePassword();
           return;
@@ -83,11 +82,11 @@ export default function SelectSubBaseScreen({
 
   return (
     <View style={styles.container}>
-      {onBack && (
-        <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-          <Text style={styles.backBtnText}>← Voltar</Text>
-        </TouchableOpacity>
-      )}
+      {onBack ? (
+        <View style={{ marginBottom: 16 }}>
+          <HeaderBackButton onPress={onBack} />
+        </View>
+      ) : null}
       <Text style={styles.title}>Selecione a base</Text>
       <Text style={styles.subtitle}>
         Você possui acesso a mais de uma base. Escolha uma para continuar.

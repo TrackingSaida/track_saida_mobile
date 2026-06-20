@@ -4,6 +4,18 @@
  * CEP: 8 dígitos ou 00000-000; estado: 2 letras maiúsculas com contexto; número: número sozinho ou após rua.
  */
 import type { AddressFormValues } from "../components/AddressForm";
+import { preprocessAddressInput } from "./addressQueryNormalizer";
+import { replaceSpokenNumbers } from "./spokenNumbers";
+
+export type ParsedAddress = Partial<AddressFormValues> & {
+  rawText?: string;
+  confidence?: "high" | "medium" | "low";
+};
+
+export type AddressParseDefaults = {
+  cidade?: string;
+  estado?: string;
+};
 
 const CEP_REGEX = /\b(\d{5}-?\d{3})\b/;
 const ESTADO_REGEX = /\b([A-Z]{2})\b/;
@@ -592,14 +604,189 @@ export function parseOcrToAddress(lines: string[]): Partial<AddressFormValues> {
   return result;
 }
 
-/** Para voz: uma única string é quebrada em "linhas" por vírgula, ponto ou "número". */
-export function parseVoiceToAddress(text: string): Partial<AddressFormValues> {
-  const normalized = text.replace(/\s+número\s+/gi, ", ").replace(/\s+nº\s+/gi, ", ");
+function scoreParsedAddress(p: Partial<AddressFormValues>): number {
+  let score = 0;
+  if ((p.rua ?? "").trim()) score += 3;
+  if ((p.numero ?? "").trim()) score += 2;
+  if ((p.cidade ?? "").trim()) score += 2;
+  if ((p.estado ?? "").trim()) score += 1;
+  if ((p.cep ?? "").replace(/\D/g, "").length === 8) score += 2;
+  if ((p.bairro ?? "").trim()) score += 1;
+  return score;
+}
+
+function applyParseDefaults(
+  parsed: Partial<AddressFormValues>,
+  defaults?: AddressParseDefaults
+): Partial<AddressFormValues> {
+  const result = { ...parsed };
+  if (!result.cidade?.trim() && defaults?.cidade) result.cidade = defaults.cidade;
+  if (!result.estado?.trim() && defaults?.estado) result.estado = defaults.estado;
+  return result;
+}
+
+/** Texto livre: "Rua Dona Flor 123 Jandira" → campos estruturados. */
+export function parseFreeTextAddress(
+  text: string,
+  defaults?: AddressParseDefaults
+): ParsedAddress {
+  const rawText = text.trim();
+  if (!rawText) return { rawText, confidence: "low" };
+
+  const normalized = rawText
+    .replace(/\s+número\s+/gi, " ")
+    .replace(/\s+nº\s+/gi, " ")
+    .replace(/\s+no\s+/gi, " ")
+    .trim();
+
   const lines = normalized
-    .split(/[,.]|\s+-\s+/)
+    .split(/[,;]|\s+-\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  return parseOcrToAddress(lines);
+
+  let parsed = parseOcrToAddress(lines.length > 0 ? lines : [normalized]);
+
+  if (normalized.length > 5) {
+    const cepMatch = normalized.match(/\b(\d{5}-?\d{3})\b/);
+    const withoutCep = cepMatch
+      ? normalized.replace(cepMatch[0], "").trim()
+      : normalized;
+
+    if (!(parsed.rua ?? "").trim()) {
+      const numMatch = withoutCep.match(/^(.*?)[\s,]+(\d+[a-zA-Z]?)(?:\s+(.+))?$/);
+      if (numMatch) {
+        parsed = {
+          ...parsed,
+          rua: numMatch[1].trim(),
+          numero: numMatch[2],
+          cidade: numMatch[3]?.trim() || parsed.cidade,
+          cep: cepMatch ? normalizeCep(cepMatch[1]) : parsed.cep,
+        };
+      } else {
+        parsed = { ...parsed, rua: withoutCep };
+      }
+    } else if (!(parsed.numero ?? "").trim()) {
+      const { rua, numero, afterNumero } = splitStreetAndNumber(
+        (parsed.rua ?? "").trim() || withoutCep
+      );
+      if (rua) parsed.rua = rua;
+      if (numero) parsed.numero = numero;
+      if (!(parsed.cidade ?? "").trim() && afterNumero) {
+        const cityState = extractCityAndState(afterNumero);
+        if (cityState.cidade) parsed.cidade = cityState.cidade;
+        if (cityState.estado) parsed.estado = cityState.estado;
+      }
+    }
+  }
+
+  parsed = applyParseDefaults(parsed, defaults);
+  const score = scoreParsedAddress(parsed);
+  const confidence: ParsedAddress["confidence"] =
+    score >= 6 ? "high" : score >= 4 ? "medium" : "low";
+
+  return { ...parsed, rawText, confidence };
+}
+
+/** Voz inteligente com números por extenso e inferência de cidade. */
+export function parseVoiceAddress(
+  transcript: string,
+  defaults?: AddressParseDefaults
+): ParsedAddress {
+  let text = preprocessAddressInput(transcript, "voice");
+  if (!text) return { rawText: transcript, confidence: "low" };
+
+  text = text
+    .replace(/\b(s\s*p|são paulo)\b/gi, " São Paulo SP ")
+    .replace(/\b(numero|número|nº)\s+/gi, " ")
+    .replace(/\b(eh|tipo|então|entao|ah)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  text = replaceSpokenNumbers(text);
+
+  let parsed = parseFreeTextAddress(text, defaults);
+
+  const words = text.split(/\s+/);
+  if (!(parsed.cidade ?? "").trim() && words.length >= 2) {
+    const last = words[words.length - 1];
+    const secondLast = words[words.length - 2];
+    if (/^[A-Z]{2}$/i.test(last) && secondLast.length > 2) {
+      parsed = {
+        ...parsed,
+        cidade: secondLast.charAt(0).toUpperCase() + secondLast.slice(1).toLowerCase(),
+        estado: last.toUpperCase(),
+      };
+    } else if (last.length > 3 && !/^\d+$/.test(last)) {
+      parsed = {
+        ...parsed,
+        cidade: last.charAt(0).toUpperCase() + last.slice(1).toLowerCase(),
+      };
+    }
+  }
+
+  parsed = applyParseDefaults(parsed, defaults);
+  const score = scoreParsedAddress(parsed);
+  const confidence: ParsedAddress["confidence"] =
+    score >= 6 ? "high" : score >= 4 ? "medium" : "low";
+
+  return { ...parsed, rawText: transcript, confidence };
+}
+
+/** Escolhe o melhor candidato OCR por completude. */
+export function pickBestOcrAddress(
+  lines: string[]
+): ParsedAddress {
+  const normalizedLines = lines.map((l) => preprocessAddressInput(l, "ocr"));
+  const parsed = parseOcrToAddress(normalizedLines);
+  const score = scoreParsedAddress(parsed);
+  const confidence: ParsedAddress["confidence"] =
+    score >= 6 ? "high" : score >= 4 ? "medium" : "low";
+  return {
+    ...parsed,
+    rawText: lines.join("\n"),
+    confidence,
+  };
+}
+
+/** Converte ParsedAddress para AddressFormValues (campos vazios como string). */
+export function parsedToFormValues(p: ParsedAddress): AddressFormValues {
+  return {
+    destinatario: p.destinatario ?? "",
+    rua: p.rua ?? "",
+    numero: p.numero ?? "",
+    complemento: p.complemento ?? "",
+    bairro: p.bairro ?? "",
+    cidade: p.cidade ?? "",
+    estado: p.estado ?? "",
+    cep: p.cep ?? "",
+  };
+}
+
+/** Para voz: delega ao pipeline unificado com OCR fix e números por extenso. */
+export function parseVoiceToAddress(text: string): Partial<AddressFormValues> {
+  return parseVoiceAddress(text);
+}
+
+/** Detecta múltiplos endereços na transcrição de voz. */
+export function parseVoiceToAddresses(text: string): Partial<AddressFormValues>[] {
+  const segments = text
+    .split(/\b(próximo|proximo|seguinte|depois|agora)\b|[\n;]+/i)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 5);
+  if (segments.length <= 1) {
+    const single = parseVoiceToAddress(text);
+    const hasContent = Boolean(
+      (single.rua ?? "").trim() || (single.cep ?? "").replace(/\D/g, "").length === 8
+    );
+    return hasContent ? [single] : [];
+  }
+  return segments
+    .map((seg) => parseVoiceToAddress(seg))
+    .filter(
+      (addr) =>
+        Boolean((addr.rua ?? "").trim()) ||
+        (addr.cep ?? "").replace(/\D/g, "").length === 8
+    );
 }
 
 /**

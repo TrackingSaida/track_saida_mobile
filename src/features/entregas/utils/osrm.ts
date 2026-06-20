@@ -10,16 +10,26 @@ export interface RoutePoint {
 
 const OSRM_BASE = "https://router.project-osrm.org/route/v1/driving";
 
+export function waypointsHash(points: RoutePoint[]): string {
+  return points.map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`).join("|");
+}
+
 /**
  * Retorna array de coordenadas da rota por ruas entre os pontos, em ordem.
  * Em caso de erro (rede, OSRM indisponível, rota inválida), retorna null.
  */
-export async function fetchOsrmRoutePolyline(points: RoutePoint[]): Promise<RoutePoint[] | null> {
+export async function fetchOsrmRoutePolyline(
+  points: RoutePoint[],
+  signal?: AbortSignal
+): Promise<RoutePoint[] | null> {
   if (points.length < 2) return null;
   const coords = points.map((p) => `${p.longitude},${p.latitude}`).join(";");
   const url = `${OSRM_BASE}/${coords}?overview=full&geometries=geojson`;
   try {
-    const res = await fetch(url, { headers: { "User-Agent": "TrackSaidaMobile/1.0" } });
+    const res = await fetch(url, {
+      headers: { "User-Agent": "TrackSaidaMobile/1.0" },
+      signal,
+    });
     const data = (await res.json()) as {
       code?: string;
       routes?: Array<{ geometry?: { coordinates?: [number, number][] } }>;
@@ -27,7 +37,8 @@ export async function fetchOsrmRoutePolyline(points: RoutePoint[]): Promise<Rout
     if (data.code !== "Ok" || !data.routes?.[0]?.geometry?.coordinates?.length) return null;
     const coordinates = data.routes[0].geometry!.coordinates!;
     return coordinates.map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") throw e;
     return null;
   }
 }

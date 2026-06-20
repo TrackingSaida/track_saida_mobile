@@ -3,4 +3,5 @@ export type StaffStackParamList = {
   LeituraSaidas: undefined;
   LeituraColetas: undefined;
   ConsultaCodigos: undefined;
+  AcompanharOperacao: undefined;
 };

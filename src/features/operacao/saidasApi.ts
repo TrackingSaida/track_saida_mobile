@@ -1,36 +1,4 @@
-import axios, { AxiosError } from "axios";
-import { API_BASE_URL } from "../../config/api";
-import { useAuthStore } from "../../store/authStore";
-
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().token;
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
-}
-
-const client = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    Pragma: "no-cache",
-  },
-});
-
-client.interceptors.request.use((config) => {
-  Object.assign(config.headers, getAuthHeaders());
-  return config;
-});
-
-client.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().onUnauthorized();
-    }
-    return Promise.reject(error);
-  }
-);
+import { apiClient as client } from "../../services/apiClient";
 
 export interface MotoboyItem {
   id_motoboy: number;
@@ -83,6 +51,87 @@ export interface ListSaidasResult {
   limit: number;
   offset: number;
   hasMore: boolean;
+}
+
+export type SearchCodigosMode = "exact" | "prefix" | "contains" | "none";
+
+export interface SearchCodigosCascadeResult {
+  rows: SaidaListItem[];
+  total: number;
+  mode: SearchCodigosMode;
+  truncated: boolean;
+}
+
+const PARTIAL_SEARCH_MIN_LEN = 4;
+const PARTIAL_SEARCH_LIMIT = 20;
+
+export async function searchCodigosCascade(
+  baseParams: Omit<ListSaidasParams, "codigo" | "codigoExato" | "localizar">,
+  codigo: string,
+  options?: { forceExact?: boolean }
+): Promise<SearchCodigosCascadeResult> {
+  const term = codigo.trim();
+  if (!term) {
+    return { rows: [], total: 0, mode: "none", truncated: false };
+  }
+
+  const upper = term.toUpperCase();
+  const exact = await listSaidas({
+    ...baseParams,
+    codigo: upper,
+    codigoExato: true,
+    limit: PARTIAL_SEARCH_LIMIT,
+    offset: 0,
+  });
+
+  if (exact.rows.length > 0 || options?.forceExact) {
+    return {
+      rows: exact.rows,
+      total: exact.total,
+      mode: exact.rows.length > 0 ? "exact" : "none",
+      truncated: false,
+    };
+  }
+
+  if (term.length < PARTIAL_SEARCH_MIN_LEN) {
+    return { rows: [], total: 0, mode: "none", truncated: false };
+  }
+
+  const prefix = await listSaidas({
+    ...baseParams,
+    codigo: upper,
+    limit: PARTIAL_SEARCH_LIMIT,
+    offset: 0,
+  });
+  if (prefix.rows.length > 0) {
+    return {
+      rows: prefix.rows,
+      total: prefix.total,
+      mode: "prefix",
+      truncated: prefix.hasMore || (prefix.total ?? prefix.rows.length) > PARTIAL_SEARCH_LIMIT,
+    };
+  }
+
+  const containsRes = await listSaidas({
+    ...baseParams,
+    localizar: term,
+    limit: PARTIAL_SEARCH_LIMIT,
+    offset: 0,
+  });
+  const needle = term.toLowerCase();
+  const rows = containsRes.rows.filter((r) =>
+    String(r.codigo || "")
+      .trim()
+      .toLowerCase()
+      .includes(needle)
+  );
+
+  return {
+    rows,
+    total: rows.length,
+    mode: rows.length > 0 ? "contains" : "none",
+    truncated: containsRes.hasMore || rows.length >= PARTIAL_SEARCH_LIMIT,
+  };
 }
 
 export async function listSaidas(params: ListSaidasParams): Promise<ListSaidasResult> {
@@ -173,6 +222,31 @@ export interface LerSaidaApiRow {
   motoboy_id?: number | null;
   entregador?: string | null;
   username?: string | null;
+  data_operacional_anterior?: string | null;
+  status_atual?: string | null;
+  motoboy_nome?: string | null;
+  code?: string;
+  message?: string;
+}
+
+export interface LancarAvulsoBody {
+  identificacao?: string | null;
+  quantidade: number;
+  entregador_id?: number;
+  entregador?: string;
+  motoboy_id?: number;
+}
+
+export interface LancarAvulsoResult {
+  quantidade_criada: number;
+  codigos: string[];
+  saidas: Array<{
+    id_saida: number;
+    codigo: string;
+    servico: string;
+    status: string;
+  }>;
+  mensagem: string;
 }
 
 /**
@@ -189,6 +263,11 @@ export async function lerSaidaAdmin(body: LerSaidaAdminBody): Promise<LerSaidaAp
   return data as LerSaidaApiRow;
 }
 
+export async function lancarAvulso(body: LancarAvulsoBody): Promise<LancarAvulsoResult> {
+  const { data } = await client.post<LancarAvulsoResult>("/pedidos/lancar-avulso", body);
+  return data;
+}
+
 export interface UpdateSaidaBody {
   status?: string;
   motoboy_id?: number;
@@ -198,6 +277,21 @@ export interface UpdateSaidaBody {
 
 export async function updateSaidaAdmin(idSaida: number, body: UpdateSaidaBody): Promise<void> {
   await client.patch(`/saidas/${idSaida}`, body);
+}
+
+export interface ConfirmarNovaSaidaMesmoEntregadorAdminBody {
+  id_saida: number;
+  motoboy_id?: number;
+  entregador_id?: number;
+  entregador?: string;
+  origem?: "web" | "mobile";
+}
+
+export async function confirmarNovaSaidaMesmoEntregadorAdmin(
+  body: ConfirmarNovaSaidaMesmoEntregadorAdminBody
+): Promise<LerSaidaApiRow> {
+  const { data } = await client.post<LerSaidaApiRow>("/saidas/confirmar-nova-saida-mesmo-entregador", body);
+  return data;
 }
 
 export interface GerarEtiquetaBody {
@@ -222,8 +316,23 @@ export async function gerarEtiquetaArquivo(body: GerarEtiquetaBody): Promise<Eti
   };
 }
 
+export interface SaidaDetailNested {
+  id_saida?: number;
+  status?: string | null;
+  tentativa?: number | null;
+  motivo_ocorrencia?: string | null;
+  observacao_ocorrencia?: string | null;
+  observacao_entrega?: string | null;
+  tipo_recebedor?: string | null;
+  nome_recebedor?: string | null;
+  tipo_documento?: string | null;
+  numero_documento?: string | null;
+  foto_urls?: string[] | null;
+}
+
 export interface SaidaDetail {
   id?: number | string;
+  id_saida?: number | string;
   codigo?: string;
   status?: string;
   servico?: string | null;
@@ -231,7 +340,7 @@ export interface SaidaDetail {
   username?: string | null;
   entregador?: string | null;
   data_hora_entrega?: string | null;
-  detail?: Record<string, unknown> | null;
+  detail?: SaidaDetailNested | null;
   [key: string]: unknown;
 }
 
@@ -242,6 +351,7 @@ export interface SaidaHistoricoItem {
   status_novo?: string | null;
   timestamp?: string | null;
   usuario_nome?: string | null;
+  acao_label?: string | null;
   [key: string]: unknown;
 }
 

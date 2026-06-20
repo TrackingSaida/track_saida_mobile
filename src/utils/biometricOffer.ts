@@ -1,8 +1,6 @@
 import { Alert } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
-import * as SecureStore from "expo-secure-store";
-
-const BIOMETRIC_ENABLED_KEY = "biometric_enabled";
+import { getBiometricEnabled } from "../services/settingsService";
 
 export async function offerBiometricAfterLogin(
   setBiometricEnabled: (enabled: boolean) => Promise<void>,
@@ -12,7 +10,7 @@ export async function offerBiometricAfterLogin(
     LocalAuthentication.hasHardwareAsync(),
     LocalAuthentication.isEnrolledAsync(),
   ]);
-  const alreadyEnabled = (await SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY)) === "true";
+  const alreadyEnabled = await getBiometricEnabled();
   if (!compatible || !enrolled || alreadyEnabled) {
     onContinue();
     return;

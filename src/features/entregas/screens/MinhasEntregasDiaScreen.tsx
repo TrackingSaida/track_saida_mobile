@@ -3,25 +3,14 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator }
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeColors } from "../../../theme/colors";
+import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import EntregaCodigoHeader from "../components/EntregaCodigoHeader";
 import { getEntregas } from "../api";
 import type { EntregaListItem } from "../types";
 import { formatarDiaParaExibicao } from "../utils/quinzena";
 import type { MaisStackParamList } from "../../../screens/MaisScreen";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "MinhasEntregasDia">;
-
-function servicoTipo(serv?: string | null): "Shopee" | "Flex" | "Avulso" {
-  const s = (serv || "").trim().toLowerCase();
-  if (s.includes("shopee")) return "Shopee";
-  if (s.includes("mercado") || s.includes("ml") || s.includes("flex")) return "Flex";
-  return "Avulso";
-}
-
-const SERVICO_COLORS: Record<string, string> = {
-  Shopee: "#ee4d2d",
-  Flex: "#ffe066",
-  Avulso: "#6366f1",
-};
 
 function getDayKey(item: EntregaListItem): string | null {
   const dataStr = item.data_hora_entrega || item.data;
@@ -46,9 +35,6 @@ export default function MinhasEntregasDiaScreen({ route, navigation }: Props) {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         centered: { justifyContent: "center", alignItems: "center" },
-        backBtn: { paddingHorizontal: 16, paddingVertical: 8, marginBottom: 8 },
-        backText: { fontSize: 16, color: colors.primary },
-        title: { fontSize: 22, fontWeight: "700", marginBottom: 12, paddingHorizontal: 16, color: colors.text },
         listContent: { padding: 16, paddingBottom: 48 },
         card: {
           backgroundColor: colors.backgroundCard,
@@ -61,22 +47,8 @@ export default function MinhasEntregasDiaScreen({ route, navigation }: Props) {
           shadowRadius: 4,
           elevation: 2,
         },
-        codigo: { fontSize: 14, fontWeight: "600", color: colors.text, marginBottom: 4 },
         endereco: { fontSize: 12, color: colors.textSecondary, marginBottom: 6 },
-        rowMeta: {
-          flexDirection: "row",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 6,
-          marginTop: 4,
-        },
-        recebedor: { fontSize: 12, color: colors.text, flex: 1, minWidth: 0 },
-        servicoBadge: { paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
-        servicoBadgeText: { fontSize: 11, color: colors.text, fontWeight: "600" },
-        badge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 4 },
-        badgeOk: { backgroundColor: colors.success },
-        badgeFail: { backgroundColor: colors.danger },
-        badgeText: { fontSize: 11, color: colors.primaryContrast, fontWeight: "600" },
+        recebedor: { fontSize: 12, color: colors.text, marginTop: 4 },
       }),
     [colors]
   );
@@ -117,34 +89,33 @@ export default function MinhasEntregasDiaScreen({ route, navigation }: Props) {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: Math.max(24, insets.top) }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>← Voltar</Text>
-      </TouchableOpacity>
-      <Text style={styles.title}>{tituloDia}</Text>
+    <View style={styles.container}>
+      <ScreenHeaderBar
+        title={tituloDia}
+        onBack={() => navigation.goBack()}
+        paddingTop={Math.max(12, insets.top)}
+      />
       <FlatList
         data={entregas}
         keyExtractor={(item) => String(item.id_saida)}
         contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => {
-          const tipo = servicoTipo(item.servico);
-          const corServico = SERVICO_COLORS[tipo] ?? "#999";
-          return (
-            <TouchableOpacity style={styles.card} onPress={() => handleItemPress(item.id_saida)} activeOpacity={0.7}>
-              <Text style={styles.codigo}>{item.codigo ?? "—"}</Text>
-              <Text style={styles.endereco} numberOfLines={2}>{item.endereco_formatado || item.endereco || "—"}</Text>
-              <View style={styles.rowMeta}>
-                <Text style={styles.recebedor} numberOfLines={1}>Recebedor: {item.cliente ?? "—"}</Text>
-                <View style={[styles.servicoBadge, { backgroundColor: corServico }]}>
-                  <Text style={styles.servicoBadgeText}>{tipo}</Text>
-                </View>
-                <View style={[styles.badge, item.exibicao === "Entregue" ? styles.badgeOk : styles.badgeFail]}>
-                  <Text style={styles.badgeText}>{item.exibicao}</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          );
-        }}
+        renderItem={({ item }) => (
+          <TouchableOpacity style={styles.card} onPress={() => handleItemPress(item.id_saida)} activeOpacity={0.7}>
+            <EntregaCodigoHeader
+              codigo={item.codigo}
+              servico={item.servico}
+              exibicao={item.exibicao}
+              data={item.data}
+              style={{ marginBottom: 8 }}
+            />
+            <Text style={styles.endereco} numberOfLines={2}>
+              {item.endereco_formatado || item.endereco || "—"}
+            </Text>
+            <Text style={styles.recebedor} numberOfLines={1}>
+              Recebedor: {item.cliente ?? "—"}
+            </Text>
+          </TouchableOpacity>
+        )}
       />
     </View>
   );

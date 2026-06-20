@@ -4,6 +4,7 @@ import StaffHomeScreen from "../screens/StaffHomeScreen";
 import LeituraSaidasScreen from "../features/operacao/screens/LeituraSaidasScreen";
 import LeituraColetasScreen from "../features/operacao/screens/LeituraColetasScreen";
 import ConsultaCodigosScreen from "../features/operacao/screens/ConsultaCodigosScreen";
+import AcompanharOperacaoScreen from "../features/operacao/screens/AcompanharOperacaoScreen";
 import type { StaffStackParamList } from "./staffStackTypes";
 import { useThemeColors } from "../theme/colors";
 
@@ -27,18 +28,19 @@ export default function StaffHomeStack() {
       <Stack.Screen
         name="LeituraSaidas"
         component={LeituraSaidasScreen}
-        options={{ title: "Leitura de saídas", headerBackTitle: "Operação" }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="LeituraColetas"
         component={LeituraColetasScreen}
-        options={{ title: "Leitura de coletas", headerBackTitle: "Operação" }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="ConsultaCodigos"
         component={ConsultaCodigosScreen}
-        options={{ title: "Consulta de códigos", headerBackTitle: "Operação" }}
+        options={{ headerShown: false }}
       />
+      <Stack.Screen name="AcompanharOperacao" component={AcompanharOperacaoScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

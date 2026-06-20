@@ -19,12 +19,13 @@ import { useThemeColors } from "../../../theme/colors";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect } from "@react-navigation/native";
-import { scanCodigo, assumirEntrega, removerEntrega, getEntrega } from "../api";
+import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, lancarAvulsoMobile } from "../api";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { playSound } from "../../../utils/sound";
+import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Scan">;
 
@@ -75,6 +76,17 @@ const CORNER_COLOR = "#00bfff"; // azul claro visível sobre a câmera
 const FEEDBACK_MS = 1100;
 
 type FeedbackTipo = "sucesso" | "duplicado" | "erro" | "info";
+type ScanConflictLocal = {
+  conflito: true;
+  motoboy_atual: string;
+  id_saida: number;
+  status_atual?: string;
+};
+type ScanSuccessLocal = {
+  conflito: false;
+  ja_existia?: boolean;
+  entrega: { id_saida: number; codigo?: string | null; servico?: string | null };
+};
 
 interface FeedbackVisual {
   tipo: FeedbackTipo;
@@ -303,9 +315,23 @@ export default function ScanScreen({ navigation }: Props) {
 
   const [modoManual, setModoManual] = useState(false);
   const [codigo, setCodigo] = useState("");
+  const [avulsoIdentificacao, setAvulsoIdentificacao] = useState("");
+  const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
+  const [showAvulsoModal, setShowAvulsoModal] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [conflito, setConflito] = useState<{ motoboy_atual: string; id_saida: number } | null>(null);
+  const [conflito, setConflito] = useState<{
+    motoboy_atual: string;
+    id_saida: number;
+    status_atual?: string;
+  } | null>(null);
+  const [conflitoDiaAnterior, setConflitoDiaAnterior] = useState<{
+    id_saida: number;
+    data_operacional_anterior: string;
+    motoboy_nome: string;
+    codigo: string;
+  } | null>(null);
   const [assumindo, setAssumindo] = useState(false);
+  const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
   const [iniciandoRota, setIniciandoRota] = useState(false);
   const [listaExpandida, setListaExpandida] = useState(false);
   const [removendoId, setRemovendoId] = useState<number | null>(null);
@@ -314,6 +340,7 @@ export default function ScanScreen({ navigation }: Props) {
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRoute = useDeliveryStore((s) => s.startRoute);
+  const loadDeliveries = useDeliveryStore((s) => s.loadDeliveries);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -373,6 +400,13 @@ export default function ScanScreen({ navigation }: Props) {
     const serv = classifyServico(ent.servico);
     addLeituraStore({ id_saida: ent.id_saida, codigo: ent.codigo || "", servico: serv });
   }, [addLeituraStore]);
+
+  const handlePostScanDelivery = useCallback(
+    (idSaida: number) => {
+      void runPostScanRouteFlow(idSaida, navigation, loadDeliveries);
+    },
+    [navigation, loadDeliveries]
+  );
 
   const removerLeitura = useCallback(async (id_saida: number) => {
     const snapshot = leiturasSession;
@@ -440,29 +474,57 @@ export default function ScanScreen({ navigation }: Props) {
       scanLocked.current = true;
       setLoading(true);
       setConflito(null);
+      setConflitoDiaAnterior(null);
 
       try {
         const result = await scanCodigo(codigoParaApi, origem);
-        if (result.conflito) {
+        if ((result as { code?: string }).code === "STATUS_FINALIZADO") {
+          const statusAtual = String((result as { status_atual?: string }).status_atual ?? "FINALIZADO");
+          playSound("warn");
+          pushFeedback("erro", `Pedido bloqueado: status ${statusAtual}.`, c);
+          setTimeout(() => (scanLocked.current = false), 400);
+          return;
+        }
+        if ((result as { code?: string }).code === "LEITURA_DIA_ANTERIOR") {
+          const r = result as {
+            id_saida: number;
+            data_operacional_anterior: string;
+            motoboy_nome?: string | null;
+          };
+          setConflitoDiaAnterior({
+            id_saida: Number(r.id_saida ?? 0),
+            data_operacional_anterior: String(r.data_operacional_anterior ?? ""),
+            motoboy_nome: String(r.motoboy_nome ?? "Motoboy"),
+            codigo: c,
+          });
+          playSound("warn");
+          pushFeedback("info", "Pedido já lido em data anterior. Confirme saída hoje.", c);
+          return;
+        }
+        if ((result as { conflito?: boolean }).conflito) {
+          const conflitoResult = result as ScanConflictLocal;
           playSound("warn");
           pushFeedback("info", "Conflito de atribuição detectado", c);
-          const nomeMotoboy = String(result.motoboy_atual || "").trim();
+          const nomeMotoboy = String(conflitoResult.motoboy_atual || "").trim();
           setConflito({
             motoboy_atual: nomeMotoboy || "outro motoboy",
-            id_saida: result.id_saida ?? 0,
+            id_saida: conflitoResult.id_saida ?? 0,
+            status_atual: (conflitoResult as { status_atual?: string }).status_atual,
           });
-        } else if (result.entrega) {
-          if (result.ja_existia) {
+        } else if ((result as ScanSuccessLocal).entrega) {
+          const sucessoResult = result as ScanSuccessLocal;
+          if (sucessoResult.ja_existia) {
             playSound("warn");
             pushFeedback("duplicado", "Código já registrado anteriormente", c);
             setCodigo("");
             setTimeout(() => (scanLocked.current = false), 250);
             return;
           }
-          addLeitura(result.entrega);
+          addLeitura(sucessoResult.entrega);
           setCodigo("");
           playSound("success");
           pushFeedback("sucesso", "Leitura registrada", c);
+          handlePostScanDelivery(sucessoResult.entrega.id_saida);
           setTimeout(() => (scanLocked.current = false), 400);
         }
       } catch (e: unknown) {
@@ -477,7 +539,7 @@ export default function ScanScreen({ navigation }: Props) {
         setLoading(false);
       }
     },
-    [addLeitura, codigosLidosSessao, pushFeedback]
+    [addLeitura, codigosLidosSessao, pushFeedback, handlePostScanDelivery]
   );
 
   const handleBarcodeScanned = useCallback(
@@ -502,6 +564,37 @@ export default function ScanScreen({ navigation }: Props) {
     await processarCodigo(c, "manual");
   };
 
+  const handleLancarAvulso = useCallback(async () => {
+    const qtd = Number(avulsoQuantidade);
+    if (!Number.isFinite(qtd) || qtd < 1) {
+      Alert.alert("Atenção", "Quantidade mínima é 1.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await lancarAvulsoMobile({
+        identificacao: avulsoIdentificacao.trim() || null,
+        quantidade: Math.floor(qtd),
+      });
+      (res.saidas ?? []).forEach((s) => {
+        addLeitura({ id_saida: s.id_saida, codigo: s.codigo, servico: "Avulso" });
+      });
+      playSound("success");
+      pushFeedback("sucesso", res.mensagem || "Avulsos lançados com sucesso.");
+      setShowAvulsoModal(false);
+      setAvulsoIdentificacao("");
+      setAvulsoQuantidade("1");
+      setModoManual(false);
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string } } };
+      const msg = ax?.response?.data?.detail ?? "Erro ao lançar avulso.";
+      playSound("error");
+      Alert.alert("Erro", String(msg));
+    } finally {
+      setLoading(false);
+    }
+  }, [avulsoQuantidade, avulsoIdentificacao, addLeitura, pushFeedback]);
+
   const handleAssumir = async () => {
     if (!conflito) return;
     setAssumindo(true);
@@ -512,7 +605,15 @@ export default function ScanScreen({ navigation }: Props) {
       setConflito(null);
       scanLocked.current = false;
       playSound("success");
-      pushFeedback("sucesso", "Leitura assumida", entrega.codigo ?? String(conflito.id_saida));
+      const eraEntregue = String(conflito.status_atual ?? "")
+        .toLowerCase()
+        .includes("entregue");
+      pushFeedback(
+        "sucesso",
+        eraEntregue ? "Reatribuído — Em rota" : "Leitura assumida",
+        entrega.codigo ?? String(conflito.id_saida)
+      );
+      handlePostScanDelivery(conflito.id_saida);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
       const msg = ax?.response?.data?.detail ?? "Erro ao assumir.";
@@ -523,6 +624,41 @@ export default function ScanScreen({ navigation }: Props) {
       setAssumindo(false);
     }
   };
+
+  const formatDatePtBr = useCallback((iso: string) => {
+    const p = String(iso || "").split("-");
+    if (p.length !== 3) return iso;
+    return `${p[2]}/${p[1]}/${p[0]}`;
+  }, []);
+
+  const handleConfirmarDiaAnterior = useCallback(async () => {
+    if (!conflitoDiaAnterior) return;
+    const idSaida = conflitoDiaAnterior.id_saida;
+    setConfirmandoDiaAnterior(true);
+    try {
+      await confirmarNovaSaidaMesmoEntregador(idSaida);
+      const entrega = await getEntrega(idSaida);
+      addLeitura(entrega);
+      playSound("success");
+      pushFeedback("sucesso", "Nova saída confirmada", entrega.codigo ?? conflitoDiaAnterior.codigo);
+      setConflitoDiaAnterior(null);
+      scanLocked.current = false;
+      handlePostScanDelivery(idSaida);
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string; message?: string } } };
+      const msg = ax?.response?.data?.detail ?? ax?.response?.data?.message ?? "Erro ao confirmar nova saída.";
+      playSound("error");
+      pushFeedback("erro", typeof msg === "string" ? msg : "Erro ao confirmar nova saída", conflitoDiaAnterior.codigo);
+      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+    } finally {
+      setConfirmandoDiaAnterior(false);
+    }
+  }, [addLeitura, conflitoDiaAnterior, pushFeedback, handlePostScanDelivery]);
+
+  const handleCancelarDiaAnterior = useCallback(() => {
+    setConflitoDiaAnterior(null);
+    scanLocked.current = false;
+  }, []);
 
   const handleComecarEntregar = async () => {
     if (leiturasSession.length === 0) return;
@@ -591,6 +727,13 @@ export default function ScanScreen({ navigation }: Props) {
             <Text style={styles.btnScanText}>Confirmar</Text>
           )}
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
+          onPress={() => setShowAvulsoModal(true)}
+          disabled={loading}
+        >
+          <Text style={styles.btnScanText}>Lançar Avulso</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.linkManual}
@@ -603,9 +746,15 @@ export default function ScanScreen({ navigation }: Props) {
         <Modal visible={!!conflito} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={styles.modalBox}>
-              <Text style={styles.modalTitle}>Conflito</Text>
+              <Text style={styles.modalTitle}>
+                {String(conflito?.status_atual ?? "").toLowerCase().includes("entregue")
+                  ? "Pedido já entregue"
+                  : "Conflito"}
+              </Text>
               <Text style={styles.modalMessage}>
-                Pedido já atribuído ao motoboy {conflito?.motoboy_atual}. Deseja assumir?
+                {String(conflito?.status_atual ?? "").toLowerCase().includes("entregue")
+                  ? `Pedido já entregue pelo motoboy ${conflito?.motoboy_atual}. Deseja reassumir e colocar Em rota?`
+                  : `Pedido já atribuído ao motoboy ${conflito?.motoboy_atual}. Deseja assumir?`}
               </Text>
               <View style={styles.modalActions}>
                 <TouchableOpacity
@@ -628,6 +777,40 @@ export default function ScanScreen({ navigation }: Props) {
                   ) : (
                     <Text style={styles.modalBtnOkText}>Sim, assumir</Text>
                   )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+        <Modal visible={showAvulsoModal} transparent animationType="fade" onRequestClose={() => setShowAvulsoModal(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalBox}>
+              <Text style={styles.modalTitle}>Lançar Avulso</Text>
+              <Text style={styles.modalMessage}>Identificação (opcional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex.: Empresa ABC"
+                placeholderTextColor={colors.placeholder}
+                value={avulsoIdentificacao}
+                onChangeText={setAvulsoIdentificacao}
+                editable={!loading}
+              />
+              <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="1"
+                placeholderTextColor={colors.placeholder}
+                value={avulsoQuantidade}
+                onChangeText={setAvulsoQuantidade}
+                keyboardType="number-pad"
+                editable={!loading}
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAvulsoModal(false)} disabled={loading}>
+                  <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.modalBtnOk, loading && styles.btnDisabled]} onPress={() => void handleLancarAvulso()} disabled={loading}>
+                  {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalBtnOkText}>Confirmar</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -776,9 +959,15 @@ export default function ScanScreen({ navigation }: Props) {
       <Modal visible={!!conflito} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Conflito</Text>
+            <Text style={styles.modalTitle}>
+              {String(conflito?.status_atual ?? "").toLowerCase().includes("entregue")
+                ? "Pedido já entregue"
+                : "Conflito"}
+            </Text>
             <Text style={styles.modalMessage}>
-              Pedido já atribuído ao motoboy {conflito?.motoboy_atual}. Deseja assumir?
+              {String(conflito?.status_atual ?? "").toLowerCase().includes("entregue")
+                ? `Pedido já entregue pelo motoboy ${conflito?.motoboy_atual}. Deseja reassumir e colocar Em rota?`
+                : `Pedido já atribuído ao motoboy ${conflito?.motoboy_atual}. Deseja assumir?`}
             </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -800,6 +989,32 @@ export default function ScanScreen({ navigation }: Props) {
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
                   <Text style={styles.modalBtnOkText}>Sim, assumir</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!conflitoDiaAnterior} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Pedido já lido em data anterior</Text>
+            <Text style={styles.modalMessage}>
+              Este pedido já foi lido em {formatDatePtBr(conflitoDiaAnterior?.data_operacional_anterior ?? "")} para o motoboy{" "}
+              {conflitoDiaAnterior?.motoboy_nome ?? "Motoboy"}.
+              {"\n\n"}
+              Deseja confirmar que ele está saindo novamente para entrega hoje?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={handleCancelarDiaAnterior} disabled={confirmandoDiaAnterior}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnOk} onPress={handleConfirmarDiaAnterior} disabled={confirmandoDiaAnterior}>
+                {confirmandoDiaAnterior ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.modalBtnOkText}>Confirmar saída hoje</Text>
                 )}
               </TouchableOpacity>
             </View>
