@@ -1,8 +1,8 @@
-import axios, { AxiosError } from "axios";
-import { API_BASE_URL } from "../../config/api";
-import { useAuthStore } from "../../store/authStore";
+import { AxiosError } from "axios";
+import { apiClient } from "../../services/apiClient";
 import type {
   EntregaListItem,
+  EntregaHistoricoItem,
   ResumoEntregas,
   MotivoAusencia,
   ScanConflito,
@@ -18,35 +18,7 @@ import type {
   PlaceDetailsResponse,
 } from "./types";
 
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().token;
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
-}
-
-const client = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    Pragma: "no-cache",
-  },
-});
-
-client.interceptors.request.use((config) => {
-  Object.assign(config.headers, getAuthHeaders());
-  return config;
-});
-
-client.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().onUnauthorized();
-    }
-    return Promise.reject(error);
-  }
-);
+const client = apiClient;
 
 export async function getResumoEntregas(): Promise<ResumoEntregas> {
   const dataHoje = getTodayISO();
@@ -144,6 +116,13 @@ export async function getExtratoFinanceiro(params?: {
 export async function getEntrega(idSaida: number): Promise<EntregaListItem> {
   const { data } = await client.get<EntregaListItem>(`/mobile/entrega/${idSaida}`);
   return data;
+}
+
+export async function getEntregaHistorico(idSaida: number): Promise<EntregaHistoricoItem[]> {
+  const { data } = await client.get<EntregaHistoricoItem[]>(
+    `/mobile/entrega/${encodeURIComponent(String(idSaida))}/historico`
+  );
+  return Array.isArray(data) ? data : [];
 }
 
 export async function iniciarRota(deliveryIds?: number[]): Promise<{ atualizados: number }> {
@@ -463,10 +442,17 @@ export async function postRotasOtimizar(
 }
 
 export interface RotasAtivaResponse {
-  rota_id: string;
+  status?: "sem_rota" | "rota_pronta" | "em_entrega";
+  rota_id?: string | null;
   ordem: number[];
   parada_atual: number;
   data?: string;
+  sub_base?: string;
+  entregador_id?: number;
+  sequencia_preservada?: boolean;
+  started_at?: string | null;
+  updated_at?: string | null;
+  pending_sync?: boolean;
 }
 
 export async function postRotasIniciar(ordem: number[]): Promise<{ rota_id: string }> {
@@ -477,8 +463,16 @@ export async function postRotasIniciar(ordem: number[]): Promise<{ rota_id: stri
 export async function getRotasAtiva(dataHoje?: string): Promise<RotasAtivaResponse | null> {
   const params: Record<string, string | number> = { _: Date.now() };
   if (dataHoje) params.data = dataHoje;
-  const { data } = await client.get<RotasAtivaResponse | null>("/mobile/rotas/ativa", { params });
-  return data ?? null;
+  const { data } = await client.get<RotasAtivaResponse>("/mobile/rotas/ativa", { params });
+  if (!data) return null;
+  if (data.status === "sem_rota" || !data.rota_id) {
+    return { ...data, status: data.status || "sem_rota", ordem: data.ordem || [], parada_atual: data.parada_atual ?? 0 };
+  }
+  return data;
+}
+
+export async function postRotasCancelar(rotaId: string): Promise<void> {
+  await client.post(`/mobile/rotas/${rotaId}/cancelar`);
 }
 
 export async function postRotasAvancar(rotaId: string): Promise<{ parada_atual: number }> {

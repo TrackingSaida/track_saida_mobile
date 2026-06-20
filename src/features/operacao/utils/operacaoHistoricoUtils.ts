@@ -5,6 +5,7 @@ export type EventoHistoricoKey =
   | "lido"
   | "leitura"
   | "em_rota"
+  | "saiu"
   | "entregue"
   | "entregue_lote"
   | "ausente"
@@ -22,18 +23,23 @@ export type EventoHistoricoKey =
   | "nova_saida_mesmo_entregador"
   | "desatribuido"
   | "removido_sem_inicio"
+  | "endereco_atualizado"
+  | "rota_criada"
+  | "rota_recalculada"
   | "unknown";
 
 const LABELS: Partial<Record<EventoHistoricoKey, string>> = {
-  scan: "Pacote vinculado à operação",
-  lido: "Pacote registrado",
-  leitura: "Pacote registrado",
-  em_rota: "Enviado para entrega",
+  scan: "Pedido adicionado",
+  lido: "Pedido adicionado",
+  leitura: "Pedido adicionado",
+  lancar_avulso: "Pedido adicionado",
+  em_rota: "Saiu para entrega",
+  saiu: "Saiu para entrega",
   entregue: "Entrega realizada",
   entregue_lote: "Entrega realizada",
   ausente: "Destinatário ausente",
   ausente_lote: "Destinatário ausente",
-  cancelado: "Entrega cancelada",
+  cancelado: "Pedido cancelado",
   nova_tentativa: "Nova tentativa liberada",
   coleta: "Pacote coletado",
   criado_coleta: "Pacote coletado",
@@ -42,10 +48,12 @@ const LABELS: Partial<Record<EventoHistoricoKey, string>> = {
   assumir: "Entregador reatribuído",
   assumido: "Entregador reatribuído",
   reatribuido_em_rota: "Entregador reatribuído em rota",
-  lancar_avulso: "Avulso registrado",
   nova_saida_mesmo_entregador: "Nova saída confirmada",
   desatribuido: "Pacote desatribuído",
   removido_sem_inicio: "Removido antes de iniciar rota",
+  endereco_atualizado: "Endereço atualizado",
+  rota_criada: "Inserido na rota",
+  rota_recalculada: "Rota recalculada",
 };
 
 const GREEN_KEYS = new Set<EventoHistoricoKey>([
@@ -82,7 +90,10 @@ export function normalizeEventoKey(evento?: string | null): EventoHistoricoKey {
   if (raw.includes("entregue")) return "entregue";
   if (raw.includes("ausente")) return "ausente";
   if (raw.includes("cancel")) return "cancelado";
-  if (raw.includes("rota")) return "em_rota";
+  if (raw.includes("endereco")) return "endereco_atualizado";
+  if (raw.includes("recalcul")) return "rota_recalculada";
+  if (raw.includes("rota_criada") || raw === "rota_criada") return "rota_criada";
+  if (raw.includes("rota") || raw === "saiu") return raw === "saiu" ? "saiu" : "em_rota";
   if (raw.includes("scan") || raw.includes("escane")) return "scan";
   if (raw.includes("lido") || raw.includes("leitura")) return "lido";
   if (raw.includes("coleta")) return "coleta";
@@ -175,7 +186,7 @@ export function formatEventoTimestamp(iso?: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(d);
-  return `${data} • ${hora}`;
+  return `${data} às ${hora}`;
 }
 
 export function isEventoEntrega(evento?: string | null): boolean {

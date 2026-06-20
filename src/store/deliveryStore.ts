@@ -441,6 +441,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     } catch {
       /* rota pode já ter sido finalizada pelo backend */
     }
+    const { clearPersistedRouteSnapshot } = await import("../features/entregas/services/routeRecovery");
+    await clearPersistedRouteSnapshot().catch(() => undefined);
     get().clearActiveRouteState();
   },
 
@@ -511,13 +513,18 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       }
     }
     set({
-      activeRouteId: payload.rota_id,
+      activeRouteId: payload.rota_id ?? null,
       routeOrder: payload.ordem,
       activeStopIndex: payload.parada_atual,
       routeDeliveries: deliveries,
       routeDeliveryStatus,
+      routeStarted: payload.status === "em_entrega",
     });
     get().syncActiveStopIndex();
+
+    if (payload.status === "rota_pronta") {
+      return;
+    }
 
     const reconcile = await reconcileActiveRouteState(buildRouteReconcileDeps(get));
     if (!reconcile.stillActive) {

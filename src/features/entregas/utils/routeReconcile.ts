@@ -1,3 +1,4 @@
+import type { RotasAtivaResponse } from "../api";
 import {
   getRotasAtiva,
   getTodayISO,
@@ -24,11 +25,7 @@ export type RouteReconcileDeps = {
   getRouteDeliveries: () => import("../types").EntregaListItem[];
   getRouteDeliveryStatus: () => Record<number, "pendente" | "entregue" | "ausente">;
   clearActiveRouteState: () => void;
-  restoreActiveRoute: (payload: {
-    rota_id: string;
-    ordem: number[];
-    parada_atual: number;
-  }) => Promise<void>;
+  restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
 };
 
 async function finalizeAndClearRoute(
@@ -105,7 +102,7 @@ export async function reconcileActiveRouteState(
     return noop;
   }
 
-  if (!rotaAtiva) {
+  if (!rotaAtiva || rotaAtiva.status === "sem_rota" || !rotaAtiva.rota_id) {
     if (activeRouteId) {
       if (locallyComplete || routeOrder.length === 0) {
         return finalizeAndClearRoute(
@@ -132,7 +129,9 @@ export async function reconcileActiveRouteState(
     sameRoute && ordem.length > 0 && ordem.every((id) => routeDeliveryIds.has(id));
 
   if (!hasAllDeliveries || activeRouteId !== rotaAtiva.rota_id) {
-    await deps.restoreActiveRoute(rotaAtiva);
+    if (rotaAtiva.rota_id) {
+      await deps.restoreActiveRoute(rotaAtiva);
+    }
   }
 
   const afterOrder = deps.getRouteOrder();

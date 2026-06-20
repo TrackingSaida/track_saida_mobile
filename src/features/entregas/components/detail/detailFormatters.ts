@@ -21,6 +21,27 @@ export function formatDetailDateTimeLabel(prefix: string, value?: string | null)
   return time ? `${prefix} ${time}` : null;
 }
 
+/** Data e hora completas para exibição no detalhe (DD/MM/AAAA às HH:MM). */
+export function formatDetailDateTimeFull(value?: string | null): string | null {
+  if (!value) return null;
+  const ts = Date.parse(value);
+  if (Number.isNaN(ts)) return null;
+  const date = new Date(ts);
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm}/${yyyy} às ${hh}:${min}`;
+}
+
+export function formatDetailDateOnly(value?: string | null): string | null {
+  const iso = (value ?? "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 export function formatCep(cep?: string | null): string | null {
   const digits = (cep ?? "").replace(/\D/g, "").slice(0, 8);
   if (digits.length !== 8) return null;
@@ -96,4 +117,12 @@ export function statusLabelUpper(kind: DetailStatusKind): string {
     case "cancelado":
       return "CANCELADO";
   }
+}
+
+/** Data operacional de entrada do pedido (campo `data`) em DD/MM para badge compacto. */
+export function formatEntradaDataBadge(data: string | null | undefined): string {
+  const iso = (data ?? "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "—";
+  const [, m, d] = iso.split("-");
+  return `${d}/${m}`;
 }

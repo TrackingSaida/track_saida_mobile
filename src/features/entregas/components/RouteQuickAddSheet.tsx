@@ -13,6 +13,7 @@ import {
 import { useThemeColors } from "../../../theme/colors";
 import { geocodeAddress } from "../utils/geocode";
 import type { EntregaListItem } from "../types";
+import EntregaCodigoHeader from "./EntregaCodigoHeader";
 import { getStopPedidoLabel } from "../utils/routeUtils";
 
 interface RouteQuickAddSheetProps {
@@ -176,9 +177,15 @@ export default function RouteQuickAddSheet({
                     style={styles.item}
                     onPress={() => handleAdd([item.id_saida])}
                   >
-                    <Text style={styles.itemText}>
-                      {getStopPedidoLabel(item)} · {item.codigo || "—"}
-                    </Text>
+                    <Text style={styles.itemText}>{getStopPedidoLabel(item)}</Text>
+                    <EntregaCodigoHeader
+                      codigo={item.codigo}
+                      servico={item.servico}
+                      exibicao={item.exibicao}
+                      data={item.data}
+                      compact
+                      style={{ marginTop: 4 }}
+                    />
                     <Text style={[styles.itemText, { fontSize: 12, marginTop: 4 }]}>
                       {item.cliente || "—"}
                     </Text>

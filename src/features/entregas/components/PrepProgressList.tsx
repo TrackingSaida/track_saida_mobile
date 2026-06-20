@@ -9,9 +9,10 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../../theme/colors";
 import type { EntregaListItem } from "../types";
+import EntregaCodigoHeader from "./EntregaCodigoHeader";
 import { deliveryAddressSummary } from "../utils/deliveryAddress";
 
-const ROW_HEIGHT = 64;
+const ROW_HEIGHT = 80;
 
 interface PrepProgressListProps {
   items: EntregaListItem[];
@@ -50,7 +51,6 @@ export default function PrepProgressList({
         },
         icon: { fontSize: 16, width: 28 },
         body: { flex: 1, minWidth: 0 },
-        codigo: { fontSize: 14, fontWeight: "700", color: colors.text },
         address: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
         editBtn: {
           padding: 8,
@@ -75,9 +75,13 @@ export default function PrepProgressList({
           >
             <Text style={styles.icon}>{icon}</Text>
             <View style={styles.body}>
-              <Text style={styles.codigo} numberOfLines={1}>
-                {item.codigo || `Pedido ${item.id_saida}`}
-              </Text>
+              <EntregaCodigoHeader
+                codigo={item.codigo || `Pedido ${item.id_saida}`}
+                servico={item.servico}
+                exibicao={item.exibicao}
+                data={item.data}
+                compact
+              />
               <Text style={styles.address} numberOfLines={1}>
                 {deliveryAddressSummary(item)}
               </Text>

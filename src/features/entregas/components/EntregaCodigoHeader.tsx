@@ -1,0 +1,109 @@
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
+import { useThemeColors } from "../../../theme/colors";
+import { SERVICO_COLORS, servicoTipo } from "../utils/servico";
+import { formatEntradaDataBadge } from "./detail/detailFormatters";
+
+type Props = {
+  codigo?: string | null;
+  servico?: string | null;
+  exibicao?: string | null;
+  data?: string | null;
+  tentativa?: number | null;
+  leftAccessory?: React.ReactNode;
+  codigoFallback?: string;
+  style?: StyleProp<ViewStyle>;
+  compact?: boolean;
+};
+
+function badgeColorForExibicao(exibicao: string, colors: ReturnType<typeof useThemeColors>): string {
+  if (exibicao === "Pendente") return colors.warning;
+  if (exibicao === "Entregue") return colors.success;
+  if (exibicao === "Ausente") return colors.danger;
+  if (exibicao === "Cancelado") return colors.textSecondary;
+  return colors.placeholder;
+}
+
+export default function EntregaCodigoHeader({
+  codigo,
+  servico,
+  exibicao,
+  data,
+  tentativa,
+  leftAccessory,
+  codigoFallback = "—",
+  style,
+  compact = false,
+}: Props) {
+  const colors = useThemeColors();
+  const servicoLabel = servicoTipo(servico);
+  const servicoColor = SERVICO_COLORS[servicoLabel] || colors.placeholder;
+  const statusLabel = (exibicao || "—").trim() || "—";
+  const statusColor = badgeColorForExibicao(statusLabel, colors);
+  const entradaLabel = formatEntradaDataBadge(data);
+  const showEntradaBadge = entradaLabel !== "—";
+  const badgeTextColor = servicoLabel === "Flex" ? "#6a5a00" : "#fff";
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        row: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+        left: { flex: 1, minWidth: 0 },
+        codigo: {
+          fontSize: compact ? 15 : 17,
+          fontWeight: "700",
+          color: colors.text,
+          marginBottom: compact ? 0 : 0,
+        },
+        rightCol: { alignItems: "flex-end", maxWidth: "48%" },
+        badgesRow: { flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" },
+        servicoBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+        servicoBadgeText: { fontSize: 11, fontWeight: "600" },
+        statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+        statusBadgeText: { fontSize: 12, color: "#fff", fontWeight: "600" },
+        entradaBadge: {
+          marginTop: 4,
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+          borderRadius: 6,
+          backgroundColor: colors.background,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        entradaBadgeText: { fontSize: 11, fontWeight: "600", color: colors.textSecondary },
+        tentativaBadge: { fontSize: 11, color: colors.textSecondary, marginLeft: 4 },
+      }),
+    [colors, compact]
+  );
+
+  return (
+    <View style={[styles.row, style]}>
+      {leftAccessory}
+      <View style={styles.left}>
+        <Text style={styles.codigo} numberOfLines={1} ellipsizeMode="middle">
+          {codigo?.trim() || codigoFallback}
+        </Text>
+      </View>
+      <View style={styles.rightCol}>
+        <View style={styles.badgesRow}>
+          <View style={[styles.servicoBadge, { backgroundColor: servicoColor }]}>
+            <Text style={[styles.servicoBadgeText, { color: badgeTextColor }]}>{servicoLabel}</Text>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+            <Text style={styles.statusBadgeText}>{statusLabel}</Text>
+          </View>
+          {(tentativa ?? 1) >= 2 && (
+            <Text style={styles.tentativaBadge}>{tentativa}ª tentativa</Text>
+          )}
+        </View>
+        {showEntradaBadge ? (
+          <View style={styles.entradaBadge}>
+            <Text style={styles.entradaBadgeText}>{entradaLabel}</Text>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+export { formatEntradaDataBadge };

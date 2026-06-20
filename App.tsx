@@ -14,7 +14,6 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "./src/store/authStore";
-import { useDeliveryStore } from "./src/store/deliveryStore";
 import { useThemeStore } from "./src/store/themeStore";
 import { useMotoboyPrefsStore } from "./src/store/motoboyPrefsStore";
 import { getColors, useThemeColors } from "./src/theme/colors";
@@ -22,6 +21,8 @@ import { getProfileThemeColors } from "./src/theme/profileTheme";
 import LoginScreen from "./src/screens/LoginScreen";
 import SelectSubBaseScreen from "./src/screens/SelectSubBaseScreen";
 import ChangePasswordRequiredScreen from "./src/screens/ChangePasswordRequiredScreen";
+import { SessionExpiredModal } from "./src/components/SessionExpiredModal";
+import { recoverRouteState } from "./src/features/entregas/services/routeRecovery";
 import HomeScreen from "./src/screens/HomeScreen";
 import MaisScreen, { type MaisStackParamList } from "./src/screens/MaisScreen";
 import MeusDadosScreen from "./src/screens/MeusDadosScreen";
@@ -216,9 +217,8 @@ export default function App() {
   const [pendingChangePassword, setPendingChangePassword] = useState(false);
 
   const logout = useCallback(async () => {
-    useDeliveryStore.getState().clearActiveRouteState();
     useMotoboyPrefsStore.getState().resetToDefaults();
-    await logoutFromStore();
+    await logoutFromStore({ revokeRemote: true });
   }, [logoutFromStore]);
 
   const navTheme = React.useMemo(
@@ -253,12 +253,17 @@ export default function App() {
 
   useEffect(() => {
     useAuthStore.getState().setSessionExpiredCallback(() => {
-      useDeliveryStore.getState().clearActiveRouteState();
+      /* preserva rota local e no servidor — não limpar deliveryStore */
     });
     return () => {
       useAuthStore.getState().setSessionExpiredCallback(null);
     };
   }, []);
+
+  useEffect(() => {
+    if (!token || requiresBiometricUnlock || !currentUser) return;
+    void recoverRouteState({ force: true });
+  }, [token, currentUser, requiresBiometricUnlock]);
 
   if (isLoading) {
     const loadingColors = getColors(theme);
@@ -294,6 +299,7 @@ export default function App() {
           <>
             <MainTabs onLogout={logout} />
             <DiaRotaConcluidaModal />
+            <SessionExpiredModal onRelogin={() => {}} />
           </>
         ) : (
           <AuthStack.Navigator screenOptions={{ headerShown: false }}>

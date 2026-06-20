@@ -24,6 +24,7 @@ export type PrepFlowInput = {
   routeOrderLength: number;
   activeRouteId: string | null;
   separationViewed: boolean;
+  apiRouteStatus?: "sem_rota" | "rota_pronta" | "em_entrega";
 };
 
 export type PrepSecondaryItem = {
@@ -122,23 +123,35 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
     routeOrderLength,
     activeRouteId,
     separationViewed,
+    apiRouteStatus,
   } = input;
 
   const hideAddAddressButton = semEndereco === 0;
   const addressCompleteMessage =
     semEndereco === 0 && totalPedidos > 0 ? "Todos os endereços foram informados" : null;
-  const canGenerateRoute = withCoordsCount >= 2 && semEndereco === 0 && routeOrderLength === 0;
+  const hasServerRoute =
+    apiRouteStatus === "rota_pronta" ||
+    apiRouteStatus === "em_entrega" ||
+    activeRouteId != null ||
+    routeOrderLength > 0;
+  const canGenerateRoute =
+    withCoordsCount >= 2 && semEndereco === 0 && routeOrderLength === 0 && !hasServerRoute;
   const canGeneratePartialRoute =
-    withCoordsCount >= 2 && semEndereco > 0 && routeOrderLength === 0 && activeRouteId == null;
+    withCoordsCount >= 2 &&
+    semEndereco > 0 &&
+    routeOrderLength === 0 &&
+    activeRouteId == null &&
+    apiRouteStatus !== "rota_pronta" &&
+    apiRouteStatus !== "em_entrega";
 
   let statusChip: PrepStatusChip = "empty";
   let statusChipLabel = "";
   let statusHint: string | null = null;
 
-  if (activeRouteId != null) {
+  if (activeRouteId != null || apiRouteStatus === "em_entrega") {
     statusChip = "route_active";
     statusChipLabel = "Rota em andamento";
-  } else if (routeOrderLength > 0) {
+  } else if (routeOrderLength > 0 || apiRouteStatus === "rota_pronta") {
     statusChip = "route_ready";
     statusChipLabel = separationViewed ? "Pronto para iniciar" : "Rota gerada — separe os pacotes";
   } else if (totalPedidos === 0) {
@@ -159,9 +172,9 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
   let primaryLabel: string;
   let primaryIconKey: OperationalIconKey;
 
-  if (activeRouteId != null) {
+  if (activeRouteId != null || apiRouteStatus === "em_entrega") {
     primaryAction = "start_route";
-    primaryLabel = "Continuar rota";
+    primaryLabel = "Continuar entrega";
     primaryIconKey = "prepStartRoute";
   } else if (totalPedidos === 0) {
     primaryAction = "scan";
@@ -171,22 +184,18 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
     primaryAction = "add_address";
     primaryLabel = "Adicionar endereço pendente";
     primaryIconKey = "prepAddAddress";
-  } else if (routeOrderLength > 0 && !separationViewed) {
+  } else if ((routeOrderLength > 0 || apiRouteStatus === "rota_pronta") && !separationViewed) {
     primaryAction = "separate_packages";
     primaryLabel = "Separar pacotes";
     primaryIconKey = "prepSeparate";
-  } else if (routeOrderLength > 0 && separationViewed) {
+  } else if (routeOrderLength > 0 || apiRouteStatus === "rota_pronta") {
     primaryAction = "start_route";
-    primaryLabel = "Iniciar rota";
+    primaryLabel = "Continuar rota pronta";
     primaryIconKey = "prepStartRoute";
   } else if (canGenerateRoute) {
     primaryAction = "generate_route";
     primaryLabel = "Gerar rota otimizada";
     primaryIconKey = "prepGenerateRoute";
-  } else if (semEndereco > 0) {
-    primaryAction = "add_address";
-    primaryLabel = "Adicionar endereço pendente";
-    primaryIconKey = "prepAddAddress";
   } else {
     primaryAction = "scan";
     primaryLabel = scanLabel(totalPedidos);

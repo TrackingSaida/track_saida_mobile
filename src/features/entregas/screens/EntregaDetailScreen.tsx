@@ -16,8 +16,8 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import * as ImagePicker from "expo-image-picker";
-import { getEntrega, fetchComprovanteImagesDataUris } from "../api";
-import type { EntregaListItem } from "../types";
+import { getEntrega, fetchComprovanteImagesDataUris, getEntregaHistorico } from "../api";
+import type { EntregaListItem, EntregaHistoricoItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import AddressQuickForm from "../components/AddressQuickForm";
@@ -31,6 +31,8 @@ import { inferCoordPrecision, isValidGeocodeCoords } from "../utils/geocode";
 import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import DetailStatusHero from "../components/detail/DetailStatusHero";
+import DetailOperacaoResumoBlock from "../components/detail/DetailOperacaoResumoBlock";
+import EntregaTimelineSheet from "../components/detail/EntregaTimelineSheet";
 import DetailAddressBlock from "../components/detail/DetailAddressBlock";
 import DetailOccurrenceBlock from "../components/detail/DetailOccurrenceBlock";
 import DetailPersonBlock from "../components/detail/DetailPersonBlock";
@@ -106,6 +108,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   );
   const { idSaida } = route.params;
   const [entrega, setEntrega] = useState<EntregaListItem | null>(null);
+  const [historico, setHistorico] = useState<EntregaHistoricoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modalAusente, setModalAusente] = useState(false);
@@ -125,6 +128,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [comprovanteViewerIndex, setComprovanteViewerIndex] = useState(0);
   const comprovanteViewerRef = useRef<ScrollView>(null);
   const { width: windowWidth } = useWindowDimensions();
+  const [showTimelineSheet, setShowTimelineSheet] = useState(false);
   const saveAddress = useDeliveryStore((s) => s.saveAddress);
   const markDelivered = useDeliveryStore((s) => s.markDelivered);
   const markAbsent = useDeliveryStore((s) => s.markAbsent);
@@ -136,8 +140,12 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const load = async () => {
     setLoading(true);
     try {
-      const e = await getEntrega(idSaida);
+      const [e, hist] = await Promise.all([
+        getEntrega(idSaida),
+        getEntregaHistorico(idSaida).catch(() => [] as EntregaHistoricoItem[]),
+      ]);
       setEntrega(e);
+      setHistorico(hist);
       const statusKind = resolveDetailStatusKind(e);
       const shouldLoadComprovante =
         !!e?.tem_comprovante &&
@@ -158,6 +166,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       }
     } catch {
       setEntrega(null);
+      setHistorico([]);
     } finally {
       setLoading(false);
     }
@@ -397,6 +406,11 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         ) : null}
 
         <DetailStatusHero entrega={entrega} />
+        <DetailOperacaoResumoBlock
+          entrega={entrega}
+          historico={historico}
+          onOpenTimeline={() => setShowTimelineSheet(true)}
+        />
 
         {isPendente ? (
           <>
@@ -494,6 +508,19 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           ) : null}
         </View>
       </ScrollView>
+
+      <EntregaTimelineSheet
+        visible={showTimelineSheet}
+        entrega={entrega}
+        historico={historico}
+        comprovanteUris={comprovanteUris}
+        comprovanteLoading={loadingComprovante}
+        onVerComprovante={(index) => {
+          setComprovanteViewerIndex(index);
+          setShowComprovanteViewer(true);
+        }}
+        onClose={() => setShowTimelineSheet(false)}
+      />
 
       <Modal visible={modalEnderecoOpcoes} transparent animationType="fade">
         <View style={styles.modalOverlay}>

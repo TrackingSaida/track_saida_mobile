@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
 import { useThemeColors } from "../../../theme/colors";
 import type { EntregaListItem } from "../types";
+import EntregaCodigoHeader from "./EntregaCodigoHeader";
 import { servicoTipo } from "../utils/servico";
 import {
   ADDRESS_REVIEW_LABELS,
@@ -22,12 +23,6 @@ import {
 } from "../utils/routeUtils";
 import type { GeocodedMetaMap, LegacyValidationCache } from "../utils/deliveryDestination";
 import RouteChangePositionSheet from "./RouteChangePositionSheet";
-
-const SERVICO_COLORS: Record<string, string> = {
-  Shopee: "#EE4D2D",
-  Flex: "#F5A623",
-  Avulso: "#7B61FF",
-};
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -153,14 +148,6 @@ export default function RouteStopActionSheet({
           fontStyle: "italic",
           marginBottom: 12,
         },
-        headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 4, gap: 8 },
-        title: { fontSize: 18, fontWeight: "700", color: colors.text, flex: 1 },
-        badge: {
-          paddingHorizontal: 8,
-          paddingVertical: 3,
-          borderRadius: 6,
-        },
-        badgeText: { fontSize: 11, fontWeight: "700", color: "#fff" },
         currentBadge: {
           alignSelf: "flex-start",
           backgroundColor: colors.primary + "22",
@@ -199,7 +186,6 @@ export default function RouteStopActionSheet({
 
   const first = group?.deliveries[0];
   const servico = first ? servicoTipo(first.servico) : "";
-  const servicoColor = SERVICO_COLORS[servico] || colors.placeholder;
   const packageCount = group?.deliveries.length ?? 0;
 
   const handleRemover = () => {
@@ -363,14 +349,15 @@ export default function RouteStopActionSheet({
             </>
           ) : (
             <>
-              <View style={styles.headerRow}>
-                <Text style={styles.title}>{getStopPrimaryCodigo(group)}</Text>
-                {servico ? (
-                  <View style={[styles.badge, { backgroundColor: servicoColor }]}>
-                    <Text style={styles.badgeText}>{servico}</Text>
-                  </View>
-                ) : null}
-              </View>
+              {group && first ? (
+                <EntregaCodigoHeader
+                  codigo={getStopPrimaryCodigo(group)}
+                  servico={first.servico}
+                  exibicao={first.exibicao ?? "Pendente"}
+                  data={first.data}
+                  style={{ marginBottom: 8 }}
+                />
+              ) : null}
               {isCurrentStop && (
                 <View style={styles.currentBadge}>
                   <Text style={styles.currentBadgeText}>PARADA ATUAL</Text>

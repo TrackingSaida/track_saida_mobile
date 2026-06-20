@@ -4,13 +4,13 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Platform,
   ScrollView,
   Dimensions,
 } from "react-native";
 
 const DEFAULT_SCROLL_MAX_HEIGHT = Dimensions.get("window").height * 0.55;
 import { useThemeColors } from "../theme/colors";
+import EntregaCodigoHeader from "../features/entregas/components/EntregaCodigoHeader";
 import type { EntregaListItem } from "../features/entregas/types";
 import {
   getStopAddressLine,
@@ -85,8 +85,6 @@ export default function RouteMarkerCard({
         title: { fontSize: 20, fontWeight: "800", color: colors.text },
         pedidosMeta: { fontSize: 14, color: colors.textSecondary, marginBottom: 12 },
         codigoRow: {
-          flexDirection: "row",
-          alignItems: "center",
           paddingVertical: 10,
           paddingHorizontal: 12,
           borderRadius: 8,
@@ -102,23 +100,7 @@ export default function RouteMarkerCard({
           backgroundColor: colors.primary + "12",
         },
         codigoRowDone: { opacity: 0.55 },
-        codigoText: {
-          fontSize: 14,
-          fontWeight: "700",
-          color: colors.primary,
-          fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-          flex: 1,
-          minWidth: 0,
-        },
-        codigoStatus: {
-          fontSize: 11,
-          fontWeight: "700",
-          color: colors.textSecondary,
-          paddingHorizontal: 8,
-          paddingVertical: 4,
-          borderRadius: 6,
-          backgroundColor: colors.inputBorder,
-        },
+        inlineActionsRow: { flexDirection: "row", gap: 8, marginTop: 4 },
         inlineBtn: {
           paddingVertical: 8,
           paddingHorizontal: 10,
@@ -196,17 +178,23 @@ export default function RouteMarkerCard({
   const renderPackageRow = (d: EntregaListItem) => {
     const dStatus = deliveryStatusMap[d.id_saida] ?? "pendente";
     const isSelected = !multiPackage && d.id_saida === delivery.id_saida;
-    const codigo = d.codigo?.trim() || "—";
+    const exibicao =
+      d.exibicao ??
+      (dStatus === "entregue" ? "Entregue" : dStatus === "ausente" ? "Ausente" : "Pendente");
     const showInlineActions =
       multiPackage && canMarkDelivery && dStatus === "pendente";
 
     const rowContent = (
       <>
-        <Text style={styles.codigoText} numberOfLines={1} ellipsizeMode="tail">
-          {codigo}
-        </Text>
+        <EntregaCodigoHeader
+          codigo={d.codigo}
+          servico={d.servico}
+          exibicao={exibicao}
+          data={d.data}
+          compact
+        />
         {showInlineActions && (
-          <>
+          <View style={styles.inlineActionsRow}>
             <TouchableOpacity
               style={[styles.inlineBtn, styles.inlineBtnEntregue]}
               onPress={() => onMarcarEntregueFor?.(d)}
@@ -221,10 +209,7 @@ export default function RouteMarkerCard({
             >
               <Text style={styles.inlineBtnText}>Ausente</Text>
             </TouchableOpacity>
-          </>
-        )}
-        {dStatus !== "pendente" && (
-          <Text style={styles.codigoStatus}>{dStatus === "entregue" ? "Entregue" : "Ausente"}</Text>
+          </View>
         )}
       </>
     );

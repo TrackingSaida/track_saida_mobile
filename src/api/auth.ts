@@ -4,6 +4,8 @@ import { API_BASE_URL } from "../config/api";
 export interface MotoboyLoginResponse {
   access_token?: string;
   token_type?: string;
+  refresh_token?: string;
+  expires_in?: number;
   multiple_sub_base?: boolean;
   sub_bases?: string[];
   must_change_password?: boolean;
@@ -12,6 +14,8 @@ export interface MotoboyLoginResponse {
 export interface MotoboySelectSubBaseResponse {
   access_token: string;
   token_type: string;
+  refresh_token?: string;
+  expires_in?: number;
   must_change_password?: boolean;
 }
 
@@ -170,5 +174,31 @@ export async function motoboySelectSubBase(
     return data;
   } catch (err: unknown) {
     throw normalizeAuthError(err, "Não foi possível selecionar a base.");
+  }
+}
+
+export async function motoboyRefresh(refreshToken: string): Promise<MotoboySelectSubBaseResponse> {
+  try {
+    const { data } = await axios.post<MotoboySelectSubBaseResponse>(
+      `${API_BASE_URL}/auth/motoboy-refresh`,
+      { refresh_token: refreshToken },
+      { timeout: AUTH_TIMEOUT_MS, headers: { "Content-Type": "application/json" } }
+    );
+    return data;
+  } catch (err: unknown) {
+    throw normalizeAuthError(err, "Não foi possível renovar a sessão.");
+  }
+}
+
+export async function motoboyLogout(refreshToken: string | null): Promise<void> {
+  if (!refreshToken) return;
+  try {
+    await axios.post(
+      `${API_BASE_URL}/auth/motoboy-logout`,
+      { refresh_token: refreshToken },
+      { timeout: AUTH_TIMEOUT_MS, headers: { "Content-Type": "application/json" } }
+    );
+  } catch {
+    /* ignore */
   }
 }

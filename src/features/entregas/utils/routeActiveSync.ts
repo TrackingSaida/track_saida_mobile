@@ -1,4 +1,4 @@
-import { getRotasAtiva, getTodayISO } from "../api";
+import { getRotasAtiva, getTodayISO, type RotasAtivaResponse } from "../api";
 import type { RotaSyncInfo } from "../types";
 import { getFirstPendingRouteIndex } from "./routeUtils";
 import { stopBackgroundTracking } from "../../../services/location/locationService";
@@ -14,11 +14,7 @@ type ApplyRouteSyncDeps = {
   getActiveRouteId: () => string | null;
   getRouteOrder: () => number[];
   getRouteDeliveryStatus: () => RouteDeliveryStatus;
-  restoreActiveRoute: (payload: {
-    rota_id: string;
-    ordem: number[];
-    parada_atual: number;
-  }) => Promise<void>;
+  restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
   clearActiveRouteState: () => void;
   setActiveStopIndex: (index: number) => void;
 };
@@ -41,6 +37,7 @@ export async function applyRouteSyncFromResponse(
         rota_id: sync.rota_id,
         ordem: sync.ordem,
         parada_atual: sync.parada_atual ?? 0,
+        status: "em_entrega",
       });
     } else {
       const statusMap = deps.getRouteDeliveryStatus();
@@ -56,7 +53,7 @@ export async function applyRouteSyncFromResponse(
   if (activeRouteId) {
     try {
       const rotaAtiva = await getRotasAtiva(getTodayISO());
-      if (!rotaAtiva) {
+      if (!rotaAtiva || rotaAtiva.status === "sem_rota" || !rotaAtiva.rota_id) {
         const rotaId = activeRouteId;
         await stopBackgroundTracking().catch(() => {});
         deps.clearActiveRouteState();

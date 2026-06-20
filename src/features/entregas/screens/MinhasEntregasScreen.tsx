@@ -22,6 +22,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeColors } from "../../../theme/colors";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import EntregaCodigoHeader from "../components/EntregaCodigoHeader";
 import { getExtratoFinanceiro, getTodayISO } from "../api";
 import type { ExtratoFinanceiro, ExtratoPedidoItem, ExtratoStatusFiltro } from "../types";
 import { formatCurrencyBRL } from "../utils/currency";
@@ -346,6 +347,14 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
     [itensFlat, searchQuery]
   );
 
+  const extratoDataById = useMemo(() => {
+    const map = new Map<number, string>();
+    extratoFiltrado?.dias.forEach((dia) => {
+      dia.itens.forEach((it) => map.set(it.id_saida, dia.data));
+    });
+    return map;
+  }, [extratoFiltrado]);
+
   const load = useCallback(async (custom?: { dataInicio?: string; dataFim?: string; statusFiltro?: ExtratoStatusFiltro }) => {
     setLoading(true);
     try {
@@ -494,18 +503,6 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
     []
   );
 
-  const getStatusColor = useCallback(
-    (status: string) => {
-      const s = (status || "").trim().toLowerCase();
-      if (s.includes("entreg")) return colors.success;
-      if (s.includes("ausente")) return colors.warning;
-      if (s.includes("cancel")) return colors.danger;
-      if (s.includes("rota") || s.includes("saiu")) return colors.primary;
-      return colors.textSecondary;
-    },
-    [colors]
-  );
-
   if (loading) {
     return (
       <View style={[styles.container, styles.centered]}>
@@ -589,8 +586,13 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
             }
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.searchResultItem} onPress={() => abrirDetalhe(item)}>
-                <Text style={styles.searchResultCodigo}>{item.codigo ?? "—"}</Text>
-                <Text style={styles.searchResultCliente}>{formatRealStatus(item.status, item.exibicao)}</Text>
+                <EntregaCodigoHeader
+                  codigo={item.codigo}
+                  servico={item.servico}
+                  exibicao={formatRealStatus(item.status, item.exibicao)}
+                  data={extratoDataById.get(item.id_saida)}
+                  compact
+                />
               </TouchableOpacity>
             )}
           />
@@ -656,12 +658,13 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
                         activeOpacity={0.7}
                         onPress={() => abrirDetalhe(it)}
                       >
-                        <Text style={styles.itemCodigo}>{it.codigo || "—"}</Text>
-                        <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(statusReal)}22` }]}>
-                          <Text style={[styles.statusText, { color: getStatusColor(statusReal) }]}>
-                            {statusReal}
-                          </Text>
-                        </View>
+                        <EntregaCodigoHeader
+                          codigo={it.codigo}
+                          servico={it.servico}
+                          exibicao={statusReal}
+                          data={item.data}
+                          compact
+                        />
                       </TouchableOpacity>
                     );
                   })}
