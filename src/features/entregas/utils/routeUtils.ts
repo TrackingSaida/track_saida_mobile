@@ -608,6 +608,68 @@ export function moveGroupInOrder(groups: GroupedStop[], from: number, to: number
   return next;
 }
 
+/** Soma entregas dos grupos [0..anchorGroupIndex] — índice em routeOrder após a âncora. */
+export function getDeliveryIndexAfterGroup(
+  groups: GroupedStop[],
+  anchorGroupIndex: number
+): number {
+  if (groups.length === 0) return 0;
+  const last = Math.max(0, Math.min(anchorGroupIndex, groups.length - 1));
+  let count = 0;
+  for (let i = 0; i <= last; i++) {
+    count += groups[i].deliveries.length;
+  }
+  return count;
+}
+
+export type RouteLocateMatch = {
+  stopIndex: number;
+  delivery: EntregaListItem;
+  sameStopDeliveries: EntregaListItem[];
+  score: number;
+};
+
+/** Busca parcial por código ou id_saida; prioriza match exato, depois prefixo, depois contém. */
+export function findInRouteByQuery(
+  groups: GroupedStop[],
+  query: string,
+  maxResults = 8
+): RouteLocateMatch[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const matches: RouteLocateMatch[] = [];
+
+  for (let stopIndex = 0; stopIndex < groups.length; stopIndex++) {
+    for (const delivery of groups[stopIndex].deliveries) {
+      const codigo = (delivery.codigo ?? "").trim().toLowerCase();
+      const idStr = String(delivery.id_saida);
+      let score = 0;
+      if (codigo === q || idStr === q) score = 100;
+      else if (codigo.startsWith(q) || idStr.startsWith(q)) score = 50;
+      else if (codigo.includes(q) || idStr.includes(q)) score = 10;
+      if (score > 0) {
+        matches.push({
+          stopIndex,
+          delivery,
+          sameStopDeliveries: groups[stopIndex].deliveries,
+          score,
+        });
+      }
+    }
+  }
+
+  matches.sort((a, b) => b.score - a.score || a.stopIndex - b.stopIndex);
+  const seen = new Set<number>();
+  const deduped: RouteLocateMatch[] = [];
+  for (const m of matches) {
+    if (seen.has(m.delivery.id_saida)) continue;
+    seen.add(m.delivery.id_saida);
+    deduped.push(m);
+    if (deduped.length >= maxResults) break;
+  }
+  return deduped;
+}
+
 export function getActiveGroupIndex(groupedStops: GroupedStop[], activeStopIndex: number): number {
   let idx = 0;
   for (let i = 0; i < groupedStops.length; i++) {

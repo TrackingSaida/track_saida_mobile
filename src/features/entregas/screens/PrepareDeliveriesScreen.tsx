@@ -809,41 +809,62 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     setFlowState("idle");
   }, [showAdvancedForm]);
 
-  const handleGerarRotaOtimizada = useCallback(async () => {
-    if (useDeliveryStore.getState().activeRouteId != null) {
-      await reconcileActiveRoute();
-    }
-    if (useDeliveryStore.getState().activeRouteId != null) {
-      Alert.alert("Atenção", "Finalize a rota ativa antes de montar outra.", [
-        { text: "Continuar rota", onPress: () => navigation.navigate("RouteBuilder") },
-        { text: "Cancelar", style: "cancel" },
-      ]);
-      return;
-    }
-    if (withCoords.length < 2) {
-      Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para criar a rota.");
-      return;
-    }
-    setOptimizing(true);
-    try {
-      clearActiveRouteState();
-      setRouteDeliveries(withCoords);
-      const result = await runOptimizeRouteWithFeedback(optimizeRoute);
-      if (!result?.ok) return;
-      navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
-    } catch (e) {
-      Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
-    } finally {
-      setOptimizing(false);
-    }
-  }, [
-    withCoords,
-    clearActiveRouteState,
-    setRouteDeliveries,
-    optimizeRoute,
-    navigation,
-    reconcileActiveRoute,
-  ]);
+  const handleGerarRotaOtimizada = useCallback(
+    async (opts?: { partial?: boolean }) => {
+      if (useDeliveryStore.getState().activeRouteId != null) {
+        await reconcileActiveRoute();
+      }
+      if (useDeliveryStore.getState().activeRouteId != null) {
+        Alert.alert("Atenção", "Finalize a rota ativa antes de montar outra.", [
+          { text: "Continuar rota", onPress: () => navigation.navigate("RouteBuilder") },
+          { text: "Cancelar", style: "cancel" },
+        ]);
+        return;
+      }
+      if (withCoords.length < 2) {
+        Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para criar a rota.");
+        return;
+      }
+
+      const runOptimize = async () => {
+        setOptimizing(true);
+        try {
+          clearActiveRouteState();
+          setRouteDeliveries(withCoords);
+          const result = await runOptimizeRouteWithFeedback(optimizeRoute);
+          if (!result?.ok) return;
+          navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
+        } catch (e) {
+          Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
+        } finally {
+          setOptimizing(false);
+        }
+      };
+
+      if (opts?.partial && semEndereco > 0) {
+        Alert.alert(
+          "Gerar rota parcial",
+          `${semEndereco} pacote${semEndereco !== 1 ? "s" : ""} sem endereço ficará${semEndereco !== 1 ? "ão" : ""} de fora desta rota. Deseja continuar com ${withCoords.length} pacote${withCoords.length !== 1 ? "s" : ""} prontos?`,
+          [
+            { text: "Cancelar", style: "cancel" },
+            { text: "Continuar", onPress: () => void runOptimize() },
+          ]
+        );
+        return;
+      }
+
+      await runOptimize();
+    },
+    [
+      withCoords,
+      semEndereco,
+      clearActiveRouteState,
+      setRouteDeliveries,
+      optimizeRoute,
+      navigation,
+      reconcileActiveRoute,
+    ]
+  );
 
   const handleIniciarRota = useCallback(async () => {
     if (activeRouteId != null) {
@@ -926,11 +947,14 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         case "open_route_builder":
           navigation.navigate("RouteBuilder");
           break;
+        case "generate_partial_route":
+          void handleGerarRotaOtimizada({ partial: true });
+          break;
         default:
           break;
       }
     },
-    [navigation, prepOrdemModo, prepServicoInicio]
+    [navigation, prepOrdemModo, prepServicoInicio, handleGerarRotaOtimizada, handleStartScan]
   );
 
   const primaryDisabled =

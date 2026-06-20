@@ -15,6 +15,7 @@ type Props = {
   onHistoricoRotas: () => void;
   onPreferencias: () => void;
   onVerResumoUltimaRota: () => void;
+  onScan?: () => void;
 };
 
 export default function HomeAtalhosPage({
@@ -25,6 +26,7 @@ export default function HomeAtalhosPage({
   onHistoricoRotas,
   onPreferencias,
   onVerResumoUltimaRota,
+  onScan,
 }: Props) {
   const colors = useThemeColors();
   const styles = useMemo(
@@ -101,6 +103,9 @@ export default function HomeAtalhosPage({
       ) : null}
 
       <View style={styles.section}>
+        {onScan ? (
+          <PressableMenuRow icon="cube-outline" title="Inserir novos pacotes" onPress={onScan} />
+        ) : null}
         <PressableMenuRow icon="list-outline" title="Minhas entregas" onPress={onMinhasEntregas} />
         <PressableMenuRow icon="map-outline" title="Mapa de pendentes" onPress={onMapaPendentes} />
         {roteirizacaoHabilitada ? (

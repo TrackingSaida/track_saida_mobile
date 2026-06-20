@@ -33,12 +33,19 @@ import {
   type GroupedStop,
 } from "../features/entregas/utils/routeUtils";
 import type { EntregaListItem } from "../features/entregas/types";
+import EntregaCodigoHeader from "../features/entregas/components/EntregaCodigoHeader";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
 type RouteItemStatus = "pendente" | "entregue" | "ausente";
+
+function routeStatusExibicao(status: RouteItemStatus): string {
+  if (status === "entregue") return "Entregue";
+  if (status === "ausente") return "Ausente";
+  return "Pendente";
+}
 
 interface GroupedStopRowProps {
   group: GroupedStop;
@@ -122,12 +129,6 @@ function GroupedStopRow({
           marginBottom: 6,
         },
         currentBadgeText: { fontSize: 10, fontWeight: "800", color: colors.primary },
-        codigo: {
-          fontSize: 17,
-          fontWeight: "800",
-          color: colors.primary,
-          marginBottom: 2,
-        },
         pedido: { fontSize: 12, color: colors.textSecondary, marginBottom: 2 },
         destinatario: {
           fontSize: 14,
@@ -162,9 +163,14 @@ function GroupedStopRow({
             <Text style={styles.currentBadgeText}>PARADA ATUAL</Text>
           </View>
         )}
-        <Text style={styles.codigo} numberOfLines={1}>
-          {getStopPrimaryCodigo(group)}
-        </Text>
+        <EntregaCodigoHeader
+          codigo={getStopPrimaryCodigo(group)}
+          servico={first?.servico}
+          exibicao={first?.exibicao ?? routeStatusExibicao(status)}
+          data={first?.data}
+          compact
+          style={{ marginBottom: 4 }}
+        />
         <Text style={styles.pedido}>
           {group.deliveries.length > 1 ? getStopPedidosList(group) : first ? `Pedido ${first.id_saida}` : ""}
         </Text>
@@ -196,6 +202,7 @@ export default function RouteBottomSheet({
   activeGroupIndex = -1,
   isRouteActive = false,
   onStopPress,
+  onStopReorder,
   collapsed: collapsedProp,
   onCollapsedChange,
   defaultCollapsed = true,
@@ -205,6 +212,7 @@ export default function RouteBottomSheet({
   activeGroupIndex?: number;
   isRouteActive?: boolean;
   onStopPress?: (group: GroupedStop, stopIndex: number) => void;
+  onStopReorder?: (fromGroupIndex: number, toGroupIndex: number) => void;
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   defaultCollapsed?: boolean;
@@ -283,11 +291,15 @@ export default function RouteBottomSheet({
   }, [setCollapsed]);
 
   const handleDragEnd = useCallback(
-    ({ data }: DragEndParams<GroupedStop>) => {
+    ({ data, from, to }: DragEndParams<GroupedStop>) => {
+      if (onStopReorder) {
+        if (from !== to) onStopReorder(from, to);
+        return;
+      }
       const newOrder = data.flatMap((g) => g.deliveries.map((d) => d.id_saida));
       reorderRoute(newOrder);
     },
-    [reorderRoute]
+    [onStopReorder, reorderRoute]
   );
 
   const renderItem = useCallback(

@@ -1,5 +1,6 @@
 # Assets
 
-Coloque aqui o arquivo **logo-pin.png** (logo do sistema Tracking Saidas, pin azul/verde).
+- **logo-pin.png** — ícone pin usado na tela de login
+- **logo-light.png** — logotipo horizontal TrackingSaídas (header Home e lista de Entregas)
 
-Se você tiver o logo no protótipo (ex.: pasta de assets do Cursor), copie para este diretório com o nome `logo-pin.png`.
+Origem do `logo-light.png`: `track_saidas_html/Master/src/assets/images/logo-light.png`

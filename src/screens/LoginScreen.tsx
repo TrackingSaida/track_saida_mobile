@@ -34,7 +34,7 @@ type Props = {
 };
 
 export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSelectSubBase }: Props) {
-  const setToken = useAuthStore((s) => s.setToken);
+  const setTokens = useAuthStore((s) => s.setTokens);
   const setBiometricEnabled = useAuthStore((s) => s.setBiometricEnabled);
   const requiresBiometricUnlock = useAuthStore((s) => s.requiresBiometricUnlock);
   const unlockWithBiometric = useAuthStore((s) => s.unlockWithBiometric);
@@ -112,12 +112,12 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
           onSelectSubBase(id, pwd, res.sub_bases);
         } else if (res.access_token) {
           if (res.must_change_password && onMustChangePassword) {
-            await setToken(res.access_token);
+            await setTokens(res.access_token, res.refresh_token);
             onMustChangePassword();
             return;
           }
           await saveOrClearCredentials(id, pwd, rememberMe);
-          await setToken(res.access_token);
+          await setTokens(res.access_token, res.refresh_token);
           await offerBiometricAfterLogin(setBiometricEnabled, onLoginSuccess);
         } else {
           Alert.alert("Erro", "Resposta inesperada do servidor.");
@@ -150,12 +150,12 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
             const userRes = await userLogin(id, pwd);
             if (userRes.access_token) {
               if (userRes.must_change_password && onMustChangePassword) {
-                await setToken(userRes.access_token);
+                await setTokens(userRes.access_token);
                 onMustChangePassword();
                 return;
               }
               await saveOrClearCredentials(id, pwd, rememberMe);
-              await setToken(userRes.access_token);
+              await setTokens(userRes.access_token);
               await offerBiometricAfterLogin(setBiometricEnabled, onLoginSuccess);
               return;
             }
@@ -386,7 +386,7 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
                 {biometricLoading ? (
                   <ActivityIndicator color={colors.primary} size="small" />
                 ) : (
-                  <Text style={styles.buttonBiometricText}>Entrar com biometria</Text>
+                  <Text style={styles.buttonBiometricText}>Desbloquear app</Text>
                 )}
               </TouchableOpacity>
             )}

@@ -21,9 +21,10 @@ test("sem endereços pendentes não exibe scan_more", () => {
   );
   assert.equal(view.addressCompleteMessage, "Todos os endereços foram informados");
   assert.equal(view.statusHint, null);
+  assert.equal(view.canGeneratePartialRoute, false);
 });
 
-test("com endereços pendentes exibe scan_more com copy de endereço por QR", () => {
+test("com endereços pendentes exibe scan_more e rota parcial quando há coords suficientes", () => {
   const view = derivePrepFlowView({
     ...baseInput,
     comEndereco: 12,
@@ -34,16 +35,32 @@ test("com endereços pendentes exibe scan_more com copy de endereço por QR", ()
   assert.equal(view.primaryLabel, "Adicionar endereço pendente");
   assert.equal(view.statusChip, "missing_addresses");
   assert.equal(view.statusChipLabel, "2 pacotes sem endereço");
-  assert.equal(
-    view.statusHint,
-    "Todos os pacotes precisam de endereço antes de iniciar a rota."
-  );
+  assert.equal(view.canGeneratePartialRoute, true);
+  assert.match(view.statusHint ?? "", /ficarão de fora se gerar rota parcial/);
   const scanMore = view.secondaryActions.find((s) => s.action === "scan_more");
   assert.ok(scanMore);
   assert.equal(scanMore.label, "Adicionar endereço por QR Code");
   assert.equal(
     scanMore.subtitle,
     "Leia o QR Code do pacote para preencher o endereço"
+  );
+  const partial = view.secondaryActions.find((s) => s.action === "generate_partial_route");
+  assert.ok(partial);
+  assert.equal(partial.label, "Gerar rota parcial (12 pacotes)");
+});
+
+test("com endereços pendentes e menos de 2 coords não oferece rota parcial", () => {
+  const view = derivePrepFlowView({
+    ...baseInput,
+    comEndereco: 1,
+    semEndereco: 1,
+    withCoordsCount: 1,
+  });
+  assert.equal(view.canGeneratePartialRoute, false);
+  assert.equal(view.statusHint, null);
+  assert.equal(
+    view.secondaryActions.some((s) => s.action === "generate_partial_route"),
+    false
   );
 });
 

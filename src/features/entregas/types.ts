@@ -15,6 +15,9 @@ export interface EntregaListItem {
   estado?: string | null;
   contato: string | null;
   data: string | null;
+  data_hora_cadastro?: string | null;
+  data_operacional?: string | null;
+  data_hora_operacional?: string | null;
   data_hora_entrega: string | null;
   latitude?: number | null;
   longitude?: number | null;
@@ -39,6 +42,14 @@ export interface EntregaListItem {
   campos_obrigatorios?: string[];
   campos_obrigatorios_entregue?: string[];
   campos_obrigatorios_ausente?: string[];
+}
+
+export interface EntregaHistoricoItem {
+  id: number;
+  evento: string;
+  timestamp?: string | null;
+  usuario_nome?: string | null;
+  acao_label?: string | null;
 }
 
 export type EntregasListInitialTab = "pendente" | "finalizadas" | "ausentes";
@@ -136,6 +147,7 @@ export interface ExtratoPedidoItem {
   status: string;
   exibicao: string;
   servico: string;
+  valor?: string;
 }
 
 export interface ExtratoDiaItem {

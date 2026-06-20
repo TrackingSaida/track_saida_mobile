@@ -8,8 +8,9 @@ import {
   StyleSheet,
 } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
+import EntregaCodigoHeader from "./EntregaCodigoHeader";
 import type { EntregaListItem } from "../types";
-import { getStopPedidoLabel, servicoTipo, type GroupedStop } from "../utils/routeUtils";
+import { getStopPedidoLabel, type GroupedStop } from "../utils/routeUtils";
 
 interface RouteStopPedidosModalProps {
   visible: boolean;
@@ -66,9 +67,6 @@ export default function RouteStopPedidosModal({
           borderColor: colors.inputBorder,
         },
         pedido: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
-        codigo: { fontSize: 18, fontWeight: "800", color: colors.primary, marginBottom: 4 },
-        marketplace: { fontSize: 13, color: colors.text, marginBottom: 2 },
-        status: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
         destinatario: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
       }),
     [colors]
@@ -99,9 +97,14 @@ export default function RouteStopPedidosModal({
                     activeOpacity={podeSelecionar ? 0.7 : 1}
                   >
                     <Text style={styles.pedido}>{getStopPedidoLabel(item)}</Text>
-                    <Text style={styles.codigo}>{item.codigo || "—"}</Text>
-                    <Text style={styles.marketplace}>{servicoTipo(item.servico)}</Text>
-                    <Text style={styles.status}>{item.exibicao || statusLabel(status)}</Text>
+                    <EntregaCodigoHeader
+                      codigo={item.codigo}
+                      servico={item.servico}
+                      exibicao={item.exibicao || statusLabel(status)}
+                      data={item.data}
+                      compact
+                      style={{ marginBottom: 4 }}
+                    />
                     <Text style={styles.destinatario}>
                       {item.cliente || item.exibicao || "—"}
                     </Text>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,10 +8,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Image,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
-import { fetchComprovanteImageDataUri } from "../../entregas/api";
+import { fetchComprovanteImagesDataUris } from "../../entregas/api";
 import type { SaidaDetail, SaidaHistoricoItem } from "../saidasApi";
 import { coresBadgeServico, statusVisualSaida } from "../utils/operacaoStatusUtils";
 import {
@@ -52,9 +53,12 @@ export default function ConsultaPacoteDetailModal({
 }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
-  const [comprovanteUri, setComprovanteUri] = useState<string | null>(null);
+  const [comprovanteUris, setComprovanteUris] = useState<string[]>([]);
   const [comprovanteLoading, setComprovanteLoading] = useState(false);
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
+  const [comprovanteViewerIndex, setComprovanteViewerIndex] = useState(0);
+  const comprovanteViewerRef = useRef<ScrollView>(null);
+  const { width: windowWidth } = useWindowDimensions();
 
   const detalheCancelado = String(detail?.status ?? "")
     .toLowerCase()
@@ -69,26 +73,26 @@ export default function ConsultaPacoteDetailModal({
 
   useEffect(() => {
     if (!visible) {
-      setComprovanteUri(null);
+      setComprovanteUris([]);
       setComprovanteLoading(false);
       setShowComprovanteViewer(false);
       return;
     }
     if (!precisaComprovante || idSaida == null) {
-      setComprovanteUri(null);
+      setComprovanteUris([]);
       setComprovanteLoading(false);
       return;
     }
 
     let cancelled = false;
     setComprovanteLoading(true);
-    setComprovanteUri(null);
+    setComprovanteUris([]);
 
     void (async () => {
       try {
-        const uri = await fetchComprovanteImageDataUri(idSaida);
-        if (!cancelled && uri) {
-          setComprovanteUri(uri);
+        const uris = await fetchComprovanteImagesDataUris(idSaida);
+        if (!cancelled && uris.length > 0) {
+          setComprovanteUris(uris);
         }
       } catch {
         // Sem comprovante — não exibir placeholder.
@@ -102,9 +106,22 @@ export default function ConsultaPacoteDetailModal({
     };
   }, [visible, precisaComprovante, idSaida]);
 
-  const handleVerComprovante = useCallback(() => {
-    if (comprovanteUri) setShowComprovanteViewer(true);
-  }, [comprovanteUri]);
+  const handleVerComprovante = useCallback((index: number) => {
+    if (comprovanteUris.length > 0) {
+      setComprovanteViewerIndex(index);
+      setShowComprovanteViewer(true);
+    }
+  }, [comprovanteUris.length]);
+
+  useEffect(() => {
+    if (!showComprovanteViewer || comprovanteUris.length === 0) return;
+    requestAnimationFrame(() => {
+      comprovanteViewerRef.current?.scrollTo({
+        x: comprovanteViewerIndex * windowWidth,
+        animated: false,
+      });
+    });
+  }, [showComprovanteViewer, comprovanteViewerIndex, comprovanteUris.length, windowWidth]);
 
   const styles = useMemo(
     () =>
@@ -209,9 +226,9 @@ export default function ConsultaPacoteDetailModal({
                 <ConsultaPacoteHistoricoTimeline
                   historico={historico}
                   detail={detail}
-                  comprovanteUri={comprovanteUri}
+                  comprovanteUris={comprovanteUris}
                   comprovanteLoading={comprovanteLoading}
-                  onVerComprovante={comprovanteUri ? handleVerComprovante : undefined}
+                  onVerComprovante={comprovanteUris.length ? handleVerComprovante : undefined}
                 />
 
                 {podeGerarEtiqueta ? (
@@ -266,10 +283,31 @@ export default function ConsultaPacoteDetailModal({
             </TouchableOpacity>
             <Text style={styles.viewerTitle}>
               Comprovante{detail?.codigo ? ` · ${detail.codigo}` : ""}
+              {comprovanteUris.length > 1
+                ? ` (${comprovanteViewerIndex + 1}/${comprovanteUris.length})`
+                : ""}
             </Text>
           </View>
-          {comprovanteUri ? (
-            <Image source={{ uri: comprovanteUri }} style={{ flex: 1, resizeMode: "contain" }} />
+          {comprovanteUris.length > 0 ? (
+            <ScrollView
+              ref={comprovanteViewerRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={{ flex: 1 }}
+              onMomentumScrollEnd={(event) => {
+                const nextIndex = Math.round(event.nativeEvent.contentOffset.x / windowWidth);
+                if (nextIndex >= 0 && nextIndex < comprovanteUris.length) {
+                  setComprovanteViewerIndex(nextIndex);
+                }
+              }}
+            >
+              {comprovanteUris.map((uri, index) => (
+                <View key={`${index}-${uri.slice(0, 24)}`} style={{ width: windowWidth, flex: 1 }}>
+                  <Image source={{ uri }} style={{ width: windowWidth, flex: 1, resizeMode: "contain" }} />
+                </View>
+              ))}
+            </ScrollView>
           ) : (
             <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
               <ActivityIndicator color="#fff" />

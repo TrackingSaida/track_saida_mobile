@@ -107,6 +107,7 @@ export default function HomePager({ data, callbacks }: Props) {
             onMapaPendentes={callbacks.onMapaPendentes}
             onHistoricoRotas={callbacks.onRouteHistory}
             onPreferencias={callbacks.onPreferencias}
+            onScan={callbacks.onScan}
             onVerResumoUltimaRota={() => {
               if (lastCompleted?.rotaId) void openRouteResumo(lastCompleted.rotaId);
             }}

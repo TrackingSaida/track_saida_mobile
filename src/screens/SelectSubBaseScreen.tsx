@@ -31,7 +31,7 @@ export default function SelectSubBaseScreen({
   onMustChangePassword,
   onBack,
 }: Props) {
-  const setToken = useAuthStore((s) => s.setToken);
+  const setTokens = useAuthStore((s) => s.setTokens);
   const setBiometricEnabled = useAuthStore((s) => s.setBiometricEnabled);
   const colors = useThemeColors();
   const styles = useMemo(
@@ -63,7 +63,7 @@ export default function SelectSubBaseScreen({
     try {
       const res = await motoboySelectSubBase(identifier, password, subBase);
       if (res.access_token) {
-        await setToken(res.access_token);
+        await setTokens(res.access_token, res.refresh_token);
         if (res.must_change_password && onMustChangePassword) {
           onMustChangePassword();
           return;

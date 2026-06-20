@@ -515,9 +515,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       searchEmpty,
       hasDidYouMean: !!didYouMean,
     });
-    const showParsedPreview =
-      (previewVals.rua || previewVals.numero) &&
-      (selectedSuggestionId || autoApplied || !needsAddressEnrichment(previewVals));
+    const showValidationKinds = new Set(["missing_number", "not_located"]);
 
     const styles = useMemo(
       () =>
@@ -581,13 +579,6 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           validationSuccess: { color: colors.success },
           validationWarning: { color: colors.warning },
           validationInfo: { color: colors.textSecondary },
-          parsedPreview: {
-            backgroundColor: colors.inputBackground,
-            borderRadius: 8,
-            padding: 10,
-            marginBottom: 12,
-          },
-          parsedPreviewText: { fontSize: 13, color: colors.text, lineHeight: 18 },
           methodsSection: { marginTop: 4, marginBottom: 16 },
           methodsLabel: {
             fontSize: 11,
@@ -666,9 +657,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
             ? styles.validationInfo
             : null;
     const showValidationHint =
-      visualStatus.kind !== "none" &&
-      visualStatus.kind !== "select_suggestion" &&
-      validationStyle;
+      showValidationKinds.has(visualStatus.kind) && validationStyle;
 
     const showModeBadge = prepOrigem === "pendente" || prepOrigem === "qr";
 
@@ -733,18 +722,6 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           {showValidationHint ? (
             <Text style={[styles.validationHint, validationStyle]}>{visualStatus.message}</Text>
           ) : null}
-
-          {showParsedPreview && (
-            <View style={styles.parsedPreview}>
-              <Text style={styles.parsedPreviewText}>
-                {[previewVals.rua, previewVals.numero].filter(Boolean).join(", ")}
-                {previewVals.bairro ? `\n${previewVals.bairro}` : ""}
-                {previewVals.cidade
-                  ? `\n${[previewVals.cidade, previewVals.estado, previewVals.cep].filter(Boolean).join(" · ")}`
-                  : ""}
-              </Text>
-            </View>
-          )}
 
           {inlineFeedback ? (
             <View

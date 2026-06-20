@@ -11,6 +11,7 @@ interface RouteReadySummaryCardProps {
   localizedStops?: number;
   reviewCount?: number;
   priorityLabel?: string | null;
+  routeStatusLabel?: string | null;
   onReviewPress?: () => void;
 }
 
@@ -26,6 +27,7 @@ export default function RouteReadySummaryCard({
   localizedStops,
   reviewCount = 0,
   priorityLabel = null,
+  routeStatusLabel = null,
   onReviewPress,
 }: RouteReadySummaryCardProps) {
   const colors = useThemeColors();
@@ -50,6 +52,8 @@ export default function RouteReadySummaryCard({
           flexDirection: "row",
           alignItems: "center",
           marginBottom: 10,
+          flexWrap: "wrap",
+          gap: 8,
         },
         check: {
           fontSize: 16,
@@ -60,6 +64,17 @@ export default function RouteReadySummaryCard({
           fontSize: 16,
           fontWeight: "700",
           color: colors.text,
+        },
+        statusBadge: {
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+          borderRadius: 6,
+          backgroundColor: colors.warning + "25",
+        },
+        statusBadgeText: {
+          fontSize: 11,
+          fontWeight: "700",
+          color: colors.warning,
         },
         metricsLine: {
           fontSize: 15,
@@ -112,6 +127,11 @@ export default function RouteReadySummaryCard({
       <View style={styles.titleRow}>
         <Text style={styles.check}>✓</Text>
         <Text style={styles.title}>Rota pronta</Text>
+        {routeStatusLabel ? (
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusBadgeText}>{routeStatusLabel}</Text>
+          </View>
+        ) : null}
       </View>
 
       <Text style={styles.metricsLine}>

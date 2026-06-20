@@ -13,6 +13,7 @@ import {
   Image,
   Alert,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
 import type { EntregueBody } from "../api";
 import type { MarcacaoEntregaResponse } from "../types";
@@ -79,6 +80,7 @@ export default function FormEntregaConcluida({
   onClose,
   onSuccess,
 }: FormEntregaConcluidaProps) {
+  const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(
     () =>
@@ -89,9 +91,17 @@ export default function FormEntregaConcluida({
           backgroundColor: colors.backgroundCard,
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
-          padding: 24,
-          paddingBottom: 32,
           maxHeight: "85%",
+        },
+        boxHeader: { paddingHorizontal: 24, paddingTop: 24 },
+        scroll: { flexGrow: 0, flexShrink: 1 },
+        scrollContent: { paddingHorizontal: 24, paddingBottom: 12 },
+        footer: {
+          paddingHorizontal: 24,
+          paddingTop: 12,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.separator,
+          backgroundColor: colors.backgroundCard,
         },
         title: { fontSize: 18, fontWeight: "600", marginBottom: 8, color: colors.text },
         packageBanner: {
@@ -157,16 +167,17 @@ export default function FormEntregaConcluida({
         },
         error: { color: colors.danger, fontSize: 14, fontWeight: "600" },
         errorList: { color: colors.danger, fontSize: 13, marginTop: 6, lineHeight: 18 },
-        actions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 24, gap: 12 },
-        btnCancel: { paddingVertical: 10, paddingHorizontal: 20 },
+        actions: { flexDirection: "row", justifyContent: "flex-end", gap: 12 },
+        btnCancel: { minHeight: 44, justifyContent: "center", paddingHorizontal: 20 },
         btnCancelText: { color: colors.textSecondary, fontSize: 16 },
         btnOk: {
           backgroundColor: colors.success,
-          paddingVertical: 10,
           paddingHorizontal: 24,
           borderRadius: 8,
           minWidth: 120,
+          minHeight: 44,
           alignItems: "center",
+          justifyContent: "center",
         },
         btnDisabled: { opacity: 0.7 },
         btnOkText: { color: colors.primaryContrast, fontWeight: "600", fontSize: 16 },
@@ -395,25 +406,32 @@ export default function FormEntregaConcluida({
       >
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
         <View style={styles.box}>
-          <Text style={styles.title}>Dados do recebedor</Text>
-          {codigo ? (
-            <View style={styles.packageBanner}>
-              <Text style={styles.packageCodigo}>Pacote: {codigo}</Text>
-              {stopLabel ? <Text style={styles.packageMeta}>{stopLabel}</Text> : null}
-              {batchCount > 1 ? (
-                <Text style={styles.packageMeta}>
-                  Aplicará a {batchCount} pacotes desta parada
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
-          {hasRequiredRules ? (
-            <View style={styles.requiredBanner}>
-              <Text style={styles.requiredBannerTitle}>Campos obrigatórios neste pedido</Text>
-              <Text style={styles.requiredBannerText}>{requiredLabels.join(" • ")}</Text>
-            </View>
-          ) : null}
-          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <View style={styles.boxHeader}>
+            <Text style={styles.title}>Dados do recebedor</Text>
+            {codigo ? (
+              <View style={styles.packageBanner}>
+                <Text style={styles.packageCodigo}>Pacote: {codigo}</Text>
+                {stopLabel ? <Text style={styles.packageMeta}>{stopLabel}</Text> : null}
+                {batchCount > 1 ? (
+                  <Text style={styles.packageMeta}>
+                    Aplicará a {batchCount} pacotes desta parada
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+            {hasRequiredRules ? (
+              <View style={styles.requiredBanner}>
+                <Text style={styles.requiredBannerTitle}>Campos obrigatórios neste pedido</Text>
+                <Text style={styles.requiredBannerText}>{requiredLabels.join(" • ")}</Text>
+              </View>
+            ) : null}
+          </View>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {renderLabel("Tipo do recebedor", "tipo_recebedor")}
             <View style={[styles.opcoesRow, missingKeys.has("tipo_recebedor") && styles.sectionError]}>
               {TIPOS_RECEBEDOR.map((op) => (
@@ -553,7 +571,8 @@ export default function FormEntregaConcluida({
                 ) : null}
               </View>
             ) : null}
-
+          </ScrollView>
+          <View style={[styles.footer, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
             <View style={styles.actions}>
               <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={saving || anyUploading}>
                 <Text style={styles.btnCancelText}>Cancelar</Text>
@@ -570,7 +589,7 @@ export default function FormEntregaConcluida({
                 )}
               </TouchableOpacity>
             </View>
-          </ScrollView>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>

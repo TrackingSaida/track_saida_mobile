@@ -30,8 +30,10 @@ import { inferCoordPrecision, isValidGeocodeCoords } from "../features/entregas/
 import { geocodeAddressStrict } from "../features/entregas/utils/geocodeStrict";
 import {
   clusterRouteOrderByAddress,
+  findInRouteByQuery as findInRouteByQueryUtil,
   flattenGroupsToRouteOrder,
   getActiveGroupIndex,
+  getDeliveryIndexAfterGroup,
   getFirstPendingRouteIndex,
   getOrderedRouteDeliveries,
   groupOrderedByAddress,
@@ -91,6 +93,15 @@ export type OptimizeRouteOptions = {
   persistActive?: boolean;
 };
 
+export type ReoptimizeAnchorMode = "recalculate" | "swap_only";
+
+export type ReoptimizeFromGroupAnchorResult =
+  | { ok: true; mode: "swap_only" }
+  | { ok: true; mode: "recalculate"; result?: OptimizeRouteResult }
+  | { ok: false; mode: "recalculate"; error: "optimize_failed" };
+
+export type RestoreOriginalRouteResult = { ok: true } | { ok: false; reason: "no_snapshot" | "unchanged" };
+
 interface DeliveryState {
   pendingDeliveries: EntregaListItem[];
   deliveriesWithAddress: EntregaListItem[];
@@ -128,6 +139,13 @@ interface DeliveryState {
   /** Motoboy conferiu lista Pacote→Parada antes de iniciar. */
   routeSeparationAcknowledged: boolean;
   acknowledgeRouteSeparation: () => void;
+  /** Ordem original após primeira otimização (revisão pré-início). */
+  routeOriginalOrder: number[] | null;
+  /** Rota foi reordenada manualmente ou recalculada na revisão. */
+  routeManuallyAdjusted: boolean;
+  routeAdjustMode: ReoptimizeAnchorMode | null;
+  /** Parada (1-based) usada como âncora no último recálculo parcial. */
+  routeLastRecalcAnchor: number | null;
 
   loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<void>;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
@@ -155,7 +173,19 @@ interface DeliveryState {
   findInRouteByCodigo: (
     codigo: string
   ) => { stopIndex: number; delivery: EntregaListItem; sameStopDeliveries: EntregaListItem[] } | null;
+  findInRouteByQuery: (
+    query: string
+  ) => { stopIndex: number; delivery: EntregaListItem; sameStopDeliveries: EntregaListItem[] }[];
+  reoptimizeFromGroupAnchor: (params: {
+    fromGroupIndex: number;
+    toGroupIndex: number;
+    mode?: ReoptimizeAnchorMode;
+  }) => Promise<ReoptimizeFromGroupAnchorResult>;
+  restoreOriginalRoute: () => RestoreOriginalRouteResult;
+  reoptimizeFullRoute: () => Promise<OptimizeRouteResult>;
   appendToRoute: (deliveries: EntregaListItem[]) => void;
+  /** Inclui pacotes no fim da ordem atual, sem re-cluster global. */
+  appendToRouteAtEnd: (deliveries: EntregaListItem[]) => void;
 
   /** Inicia rota persistida com routeOrder atual; retorna rota_id. */
   startActiveRoute: () => Promise<string>;
@@ -273,6 +303,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   routeDistanceM: null,
   routeDurationS: null,
   routeSeparationAcknowledged: false,
+  routeOriginalOrder: null,
+  routeManuallyAdjusted: false,
+  routeAdjustMode: null,
+  routeLastRecalcAnchor: null,
   setCurrentLocation: (location) => set({ currentLocation: location }),
 
   loadDeliveries: async (opts) => {
@@ -407,6 +441,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     } catch {
       /* rota pode já ter sido finalizada pelo backend */
     }
+    const { clearPersistedRouteSnapshot } = await import("../features/entregas/services/routeRecovery");
+    await clearPersistedRouteSnapshot().catch(() => undefined);
     get().clearActiveRouteState();
   },
 
@@ -477,13 +513,18 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       }
     }
     set({
-      activeRouteId: payload.rota_id,
+      activeRouteId: payload.rota_id ?? null,
       routeOrder: payload.ordem,
       activeStopIndex: payload.parada_atual,
       routeDeliveries: deliveries,
       routeDeliveryStatus,
+      routeStarted: payload.status === "em_entrega",
     });
     get().syncActiveStopIndex();
+
+    if (payload.status === "rota_pronta") {
+      return;
+    }
 
     const reconcile = await reconcileActiveRouteState(buildRouteReconcileDeps(get));
     if (!reconcile.stillActive) {
@@ -652,6 +693,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeOrder: order,
       routeDeliveryStatus,
       routeSeparationAcknowledged: false,
+      routeOriginalOrder: [...order],
+      routeManuallyAdjusted: false,
+      routeAdjustMode: null,
+      routeLastRecalcAnchor: null,
     });
   },
   acknowledgeRouteSeparation: () => set({ routeSeparationAcknowledged: true }),
@@ -664,6 +709,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDistanceM: null,
       routeDurationS: null,
       routeSeparationAcknowledged: false,
+      routeOriginalOrder: null,
+      routeManuallyAdjusted: false,
+      routeAdjustMode: null,
+      routeLastRecalcAnchor: null,
     }),
   clearActiveRouteState: () => {
     stopBackgroundTracking().catch(() => {});
@@ -678,6 +727,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDistanceM: null,
       routeDurationS: null,
       routeSeparationAcknowledged: false,
+      routeOriginalOrder: null,
+      routeManuallyAdjusted: false,
+      routeAdjustMode: null,
+      routeLastRecalcAnchor: null,
     });
   },
   optimizeRoute: async (opts) => {
@@ -694,13 +747,30 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       opts?.fromDeliveryIndex ?? (activeRouteId != null ? activeStopIndex : 0);
     const prefix = routeOrder.slice(0, fromIndex);
     const suffix = routeOrder.slice(fromIndex);
-    const idsForApi = activeRouteId != null ? suffix : routeOrder;
+    const usePartial = fromIndex > 0 || activeRouteId != null;
+    const idsForApi = usePartial ? suffix : routeOrder;
 
-    if (idsForApi.length < 2) return noop;
+    if (idsForApi.length < 2) {
+      if (usePartial && suffix.length > 0) {
+        return { ok: true, mode: null, semCoordenadas: [], message: "noop" };
+      }
+      return noop;
+    }
+
+    let fromLat = opts?.fromLat;
+    let fromLon = opts?.fromLon;
+    if ((fromLat == null || fromLon == null) && fromIndex > 0 && prefix.length > 0) {
+      const lastPrefixId = prefix[prefix.length - 1];
+      const anchorDelivery = routeDeliveries.find((d) => d.id_saida === lastPrefixId);
+      if (anchorDelivery?.latitude != null && anchorDelivery?.longitude != null) {
+        fromLat = anchorDelivery.latitude;
+        fromLon = anchorDelivery.longitude;
+      }
+    }
 
     const start =
-      opts?.fromLat != null && opts?.fromLon != null
-        ? { latitude: opts.fromLat, longitude: opts.fromLon }
+      fromLat != null && fromLon != null
+        ? { latitude: fromLat, longitude: fromLon }
         : undefined;
 
     const applyOrder = async (
@@ -710,13 +780,18 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       semCoordenadas: number[],
       stats?: { distanceM: number | null; durationS: number | null }
     ) => {
-      let newOrder = activeRouteId != null ? [...prefix, ...newSuffix] : newSuffix;
+      let newOrder = usePartial ? [...prefix, ...newSuffix] : newSuffix;
       newOrder = clusterRouteOrderByAddress(routeDeliveries, newOrder);
+      const snapshotUpdate =
+        fromIndex === 0 && get().routeOriginalOrder == null
+          ? { routeOriginalOrder: [...newOrder] }
+          : {};
       set({
         routeOrder: newOrder,
         routeOptimizationMode: mode,
         routeDistanceM: stats?.distanceM ?? null,
         routeDurationS: stats?.durationS ?? null,
+        ...snapshotUpdate,
       });
       if (activeRouteId != null && opts?.persistActive !== false) {
         await persistActiveRouteOrder(activeRouteId, newOrder);
@@ -747,15 +822,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
               suffixDeliveries,
               suffix,
               routePriority,
-              opts?.fromLat,
-              opts?.fromLon
+              fromLat,
+              fromLon
             )
-          : optimizeRouteLocal(
-              suffixDeliveries,
-              suffix,
-              opts?.fromLat,
-              opts?.fromLon
-            );
+          : optimizeRouteLocal(suffixDeliveries, suffix, fromLat, fromLon);
       const semCoordenadas = suffixDeliveries
         .filter((d) => d.latitude == null || d.longitude == null)
         .map((d) => d.id_saida);
@@ -838,23 +908,91 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     }));
   },
   findInRouteByCodigo: (codigo) => {
-    const normalized = codigo.trim().toLowerCase();
-    if (!normalized) return null;
+    const matches = get().findInRouteByQuery(codigo);
+    const exact = matches.find(
+      (m) => (m.delivery.codigo ?? "").trim().toLowerCase() === codigo.trim().toLowerCase()
+    );
+    return exact ?? matches[0] ?? null;
+  },
+  findInRouteByQuery: (query) => {
     const { routeDeliveries, routeOrder } = get();
     const ordered = getOrderedRouteDeliveries(routeDeliveries, routeOrder);
     const groups = groupOrderedByAddress(ordered);
-    for (let stopIndex = 0; stopIndex < groups.length; stopIndex++) {
-      for (const delivery of groups[stopIndex].deliveries) {
-        if ((delivery.codigo ?? "").trim().toLowerCase() === normalized) {
-          return {
-            stopIndex,
-            delivery,
-            sameStopDeliveries: groups[stopIndex].deliveries,
-          };
-        }
-      }
+    return findInRouteByQueryUtil(groups, query).map(({ score: _score, ...rest }) => rest);
+  },
+  reoptimizeFromGroupAnchor: async ({ fromGroupIndex, toGroupIndex, mode = "recalculate" }) => {
+    const previousOrder = [...get().routeOrder];
+    get().moveGroupedStopToIndex(fromGroupIndex, toGroupIndex);
+
+    if (mode === "swap_only") {
+      set({
+        routeManuallyAdjusted: true,
+        routeAdjustMode: "swap_only",
+        routeLastRecalcAnchor: toGroupIndex + 1,
+      });
+      return { ok: true, mode: "swap_only" };
     }
-    return null;
+
+    const { routeDeliveries, routeOrder } = get();
+    const ordered = getOrderedRouteDeliveries(routeDeliveries, routeOrder);
+    const groups = groupOrderedByAddress(ordered);
+    const fromDeliveryIndex = getDeliveryIndexAfterGroup(groups, toGroupIndex);
+
+    if (routeOrder.length - fromDeliveryIndex < 2) {
+      set({
+        routeManuallyAdjusted: true,
+        routeAdjustMode: "recalculate",
+        routeLastRecalcAnchor: toGroupIndex + 1,
+      });
+      return { ok: true, mode: "recalculate", result: { ok: true, mode: null, semCoordenadas: [], message: "noop" } };
+    }
+
+    const prefix = routeOrder.slice(0, fromDeliveryIndex);
+    const lastPrefixId = prefix[prefix.length - 1];
+    const anchorDelivery = routeDeliveries.find((d) => d.id_saida === lastPrefixId);
+    const result = await get().optimizeRoute({
+      fromDeliveryIndex,
+      fromLat: anchorDelivery?.latitude ?? undefined,
+      fromLon: anchorDelivery?.longitude ?? undefined,
+    });
+
+    if (!result.ok) {
+      set({ routeOrder: previousOrder });
+      return { ok: false, mode: "recalculate", error: "optimize_failed" };
+    }
+
+    set({
+      routeManuallyAdjusted: true,
+      routeAdjustMode: "recalculate",
+      routeLastRecalcAnchor: toGroupIndex + 1,
+    });
+    return { ok: true, mode: "recalculate", result };
+  },
+  restoreOriginalRoute: () => {
+    const { routeOriginalOrder, routeOrder } = get();
+    if (!routeOriginalOrder) return { ok: false, reason: "no_snapshot" };
+    if (routeOriginalOrder.join(",") === routeOrder.join(",")) {
+      return { ok: false, reason: "unchanged" };
+    }
+    set({
+      routeOrder: [...routeOriginalOrder],
+      routeManuallyAdjusted: false,
+      routeAdjustMode: null,
+      routeLastRecalcAnchor: null,
+    });
+    return { ok: true };
+  },
+  reoptimizeFullRoute: async () => {
+    const result = await get().optimizeRoute({ fromDeliveryIndex: 0 });
+    if (result.ok && result.message !== "noop") {
+      set({
+        routeManuallyAdjusted: false,
+        routeAdjustMode: null,
+        routeLastRecalcAnchor: null,
+        routeOriginalOrder: get().routeOrder.length > 0 ? [...get().routeOrder] : null,
+      });
+    }
+    return result;
   },
   appendToRoute: (deliveries) => {
     if (get().activeRouteId != null) return;
@@ -873,6 +1011,28 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         routeDeliveries,
         routeOrder,
         routeDeliveryStatus: nextStatus,
+      };
+    });
+  },
+  appendToRouteAtEnd: (deliveries) => {
+    if (get().activeRouteId != null) return;
+    set((state) => {
+      const existingIds = new Set(state.routeOrder);
+      const newOnes = deliveries.filter((d) => !existingIds.has(d.id_saida));
+      if (newOnes.length === 0) return state;
+      const nextStatus = { ...state.routeDeliveryStatus };
+      for (const d of newOnes) nextStatus[d.id_saida] = "pendente";
+      const routeDeliveries = [...state.routeDeliveries, ...newOnes];
+      const routeOrder = [
+        ...state.routeOrder,
+        ...newOnes.map((d) => d.id_saida),
+      ];
+      return {
+        routeDeliveries,
+        routeOrder,
+        routeDeliveryStatus: nextStatus,
+        routeManuallyAdjusted: true,
+        routeAdjustMode: "swap_only",
       };
     });
   },

@@ -11,6 +11,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../../theme/colors";
 import type { GroupedStop } from "../utils/routeUtils";
+import EntregaCodigoHeader from "./EntregaCodigoHeader";
 import {
   getStopAddressLineFromGroup,
   getStopCodigosList,
@@ -82,8 +83,7 @@ export default function PendingMapGroupSheet({
           borderBottomWidth: 1,
           borderBottomColor: colors.separator,
         },
-        pedidoCodigo: { fontSize: 15, fontWeight: "600", color: colors.text },
-        pedidoCliente: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+        pedidoCliente: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
         cancel: { marginTop: 12, alignItems: "center", paddingVertical: 12, marginBottom: 8 },
         cancelText: { fontSize: 16, color: colors.textSecondary },
       }),
@@ -139,7 +139,13 @@ export default function PendingMapGroupSheet({
                     onVerPedido(item.id_saida);
                   }}
                 >
-                  <Text style={styles.pedidoCodigo}>{item.codigo ?? "—"}</Text>
+                  <EntregaCodigoHeader
+                    codigo={item.codigo}
+                    servico={item.servico}
+                    exibicao={item.exibicao}
+                    data={item.data}
+                    compact
+                  />
                   <Text style={styles.pedidoCliente}>{item.cliente ?? "—"}</Text>
                 </TouchableOpacity>
               )}

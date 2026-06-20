@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { View, StyleSheet } from "react-native";
 import GradientScreenHeader from "../components/ui/GradientScreenHeader";
+import AppBrandTitleLogo from "../components/AppBrandTitleLogo";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { space } from "../theme/spacing";
@@ -79,7 +80,7 @@ export default function HomeScreen({
     <View style={styles.container}>
       <GradientScreenHeader
         gradientColors={headerGradient}
-        title="Entregas"
+        titleNode={<AppBrandTitleLogo size="home" />}
         subtitle={`Olá, ${nome}`}
         tertiary={subBase ? `Base: ${subBase}` : undefined}
         paddingBottom={space.md}

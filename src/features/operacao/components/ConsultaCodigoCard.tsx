@@ -2,8 +2,9 @@ import React, { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../../theme/colors";
+import EntregaCodigoHeader from "../../entregas/components/EntregaCodigoHeader";
 import type { SaidaListItem } from "../saidasApi";
-import { coresBadgeServico, statusVisualSaida } from "../utils/operacaoStatusUtils";
+import { statusVisualSaida } from "../utils/operacaoStatusUtils";
 
 type Props = {
   item: SaidaListItem;
@@ -14,7 +15,7 @@ type Props = {
 export default function ConsultaCodigoCard({ item, onPress, compact = false }: Props) {
   const colors = useThemeColors();
   const sv = statusVisualSaida(item.status as string);
-  const servicoColors = item.servico ? coresBadgeServico(item.servico) : null;
+  const dataEntrada = typeof item.data === "string" ? item.data : null;
 
   const styles = useMemo(
     () =>
@@ -27,19 +28,6 @@ export default function ConsultaCodigoCard({ item, onPress, compact = false }: P
           borderColor: colors.border,
           marginBottom: 10,
         },
-        codigo: {
-          fontSize: compact ? 16 : 20,
-          fontWeight: "800",
-          color: colors.text,
-          flex: 1,
-        },
-        rowTop: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-        badge: {
-          paddingHorizontal: 10,
-          paddingVertical: 4,
-          borderRadius: 999,
-        },
-        badgeText: { fontSize: 11, fontWeight: "800" },
         meta: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
         footer: {
           flexDirection: "row",
@@ -55,18 +43,15 @@ export default function ConsultaCodigoCard({ item, onPress, compact = false }: P
 
   return (
     <TouchableOpacity style={styles.card} activeOpacity={0.85} onPress={onPress}>
-      <View style={styles.rowTop}>
-        <Text style={styles.codigo} numberOfLines={1}>
-          {item.codigo || "—"}
-        </Text>
-        <View style={[styles.badge, { backgroundColor: sv.bg }]}>
-          <Text style={[styles.badgeText, { color: sv.fg }]}>{sv.label}</Text>
-        </View>
-      </View>
+      <EntregaCodigoHeader
+        codigo={item.codigo}
+        servico={item.servico}
+        exibicao={sv.label}
+        data={dataEntrada}
+        compact={compact}
+        style={{ marginBottom: compact ? 8 : 10 }}
+      />
       {item.entregador ? <Text style={styles.meta}>Entregador: {item.entregador}</Text> : null}
-      {item.servico && servicoColors ? (
-        <Text style={styles.meta}>Serviço: {item.servico}</Text>
-      ) : null}
       {!compact ? (
         <View style={styles.footer}>
           <Text style={styles.footerText}>Ver detalhes</Text>

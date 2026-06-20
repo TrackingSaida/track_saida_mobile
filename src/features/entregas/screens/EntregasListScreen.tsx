@@ -59,7 +59,8 @@ import RouteEditAddressSheet from "../components/RouteEditAddressSheet";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import { formatApiError } from "../../../utils/formatApiError";
 import { runOptimizeRouteWithFeedback } from "../utils/optimizeRouteFeedback";
-import { SERVICO_ORDER, servicoTipo, type ServicoTipo } from "../utils/servico";
+import { SERVICO_COLORS, SERVICO_ORDER, servicoTipo, serviceCountForTab, serviceCountLabelForTab, type ServicoTipo } from "../utils/servico";
+import EntregaCodigoHeader from "../components/EntregaCodigoHeader";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useThemeStore } from "../../../store/themeStore";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -74,6 +75,7 @@ import {
   resolveNavigationTarget,
 } from "../utils/externalNavigation";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import AppBrandTitleLogo from "../../../components/AppBrandTitleLogo";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EntregasList">;
 
@@ -86,11 +88,6 @@ const TAB_LABELS: Record<Tab, string> = {
 };
 
 const TAB_ORDER: Tab[] = ["pendente", "ausentes", "finalizadas"];
-const SERVICO_COLORS: Record<string, string> = {
-  Shopee: "#ee4d2d",
-  Flex: "#ffe066",
-  Avulso: "#6366f1",
-};
 
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = hex.replace("#", "");
@@ -1675,7 +1672,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   return (
     <View style={styles.container}>
       <ScreenHeaderBar
-        title="Entregas"
+        titleNode={<AppBrandTitleLogo size="header" />}
         onBack={() => navigation.goBack()}
         paddingTop={Math.max(12, insets.top)}
         rightElement={
@@ -1923,92 +1920,61 @@ export default function EntregasListScreen({ navigation, route }: Props) {
                     onPress={() => toggleServico(section.section)}
                     activeOpacity={0.7}
                   >
-                    {tab === "pendente" ? (
-                      <>
-                        <View style={styles.sectionHeaderTop}>
-                          <View style={styles.sectionHeaderLeft}>
-                            <View
-                              style={[
-                                styles.sectionServiceIconWrap,
-                                getServiceHeaderBadgeStyle(section.section),
-                              ]}
-                            >
-                              <Ionicons
-                                name={SERVICE_ICONS[section.section]}
-                                size={18}
-                                color={badgeTextColor}
-                              />
-                            </View>
-                            <View style={[styles.sectionServiceBadge, getServiceHeaderBadgeStyle(section.section)]}>
-                              <Text
-                                style={[
-                                  styles.sectionServiceBadgeText,
-                                  { color: badgeTextColor },
-                                ]}
-                              >
-                                {section.section}
-                              </Text>
-                            </View>
-                            <Text style={styles.sectionChevron}>{isExpanded ? "▼" : "▶"}</Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.serviceTotalBadgeLarge,
-                              getServiceHeaderBadgeStyle(section.section),
-                            ]}
-                          >
-                            <Text style={[styles.serviceTotalBadgeTextLarge, { color: badgeTextColor }]}>
-                              {serviceStatusSummary[section.section]?.total ?? section.data.length} Total
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={styles.serviceStatsRow}>
-                          <Text style={styles.serviceStatsText}>
-                            {serviceStatusSummary[section.section]?.pending ?? 0} Pendentes |{" "}
-                            {serviceStatusSummary[section.section]?.absent ?? 0} Ausentes |{" "}
-                            {serviceStatusSummary[section.section]?.finished ?? 0} Finalizadas
-                          </Text>
-                        </View>
-                      </>
-                    ) : (
-                      <View style={styles.sectionHeaderTop}>
-                        <View style={styles.sectionHeaderLeft}>
-                          <View
-                            style={[
-                              styles.sectionServiceIconWrap,
-                              getServiceHeaderBadgeStyle(section.section),
-                            ]}
-                          >
-                            <Ionicons
-                              name={SERVICE_ICONS[section.section]}
-                              size={18}
-                              color={badgeTextColor}
-                            />
-                          </View>
-                          <View style={[styles.sectionServiceBadge, getServiceHeaderBadgeStyle(section.section)]}>
-                            <Text
-                              style={[
-                                styles.sectionServiceBadgeText,
-                                { color: badgeTextColor },
-                              ]}
-                            >
-                              {section.section}
-                            </Text>
-                          </View>
-                          <Text style={styles.sectionChevron}>{isExpanded ? "▼" : "▶"}</Text>
-                        </View>
+                    <View style={styles.sectionHeaderTop}>
+                      <View style={styles.sectionHeaderLeft}>
                         <View
                           style={[
-                            styles.sectionSimpleCountBadge,
+                            styles.sectionServiceIconWrap,
                             getServiceHeaderBadgeStyle(section.section),
                           ]}
                         >
-                          <Text style={[styles.sectionSimpleCountText, { color: badgeTextColor }]}>
-                            {section.data.length}
+                          <Ionicons
+                            name={SERVICE_ICONS[section.section]}
+                            size={18}
+                            color={badgeTextColor}
+                          />
+                        </View>
+                        <View style={[styles.sectionServiceBadge, getServiceHeaderBadgeStyle(section.section)]}>
+                          <Text
+                            style={[
+                              styles.sectionServiceBadgeText,
+                              { color: badgeTextColor },
+                            ]}
+                          >
+                            {section.section}
                           </Text>
                         </View>
+                        <Text style={styles.sectionChevron}>{isExpanded ? "▼" : "▶"}</Text>
                       </View>
-                    )}
+                      <View
+                        style={[
+                          styles.serviceTotalBadgeLarge,
+                          getServiceHeaderBadgeStyle(section.section),
+                        ]}
+                      >
+                        <Text style={[styles.serviceTotalBadgeTextLarge, { color: badgeTextColor }]}>
+                          {serviceCountLabelForTab(
+                            tab,
+                            serviceCountForTab(
+                              tab,
+                              serviceStatusSummary[section.section] ?? {
+                                pending: 0,
+                                absent: 0,
+                                finished: 0,
+                              },
+                              section.data.length
+                            )
+                          )}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.serviceStatsRow}>
+                      <Text style={styles.serviceStatsText}>
+                        {serviceStatusSummary[section.section]?.pending ?? 0} Pendentes |{" "}
+                        {serviceStatusSummary[section.section]?.absent ?? 0} Ausentes |{" "}
+                        {serviceStatusSummary[section.section]?.finished ?? 0} Finalizadas
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 ) : null}
                 {tab === "pendente" && selectionMode && isExpanded && section.section && section.data.length > 0 && (
@@ -2057,20 +2023,14 @@ export default function EntregasListScreen({ navigation, route }: Props) {
                             </View>
                           )}
                           <View style={{ flex: 1 }}>
-                            <View style={styles.itemRow}>
-                              <Text style={styles.itemCodigo}>{item.codigo || "—"}</Text>
-                              <View style={styles.badgesRow}>
-                                <View style={[styles.servicoBadge, { backgroundColor: SERVICO_COLORS[servicoTipo(item.servico)] || colors.placeholder }]}>
-                                  <Text style={[styles.servicoBadgeText, { color: badgeTextColor }]}>{servicoTipo(item.servico)}</Text>
-                                </View>
-                                <View style={[styles.badge, { backgroundColor: badgeColor(item.exibicao) }]}>
-                                  <Text style={styles.badgeText}>{item.exibicao}</Text>
-                                </View>
-                                {(item.tentativa ?? 1) >= 2 && (
-                                  <Text style={styles.tentativaBadge}>{item.tentativa}ª tentativa</Text>
-                                )}
-                              </View>
-                            </View>
+                            <EntregaCodigoHeader
+                              codigo={item.codigo}
+                              servico={item.servico}
+                              exibicao={item.exibicao}
+                              data={item.data}
+                              tentativa={item.tentativa}
+                              style={{ marginBottom: 8 }}
+                            />
                             <Text style={styles.itemCliente} numberOfLines={1}>
                               {item.cliente || "—"}
                             </Text>

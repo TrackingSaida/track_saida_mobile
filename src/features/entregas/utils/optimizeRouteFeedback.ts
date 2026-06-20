@@ -7,6 +7,11 @@ type OptimizeFn = (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
 
 const GPS_TIMEOUT_MS = 8_000;
 
+export type OptimizeRouteFeedbackOptions = OptimizeRouteOptions & {
+  /** Não exibe Alert automático (ex.: recálculo parcial na revisão). */
+  silent?: boolean;
+};
+
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`${label} expirou após ${Math.round(ms / 1000)}s`)), ms);
@@ -48,8 +53,9 @@ function showOptimizeAlert(result: OptimizeRouteResult): void {
 
 export async function runOptimizeRouteWithFeedback(
   optimizeRoute: OptimizeFn,
-  opts?: OptimizeRouteOptions
+  opts?: OptimizeRouteFeedbackOptions
 ): Promise<OptimizeRouteResult | null> {
+  const silent = opts?.silent === true;
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     let result: OptimizeRouteResult;
@@ -72,11 +78,11 @@ export async function runOptimizeRouteWithFeedback(
       }
     }
     if (!result || result.message === "noop") return result;
-    showOptimizeAlert(result);
+    if (!silent) showOptimizeAlert(result);
     return result;
   } catch (e: unknown) {
     const msg = formatApiError(e, "Não foi possível otimizar a rota. Tente novamente.");
-    Alert.alert("Erro ao otimizar", msg);
+    if (!silent) Alert.alert("Erro ao otimizar", msg);
     return null;
   }
 }

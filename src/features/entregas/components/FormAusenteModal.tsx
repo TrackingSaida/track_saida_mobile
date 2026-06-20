@@ -13,6 +13,7 @@ import {
   Image,
   Alert,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
 import { getMotivosAusencia } from "../api";
 import type { MotivoAusencia } from "../types";
@@ -74,6 +75,7 @@ export default function FormAusenteModal({
   onConfirm,
   onClose,
 }: FormAusenteModalProps) {
+  const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const [motivos, setMotivos] = useState<MotivoAusencia[]>([]);
   const [motivoId, setMotivoId] = useState<number | null>(null);
@@ -112,8 +114,16 @@ export default function FormAusenteModal({
           backgroundColor: colors.backgroundCard,
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
-          padding: 24,
           maxHeight: "88%",
+        },
+        scroll: { flexGrow: 0, flexShrink: 1 },
+        scrollContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 12 },
+        footer: {
+          paddingHorizontal: 24,
+          paddingTop: 12,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.separator,
+          backgroundColor: colors.backgroundCard,
         },
         title: { fontSize: 18, fontWeight: "600", marginBottom: 8, color: colors.text },
         subtitle: { fontSize: 13, color: colors.textSecondary, marginBottom: 16 },
@@ -172,16 +182,17 @@ export default function FormAusenteModal({
           alignSelf: "flex-start",
         },
         btnAddPhotoText: { fontSize: 13, color: colors.primary, fontWeight: "600" },
-        actions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 24, gap: 12 },
-        btnCancel: { paddingVertical: 10, paddingHorizontal: 20 },
+        actions: { flexDirection: "row", justifyContent: "flex-end", gap: 12 },
+        btnCancel: { minHeight: 44, justifyContent: "center", paddingHorizontal: 20 },
         btnCancelText: { color: colors.textSecondary },
         btnOk: {
           backgroundColor: colors.primary,
-          paddingVertical: 10,
           paddingHorizontal: 20,
           borderRadius: 8,
           minWidth: 100,
+          minHeight: 44,
           alignItems: "center",
+          justifyContent: "center",
         },
         btnOkText: { color: colors.primaryContrast, fontWeight: "600" },
       }),
@@ -284,7 +295,12 @@ export default function FormAusenteModal({
       >
         <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
         <View style={styles.sheet}>
-          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             <Text style={styles.title}>Motivo da ausência</Text>
             {(codigo || stopLabel) && (
               <Text style={styles.subtitle}>
@@ -362,6 +378,8 @@ export default function FormAusenteModal({
                 </TouchableOpacity>
               )}
             </View>
+          </ScrollView>
+          <View style={[styles.footer, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
             <View style={styles.actions}>
               <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={saving}>
                 <Text style={styles.btnCancelText}>Cancelar</Text>
@@ -374,7 +392,7 @@ export default function FormAusenteModal({
                 )}
               </TouchableOpacity>
             </View>
-          </ScrollView>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
