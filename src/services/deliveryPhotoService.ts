@@ -80,19 +80,42 @@ async function openGallery(): Promise<PhotoPickResult | null> {
   };
 }
 
-/** Redimensiona e comprime a imagem (maxWidth 1280, compress 0.75, JPEG). */
-export async function preparePhoto(uri: string): Promise<PhotoPickResult> {
+const PHOTOS_DIR = `${FileSystem.documentDirectory}delivery_photos/`;
+const B2_UPLOAD_TIMEOUT_MS = 60_000;
+
+async function ensurePhotosDir(): Promise<void> {
+  const info = await FileSystem.getInfoAsync(PHOTOS_DIR);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(PHOTOS_DIR, { intermediates: true });
+  }
+}
+
+/** Redimensiona, comprime e copia para URI única (evita colisão ao adicionar várias fotos). */
+export async function preparePhoto(uri: string, indexHint?: number): Promise<PhotoPickResult> {
   const manipulated = await ImageManipulator.manipulateAsync(
     uri,
     [{ resize: { width: 1280 } }],
     { compress: 0.75, format: ImageManipulator.SaveFormat.JPEG }
   );
-  const filename = "foto.jpg";
+  await ensurePhotosDir();
+  const suffix = indexHint ?? Date.now();
+  const filename = `photo_${Date.now()}_${suffix}.jpg`;
+  const dest = `${PHOTOS_DIR}${filename}`;
+  await FileSystem.copyAsync({ from: manipulated.uri, to: dest });
   return {
-    uri: manipulated.uri,
+    uri: dest,
     mimeType: "image/jpeg",
     filename,
   };
+}
+
+export async function copyPhotoToPath(sourceUri: string, destPath: string): Promise<void> {
+  const parent = destPath.replace(/\/[^/]+$/, "/");
+  const info = await FileSystem.getInfoAsync(parent);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(parent, { intermediates: true });
+  }
+  await FileSystem.copyAsync({ from: sourceUri, to: destPath });
 }
 
 export interface UploadDeliveryPhotoParams {
@@ -152,11 +175,24 @@ export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Pr
   });
   const bodyBytes = base64ToUint8Array(base64);
 
-  const uploadResponse = await fetch(presign.upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: bodyBytes,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), B2_UPLOAD_TIMEOUT_MS);
+  let uploadResponse: Response;
+  try {
+    uploadResponse = await fetch(presign.upload_url, {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: bodyBytes.buffer.slice(bodyBytes.byteOffset, bodyBytes.byteOffset + bodyBytes.byteLength) as ArrayBuffer,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error("Tempo esgotado ao enviar a foto. Verifique a conexão e tente novamente.");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!uploadResponse.ok) {
     const text = await uploadResponse.text().catch(() => "");

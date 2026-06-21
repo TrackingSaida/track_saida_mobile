@@ -43,7 +43,7 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
   const appVersion =
     Constants.expoConfig?.version ??
     (typeof Constants.nativeAppVersion === "string" ? Constants.nativeAppVersion : null) ??
-    "1.3.0";
+    "1.4.0";
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);

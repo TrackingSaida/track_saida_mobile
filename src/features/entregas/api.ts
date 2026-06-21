@@ -147,11 +147,13 @@ export interface CamposObrigatoriosValidationError {
 
 export async function marcarEntregue(
   idSaida: number,
-  body?: EntregueBody
+  body?: EntregueBody,
+  headers?: Record<string, string>
 ): Promise<MarcacaoEntregaResponse> {
   const { data } = await client.post<MarcacaoEntregaResponse>(
     `/mobile/entrega/${idSaida}/entregue`,
-    body ?? {}
+    body ?? {},
+    headers ? { headers } : undefined
   );
   return data;
 }
@@ -159,11 +161,13 @@ export async function marcarEntregue(
 export async function marcarAusente(
   idSaida: number,
   motivoId: number,
-  observacao?: string
+  observacao?: string,
+  headers?: Record<string, string>
 ): Promise<MarcacaoEntregaResponse> {
   const { data } = await client.post<MarcacaoEntregaResponse>(
     `/mobile/entrega/${idSaida}/ausente`,
-    { motivo_id: motivoId, observacao: observacao || null }
+    { motivo_id: motivoId, observacao: observacao || null },
+    headers ? { headers } : undefined
   );
   return data;
 }

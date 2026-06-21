@@ -189,34 +189,18 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
   const handleAbrirAusente = () => setModalAusente(true);
 
-  const handleConfirmarAusente = async ({
-    motivoId,
-    observacao,
-  }: {
-    motivoId: number;
-    observacao?: string;
-    photoUris: string[];
-  }) => {
-    try {
-      const marcacao = await markAbsent(idSaida, motivoId, observacao);
-      setModalAusente(false);
-      runPostFinalizeFeedback({
-        tipo: "ausente",
-        codigo: entrega?.codigo,
-        entregaAtrasada: marcacao.entrega_atrasada ?? false,
-        routeJustCompleted: marcacao.routeJustCompleted,
-        rotaIdForResumo: marcacao.rotaIdForResumo,
-        isRouteFlow: marcacao.rota_sync?.in_active_route ?? false,
-        onAfterIndividualAlert: () => navigation.goBack(),
-      });
-    } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : "Erro ao salvar.";
-      Alert.alert("Erro", String(msg));
-      throw e;
-    }
+  const handleAusenteSuccess = async () => {
+    setModalAusente(false);
+    await load();
+    runPostFinalizeFeedback({
+      tipo: "ausente",
+      codigo: entrega?.codigo,
+      entregaAtrasada: false,
+      routeJustCompleted: false,
+      rotaIdForResumo: null,
+      isRouteFlow: false,
+      onAfterIndividualAlert: () => navigation.goBack(),
+    });
   };
 
   const handleAbrirEndereco = () => setModalEnderecoOpcoes(true);
@@ -586,7 +570,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         idSaida={idSaida}
         destinatarioPreenchido={entrega?.cliente ?? undefined}
         requiredFields={entrega?.campos_obrigatorios_entregue || []}
-        onConfirm={async (body) => markDelivered(idSaida, body)}
         onClose={() => setShowEntregueModal(false)}
         onSuccess={async (marcacao) => {
           await load();
@@ -608,7 +591,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         idSaidas={[idSaida]}
         requiredFields={entrega?.campos_obrigatorios_ausente || []}
         codigo={entrega?.codigo ?? undefined}
-        onConfirm={handleConfirmarAusente}
+        onSuccess={handleAusenteSuccess}
         onClose={() => setModalAusente(false)}
       />
 

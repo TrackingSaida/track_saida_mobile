@@ -22,6 +22,9 @@ import LoginScreen from "./src/screens/LoginScreen";
 import SelectSubBaseScreen from "./src/screens/SelectSubBaseScreen";
 import ChangePasswordRequiredScreen from "./src/screens/ChangePasswordRequiredScreen";
 import { SessionExpiredModal } from "./src/components/SessionExpiredModal";
+import PendingSyncBanner from "./src/components/PendingSyncBanner";
+import { startSyncEngine } from "./src/services/outbox/syncEngine";
+import { hydrateOutboxStore } from "./src/store/outboxStore";
 import { recoverRouteState } from "./src/features/entregas/services/routeRecovery";
 import HomeScreen from "./src/screens/HomeScreen";
 import MaisScreen, { type MaisStackParamList } from "./src/screens/MaisScreen";
@@ -265,6 +268,13 @@ export default function App() {
     void recoverRouteState({ force: true });
   }, [token, currentUser, requiresBiometricUnlock]);
 
+  useEffect(() => {
+    if (!token || requiresBiometricUnlock || !currentUser) return;
+    void hydrateOutboxStore();
+    const stopSync = startSyncEngine();
+    return () => stopSync();
+  }, [token, currentUser, requiresBiometricUnlock]);
+
   if (isLoading) {
     const loadingColors = getColors(theme);
     return (
@@ -298,6 +308,7 @@ export default function App() {
         ) : showMainApp ? (
           <>
             <MainTabs onLogout={logout} />
+            <PendingSyncBanner />
             <DiaRotaConcluidaModal />
             <SessionExpiredModal onRelogin={() => {}} />
           </>
