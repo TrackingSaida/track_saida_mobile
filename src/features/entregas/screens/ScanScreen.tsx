@@ -18,7 +18,9 @@ import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
+import { useScannerTorch } from "../hooks/useScannerTorch";
+import ScannerTorchButton from "../components/ScannerTorchButton";
 import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, lancarAvulsoMobile } from "../api";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
@@ -343,6 +345,8 @@ export default function ScanScreen({ navigation }: Props) {
   const loadDeliveries = useDeliveryStore((s) => s.loadDeliveries);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const [permission, requestPermission] = useCameraPermissions();
+  const isFocused = useIsFocused();
+  const torch = useScannerTorch(isFocused && !!permission?.granted && !modoManual);
 
   const pushFeedback = useCallback((tipo: FeedbackTipo, mensagem: string, codigoItem?: string) => {
     if (feedbackClearRef.current) {
@@ -859,7 +863,15 @@ export default function ScanScreen({ navigation }: Props) {
         barcodeScannerSettings={{
           barcodeTypes: BARCODE_TYPES,
         }}
+        enableTorch={torch.enableTorch}
+        onCameraReady={torch.onCameraReady}
         onBarcodeScanned={loading ? undefined : handleBarcodeScanned}
+      />
+
+      <ScannerTorchButton
+        mode={torch.mode}
+        onPress={torch.cycleMode}
+        style={{ top: insets.top + 72, right: 16 }}
       />
 
       {renderFeedback()}

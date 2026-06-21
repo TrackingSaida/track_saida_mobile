@@ -67,6 +67,8 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { resolvePendingDeliveryByScan } from "../utils/resolvePendingDeliveryByScan";
 import { ScanFrameOverlay } from "../../operacao/components/ScanFrameOverlay";
+import { useScannerTorch } from "../hooks/useScannerTorch";
+import ScannerTorchButton from "../components/ScannerTorchButton";
 import { getIdsInActiveRoute } from "../utils/routeActiveSync";
 import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
 import {
@@ -707,6 +709,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   );
   const scanLockedRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const torch = useScannerTorch(scannerVisible && !!cameraPermission?.granted);
   const geocodedIdsRef = useRef<Set<number>>(new Set());
   const geocodedCoordsRef = useRef(geocodedCoords);
   geocodedCoordsRef.current = geocodedCoords;
@@ -2099,7 +2102,14 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             style={StyleSheet.absoluteFill}
             facing="back"
             barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+            enableTorch={torch.enableTorch}
+            onCameraReady={torch.onCameraReady}
             onBarcodeScanned={scanLockedRef.current ? undefined : handleBarcodeScanned}
+          />
+          <ScannerTorchButton
+            mode={torch.mode}
+            onPress={torch.cycleMode}
+            style={{ top: insets.top + 72, right: 16 }}
           />
           <View style={styles.cameraOverlay}>
             <ScanFrameOverlay wrapStyle={{}} />

@@ -23,6 +23,8 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeColors } from "../../../theme/colors";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import EntregaCodigoHeader from "../components/EntregaCodigoHeader";
+import { useScannerTorch } from "../hooks/useScannerTorch";
+import ScannerTorchButton from "../components/ScannerTorchButton";
 import { getExtratoFinanceiro, getTodayISO } from "../api";
 import type { ExtratoFinanceiro, ExtratoPedidoItem, ExtratoStatusFiltro } from "../types";
 import { formatCurrencyBRL } from "../utils/currency";
@@ -332,6 +334,7 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
   const [expandedByDay, setExpandedByDay] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [scannerVisible, setScannerVisible] = useState(false);
+  const torch = useScannerTorch(scannerVisible && !!cameraPermission?.granted);
   const [servicosFiltroAtivos, setServicosFiltroAtivos] = useState<Set<ServicoExtrato>>(new Set());
   const [servicosFiltroDraft, setServicosFiltroDraft] = useState<Set<ServicoExtrato>>(new Set());
 
@@ -688,7 +691,14 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
             style={StyleSheet.absoluteFill}
             facing="back"
             barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+            enableTorch={torch.enableTorch}
+            onCameraReady={torch.onCameraReady}
             onBarcodeScanned={scanLockedRef.current ? undefined : handleBarcodeScanned}
+          />
+          <ScannerTorchButton
+            mode={torch.mode}
+            onPress={torch.cycleMode}
+            style={{ top: insets.top + 72, right: 16 }}
           />
           <View style={[styles.scannerFooter, { bottom: Math.max(14, insets.bottom) }]}>
             <Text style={styles.scannerFooterText}>Busca pedidos do período carregado</Text>

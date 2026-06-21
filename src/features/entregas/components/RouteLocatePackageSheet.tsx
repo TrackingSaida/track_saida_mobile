@@ -20,6 +20,8 @@ import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import { getStopAddressLine } from "../utils/routeUtils";
 import type { EntregaListItem } from "../types";
+import { useScannerTorch } from "../hooks/useScannerTorch";
+import ScannerTorchButton from "./ScannerTorchButton";
 
 const SCAN_DEBOUNCE_MS = 1500;
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -59,6 +61,7 @@ export default function RouteLocatePackageSheet({
   const [result, setResult] = useState<LocateResult | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const lastScanRef = useRef(0);
+  const torch = useScannerTorch(visible && !!permission?.granted);
 
   const styles = useMemo(
     () =>
@@ -91,6 +94,11 @@ export default function RouteLocatePackageSheet({
           height: Dimensions.get("window").height * 0.32,
           borderRadius: 12,
           overflow: "hidden",
+        },
+        cameraWrap: {
+          position: "relative",
+          width: "100%",
+          height: Dimensions.get("window").height * 0.32,
           marginBottom: 16,
         },
         resultBox: {
@@ -327,12 +335,17 @@ export default function RouteLocatePackageSheet({
               </TouchableOpacity>
             </>
           ) : (
-            <CameraView
-              style={styles.camera}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: BARCODE_TYPES }}
-              onBarcodeScanned={handleBarcode}
-            />
+            <View style={styles.cameraWrap}>
+              <CameraView
+                style={styles.camera}
+                facing="back"
+                barcodeScannerSettings={{ barcodeTypes: BARCODE_TYPES }}
+                enableTorch={torch.enableTorch}
+                onCameraReady={torch.onCameraReady}
+                onBarcodeScanned={handleBarcode}
+              />
+              <ScannerTorchButton mode={torch.mode} onPress={torch.cycleMode} />
+            </View>
           )}
 
           {result && renderResult(result)}

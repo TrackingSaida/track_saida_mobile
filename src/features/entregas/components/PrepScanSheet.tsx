@@ -14,6 +14,8 @@ import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import type { EntregaListItem } from "../types";
+import { useScannerTorch } from "../hooks/useScannerTorch";
+import ScannerTorchButton from "./ScannerTorchButton";
 
 const SCAN_DEBOUNCE_MS = 1500;
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -46,6 +48,7 @@ export default function PrepScanSheet({
   const colors = useThemeColors();
   const [permission, requestPermission] = useCameraPermissions();
   const lastScanRef = useRef(0);
+  const torch = useScannerTorch(visible && !!permission?.granted);
 
   const styles = useMemo(
     () =>
@@ -79,6 +82,12 @@ export default function PrepScanSheet({
           height: Dimensions.get("window").height * 0.45,
           borderRadius: 12,
           overflow: "hidden",
+        },
+        cameraWrap: {
+          position: "relative",
+          width: "100%",
+          height: Dimensions.get("window").height * 0.45,
+          marginBottom: 0,
         },
         btn: {
           paddingVertical: 12,
@@ -134,12 +143,17 @@ export default function PrepScanSheet({
               <Text style={styles.btnText}>Permitir câmera</Text>
             </TouchableOpacity>
           ) : (
-            <CameraView
-              style={styles.camera}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: BARCODE_TYPES }}
-              onBarcodeScanned={handleBarcode}
-            />
+            <View style={styles.cameraWrap}>
+              <CameraView
+                style={styles.camera}
+                facing="back"
+                barcodeScannerSettings={{ barcodeTypes: BARCODE_TYPES }}
+                enableTorch={torch.enableTorch}
+                onCameraReady={torch.onCameraReady}
+                onBarcodeScanned={handleBarcode}
+              />
+              <ScannerTorchButton mode={torch.mode} onPress={torch.cycleMode} />
+            </View>
           )}
         </View>
       </View>

@@ -17,6 +17,8 @@ import { ScanFrameOverlay } from "../../operacao/components/ScanFrameOverlay";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { resolvePendingDeliveryByScan } from "../utils/resolvePendingDeliveryByScan";
+import { useScannerTorch } from "../hooks/useScannerTorch";
+import ScannerTorchButton from "../components/ScannerTorchButton";
 
 type Props = NativeStackScreenProps<RootStackParamList, "DeliverScan">;
 
@@ -28,6 +30,9 @@ export default function DeliverScanScreen({ navigation }: Props) {
   const [scanEnabled, setScanEnabled] = useState(true);
   const scanLockedRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const torch = useScannerTorch(
+    scanEnabled && !loading && !!cameraPermission?.granted
+  );
 
   const pendingDeliveries = useDeliveryStore((s) => s.pendingDeliveries);
   const loadDeliveries = useDeliveryStore((s) => s.loadDeliveries);
@@ -166,7 +171,15 @@ export default function DeliverScanScreen({ navigation }: Props) {
         style={StyleSheet.absoluteFill}
         facing="back"
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+        enableTorch={torch.enableTorch}
+        onCameraReady={torch.onCameraReady}
         onBarcodeScanned={scanEnabled ? handleBarcodeScanned : undefined}
+      />
+
+      <ScannerTorchButton
+        mode={torch.mode}
+        onPress={torch.cycleMode}
+        style={{ top: insets.top + 72, right: 16 }}
       />
 
       <View style={styles.cameraOverlay}>
