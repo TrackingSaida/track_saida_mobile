@@ -70,7 +70,7 @@ export interface FormEntregaConcluidaProps {
   onClose: () => void;
   /** IDs adicionais no lote (rota) — fotos propagadas a todos. */
   extraIdSaidas?: number[];
-  onSuccess: (marcacao?: MarcacaoEntregaResponse) => void | Promise<void>;
+  onSuccess: (result?: { marcacao?: MarcacaoEntregaResponse; queued?: boolean }) => void | Promise<void>;
 }
 
 export default function FormEntregaConcluida({
@@ -342,11 +342,11 @@ export default function FormEntregaConcluida({
         );
       }
       let marcacao = result.marcacao;
-      if (!marcacao && onConfirm) {
+      if (!marcacao && onConfirm && !result.queued) {
         marcacao = (await onConfirm(body)) ?? undefined;
       }
       onClose();
-      await onSuccess(marcacao);
+      await onSuccess({ marcacao, queued: result.queued });
     } catch (e: unknown) {
       const detail =
         e && typeof e === "object" && "response" in e

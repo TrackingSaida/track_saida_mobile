@@ -526,8 +526,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   }, []);
 
   const handleEntregueSuccess = useCallback(
-    async (marcacao?: MarcacaoEntregaResponse) => {
+    async (result?: { marcacao?: MarcacaoEntregaResponse; queued?: boolean }) => {
       if (!pendingEntregueIds || pendingEntregueIds.length === 0) return;
+      const marcacao = result?.marcacao;
       const codigoFeedback = selectedDelivery?.codigo ?? null;
       const entregaAtrasada = marcacao?.entrega_atrasada ?? false;
       const extra = marcacao as MarcacaoEntregaResponse & {
@@ -589,7 +590,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     });
   }, [deliveryForAusente, findGroupForDelivery, routeDeliveryStatus]);
 
-  const handleAusenteSuccess = useCallback(async () => {
+  const handleAusenteSuccess = useCallback(async (_result?: { queued?: boolean }) => {
     if (!deliveryForAusente) return;
     const activeRotaId = useDeliveryStore.getState().activeRouteId;
     if (activeRotaId) {

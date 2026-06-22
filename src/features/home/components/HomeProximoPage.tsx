@@ -1,11 +1,10 @@
 import React, { useCallback, useMemo } from "react";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { getRotaResumo } from "../../entregas/api";
 import {
   useDiaRotaConcluidaStore,
   VALOR_ROTA_LABEL,
 } from "../../../store/diaRotaConcluidaStore";
-import { useThemeColors } from "../../../theme/colors";
 import { space } from "../../../theme/spacing";
 import HomeStateHero from "./HomeStateHero";
 import HomeOperationalActions from "./HomeOperationalActions";
@@ -50,12 +49,10 @@ async function openRouteResumo(rotaId: string): Promise<void> {
 }
 
 export default function HomeProximoPage({ data, navigation }: Props) {
-  const colors = useThemeColors();
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: { flex: 1, paddingHorizontal: space.md, paddingTop: space.sm },
-        loader: { flex: 1, justifyContent: "center", alignItems: "center" },
       }),
     []
   );
@@ -116,14 +113,6 @@ export default function HomeProximoPage({ data, navigation }: Props) {
     },
     [navigation, data]
   );
-
-  if (data.loading) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color={colors.deliveryAccent} />
-      </View>
-    );
-  }
 
   if (ctas.layout === "operational") {
     return (

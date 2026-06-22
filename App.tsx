@@ -1,6 +1,6 @@
 import "./src/services/location/backgroundLocationTask";
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { ActivityIndicator, StyleSheet } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -306,12 +306,14 @@ export default function App() {
         {pendingChangePassword ? (
           <ChangePasswordRequiredScreen onDone={() => setPendingChangePassword(false)} />
         ) : showMainApp ? (
-          <>
-            <MainTabs onLogout={logout} />
+          <View style={{ flex: 1 }}>
             <PendingSyncBanner />
+            <View style={{ flex: 1 }}>
+              <MainTabs onLogout={logout} />
+            </View>
             <DiaRotaConcluidaModal />
             <SessionExpiredModal onRelogin={() => {}} />
-          </>
+          </View>
         ) : (
           <AuthStack.Navigator screenOptions={{ headerShown: false }}>
             <AuthStack.Screen name="Login">

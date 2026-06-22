@@ -18,6 +18,11 @@
 | 6 | Lote rota (3 pacotes) | Entregue na parada com foto | Fotos nos 3 `id_saida` |
 | 7 | Ausente batch | Parada com 2+ pacotes | Dialog “só este / todos”; ausência enfileirada/sync |
 | 8 | Re-sync duplicata | Entrega já no servidor | Fila conclui sem erro (`STATUS_FINALIZADO` OK) |
+| 9 | Banner não sobrepõe header | Com item na fila, abrir Home | Banner acima do conteúdo; “Olá…” e “Base” visíveis |
+| 10 | Home offline | Modo avião → Home | CTAs visíveis (sem spinner fullscreen) |
+| 11 | Lista pendentes offline | Carregar online → avião → abrir pendentes | Lista permanece (cache em memória) |
+| 12 | Entregue offline sem travar | Confirmar offline → voltar | Sem loader bloqueante; banner persiste |
+| 13 | Scanner offline | Avião → escanear para entregar | Câmera abre; usa lista em cache |
 
 ## Comandos úteis
 

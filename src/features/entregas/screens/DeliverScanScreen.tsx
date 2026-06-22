@@ -26,17 +26,21 @@ const SCAN_UNLOCK_MS = 800;
 
 export default function DeliverScanScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const [loading, setLoading] = useState(true);
+  const [permissionLoading, setPermissionLoading] = useState(true);
   const [scanEnabled, setScanEnabled] = useState(true);
   const scanLockedRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const torch = useScannerTorch(
-    scanEnabled && !loading && !!cameraPermission?.granted
-  );
+  const torch = useScannerTorch(scanEnabled && !!cameraPermission?.granted);
 
   const pendingDeliveries = useDeliveryStore((s) => s.pendingDeliveries);
+  const routeDeliveries = useDeliveryStore((s) => s.routeDeliveries);
   const loadDeliveries = useDeliveryStore((s) => s.loadDeliveries);
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
+
+  const scanList = useMemo(() => {
+    if ((pendingDeliveries?.length ?? 0) > 0) return pendingDeliveries ?? [];
+    return routeDeliveries ?? [];
+  }, [pendingDeliveries, routeDeliveries]);
 
   const styles = useMemo(
     () =>
@@ -87,12 +91,12 @@ export default function DeliverScanScreen({ navigation }: Props) {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      setLoading(true);
       setScanEnabled(true);
       scanLockedRef.current = false;
 
       (async () => {
         if (!cameraPermission?.granted) {
+          setPermissionLoading(true);
           const res = await requestCameraPermission();
           if (!res.granted) {
             if (!cancelled) {
@@ -104,36 +108,45 @@ export default function DeliverScanScreen({ navigation }: Props) {
           }
         }
 
+        if (!cancelled) setPermissionLoading(false);
+
         try {
           await loadDeliveries({ onlyToday: somenteHojePendentes });
         } catch {
-          if (!cancelled) {
-            Alert.alert("Erro", "Não foi possível carregar os pendentes.", [
-              { text: "OK", onPress: () => navigation.goBack() },
-            ]);
+          const cached =
+            useDeliveryStore.getState().pendingDeliveries.length +
+            useDeliveryStore.getState().routeDeliveries.length;
+          if (!cancelled && cached === 0) {
+            Alert.alert(
+              "Sem conexão",
+              "Não foi possível atualizar a lista. Você ainda pode escanear pacotes já carregados no aparelho."
+            );
           }
-          return;
-        } finally {
-          if (!cancelled) setLoading(false);
         }
       })();
 
       return () => {
         cancelled = true;
       };
-    }, [cameraPermission?.granted, loadDeliveries, navigation, requestCameraPermission, somenteHojePendentes])
+    }, [
+      cameraPermission?.granted,
+      loadDeliveries,
+      navigation,
+      requestCameraPermission,
+      somenteHojePendentes,
+    ])
   );
 
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult) => {
-      if (scanLockedRef.current || loading) return;
+      if (scanLockedRef.current || permissionLoading) return;
       const data = String(event.data ?? "").trim();
       if (!data) return;
 
       scanLockedRef.current = true;
       setScanEnabled(false);
 
-      const result = resolvePendingDeliveryByScan(data, pendingDeliveries ?? []);
+      const result = resolvePendingDeliveryByScan(data, scanList);
       if (!result.ok) {
         Alert.alert(result.title, result.message);
         setTimeout(() => {
@@ -145,14 +158,14 @@ export default function DeliverScanScreen({ navigation }: Props) {
 
       navigation.replace("EntregaDetail", { idSaida: result.item.id_saida });
     },
-    [loading, navigation, pendingDeliveries]
+    [permissionLoading, navigation, scanList]
   );
 
-  if (loading) {
+  if (permissionLoading) {
     return (
       <View style={styles.loader}>
         <ActivityIndicator size="large" color="#fff" />
-        <Text style={styles.loaderText}>Carregando pendentes…</Text>
+        <Text style={styles.loaderText}>Preparando câmera…</Text>
       </View>
     );
   }

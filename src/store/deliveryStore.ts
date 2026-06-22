@@ -51,6 +51,7 @@ import {
   type RouteReconcileResult,
 } from "../features/entregas/utils/routeReconcile";
 import { formatApiError } from "../utils/formatApiError";
+import { getNetworkState } from "../services/outbox/networkStatus";
 import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
 import {
@@ -323,6 +324,12 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   loadDeliveries: async (opts) => {
     set({ loading: true, error: null });
     try {
+      const { online } = await getNetworkState();
+      if (!online) {
+        set({ loading: false });
+        return;
+      }
+
       const prefOnlyToday = useMotoboyPrefsStore.getState().somenteHojePendentes;
       const useOnlyToday = opts?.onlyToday ?? prefOnlyToday;
       const list = await getEntregas(
@@ -340,13 +347,13 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao carregar entregas";
-      set({
+      set((state) => ({
         error: message,
         loading: false,
-        pendingDeliveries: [],
-        deliveriesWithAddress: [],
-        deliveriesWithoutAddress: [],
-      });
+        pendingDeliveries: state.pendingDeliveries,
+        deliveriesWithAddress: state.deliveriesWithAddress,
+        deliveriesWithoutAddress: state.deliveriesWithoutAddress,
+      }));
     }
   },
 

@@ -730,7 +730,10 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     roteirizacaoHabilitada &&
     tab === "pendente" &&
     (listForTab.length > 0 || totalPendentesCount > 0 || routeStarted);
-  const loadingForTab = tab === "pendente" ? storeLoading : loading;
+  const loadingForTab =
+    tab === "pendente"
+      ? storeLoading && (pendingDeliveries?.length ?? 0) === 0
+      : loading;
   const shouldShowMapInFilters = tab === "pendente" && roteirizacaoHabilitada;
 
   const load = useCallback(async () => {

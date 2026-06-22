@@ -45,7 +45,7 @@ export interface FormAusenteModalProps {
     photoUris: string[];
   }) => Promise<void>;
   /** Chamado após enfileirar/concluir (sem nova chamada API). */
-  onSuccess?: () => void | Promise<void>;
+  onSuccess?: (result?: { queued?: boolean }) => void | Promise<void>;
   /** Quando batchCount > 1, resolve ids finais antes do enqueue. */
   resolveBatchTargets?: () => Promise<number[]>;
   onClose: () => void;
@@ -251,8 +251,8 @@ export default function FormAusenteModal({
         );
       }
       if (onSuccess) {
-        await onSuccess();
-      } else if (onConfirm) {
+        await onSuccess({ queued: result.queued });
+      } else if (onConfirm && !result.queued) {
         await onConfirm({
           motivoId,
           observacao: observacao.trim() || undefined,

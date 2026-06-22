@@ -30,9 +30,9 @@ export default function PendingSyncBanner() {
       style={[
         styles.wrap,
         {
-          top: insets.top + 4,
+          paddingTop: Math.max(insets.top, 8),
           backgroundColor: colors.primary + "22",
-          borderColor: colors.primary,
+          borderBottomColor: colors.primary + "55",
         },
       ]}
     >
@@ -59,14 +59,9 @@ export default function PendingSyncBanner() {
 
 const styles = StyleSheet.create({
   wrap: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    zIndex: 100,
-    borderRadius: 10,
-    borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,

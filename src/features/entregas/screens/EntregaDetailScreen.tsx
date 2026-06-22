@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import * as ImagePicker from "expo-image-picker";
 import { getEntrega, fetchComprovanteImagesDataUris, getEntregaHistorico } from "../api";
 import type { EntregaListItem, EntregaHistoricoItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
+import { getNetworkState } from "../../../services/outbox/networkStatus";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import AddressQuickForm from "../components/AddressQuickForm";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
@@ -137,9 +138,26 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
 
+  const findLocalDelivery = useCallback((targetId: number): EntregaListItem | null => {
+    const store = useDeliveryStore.getState();
+    return (
+      store.pendingDeliveries.find((d) => d.id_saida === targetId) ??
+      store.routeDeliveries.find((d) => d.id_saida === targetId) ??
+      null
+    );
+  }, []);
+
   const load = async () => {
     setLoading(true);
     try {
+      const { online } = await getNetworkState();
+      if (!online) {
+        const local = findLocalDelivery(idSaida);
+        setEntrega(local);
+        setHistorico([]);
+        return;
+      }
+
       const [e, hist] = await Promise.all([
         getEntrega(idSaida),
         getEntregaHistorico(idSaida).catch(() => [] as EntregaHistoricoItem[]),
@@ -165,7 +183,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         setLoadingComprovante(false);
       }
     } catch {
-      setEntrega(null);
+      const local = findLocalDelivery(idSaida);
+      setEntrega(local);
       setHistorico([]);
     } finally {
       setLoading(false);
@@ -189,9 +208,11 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
   const handleAbrirAusente = () => setModalAusente(true);
 
-  const handleAusenteSuccess = async () => {
+  const handleAusenteSuccess = async (result?: { queued?: boolean }) => {
     setModalAusente(false);
-    await load();
+    if (!result?.queued) {
+      await load();
+    }
     runPostFinalizeFeedback({
       tipo: "ausente",
       codigo: entrega?.codigo,
@@ -571,8 +592,10 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         destinatarioPreenchido={entrega?.cliente ?? undefined}
         requiredFields={entrega?.campos_obrigatorios_entregue || []}
         onClose={() => setShowEntregueModal(false)}
-        onSuccess={async (marcacao) => {
-          await load();
+        onSuccess={async ({ marcacao, queued } = {}) => {
+          if (!queued) {
+            await load();
+          }
           const extra = marcacao as { routeJustCompleted?: boolean; rotaIdForResumo?: string | number | null };
           runPostFinalizeFeedback({
             tipo: "entregue",
