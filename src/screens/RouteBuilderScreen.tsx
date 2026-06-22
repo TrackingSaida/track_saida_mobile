@@ -559,6 +559,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         routeJustCompleted,
         rotaIdForResumo,
         isRouteFlow: isRouteActive,
+        queued: result?.queued,
       });
     },
     [pendingEntregueIds, isRouteActive, activeRouteId, selectedDelivery, recalcPolyline, openNextStopNavigation]
@@ -590,7 +591,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     });
   }, [deliveryForAusente, findGroupForDelivery, routeDeliveryStatus]);
 
-  const handleAusenteSuccess = useCallback(async (_result?: { queued?: boolean }) => {
+  const handleAusenteSuccess = useCallback(async (result?: { queued?: boolean }) => {
     if (!deliveryForAusente) return;
     const activeRotaId = useDeliveryStore.getState().activeRouteId;
     if (activeRotaId) {
@@ -617,6 +618,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       routeJustCompleted: false,
       rotaIdForResumo: null,
       isRouteFlow: activeRotaId != null,
+      queued: result?.queued,
     });
   }, [deliveryForAusente, closeAusenteModal, recalcPolyline, openNextStopNavigation]);
 

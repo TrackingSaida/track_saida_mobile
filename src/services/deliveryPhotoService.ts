@@ -49,6 +49,7 @@ async function openCamera(): Promise<PhotoPickResult | null> {
     mediaTypes: ["images"],
     allowsEditing: false,
     quality: 1,
+    cameraType: ImagePicker.CameraType.back,
   });
   if (result.canceled || !result.assets?.[0]) return null;
   const asset = result.assets[0];

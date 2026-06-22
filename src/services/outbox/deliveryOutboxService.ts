@@ -1,7 +1,7 @@
 import type { EntregueBody } from "../../features/entregas/api";
 import type { MarcacaoEntregaResponse } from "../../features/entregas/types";
 import { useDeliveryStore } from "../../store/deliveryStore";
-import { useOutboxStore } from "../../store/outboxStore";
+import { useOutboxStore, findPendingOutboxActionForSaidas } from "../../store/outboxStore";
 import {
   copyPhotosForAction,
   persistAction,
@@ -88,6 +88,11 @@ export async function enqueueEntregueCompletion(params: {
     /* cai no outbox */
   }
 
+  const existing = await findPendingOutboxActionForSaidas(idSaidas);
+  if (existing) {
+    return { queued: true, actionId: existing.actionId };
+  }
+
   const actionId = createActionId();
   const photoEntries = await copyPhotosForAction(actionId, params.photoUris);
   const action: OutboxDeliveryAction = {
@@ -132,6 +137,11 @@ export async function enqueueAusenteCompletion(params: {
     }
   } catch {
     /* cai no outbox */
+  }
+
+  const existing = await findPendingOutboxActionForSaidas(idSaidas);
+  if (existing) {
+    return { queued: true, actionId: existing.actionId };
   }
 
   const actionId = createActionId();

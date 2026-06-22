@@ -20,6 +20,7 @@ import { getEntrega, fetchComprovanteImagesDataUris, getEntregaHistorico } from 
 import type { EntregaListItem, EntregaHistoricoItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { getNetworkState } from "../../../services/outbox/networkStatus";
+import { useOutboxStore } from "../../../store/outboxStore";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import AddressQuickForm from "../components/AddressQuickForm";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
@@ -137,6 +138,19 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const novaTentativa = useDeliveryStore((s) => s.novaTentativa);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
+  const outboxActions = useOutboxStore((s) => s.actions);
+
+  const applyLocalFinalized = useCallback((kind: "entregue" | "ausente") => {
+    setEntrega((prev) =>
+      prev
+        ? {
+            ...prev,
+            status: kind === "entregue" ? "Entregue" : "Ausente",
+            exibicao: kind === "entregue" ? "Entregue" : "Ausente",
+          }
+        : prev
+    );
+  }, []);
 
   const findLocalDelivery = useCallback((targetId: number): EntregaListItem | null => {
     const store = useDeliveryStore.getState();
@@ -210,7 +224,9 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
 
   const handleAusenteSuccess = async (result?: { queued?: boolean }) => {
     setModalAusente(false);
-    if (!result?.queued) {
+    if (result?.queued) {
+      applyLocalFinalized("ausente");
+    } else {
       await load();
     }
     runPostFinalizeFeedback({
@@ -220,6 +236,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       routeJustCompleted: false,
       rotaIdForResumo: null,
       isRouteFlow: false,
+      queued: result?.queued,
       onAfterIndividualAlert: () => navigation.goBack(),
     });
   };
@@ -381,6 +398,12 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
 
   const statusNorm = (entrega.status || "").toUpperCase();
   const podeFinalizar = statusNorm === "EM_ROTA";
+  const awaitingSync = outboxActions.some(
+    (action) =>
+      (action.state === "pending" || action.state === "syncing" || action.state === "failed") &&
+      action.idSaidas.includes(idSaida)
+  );
+  const podeFinalizarEfetivo = podeFinalizar && !awaitingSync;
   const statusKind = resolveDetailStatusKind(entrega);
   const isAusente = statusKind === "ausente";
   const isEntregue = statusKind === "entregue";
@@ -501,7 +524,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             </TouchableOpacity>
           ) : null}
 
-          {podeFinalizar ? (
+          {podeFinalizarEfetivo ? (
             <>
               <TouchableOpacity style={styles.btnEntregue} onPress={handleAbrirEntregueModal}>
                 <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
@@ -593,7 +616,10 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         requiredFields={entrega?.campos_obrigatorios_entregue || []}
         onClose={() => setShowEntregueModal(false)}
         onSuccess={async ({ marcacao, queued } = {}) => {
-          if (!queued) {
+          setShowEntregueModal(false);
+          if (queued) {
+            applyLocalFinalized("entregue");
+          } else {
             await load();
           }
           const extra = marcacao as { routeJustCompleted?: boolean; rotaIdForResumo?: string | number | null };
@@ -604,6 +630,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             routeJustCompleted: extra.routeJustCompleted ?? false,
             rotaIdForResumo: extra.rotaIdForResumo ?? null,
             isRouteFlow: marcacao?.rota_sync?.in_active_route ?? false,
+            queued,
             onAfterIndividualAlert: () => navigation.goBack(),
           });
         }}

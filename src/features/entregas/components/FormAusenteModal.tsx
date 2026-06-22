@@ -244,12 +244,6 @@ export default function FormAusenteModal({
         photoUris,
         fotoObrigatoria,
       });
-      if (result.queued) {
-        Alert.alert(
-          "Registrado",
-          "Ausência salva no aparelho. Será enviada automaticamente quando a internet estiver disponível."
-        );
-      }
       if (onSuccess) {
         await onSuccess({ queued: result.queued });
       } else if (onConfirm && !result.queued) {

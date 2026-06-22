@@ -44,3 +44,32 @@ export async function getAllOutboxActions(): Promise<OutboxDeliveryAction[]> {
   const manifest = await loadManifest();
   return manifest.actions;
 }
+
+const ACTIVE_OUTBOX_STATES = new Set<OutboxDeliveryAction["state"]>([
+  "pending",
+  "syncing",
+  "failed",
+]);
+
+export function hasPendingOutboxForSaida(idSaida: number): boolean {
+  if (idSaida <= 0) return false;
+  return useOutboxStore.getState().actions.some(
+    (action) =>
+      ACTIVE_OUTBOX_STATES.has(action.state) && action.idSaidas.includes(idSaida)
+  );
+}
+
+export async function findPendingOutboxActionForSaidas(
+  idSaidas: number[]
+): Promise<OutboxDeliveryAction | null> {
+  await useOutboxStore.getState().refresh();
+  const targets = new Set(idSaidas.filter((id) => id > 0));
+  if (targets.size === 0) return null;
+  return (
+    useOutboxStore.getState().actions.find(
+      (action) =>
+        ACTIVE_OUTBOX_STATES.has(action.state) &&
+        action.idSaidas.some((id) => targets.has(id))
+    ) ?? null
+  );
+}

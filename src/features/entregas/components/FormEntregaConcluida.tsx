@@ -335,12 +335,6 @@ export default function FormEntregaConcluida({
         photoUris,
         fotoObrigatoria,
       });
-      if (result.queued) {
-        Alert.alert(
-          "Registrado",
-          "Entrega salva no aparelho. Será enviada automaticamente quando a internet estiver disponível."
-        );
-      }
       let marcacao = result.marcacao;
       if (!marcacao && onConfirm && !result.queued) {
         marcacao = (await onConfirm(body)) ?? undefined;
