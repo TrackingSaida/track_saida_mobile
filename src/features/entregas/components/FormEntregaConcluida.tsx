@@ -20,7 +20,8 @@ import type { MarcacaoEntregaResponse } from "../types";
 import { formatCPF, formatRG, unmaskCPF, unmaskRG } from "../utils/formatDocument";
 import { enqueueEntregueCompletion } from "../../../services/outbox/deliveryOutboxService";
 import {
-  selectOrTakePhoto,
+  takeDeliveryPhoto,
+  pickDeliveryPhotoFromGallery,
   preparePhoto,
   MAX_PHOTOS,
 } from "../../../services/deliveryPhotoService";
@@ -276,10 +277,10 @@ export default function FormEntregaConcluida({
     setNumeroDocumento(formatted);
   };
 
-  const addPhoto = async () => {
+  const addPhotoFromSource = async (pick: () => Promise<{ uri: string } | null>) => {
     if (photos.length >= MAX_PHOTOS) return;
     try {
-      const picked = await selectOrTakePhoto();
+      const picked = await pick();
       if (!picked) return;
       const prepared = await preparePhoto(picked.uri, photos.length);
       setPhotos((prev) => [...prev, { uri: prepared.uri }]);
@@ -287,6 +288,9 @@ export default function FormEntregaConcluida({
       Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
     }
   };
+
+  const addPhotoFromCamera = () => addPhotoFromSource(takeDeliveryPhoto);
+  const addPhotoFromGallery = () => addPhotoFromSource(pickDeliveryPhotoFromGallery);
 
   const removePhoto = (index: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -505,13 +509,22 @@ export default function FormEntregaConcluida({
                 </View>
               ))}
               {canAddPhoto && (
-                <TouchableOpacity
-                  style={styles.btnAddPhoto}
-                  onPress={addPhoto}
-                  disabled={saving}
-                >
-                  <Text style={styles.btnAddPhotoText}>+ Adicionar foto</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={styles.btnAddPhoto}
+                    onPress={addPhotoFromCamera}
+                    disabled={saving}
+                  >
+                    <Text style={styles.btnAddPhotoText}>+ Tirar foto</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.btnAddPhoto}
+                    onPress={addPhotoFromGallery}
+                    disabled={saving}
+                  >
+                    <Text style={styles.btnAddPhotoText}>Galeria</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </View>
             {missingKeys.has("foto") ? (

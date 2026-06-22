@@ -73,3 +73,16 @@ export async function findPendingOutboxActionForSaidas(
     ) ?? null
   );
 }
+
+export async function resolveLocalComprovanteUris(idSaida: number): Promise<string[]> {
+  if (idSaida <= 0) return [];
+  await useOutboxStore.getState().refresh();
+  const action = useOutboxStore.getState().actions.find(
+    (item) =>
+      ACTIVE_OUTBOX_STATES.has(item.state) &&
+      item.idSaidas.includes(idSaida) &&
+      item.photos.length > 0
+  );
+  if (!action) return [];
+  return action.photos.map((photo) => photo.localUri).filter(Boolean);
+}

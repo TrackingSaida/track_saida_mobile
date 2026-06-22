@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
@@ -40,17 +41,22 @@ export async function selectOrTakePhoto(): Promise<PhotoPickResult | null> {
   });
 }
 
+function getCameraLaunchOptions(): ImagePicker.ImagePickerOptions {
+  return {
+    mediaTypes: ["images"],
+    allowsEditing: false,
+    quality: 1,
+    cameraType: ImagePicker.CameraType.back,
+    ...(Platform.OS === "android" ? { legacy: true } : {}),
+  };
+}
+
 async function openCamera(): Promise<PhotoPickResult | null> {
   const { status } = await ImagePicker.requestCameraPermissionsAsync();
   if (status !== "granted") {
     throw new Error("Permissão de câmera negada.");
   }
-  const result = await ImagePicker.launchCameraAsync({
-    mediaTypes: ["images"],
-    allowsEditing: false,
-    quality: 1,
-    cameraType: ImagePicker.CameraType.back,
-  });
+  const result = await ImagePicker.launchCameraAsync(getCameraLaunchOptions());
   if (result.canceled || !result.assets?.[0]) return null;
   const asset = result.assets[0];
   const filename = asset.uri.split("/").pop() || "foto.jpg";
@@ -59,6 +65,16 @@ async function openCamera(): Promise<PhotoPickResult | null> {
     mimeType: asset.mimeType || "image/jpeg",
     filename,
   };
+}
+
+/** Abre a câmera traseira direto no toque (sem Alert intermediário). */
+export async function takeDeliveryPhoto(): Promise<PhotoPickResult | null> {
+  return openCamera();
+}
+
+/** Abre a galeria para escolher foto de comprovante. */
+export async function pickDeliveryPhotoFromGallery(): Promise<PhotoPickResult | null> {
+  return openGallery();
 }
 
 async function openGallery(): Promise<PhotoPickResult | null> {

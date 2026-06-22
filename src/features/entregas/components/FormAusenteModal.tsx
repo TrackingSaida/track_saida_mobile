@@ -19,7 +19,8 @@ import { getMotivosAusencia } from "../api";
 import type { MotivoAusencia } from "../types";
 import { enqueueAusenteCompletion } from "../../../services/outbox/deliveryOutboxService";
 import {
-  selectOrTakePhoto,
+  takeDeliveryPhoto,
+  pickDeliveryPhotoFromGallery,
   preparePhoto,
   MAX_PHOTOS,
 } from "../../../services/deliveryPhotoService";
@@ -187,17 +188,30 @@ export default function FormAusenteModal({
     [colors]
   );
 
-  const addPhoto = useCallback(async () => {
-    if (photos.length >= MAX_PHOTOS) return;
-    try {
-      const picked = await selectOrTakePhoto();
-      if (!picked) return;
-      const prepared = await preparePhoto(picked.uri, photos.length);
-      setPhotos((prev) => [...prev, { uri: prepared.uri }]);
-    } catch (e) {
-      Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
-    }
-  }, [photos.length]);
+  const addPhotoFromSource = useCallback(
+    async (pick: () => Promise<{ uri: string } | null>) => {
+      if (photos.length >= MAX_PHOTOS) return;
+      try {
+        const picked = await pick();
+        if (!picked) return;
+        const prepared = await preparePhoto(picked.uri, photos.length);
+        setPhotos((prev) => [...prev, { uri: prepared.uri }]);
+      } catch (e) {
+        Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+      }
+    },
+    [photos.length]
+  );
+
+  const addPhotoFromCamera = useCallback(
+    () => addPhotoFromSource(takeDeliveryPhoto),
+    [addPhotoFromSource]
+  );
+
+  const addPhotoFromGallery = useCallback(
+    () => addPhotoFromSource(pickDeliveryPhotoFromGallery),
+    [addPhotoFromSource]
+  );
 
   const removePhoto = useCallback((index: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -356,9 +370,22 @@ export default function FormAusenteModal({
                 </View>
               ))}
               {photos.length < MAX_PHOTOS && (
-                <TouchableOpacity style={styles.btnAddPhoto} onPress={addPhoto} disabled={saving}>
-                  <Text style={styles.btnAddPhotoText}>+ Foto</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={styles.btnAddPhoto}
+                    onPress={addPhotoFromCamera}
+                    disabled={saving}
+                  >
+                    <Text style={styles.btnAddPhotoText}>+ Tirar foto</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.btnAddPhoto}
+                    onPress={addPhotoFromGallery}
+                    disabled={saving}
+                  >
+                    <Text style={styles.btnAddPhotoText}>Galeria</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </View>
           </ScrollView>

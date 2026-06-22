@@ -20,7 +20,7 @@ import { getEntrega, fetchComprovanteImagesDataUris, getEntregaHistorico } from 
 import type { EntregaListItem, EntregaHistoricoItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { getNetworkState } from "../../../services/outbox/networkStatus";
-import { useOutboxStore } from "../../../store/outboxStore";
+import { useOutboxStore, resolveLocalComprovanteUris } from "../../../store/outboxStore";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import AddressQuickForm from "../components/AddressQuickForm";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
@@ -140,17 +140,27 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const outboxActions = useOutboxStore((s) => s.actions);
 
-  const applyLocalFinalized = useCallback((kind: "entregue" | "ausente") => {
+  const applyLocalFinalized = useCallback((kind: "entregue" | "ausente", withComprovante = false) => {
     setEntrega((prev) =>
       prev
         ? {
             ...prev,
             status: kind === "entregue" ? "Entregue" : "Ausente",
             exibicao: kind === "entregue" ? "Entregue" : "Ausente",
+            ...(withComprovante ? { tem_comprovante: true } : {}),
           }
         : prev
     );
   }, []);
+
+  const applyLocalComprovante = useCallback(async () => {
+    const uris = await resolveLocalComprovanteUris(idSaida);
+    setComprovanteUris(uris);
+    if (uris.length > 0) {
+      setEntrega((prev) => (prev ? { ...prev, tem_comprovante: true } : prev));
+    }
+    return uris;
+  }, [idSaida]);
 
   const findLocalDelivery = useCallback((targetId: number): EntregaListItem | null => {
     const store = useDeliveryStore.getState();
@@ -161,6 +171,46 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     );
   }, []);
 
+  const loadComprovanteForEntrega = useCallback(
+    async (e: EntregaListItem | null, online: boolean) => {
+      if (!e) {
+        setComprovanteUris([]);
+        setLoadingComprovante(false);
+        return;
+      }
+
+      const statusKind = resolveDetailStatusKind(e);
+      const shouldLoadComprovante =
+        statusKind === "entregue" || statusKind === "cancelado" || statusKind === "ausente";
+      if (!shouldLoadComprovante) {
+        setComprovanteUris([]);
+        setLoadingComprovante(false);
+        return;
+      }
+
+      setLoadingComprovante(true);
+      try {
+        if (online && e.tem_comprovante) {
+          try {
+            const uris = await fetchComprovanteImagesDataUris(idSaida);
+            if (uris.length > 0) {
+              setComprovanteUris(uris);
+              return;
+            }
+          } catch {
+            /* fallback local abaixo */
+          }
+        }
+
+        const localUris = await resolveLocalComprovanteUris(idSaida);
+        setComprovanteUris(localUris);
+      } finally {
+        setLoadingComprovante(false);
+      }
+    },
+    [idSaida]
+  );
+
   const load = async () => {
     setLoading(true);
     try {
@@ -169,6 +219,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         const local = findLocalDelivery(idSaida);
         setEntrega(local);
         setHistorico([]);
+        await loadComprovanteForEntrega(local, false);
         return;
       }
 
@@ -178,28 +229,12 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       ]);
       setEntrega(e);
       setHistorico(hist);
-      const statusKind = resolveDetailStatusKind(e);
-      const shouldLoadComprovante =
-        !!e?.tem_comprovante &&
-        (statusKind === "entregue" || statusKind === "cancelado" || statusKind === "ausente");
-      if (shouldLoadComprovante) {
-        setLoadingComprovante(true);
-        try {
-          const uris = await fetchComprovanteImagesDataUris(idSaida);
-          setComprovanteUris(uris);
-        } catch {
-          setComprovanteUris([]);
-        } finally {
-          setLoadingComprovante(false);
-        }
-      } else {
-        setComprovanteUris([]);
-        setLoadingComprovante(false);
-      }
+      await loadComprovanteForEntrega(e, true);
     } catch {
       const local = findLocalDelivery(idSaida);
       setEntrega(local);
       setHistorico([]);
+      await loadComprovanteForEntrega(local, false);
     } finally {
       setLoading(false);
     }
@@ -225,7 +260,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const handleAusenteSuccess = async (result?: { queued?: boolean }) => {
     setModalAusente(false);
     if (result?.queued) {
-      applyLocalFinalized("ausente");
+      const uris = await applyLocalComprovante();
+      applyLocalFinalized("ausente", uris.length > 0);
     } else {
       await load();
     }
@@ -618,7 +654,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         onSuccess={async ({ marcacao, queued } = {}) => {
           setShowEntregueModal(false);
           if (queued) {
-            applyLocalFinalized("entregue");
+            const uris = await applyLocalComprovante();
+            applyLocalFinalized("entregue", uris.length > 0);
           } else {
             await load();
           }
