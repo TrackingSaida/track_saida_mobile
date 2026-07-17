@@ -812,13 +812,6 @@ export default function ScanScreen({ navigation }: Props) {
             <Text style={styles.btnScanText}>Confirmar</Text>
           )}
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
-          onPress={() => setShowAvulsoModal(true)}
-          disabled={loading}
-        >
-          <Text style={styles.btnScanText}>Lançar Avulso</Text>
-        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.linkManual}
