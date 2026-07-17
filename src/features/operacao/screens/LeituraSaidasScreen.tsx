@@ -27,7 +27,7 @@ import { useAuthStore } from "../../../store/authStore";
 import { playSound } from "../../../utils/sound";
 import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
-import { effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
+import { effectivePodeDigitarCodigoManual, effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
 import {
   lerSaidaAdmin,
   lancarAvulso,
@@ -662,6 +662,7 @@ export default function LeituraSaidasScreen() {
   );
 
   const podeLerSaida = effectivePodeLerSaida(currentUser);
+  const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const username = currentUser?.username ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
@@ -1360,47 +1361,52 @@ export default function LeituraSaidasScreen() {
           </View>
         </View>
 
-        <Pressable
-          style={styles.manualToggle}
-          onPress={() => setManualExpanded((v) => !v)}
-          accessibilityRole="button"
-          accessibilityLabel="Digitar código manualmente"
+        <TouchableOpacity
+          style={[styles.btnOutline, { marginBottom: 10 }]}
+          onPress={() => setAvulsoModalVisible(true)}
+          disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
         >
-          <Text style={styles.manualToggleText}>Digitar código manualmente</Text>
-          <Ionicons name={manualExpanded ? "chevron-up" : "chevron-down"} size={22} color={colors.primary} />
-        </Pressable>
-        {manualExpanded ? (
-          <View style={{ marginBottom: 14 }}>
-            <TextInput
-              style={[styles.input, !motoboySelecionadoOk && { opacity: 0.5 }]}
-              placeholder="Código da saída"
-              placeholderTextColor={colors.placeholder}
-              value={codigoInput}
-              onChangeText={setCodigoInput}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={!loading && motoboySelecionadoOk && podeLerSaida}
-              onSubmitEditing={() => void handleRegistrarManual()}
-            />
-            <TouchableOpacity
-              style={styles.btnOutline}
-              onPress={() => void handleRegistrarManual()}
-              disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+          <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
+        </TouchableOpacity>
+
+        {podeDigitarManual ? (
+          <>
+            <Pressable
+              style={styles.manualToggle}
+              onPress={() => setManualExpanded((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel="Digitar código manualmente"
             >
-              {loading ? (
-                <ActivityIndicator color={colors.primary} size="small" />
-              ) : (
-                <Text style={styles.btnTextOutline}>Registrar</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btnOutline, { marginTop: 8 }]}
-              onPress={() => setAvulsoModalVisible(true)}
-              disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-            >
-              <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
-            </TouchableOpacity>
-          </View>
+              <Text style={styles.manualToggleText}>Digitar código manualmente</Text>
+              <Ionicons name={manualExpanded ? "chevron-up" : "chevron-down"} size={22} color={colors.primary} />
+            </Pressable>
+            {manualExpanded ? (
+              <View style={{ marginBottom: 14 }}>
+                <TextInput
+                  style={[styles.input, !motoboySelecionadoOk && { opacity: 0.5 }]}
+                  placeholder="Código da saída"
+                  placeholderTextColor={colors.placeholder}
+                  value={codigoInput}
+                  onChangeText={setCodigoInput}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  editable={!loading && motoboySelecionadoOk && podeLerSaida}
+                  onSubmitEditing={() => void handleRegistrarManual()}
+                />
+                <TouchableOpacity
+                  style={styles.btnOutline}
+                  onPress={() => void handleRegistrarManual()}
+                  disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                >
+                  {loading ? (
+                    <ActivityIndicator color={colors.primary} size="small" />
+                  ) : (
+                    <Text style={styles.btnTextOutline}>Registrar</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </>
         ) : null}
 
         <View style={styles.listaContainer}>

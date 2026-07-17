@@ -212,6 +212,14 @@ export default function ScanScreen({ navigation }: Props) {
         linkManualText: { fontSize: 15, color: colors.primary },
         linkManualWhite: { paddingVertical: 12, alignItems: "center" },
         linkManualTextWhite: { fontSize: 15, color: "rgba(255,255,255,0.95)" },
+        btnAvulsoFooter: {
+          marginTop: 8,
+          backgroundColor: colors.primary,
+          paddingVertical: 14,
+          borderRadius: 12,
+          alignItems: "center",
+        },
+        btnAvulsoFooterText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
         permissionText: { fontSize: 16, color: colors.text, textAlign: "center", marginBottom: 24 },
         loadingOverlay: {
           ...StyleSheet.absoluteFillObject,
@@ -725,6 +733,50 @@ export default function ScanScreen({ navigation }: Props) {
     navigation.navigate("EntregasList");
   };
 
+  const avulsoModal = (
+    <Modal visible={showAvulsoModal} transparent animationType="fade" onRequestClose={() => setShowAvulsoModal(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalBox}>
+          <Text style={styles.modalTitle}>Lançar Avulso</Text>
+          <Text style={styles.modalMessage}>Identificação (opcional)</Text>
+          <Text style={styles.modalHelp}>{AVULSO_IDENT_AJUDA}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex.: Empresa ABC"
+            placeholderTextColor={colors.placeholder}
+            value={avulsoIdentificacao}
+            onChangeText={setAvulsoIdentificacao}
+            maxLength={AVULSO_IDENT_MAX}
+            editable={!loading}
+          />
+          <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade (máx. {AVULSO_QTD_MAX})</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="1"
+            placeholderTextColor={colors.placeholder}
+            value={avulsoQuantidade}
+            onChangeText={setAvulsoQuantidade}
+            keyboardType="number-pad"
+            maxLength={2}
+            editable={!loading}
+          />
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAvulsoModal(false)} disabled={loading}>
+              <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalBtnOk, loading && styles.btnDisabled]}
+              onPress={() => void handleLancarAvulso()}
+              disabled={loading}
+            >
+              {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalBtnOkText}>Confirmar</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   // Modo manual: digitação como opção secundária (somente com permissão)
   if (modoManual && podeDigitarManual) {
     return (
@@ -815,43 +867,7 @@ export default function ScanScreen({ navigation }: Props) {
             </View>
           </View>
         </Modal>
-        <Modal visible={showAvulsoModal} transparent animationType="fade" onRequestClose={() => setShowAvulsoModal(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalBox}>
-              <Text style={styles.modalTitle}>Lançar Avulso</Text>
-              <Text style={styles.modalMessage}>Identificação (opcional)</Text>
-              <Text style={styles.modalHelp}>{AVULSO_IDENT_AJUDA}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex.: Empresa ABC"
-                placeholderTextColor={colors.placeholder}
-                value={avulsoIdentificacao}
-                onChangeText={setAvulsoIdentificacao}
-                maxLength={AVULSO_IDENT_MAX}
-                editable={!loading}
-              />
-              <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade (máx. {AVULSO_QTD_MAX})</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="1"
-                placeholderTextColor={colors.placeholder}
-                value={avulsoQuantidade}
-                onChangeText={setAvulsoQuantidade}
-                keyboardType="number-pad"
-                maxLength={2}
-                editable={!loading}
-              />
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAvulsoModal(false)} disabled={loading}>
-                  <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.modalBtnOk, loading && styles.btnDisabled]} onPress={() => void handleLancarAvulso()} disabled={loading}>
-                  {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalBtnOkText}>Confirmar</Text>}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        {avulsoModal}
       </View>
     );
   }
@@ -872,11 +888,19 @@ export default function ScanScreen({ navigation }: Props) {
         <TouchableOpacity style={styles.btnScan} onPress={requestPermission}>
           <Text style={styles.btnScanText}>Permitir câmera</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
+          onPress={() => setShowAvulsoModal(true)}
+          disabled={loading}
+        >
+          <Text style={styles.btnScanText}>Lançar Avulso</Text>
+        </TouchableOpacity>
         {podeDigitarManual ? (
           <TouchableOpacity style={styles.linkManual} onPress={() => setModoManual(true)}>
             <Text style={styles.linkManualText}>Digitar código manualmente</Text>
           </TouchableOpacity>
         ) : null}
+        {avulsoModal}
       </View>
     );
   }
@@ -999,6 +1023,14 @@ export default function ScanScreen({ navigation }: Props) {
           </View>
         )}
 
+        <TouchableOpacity
+          style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+          onPress={() => setShowAvulsoModal(true)}
+          disabled={loading}
+        >
+          <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+        </TouchableOpacity>
+
         {podeDigitarManual ? (
           <TouchableOpacity
             style={styles.linkManualWhite}
@@ -1009,6 +1041,8 @@ export default function ScanScreen({ navigation }: Props) {
           </TouchableOpacity>
         ) : null}
       </View>
+
+      {avulsoModal}
 
       <Modal visible={!!conflito} transparent animationType="fade">
         <View style={styles.modalOverlay}>
