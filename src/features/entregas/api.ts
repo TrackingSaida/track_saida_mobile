@@ -412,14 +412,49 @@ export async function fetchComprovanteImageDataUri(idSaida: number): Promise<str
   return images[0] ?? null;
 }
 
-/** Exporta JPEG watermarkado (sem PII) para compartilhamento. */
-export async function exportComprovante(idSaida: number, index = 0): Promise<ArrayBuffer> {
-  const { data } = await client.post<ArrayBuffer>(
+export type ComprovanteExportResult = {
+  buffer: ArrayBuffer;
+  codigo?: string;
+  status?: string;
+  dataHora?: string;
+  recebedor?: string;
+  caption: string;
+};
+
+/** Exporta JPEG com cartão de dados + foto watermarkada para WhatsApp/share. */
+export async function exportComprovante(
+  idSaida: number,
+  index = 0
+): Promise<ComprovanteExportResult> {
+  const response = await client.post<ArrayBuffer>(
     `/upload/saida/${idSaida}/comprovante-export`,
     { index },
     { responseType: "arraybuffer" }
   );
-  return data;
+  const headers = response.headers || {};
+  const getHeader = (name: string): string => {
+    const key = Object.keys(headers).find((k) => k.toLowerCase() === name.toLowerCase());
+    const raw = key ? headers[key] : undefined;
+    return typeof raw === "string" ? raw.trim() : "";
+  };
+  const codigo = getHeader("x-comprovante-codigo");
+  const status = getHeader("x-comprovante-status");
+  const dataHora = getHeader("x-comprovante-data");
+  const recebedor = getHeader("x-comprovante-recebedor");
+  const captionParts = [
+    status ? `Comprovante — ${status}` : "Comprovante de entrega",
+    codigo ? `Código: ${codigo}` : null,
+    dataHora ? `Data/hora: ${dataHora}` : null,
+    recebedor ? `Recebido por: ${recebedor}` : null,
+  ].filter(Boolean) as string[];
+  return {
+    buffer: response.data,
+    codigo: codigo || undefined,
+    status: status || undefined,
+    dataHora: dataHora || undefined,
+    recebedor: recebedor || undefined,
+    caption: captionParts.join("\n"),
+  };
 }
 
 // --- Otimização e rotas ativas persistidas ---

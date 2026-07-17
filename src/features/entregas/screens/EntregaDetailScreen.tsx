@@ -287,15 +287,16 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     }
     setSharingComprovante(true);
     try {
-      const buffer = await exportComprovante(idSaida, comprovanteViewerIndex);
-      const base64 = arrayBufferToBase64(buffer);
+      const exported = await exportComprovante(idSaida, comprovanteViewerIndex);
+      const base64 = arrayBufferToBase64(exported.buffer);
       const path = `${FileSystem.cacheDirectory}comprovante-${idSaida}-${comprovanteViewerIndex}.jpg`;
       await FileSystem.writeAsStringAsync(path, base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
+      // Preferir arquivo: a imagem já inclui cartão com recebedor, data/hora e status (WhatsApp).
       await Sharing.shareAsync(path, {
         mimeType: "image/jpeg",
-        dialogTitle: "Comprovante",
+        dialogTitle: exported.status ? `Comprovante — ${exported.status}` : "Comprovante",
       });
     } catch {
       Alert.alert("Erro", "Não foi possível compartilhar o comprovante.");
