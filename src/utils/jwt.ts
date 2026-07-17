@@ -10,6 +10,7 @@ export interface JwtClaims {
   motoboy_id?: number;
   pode_ler_coleta?: boolean;
   pode_ler_saida?: boolean;
+  pode_digitar_codigo_manual?: boolean;
   [key: string]: unknown;
 }
 

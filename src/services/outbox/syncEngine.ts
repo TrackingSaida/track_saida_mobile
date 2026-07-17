@@ -1,17 +1,13 @@
 import type { AxiosError } from "axios";
 import { marcarEntregue, marcarAusente } from "../../features/entregas/api";
 import { uploadDeliveryPhoto } from "../deliveryPhotoService";
-import {
-  uploadEntreguePhotosForDeliveryIds,
-  uploadAusentePhotosForDeliveryIds,
-} from "../../features/entregas/utils/deliveryPhotoBatch";
 import { isNetworkOrTimeoutError } from "../apiClient";
 import {
   loadManifest,
   persistAction,
   removeAction,
 } from "./outboxStorage";
-import type { OutboxDeliveryAction } from "./types";
+import { createPhotoId, type OutboxDeliveryAction } from "./types";
 import { isOnline, subscribeNetworkStatus } from "./networkStatus";
 import { useOutboxStore } from "../../store/outboxStore";
 import { useDeliveryStore, buildApplyRouteSyncDeps } from "../../store/deliveryStore";
@@ -40,37 +36,55 @@ function isAlreadyFinalizedError(e: unknown): boolean {
 
 async function uploadActionPhotos(action: OutboxDeliveryAction): Promise<OutboxDeliveryAction> {
   const tipo = action.kind === "entregue" ? "entregue" : "ausente";
-  const updatedPhotos = [...action.photos];
+  let current = action;
 
-  for (let i = 0; i < updatedPhotos.length; i++) {
-    const photo = updatedPhotos[i];
-    if (photo.status === "uploaded") continue;
+  for (let i = 0; i < current.photos.length; i++) {
+    const photo = current.photos[i];
+    if (photo.status === "uploaded" && (photo.uploadedKeys?.length ?? 0) > 0) continue;
 
-    const primaryId = action.idSaidas[0];
+    const photoId = photo.photoId || createPhotoId();
+    const primaryId = current.idSaidas[0];
     const filename = photo.localUri.split("/").pop() || "foto.jpg";
+    const existingKey = photo.uploadedKeys?.[0];
 
-    await uploadDeliveryPhoto({
+    const objectKey = await uploadDeliveryPhoto({
       id_saida: primaryId,
       tipo,
       uri: photo.localUri,
       mimeType: "image/jpeg",
       filename,
+      photoId,
+      existingObjectKey: existingKey,
       validarCamposObrigatorios: false,
       alterarStatus: false,
     });
 
-    if (action.idSaidas.length > 1) {
-      const batchFn =
-        tipo === "entregue"
-          ? uploadEntreguePhotosForDeliveryIds
-          : uploadAusentePhotosForDeliveryIds;
-      await batchFn([photo.localUri], action.idSaidas.slice(1));
+    for (const idSaida of current.idSaidas.slice(1)) {
+      await uploadDeliveryPhoto({
+        id_saida: idSaida,
+        tipo,
+        uri: photo.localUri,
+        mimeType: "image/jpeg",
+        filename,
+        photoId,
+        existingObjectKey: objectKey,
+        validarCamposObrigatorios: false,
+        alterarStatus: false,
+      });
     }
 
-    updatedPhotos[i] = { ...photo, status: "uploaded", uploadedKeys: photo.uploadedKeys ?? [] };
+    const updatedPhotos = [...current.photos];
+    updatedPhotos[i] = {
+      ...photo,
+      photoId,
+      status: "uploaded",
+      uploadedKeys: [objectKey],
+    };
+    current = { ...current, photos: updatedPhotos };
+    await persistAction(current);
   }
 
-  return { ...action, photos: updatedPhotos };
+  return current;
 }
 
 async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
@@ -112,7 +126,6 @@ async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
 
   if (current.photos.length > 0) {
     current = await uploadActionPhotos(current);
-    await persistAction(current);
   }
 
   await markActionOnServer(current);
@@ -151,7 +164,7 @@ export async function processOutboxQueue(): Promise<void> {
 
         if (isNetworkOrTimeoutError(e)) break;
         if (attempts < MAX_ATTEMPTS) {
-          await sleep(Math.min(2000 * attempts, 8000));
+          await sleep(Math.min(2000 * attempts + Math.floor(Math.random() * 400), 8000));
         }
       }
     }

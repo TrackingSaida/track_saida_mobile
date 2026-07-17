@@ -4,9 +4,14 @@ export type OutboxActionKind = "entregue" | "ausente";
 
 export type OutboxPhotoEntry = {
   localUri: string;
+  photoId?: string;
   uploadedKeys?: string[];
   status: "pending" | "uploaded" | "failed";
 };
+
+export function createPhotoId(): string {
+  return `ph_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export type OutboxActionState = "pending" | "syncing" | "failed" | "done";
 

@@ -108,6 +108,8 @@ export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void
   const activeRouteId = useDeliveryStore.getState().activeRouteId;
 
   const afterAlert = async () => {
+    // Libera navegação imediatamente; resumo/modais seguem em segundo plano.
+    onAfterIndividualAlert?.();
     try {
       if (routeJustCompleted && rotaIdForResumo != null) {
         await openRouteCompletedModal(rotaIdForResumo);
@@ -125,13 +127,11 @@ export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void
       );
 
       if (context === "DAY_COMPLETED") {
+        // openDayCompletedModal já busca resumo; evita chamada duplicada prévia.
         await openDayCompletedModal();
-        return;
       }
-
-      onAfterIndividualAlert?.();
     } catch {
-      onAfterIndividualAlert?.();
+      /* feedback secundário não deve bloquear o fluxo operacional */
     }
   };
 

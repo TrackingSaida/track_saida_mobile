@@ -43,6 +43,9 @@ export default function EntregaCodigoHeader({
   const entradaLabel = formatEntradaDataBadge(data);
   const showEntradaBadge = entradaLabel !== "—";
   const badgeTextColor = servicoLabel === "Flex" ? "#6a5a00" : "#fff";
+  const isAvulso = servicoLabel === "Avulso";
+  const codigoEllipsize = isAvulso ? "tail" : "middle";
+  const codigoLines = isAvulso && !compact ? 2 : 1;
 
   const styles = useMemo(
     () =>
@@ -54,6 +57,7 @@ export default function EntregaCodigoHeader({
           fontWeight: "700",
           color: colors.text,
           marginBottom: compact ? 0 : 0,
+          flexShrink: 1,
         },
         rightCol: { alignItems: "flex-end", maxWidth: "48%" },
         badgesRow: { flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" },
@@ -80,7 +84,7 @@ export default function EntregaCodigoHeader({
     <View style={[styles.row, style]}>
       {leftAccessory}
       <View style={styles.left}>
-        <Text style={styles.codigo} numberOfLines={1} ellipsizeMode="middle">
+        <Text style={styles.codigo} numberOfLines={codigoLines} ellipsizeMode={codigoEllipsize}>
           {codigo?.trim() || codigoFallback}
         </Text>
       </View>

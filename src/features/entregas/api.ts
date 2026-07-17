@@ -188,6 +188,7 @@ export async function getPresignUpload(params: {
   id_saida: number;
   tipo: "entregue" | "ausente";
   content_type: string;
+  photo_id?: string;
 }): Promise<PresignUploadResponse> {
   const { data } = await client.post<PresignUploadResponse>("/upload/presign", params);
   return data;
@@ -198,11 +199,13 @@ export async function patchFotoSaida(
   fotoUrl: string,
   status: "entregue" | "ausente",
   validarCamposObrigatorios = true,
-  alterarStatus = true
+  alterarStatus = true,
+  photoId?: string
 ): Promise<void> {
   await client.patch(`/saidas/${idSaida}/foto`, {
     foto_url: fotoUrl,
     status,
+    photo_id: photoId || undefined,
     validar_campos_obrigatorios: !!validarCamposObrigatorios,
     alterar_status: !!alterarStatus,
   });
@@ -365,7 +368,7 @@ export async function getComprovanteWatermark(idSaida: number): Promise<Comprova
 const BASE64_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let out = "";
   for (let i = 0; i < bytes.length; i += 3) {
@@ -407,6 +410,16 @@ export async function fetchComprovanteImagesDataUris(idSaida: number): Promise<s
 export async function fetchComprovanteImageDataUri(idSaida: number): Promise<string | null> {
   const images = await fetchComprovanteImagesDataUris(idSaida);
   return images[0] ?? null;
+}
+
+/** Exporta JPEG watermarkado (sem PII) para compartilhamento. */
+export async function exportComprovante(idSaida: number, index = 0): Promise<ArrayBuffer> {
+  const { data } = await client.post<ArrayBuffer>(
+    `/upload/saida/${idSaida}/comprovante-export`,
+    { index },
+    { responseType: "arraybuffer" }
+  );
+  return data;
 }
 
 // --- Otimização e rotas ativas persistidas ---

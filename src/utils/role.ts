@@ -36,6 +36,16 @@ export function effectivePodeLerColeta(claims: JwtClaims | null | undefined): bo
   return Boolean(claims?.pode_ler_coleta);
 }
 
+/**
+ * Digitação manual de código: staff (0–3) sempre pode; motoboy segue flag do token.
+ */
+export function effectivePodeDigitarCodigoManual(claims: JwtClaims | null | undefined): boolean {
+  const r = claims?.role;
+  if (isStaffOperacaoRole(r)) return true;
+  if (isMotoboyRole(r)) return Boolean(claims?.pode_digitar_codigo_manual);
+  return Boolean(claims?.pode_digitar_codigo_manual);
+}
+
 /** Rótulo curto para exibição (opcional). */
 export function staffRoleLabel(role: number | undefined): string {
   switch (role) {

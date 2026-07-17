@@ -12,6 +12,7 @@ export type EventoHistoricoKey =
   | "ausente_lote"
   | "cancelado"
   | "nova_tentativa"
+  | "liberacao_ausencias"
   | "coleta"
   | "criado_coleta"
   | "reatribuido"
@@ -41,6 +42,7 @@ const LABELS: Partial<Record<EventoHistoricoKey, string>> = {
   ausente_lote: "Destinatário ausente",
   cancelado: "Pedido cancelado",
   nova_tentativa: "Nova tentativa liberada",
+  liberacao_ausencias: "Nova tentativa liberada pela operação",
   coleta: "Pacote coletado",
   criado_coleta: "Pacote coletado",
   reatribuido: "Entregador reatribuído",
@@ -72,7 +74,7 @@ const BLUE_KEYS = new Set<EventoHistoricoKey>([
   "nova_saida_mesmo_entregador",
 ]);
 
-const ORANGE_KEYS = new Set<EventoHistoricoKey>(["nova_tentativa"]);
+const ORANGE_KEYS = new Set<EventoHistoricoKey>(["nova_tentativa", "liberacao_ausencias"]);
 
 const RED_KEYS = new Set<EventoHistoricoKey>([
   "ausente",

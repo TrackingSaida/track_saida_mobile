@@ -42,6 +42,8 @@ export interface EntregaListItem {
   campos_obrigatorios?: string[];
   campos_obrigatorios_entregue?: string[];
   campos_obrigatorios_ausente?: string[];
+  ausencias_total?: number;
+  bloqueado_ausencias?: boolean;
 }
 
 export interface EntregaHistoricoItem {

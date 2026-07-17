@@ -155,13 +155,15 @@ interface DeliveryState {
   markDelivered: (
     idSaida: number,
     body?: EntregueBody,
-    headers?: Record<string, string>
+    headers?: Record<string, string>,
+    options?: { skipReconcile?: boolean }
   ) => Promise<MarkDeliveryResult>;
   markAbsent: (
     idSaida: number,
     motivoId: number,
     observacao?: string,
-    headers?: Record<string, string>
+    headers?: Record<string, string>,
+    options?: { skipReconcile?: boolean }
   ) => Promise<MarkDeliveryResult>;
   applyLocalMarkDelivered: (idSaidas: number[]) => void;
   applyLocalMarkAbsent: (idSaidas: number[]) => void;
@@ -618,13 +620,16 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     }));
   },
 
-  markDelivered: async (idSaida, body, headers) => {
+  markDelivered: async (idSaida, body, headers, options) => {
     const response = await marcarEntregue(idSaida, body, headers);
     get().applyLocalMarkDelivered([idSaida]);
     const syncResult = await applyRouteSyncFromResponse(
       response.rota_sync,
       buildApplyRouteSyncDeps(get, set)
     );
+    if (options?.skipReconcile) {
+      return { ...response, ...syncResult };
+    }
     if (syncResult.routeJustCompleted) {
       return { ...response, ...syncResult };
     }
@@ -639,13 +644,16 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     return { ...response, ...syncResult };
   },
 
-  markAbsent: async (idSaida, motivoId, observacao, headers) => {
+  markAbsent: async (idSaida, motivoId, observacao, headers, options) => {
     const response = await marcarAusente(idSaida, motivoId, observacao, headers);
     get().applyLocalMarkAbsent([idSaida]);
     const syncResult = await applyRouteSyncFromResponse(
       response.rota_sync,
       buildApplyRouteSyncDeps(get, set)
     );
+    if (options?.skipReconcile) {
+      return { ...response, ...syncResult };
+    }
     if (syncResult.routeJustCompleted) {
       return { ...response, ...syncResult };
     }

@@ -16,11 +16,13 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import * as ImagePicker from "expo-image-picker";
-import { getEntrega, fetchComprovanteImagesDataUris, getEntregaHistorico } from "../api";
+import { getEntrega, fetchComprovanteImagesDataUris, getEntregaHistorico, exportComprovante, arrayBufferToBase64 } from "../api";
 import type { EntregaListItem, EntregaHistoricoItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { getNetworkState } from "../../../services/outbox/networkStatus";
 import { useOutboxStore, resolveLocalComprovanteUris } from "../../../store/outboxStore";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import AddressQuickForm from "../components/AddressQuickForm";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
@@ -63,6 +65,27 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           borderColor: colors.warning + "55",
         },
         avisoRotaText: { fontSize: 14, color: colors.text, fontWeight: "600" },
+        avisoBloqueio: {
+          backgroundColor: colors.danger + "22",
+          padding: 12,
+          borderRadius: 10,
+          marginBottom: 12,
+          borderWidth: 1,
+          borderColor: colors.danger + "55",
+        },
+        avisoBloqueioText: { fontSize: 14, color: colors.text, lineHeight: 20 },
+        comprovanteViewerHeader: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        },
+        btnCompartilhar: {
+          paddingVertical: 8,
+          paddingHorizontal: 14,
+          borderRadius: 8,
+          backgroundColor: "rgba(255,255,255,0.2)",
+        },
+        btnCompartilharText: { color: "#fff", fontSize: 14, fontWeight: "700" },
         actions: { marginTop: 8, gap: 12 },
         btnEntregue: {
           backgroundColor: colors.success,
@@ -128,6 +151,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [loadingComprovante, setLoadingComprovante] = useState(false);
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
   const [comprovanteViewerIndex, setComprovanteViewerIndex] = useState(0);
+  const [sharingComprovante, setSharingComprovante] = useState(false);
   const comprovanteViewerRef = useRef<ScrollView>(null);
   const { width: windowWidth } = useWindowDimensions();
   const [showTimelineSheet, setShowTimelineSheet] = useState(false);
@@ -253,6 +277,32 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       });
     });
   }, [showComprovanteViewer, comprovanteViewerIndex, comprovanteUris.length, windowWidth]);
+
+  const handleCompartilharComprovante = useCallback(async () => {
+    if (sharingComprovante) return;
+    const available = await Sharing.isAvailableAsync();
+    if (!available) {
+      Alert.alert("Indisponível", "Compartilhamento não está disponível neste dispositivo.");
+      return;
+    }
+    setSharingComprovante(true);
+    try {
+      const buffer = await exportComprovante(idSaida, comprovanteViewerIndex);
+      const base64 = arrayBufferToBase64(buffer);
+      const path = `${FileSystem.cacheDirectory}comprovante-${idSaida}-${comprovanteViewerIndex}.jpg`;
+      await FileSystem.writeAsStringAsync(path, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      await Sharing.shareAsync(path, {
+        mimeType: "image/jpeg",
+        dialogTitle: "Comprovante",
+      });
+    } catch {
+      Alert.alert("Erro", "Não foi possível compartilhar o comprovante.");
+    } finally {
+      setSharingComprovante(false);
+    }
+  }, [comprovanteViewerIndex, idSaida, sharingComprovante]);
 
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
   const handleAbrirAusente = () => setModalAusente(true);
@@ -452,6 +502,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     isEntregue ||
     (isCancelado && !!entrega.tem_comprovante) ||
     (isAusente && (comprovanteUris.length > 0 || !!entrega.tem_comprovante));
+  const bloqueadoAusencias = isAusente && !!entrega.bloqueado_ausencias;
 
   return (
     <View style={styles.container}>
@@ -534,7 +585,13 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         ) : null}
 
         <View style={styles.actions}>
-          {isAusente ? (
+          {bloqueadoAusencias ? (
+            <View style={styles.avisoBloqueio}>
+              <Text style={styles.avisoBloqueioText}>
+                Limite de tentativas atingido. Solicite liberação à operação.
+              </Text>
+            </View>
+          ) : isAusente ? (
             <TouchableOpacity
               style={[styles.btnNovaTentativa, saving && styles.btnDisabled]}
               onPress={async () => {
@@ -657,7 +714,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             const uris = await applyLocalComprovante();
             applyLocalFinalized("entregue", uris.length > 0);
           } else {
-            await load();
+            applyLocalFinalized("entregue", true);
+            void load();
           }
           const extra = marcacao as { routeJustCompleted?: boolean; rotaIdForResumo?: string | number | null };
           runPostFinalizeFeedback({
@@ -697,11 +755,24 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
               backgroundColor: "rgba(0,0,0,0.3)",
             }}
           >
-            <TouchableOpacity onPress={() => setShowComprovanteViewer(false)}>
-              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 6 }}>Fechar</Text>
-            </TouchableOpacity>
-            <Text style={{ color: "#fff", fontSize: 14 }}>
-              Comprovante {entrega?.codigo ? `- ${entrega.codigo}` : ""}
+            <View style={styles.comprovanteViewerHeader}>
+              <TouchableOpacity onPress={() => setShowComprovanteViewer(false)}>
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Fechar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.btnCompartilhar}
+                onPress={() => void handleCompartilharComprovante()}
+                disabled={sharingComprovante || comprovanteUris.length === 0}
+              >
+                {sharingComprovante ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.btnCompartilharText}>Compartilhar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: "#fff", fontSize: 14, marginTop: 6 }}>
+              Comprovante
               {comprovanteUris.length > 1
                 ? ` (${comprovanteViewerIndex + 1}/${comprovanteUris.length})`
                 : ""}
