@@ -418,10 +418,11 @@ export type ComprovanteExportResult = {
   status?: string;
   dataHora?: string;
   recebedor?: string;
+  entregador?: string;
   caption: string;
 };
 
-/** Exporta JPEG com cartão de dados + foto watermarkada para WhatsApp/share. */
+/** Exporta JPEG com cartão + até 3 fotos do mesmo evento (WhatsApp/share). */
 export async function exportComprovante(
   idSaida: number,
   index = 0
@@ -441,11 +442,15 @@ export async function exportComprovante(
   const status = getHeader("x-comprovante-status");
   const dataHora = getHeader("x-comprovante-data");
   const recebedor = getHeader("x-comprovante-recebedor");
+  const entregador = getHeader("x-comprovante-entregador");
+  const labelEntregador =
+    String(status || "").toLowerCase() === "entregue" ? "Entregue por" : "Motoboy";
   const captionParts = [
     status ? `Comprovante — ${status}` : "Comprovante de entrega",
     codigo ? `Código: ${codigo}` : null,
     dataHora ? `Data/hora: ${dataHora}` : null,
     recebedor ? `Recebido por: ${recebedor}` : null,
+    entregador ? `${labelEntregador}: ${entregador}` : null,
   ].filter(Boolean) as string[];
   return {
     buffer: response.data,
@@ -453,6 +458,7 @@ export async function exportComprovante(
     status: status || undefined,
     dataHora: dataHora || undefined,
     recebedor: recebedor || undefined,
+    entregador: entregador || undefined,
     caption: captionParts.join("\n"),
   };
 }
