@@ -27,8 +27,7 @@ import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useAuthStore } from "../../../store/authStore";
-import { refreshOnce } from "../../../services/apiClient";
-import { effectivePodeDigitarCodigoManual, isMotoboyRole } from "../../../utils/role";
+import { effectivePodeDigitarCodigoManual } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import {
@@ -372,14 +371,6 @@ export default function ScanScreen({ navigation }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const isFocused = useIsFocused();
   const torch = useScannerTorch(isFocused && !!permission?.granted && !modoManual);
-
-  // Token do motoboy dura dias: ao abrir o scanner, renova claims (ex.: digitar manual).
-  useFocusEffect(
-    useCallback(() => {
-      if (!isMotoboyRole(currentUser?.role)) return;
-      void refreshOnce();
-    }, [currentUser?.role])
-  );
 
   const pushFeedback = useCallback((tipo: FeedbackTipo, mensagem: string, codigoItem?: string) => {
     if (feedbackClearRef.current) {

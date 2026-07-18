@@ -483,8 +483,12 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     );
   }
 
-  const statusNorm = (entrega.status || "").toUpperCase();
-  const podeFinalizar = statusNorm === "EM_ROTA";
+  const statusNorm = (entrega.status || "").toUpperCase().replace(/\s+/g, "_");
+  // Finalizar não depende de roteirização: SAIU_PARA_ENTREGA (após scan/nova tentativa) ou EM_ROTA.
+  const podeFinalizar =
+    statusNorm === "EM_ROTA" ||
+    statusNorm === "SAIU_PARA_ENTREGA" ||
+    statusNorm === "SAIU";
   const awaitingSync = outboxActions.some(
     (action) =>
       (action.state === "pending" || action.state === "syncing" || action.state === "failed") &&
@@ -497,7 +501,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const isCancelado = statusKind === "cancelado";
   const isPendente = statusKind === "pendente";
   const isFinalizado = isEntregue || isAusente || isCancelado;
-  const mostrarAvisoRota = !isFinalizado && !podeFinalizar && !isAusente;
   const temObsEntrega = !!(entrega.observacao_entrega || "").trim();
   const showComprovanteBlock =
     isEntregue ||
@@ -513,14 +516,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         paddingTop={Math.max(12, insets.top)}
       />
       <ScrollView contentContainerStyle={styles.content}>
-        {mostrarAvisoRota ? (
-          <View style={styles.avisoRota}>
-            <Text style={styles.avisoRotaText}>
-              Inicie a rota na tela de escaneamento para poder finalizar esta entrega.
-            </Text>
-          </View>
-        ) : null}
-
         <DetailStatusHero entrega={entrega} />
         <DetailOperacaoResumoBlock
           entrega={entrega}
@@ -599,8 +594,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
                 setSaving(true);
                 try {
                   await novaTentativa(idSaida);
-                  Alert.alert("Sucesso", "Pedido colocado em rota para nova tentativa.", [
-                    { text: "OK", onPress: () => navigation.goBack() },
+                  Alert.alert("Sucesso", "Nova tentativa liberada. Você já pode finalizar a entrega.", [
+                    { text: "OK", onPress: () => void load() },
                   ]);
                 } catch (e: unknown) {
                   const msg =
