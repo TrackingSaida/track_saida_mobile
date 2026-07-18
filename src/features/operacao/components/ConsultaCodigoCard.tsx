@@ -49,6 +49,8 @@ export default function ConsultaCodigoCard({ item, onPress, compact = false }: P
         exibicao={sv.label}
         data={dataEntrada}
         compact={compact}
+        statusBadgeBg={sv.bg}
+        statusBadgeFg={sv.fg}
         style={{ marginBottom: compact ? 8 : 10 }}
       />
       {item.entregador ? <Text style={styles.meta}>Entregador: {item.entregador}</Text> : null}

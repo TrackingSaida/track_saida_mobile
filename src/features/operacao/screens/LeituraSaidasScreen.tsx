@@ -250,7 +250,7 @@ export default function LeituraSaidasScreen() {
   const [confirmandoTroca, setConfirmandoTroca] = useState(false);
   const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
   const [modalSelecaoMotoboyVisible, setModalSelecaoMotoboyVisible] = useState(false);
-  const [manualExpanded, setManualExpanded] = useState(false);
+  const [modoManual, setModoManual] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
   const [avulsoIdentificacao, setAvulsoIdentificacao] = useState("");
   const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
@@ -397,14 +397,6 @@ export default function LeituraSaidasScreen() {
         ultimaCodigo: { fontSize: 17, fontWeight: "700", color: colors.text },
         ultimaStatus: { fontSize: 14, color: colors.textSecondary, marginTop: 6 },
         vazioText: { fontSize: 14, color: colors.textSecondary, textAlign: "center", paddingVertical: 8 },
-        manualToggle: {
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingVertical: 12,
-          paddingHorizontal: 4,
-        },
-        manualToggleText: { fontSize: 15, fontWeight: "600", color: colors.primary, flex: 1 },
         input: {
           backgroundColor: colors.inputBackground,
           borderWidth: 1,
@@ -573,10 +565,12 @@ export default function LeituraSaidasScreen() {
         cameraMetaMuted: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 2, textAlign: "right" },
         cameraFooter: {
           position: "absolute",
-          bottom: Math.max(20, insets.bottom + 6),
+          bottom: 0,
           left: 14,
           right: 14,
           zIndex: 12,
+          paddingBottom: Math.max(20, insets.bottom + 6),
+          gap: 8,
         },
         cameraFooterBox: {
           backgroundColor: "rgba(0,0,0,0.55)",
@@ -588,6 +582,27 @@ export default function LeituraSaidasScreen() {
         cameraFooterLabel: { fontSize: 11, color: "rgba(255,255,255,0.75)", marginBottom: 4 },
         cameraFooterCodigo: { fontSize: 16, fontWeight: "700", color: "#fff" },
         cameraFooterStatus: { fontSize: 13, color: "rgba(255,255,255,0.88)", marginTop: 4 },
+        btnAvulsoFooter: {
+          backgroundColor: colors.primary,
+          paddingVertical: 14,
+          borderRadius: 12,
+          alignItems: "center",
+        },
+        btnAvulsoFooterText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnDisabled: { opacity: 0.7 },
+        linkManualWhite: { paddingVertical: 10, alignItems: "center" },
+        linkManualTextWhite: { fontSize: 15, color: "rgba(255,255,255,0.95)" },
+        modoManualWrap: {
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingHorizontal: 20,
+          paddingTop: insets.top + 12,
+          paddingBottom: Math.max(24, insets.bottom + 12),
+        },
+        modoManualTitle: { fontSize: 22, fontWeight: "700", color: colors.text, marginTop: 8, marginBottom: 4 },
+        modoManualSubtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 20 },
+        linkManual: { marginTop: 20, alignItems: "center" },
+        linkManualText: { fontSize: 15, color: colors.primary },
         cameraFeedbackAbs: {
           position: "absolute",
           top: insets.top + 72,
@@ -757,6 +772,7 @@ export default function LeituraSaidasScreen() {
 
   const fecharCamera = useCallback(() => {
     suppressAutoCameraRef.current = true;
+    setModoManual(false);
     setCameraAtiva(false);
   }, []);
 
@@ -1046,13 +1062,24 @@ export default function LeituraSaidasScreen() {
       setAvulsoModalVisible(false);
       setAvulsoIdentificacao("");
       setAvulsoQuantidade("1");
-      abrirCameraExplicito();
+      setModoManual(false);
+      if (!cameraAtiva) {
+        abrirCameraExplicito();
+      }
     } catch (err) {
       pushFeedback("erro", formatApiError(err, "Erro ao lançar avulso."));
     } finally {
       setLoading(false);
     }
-  }, [motoboyId, motoboyNome, avulsoQuantidade, avulsoIdentificacao, pushFeedback, abrirCameraExplicito]);
+  }, [
+    motoboyId,
+    motoboyNome,
+    avulsoQuantidade,
+    avulsoIdentificacao,
+    pushFeedback,
+    abrirCameraExplicito,
+    cameraAtiva,
+  ]);
 
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult | { nativeEvent: BarcodeScanningResult }) => {
@@ -1361,54 +1388,6 @@ export default function LeituraSaidasScreen() {
           </View>
         </View>
 
-        <TouchableOpacity
-          style={[styles.btnOutline, { marginBottom: 10 }]}
-          onPress={() => setAvulsoModalVisible(true)}
-          disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-        >
-          <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
-        </TouchableOpacity>
-
-        {podeDigitarManual ? (
-          <>
-            <Pressable
-              style={styles.manualToggle}
-              onPress={() => setManualExpanded((v) => !v)}
-              accessibilityRole="button"
-              accessibilityLabel="Digitar código manualmente"
-            >
-              <Text style={styles.manualToggleText}>Digitar código manualmente</Text>
-              <Ionicons name={manualExpanded ? "chevron-up" : "chevron-down"} size={22} color={colors.primary} />
-            </Pressable>
-            {manualExpanded ? (
-              <View style={{ marginBottom: 14 }}>
-                <TextInput
-                  style={[styles.input, !motoboySelecionadoOk && { opacity: 0.5 }]}
-                  placeholder="Código da saída"
-                  placeholderTextColor={colors.placeholder}
-                  value={codigoInput}
-                  onChangeText={setCodigoInput}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  editable={!loading && motoboySelecionadoOk && podeLerSaida}
-                  onSubmitEditing={() => void handleRegistrarManual()}
-                />
-                <TouchableOpacity
-                  style={styles.btnOutline}
-                  onPress={() => void handleRegistrarManual()}
-                  disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                >
-                  {loading ? (
-                    <ActivityIndicator color={colors.primary} size="small" />
-                  ) : (
-                    <Text style={styles.btnTextOutline}>Registrar</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </>
-        ) : null}
-
         <View style={styles.listaContainer}>
           <View style={styles.listaHeader}>
             <Text style={styles.listaHeaderText}>Leituras recentes</Text>
@@ -1455,75 +1434,173 @@ export default function LeituraSaidasScreen() {
       </View>
 
       <Modal visible={cameraAtiva} animationType="slide" onRequestClose={fecharCamera}>
-        <View style={styles.cameraModalOverlay}>
-          <View style={styles.cameraHeader}>
-            <View style={styles.cameraHeaderRow}>
-              <Pressable onPress={fecharCamera} accessibilityLabel="Fechar câmera">
-                <Text style={styles.cameraBackText}>← Fechar</Text>
-              </Pressable>
-              <View style={styles.cameraMeta}>
-                <Text style={styles.cameraMetaLine} numberOfLines={1}>
-                  {motoboyNome || "—"}
-                </Text>
-                <Text style={styles.cameraMetaMuted}>Lidos: {totalValidas}</Text>
-              </View>
-            </View>
-          </View>
-
-          {feedbackVisual ? renderFeedbackStrip("camera") : null}
-
-          {!permission ? (
-            <View style={[styles.cameraModalOverlay, { justifyContent: "center", alignItems: "center" }]}>
-              <Text style={styles.permissionText}>Carregando permissões…</Text>
-            </View>
-          ) : !permission.granted ? (
-            <View style={[styles.cameraModalOverlay, { justifyContent: "center", alignItems: "center", padding: 24 }]}>
-              <Text style={styles.permissionText}>Permita o uso da câmera para escanear.</Text>
-              <TouchableOpacity style={styles.btnPrimary} onPress={() => void requestPermission()}>
-                <Text style={styles.btnTextPrimary}>Permitir câmera</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <>
-              <CameraView
-                style={StyleSheet.absoluteFill}
-                facing="back"
-                barcodeScannerSettings={{
-                  barcodeTypes: BARCODE_TYPES,
-                }}
-                onBarcodeScanned={loading || !motoboyId ? undefined : handleBarcodeScanned}
-              />
-              <View
-                style={{
-                  ...StyleSheet.absoluteFillObject,
-                  justifyContent: "center",
-                  alignItems: "center",
-                }}
-                pointerEvents="none"
-              >
-                <ScanFrameOverlay wrapStyle={{}} />
-              </View>
+        {modoManual && podeDigitarManual ? (
+          <View style={styles.modoManualWrap}>
+            <Pressable
+              onPress={() => setModoManual(false)}
+              accessibilityLabel="Voltar para câmera"
+              disabled={loading}
+            >
+              <Text style={[styles.linkManualText, { fontWeight: "600" }]}>← Voltar</Text>
+            </Pressable>
+            <Text style={styles.modoManualTitle}>Digitar código</Text>
+            <Text style={styles.modoManualSubtitle}>
+              {motoboyNome ? `${motoboyNome} · Lidos: ${totalValidas}` : "Quando a câmera não for possível"}
+            </Text>
+            {feedbackVisual ? renderFeedbackStrip("main") : null}
+            <TextInput
+              style={styles.input}
+              placeholder="Código da saída"
+              placeholderTextColor={colors.placeholder}
+              value={codigoInput}
+              onChangeText={setCodigoInput}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!loading && motoboySelecionadoOk && podeLerSaida}
+              autoFocus
+              onSubmitEditing={() => void handleRegistrarManual()}
+            />
+            <TouchableOpacity
+              style={[styles.btnPrimary, loading && styles.btnDisabled]}
+              onPress={() => void handleRegistrarManual()}
+              disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+            >
               {loading ? (
-                <View style={styles.cameraSending} pointerEvents="none">
-                  <ActivityIndicator color="#fff" size="small" />
-                </View>
-              ) : null}
-              <View style={styles.cameraFooter} pointerEvents="none">
-                <View style={styles.cameraFooterBox}>
-                  <Text style={styles.cameraFooterLabel}>Última leitura</Text>
-                  {ultimaLeitura ? (
-                    <>
-                      <Text style={styles.cameraFooterCodigo}>{ultimaLeitura.codigo}</Text>
-                      <Text style={styles.cameraFooterStatus}>{labelResumoStatus(ultimaLeitura.status)}</Text>
-                    </>
-                  ) : (
-                    <Text style={styles.cameraFooterStatus}>Aguardando primeiro código…</Text>
-                  )}
+                <ActivityIndicator color={colors.primaryContrast} size="small" />
+              ) : (
+                <Text style={styles.btnTextPrimary}>Confirmar</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
+              onPress={() => setAvulsoModalVisible(true)}
+              disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+            >
+              <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.linkManual}
+              onPress={() => setModoManual(false)}
+              disabled={loading}
+            >
+              <Text style={styles.linkManualText}>← Usar câmera (padrão)</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.cameraModalOverlay}>
+            <View style={styles.cameraHeader}>
+              <View style={styles.cameraHeaderRow}>
+                <Pressable onPress={fecharCamera} accessibilityLabel="Fechar câmera">
+                  <Text style={styles.cameraBackText}>← Fechar</Text>
+                </Pressable>
+                <View style={styles.cameraMeta}>
+                  <Text style={styles.cameraMetaLine} numberOfLines={1}>
+                    {motoboyNome || "—"}
+                  </Text>
+                  <Text style={styles.cameraMetaMuted}>Lidos: {totalValidas}</Text>
                 </View>
               </View>
-            </>
-          )}
-        </View>
+            </View>
+
+            {feedbackVisual ? renderFeedbackStrip("camera") : null}
+
+            {!permission ? (
+              <View style={[styles.cameraModalOverlay, { justifyContent: "center", alignItems: "center" }]}>
+                <Text style={[styles.permissionText, { color: "#fff" }]}>Carregando permissões…</Text>
+              </View>
+            ) : !permission.granted ? (
+              <View
+                style={[
+                  styles.cameraModalOverlay,
+                  { justifyContent: "center", alignItems: "center", padding: 24 },
+                ]}
+              >
+                <Text style={[styles.permissionText, { color: "#fff" }]}>
+                  Permita o uso da câmera para escanear.
+                </Text>
+                <TouchableOpacity style={styles.btnPrimary} onPress={() => void requestPermission()}>
+                  <Text style={styles.btnTextPrimary}>Permitir câmera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }, loading && styles.btnDisabled]}
+                  onPress={() => setAvulsoModalVisible(true)}
+                  disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                >
+                  <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                </TouchableOpacity>
+                {podeDigitarManual ? (
+                  <TouchableOpacity
+                    style={styles.linkManualWhite}
+                    onPress={() => setModoManual(true)}
+                    disabled={loading}
+                  >
+                    <Text style={styles.linkManualTextWhite}>Digitar código manualmente</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : (
+              <>
+                <CameraView
+                  style={StyleSheet.absoluteFill}
+                  facing="back"
+                  barcodeScannerSettings={{
+                    barcodeTypes: BARCODE_TYPES,
+                  }}
+                  onBarcodeScanned={loading || !motoboyId ? undefined : handleBarcodeScanned}
+                />
+                <View
+                  style={{
+                    ...StyleSheet.absoluteFillObject,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    paddingBottom: 160,
+                  }}
+                  pointerEvents="none"
+                >
+                  <ScanFrameOverlay wrapStyle={{}} />
+                </View>
+                {loading ? (
+                  <View style={styles.cameraSending} pointerEvents="none">
+                    <ActivityIndicator color="#fff" size="small" />
+                  </View>
+                ) : null}
+                <View style={styles.cameraFooter}>
+                  <View style={styles.cameraFooterBox} pointerEvents="none">
+                    <Text style={styles.cameraFooterLabel}>Última leitura</Text>
+                    {ultimaLeitura ? (
+                      <>
+                        <Text style={styles.cameraFooterCodigo}>{ultimaLeitura.codigo}</Text>
+                        <Text style={styles.cameraFooterStatus}>
+                          {labelResumoStatus(ultimaLeitura.status)}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={styles.cameraFooterStatus}>Aguardando primeiro código…</Text>
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+                    onPress={() => setAvulsoModalVisible(true)}
+                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                    accessibilityLabel="Lançar Avulso"
+                  >
+                    <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                  </TouchableOpacity>
+                  {podeDigitarManual ? (
+                    <TouchableOpacity
+                      style={styles.linkManualWhite}
+                      onPress={() => setModoManual(true)}
+                      disabled={loading}
+                      accessibilityLabel="Digitar código manualmente"
+                    >
+                      <Text style={styles.linkManualTextWhite}>Digitar código manualmente</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </>
+            )}
+          </View>
+        )}
       </Modal>
 
       <Modal

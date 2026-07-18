@@ -14,6 +14,9 @@ type Props = {
   codigoFallback?: string;
   style?: StyleProp<ViewStyle>;
   compact?: boolean;
+  /** Quando informado, usa cores suaves (ex.: consulta operador) em vez do mapa sólido do motoboy. */
+  statusBadgeBg?: string;
+  statusBadgeFg?: string;
 };
 
 function badgeColorForExibicao(exibicao: string, colors: ReturnType<typeof useThemeColors>): string {
@@ -34,12 +37,16 @@ export default function EntregaCodigoHeader({
   codigoFallback = "—",
   style,
   compact = false,
+  statusBadgeBg,
+  statusBadgeFg,
 }: Props) {
   const colors = useThemeColors();
   const servicoLabel = servicoTipo(servico);
   const servicoColor = SERVICO_COLORS[servicoLabel] || colors.placeholder;
   const statusLabel = (exibicao || "—").trim() || "—";
-  const statusColor = badgeColorForExibicao(statusLabel, colors);
+  const useSoftStatus = Boolean(statusBadgeBg && statusBadgeFg);
+  const statusColor = useSoftStatus ? statusBadgeBg! : badgeColorForExibicao(statusLabel, colors);
+  const statusTextColor = useSoftStatus ? statusBadgeFg! : "#fff";
   const entradaLabel = formatEntradaDataBadge(data);
   const showEntradaBadge = entradaLabel !== "—";
   const badgeTextColor = servicoLabel === "Flex" ? "#6a5a00" : "#fff";
@@ -94,7 +101,7 @@ export default function EntregaCodigoHeader({
             <Text style={[styles.servicoBadgeText, { color: badgeTextColor }]}>{servicoLabel}</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-            <Text style={styles.statusBadgeText}>{statusLabel}</Text>
+            <Text style={[styles.statusBadgeText, { color: statusTextColor }]}>{statusLabel}</Text>
           </View>
           {(tentativa ?? 1) >= 2 && (
             <Text style={styles.tentativaBadge}>{tentativa}ª tentativa</Text>

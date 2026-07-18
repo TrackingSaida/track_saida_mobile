@@ -5,22 +5,35 @@ export function coresBadgeServico(servico?: string | null): { bg: string; fg: st
   return { bg: "rgba(13,110,253,0.12)", fg: "#0d6efd" };
 }
 
+/** Formata status para exibição (igual à web: `_` → espaço, UPPERCASE). */
+export function formatStatusSaidaLabel(status?: string | null): string {
+  if (status == null || status === "") return "—";
+  const s = String(status).replace(/_/g, " ").trim();
+  const lower = s.toLowerCase();
+  if (lower === "saiu" || lower === "saiu para entrega") return "SAIU PARA ENTREGA";
+  return s.toUpperCase();
+}
+
 export function statusVisualSaida(s?: string | null): { label: string; bg: string; fg: string } {
   const u = (s || "").toLowerCase().replace(/\s+/g, "_");
   if (u.includes("cancelad")) {
-    return { label: s || "Cancelado", bg: "rgba(220,53,69,0.14)", fg: "#dc3545" };
+    return { label: formatStatusSaidaLabel(s || "Cancelado"), bg: "rgba(220,53,69,0.14)", fg: "#dc3545" };
   }
   if (u.includes("entregue")) {
-    return { label: s || "Entregue", bg: "rgba(25,135,84,0.15)", fg: "#198754" };
+    return { label: formatStatusSaidaLabel(s || "Entregue"), bg: "rgba(25,135,84,0.15)", fg: "#198754" };
   }
   if (u.includes("rota") || u.includes("saiu") || u === "em_rota") {
-    return { label: (s || "Em rota").toUpperCase(), bg: "rgba(13,110,253,0.12)", fg: "#0d6efd" };
+    return { label: formatStatusSaidaLabel(s || "Em rota"), bg: "rgba(13,110,253,0.12)", fg: "#0d6efd" };
   }
   if (u.includes("nao_coletado") || u.includes("não_coletado")) {
-    return { label: s || "Não coletado", bg: "rgba(108,117,125,0.2)", fg: "#6c757d" };
+    return { label: formatStatusSaidaLabel(s || "Não coletado"), bg: "rgba(108,117,125,0.2)", fg: "#6c757d" };
   }
   if (u.includes("ausente") || u.includes("erro")) {
-    return { label: s || "—", bg: "rgba(220,53,69,0.12)", fg: "#dc3545" };
+    // Ausente alinhado à web (warning/laranja); erro permanece vermelho
+    if (u.includes("ausente")) {
+      return { label: formatStatusSaidaLabel(s || "Ausente"), bg: "rgba(255,152,0,0.18)", fg: "#ff9800" };
+    }
+    return { label: formatStatusSaidaLabel(s || "—"), bg: "rgba(220,53,69,0.12)", fg: "#dc3545" };
   }
-  return { label: (s || "—").toUpperCase(), bg: "rgba(13,110,253,0.10)", fg: "#0d6efd" };
+  return { label: formatStatusSaidaLabel(s || "—"), bg: "rgba(13,110,253,0.10)", fg: "#0d6efd" };
 }
