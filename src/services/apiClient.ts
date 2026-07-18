@@ -49,7 +49,8 @@ async function tryRefreshToken(attempt = 1): Promise<boolean> {
   }
 }
 
-function refreshOnce(): Promise<boolean> {
+/** Renova access token (claims atualizados do banco). Deduplica chamadas paralelas. */
+export function refreshOnce(): Promise<boolean> {
   if (!refreshPromise) {
     refreshPromise = tryRefreshToken().finally(() => {
       refreshPromise = null;
