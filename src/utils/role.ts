@@ -51,14 +51,20 @@ export function effectivePodeLerColeta(claims: JwtClaims | null | undefined): bo
   return asExplicitTrue(claims.pode_ler_coleta);
 }
 
+/** Digitação manual: nega só com false explícito (default liberado). */
+function asDefaultTrue(value: unknown): boolean {
+  if (value === false || value === 0 || value === "false" || value === "0") return false;
+  return true;
+}
+
 /**
- * Digitação manual de código: staff (0–3) sempre pode; motoboy só com flag explícita true no token.
+ * Digitação manual de código: staff (0–3) sempre pode; motoboy liberado por padrão (opt-out).
  */
 export function effectivePodeDigitarCodigoManual(claims: JwtClaims | null | undefined): boolean {
   if (!claims) return false;
   const r = asRole(claims.role);
   if (isStaffOperacaoRole(r)) return true;
-  if (isMotoboyRole(r)) return asExplicitTrue(claims.pode_digitar_codigo_manual);
+  if (isMotoboyRole(r)) return asDefaultTrue(claims.pode_digitar_codigo_manual);
   return false;
 }
 
