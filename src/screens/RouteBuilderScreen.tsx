@@ -23,10 +23,8 @@ import RouteBottomSheet from "../components/RouteBottomSheet";
 import RouteMarkerCard from "../components/RouteMarkerCard";
 import RouteSequenceStrip from "../components/RouteSequenceStrip";
 import FormEntregaConcluida from "../features/entregas/components/FormEntregaConcluida";
-import FormAusenteModal, {
-  uploadAusentePhotosForDeliveryIds,
-} from "../features/entregas/components/FormAusenteModal";
-import type { EntregueBody } from "../features/entregas/api";
+import FormAusenteModal from "../features/entregas/components/FormAusenteModal";
+import type { MarcacaoEntregaResponse } from "../features/entregas/types";
 import { getEntrega } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
 import {
@@ -520,22 +518,26 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     [openAusenteForDelivery]
   );
 
-  const handleConfirmarEntregueBatch = useCallback(
-    async (body: EntregueBody) => {
-      if (!pendingEntregueIds || pendingEntregueIds.length === 0) return;
-      const codigoFeedback = selectedDelivery?.codigo ?? null;
-      let entregaAtrasada = false;
-      let routeJustCompleted = false;
-      let rotaIdForResumo: string | null = null;
+  const closeAusenteModal = useCallback(() => {
+    setShowAusenteModal(false);
+    setDeliveryForAusente(null);
+    setPendingAusenteIds([]);
+    setAusenteBatchCount(1);
+  }, []);
 
-      for (let i = 0; i < pendingEntregueIds.length; i++) {
-        const res = await markDelivered(pendingEntregueIds[i], body);
-        if (res.entrega_atrasada) entregaAtrasada = true;
-        if (res.routeJustCompleted) {
-          routeJustCompleted = true;
-          rotaIdForResumo = res.rotaIdForResumo;
-        }
-      }
+  const handleEntregueSuccess = useCallback(
+    async (result?: { marcacao?: MarcacaoEntregaResponse; queued?: boolean }) => {
+      if (!pendingEntregueIds || pendingEntregueIds.length === 0) return;
+      const marcacao = result?.marcacao;
+      const codigoFeedback = selectedDelivery?.codigo ?? null;
+      const entregaAtrasada = marcacao?.entrega_atrasada ?? false;
+      const extra = marcacao as MarcacaoEntregaResponse & {
+        routeJustCompleted?: boolean;
+        rotaIdForResumo?: string | null;
+      };
+      const routeJustCompleted = extra.routeJustCompleted ?? false;
+      const rotaIdForResumo = extra.rotaIdForResumo ?? null;
+
       if (isRouteActive && activeRouteId && !routeJustCompleted) {
         recalcPolyline();
         const nextIdx = useDeliveryStore.getState().activeStopIndex;
@@ -557,120 +559,73 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         routeJustCompleted,
         rotaIdForResumo,
         isRouteFlow: isRouteActive,
+        queued: result?.queued,
       });
     },
-    [pendingEntregueIds, markDelivered, isRouteActive, activeRouteId, selectedDelivery, recalcPolyline, openNextStopNavigation]
+    [pendingEntregueIds, isRouteActive, activeRouteId, selectedDelivery, recalcPolyline, openNextStopNavigation]
   );
+
+  const resolveAusenteBatchTargets = useCallback(async (): Promise<number[]> => {
+    if (!deliveryForAusente) return [];
+    const group = findGroupForDelivery(deliveryForAusente);
+    const pendingInGroup = group
+      ? getPendingDeliveriesInGroup(group, routeDeliveryStatus)
+      : [deliveryForAusente];
+    if (pendingInGroup.length <= 1) return [deliveryForAusente.id_saida];
+    return new Promise<number[]>((resolve) => {
+      const selectedCodigo = deliveryForAusente.codigo?.trim() || "—";
+      const others = pendingInGroup.filter((x) => x.id_saida !== deliveryForAusente.id_saida);
+      const othersList = others.map((x) => x.codigo?.trim() || "—").join("\n");
+      Alert.alert(
+        "Marcar como ausente?",
+        `Pacote: ${selectedCodigo}\n\nEsta parada tem mais ${others.length} pacote${others.length !== 1 ? "s" : ""} pendente${others.length !== 1 ? "s" : ""}:\n${othersList}\n\nDeseja marcar todos os pacotes desta parada?`,
+        [
+          {
+            text: "Não, só este",
+            style: "cancel" as const,
+            onPress: () => resolve([deliveryForAusente.id_saida]),
+          },
+          { text: "Sim, todos", onPress: () => resolve(pendingInGroup.map((d) => d.id_saida)) },
+        ]
+      );
+    });
+  }, [deliveryForAusente, findGroupForDelivery, routeDeliveryStatus]);
+
+  const handleAusenteSuccess = useCallback(async (result?: { queued?: boolean }) => {
+    if (!deliveryForAusente) return;
+    const activeRotaId = useDeliveryStore.getState().activeRouteId;
+    if (activeRotaId) {
+      recalcPolyline();
+      const nextIdx = useDeliveryStore.getState().activeStopIndex;
+      const order = useDeliveryStore.getState().routeOrder;
+      if (nextIdx < order.length) {
+        playSound("warn");
+        setCenterOnStopId(order[nextIdx]);
+        openNextStopNavigation();
+      } else {
+        playSound("warn");
+      }
+    } else {
+      playSound("warn");
+    }
+    const codigoFeedback = deliveryForAusente.codigo;
+    closeAusenteModal();
+    setSelectedDelivery(null);
+    runPostFinalizeFeedback({
+      tipo: "ausente",
+      codigo: codigoFeedback,
+      entregaAtrasada: false,
+      routeJustCompleted: false,
+      rotaIdForResumo: null,
+      isRouteFlow: activeRotaId != null,
+      queued: result?.queued,
+    });
+  }, [deliveryForAusente, closeAusenteModal, recalcPolyline, openNextStopNavigation]);
 
   const openAusenteModal = useCallback(() => {
     if (!selectedDelivery) return;
     openAusenteForDelivery(selectedDelivery);
   }, [selectedDelivery, openAusenteForDelivery]);
-
-  const closeAusenteModal = useCallback(() => {
-    setShowAusenteModal(false);
-    setDeliveryForAusente(null);
-    setPendingAusenteIds([]);
-    setAusenteBatchCount(1);
-  }, []);
-
-  const handleConfirmarAusente = useCallback(
-    async ({
-      motivoId,
-      observacao,
-      photoUris,
-    }: {
-      motivoId: number;
-      observacao?: string;
-      photoUris: string[];
-    }) => {
-      if (!deliveryForAusente) return;
-      try {
-      const group = findGroupForDelivery(deliveryForAusente);
-      const pendingInGroup = group
-        ? getPendingDeliveriesInGroup(group, routeDeliveryStatus)
-        : [deliveryForAusente];
-      const idsToMark =
-        pendingInGroup.length > 1
-          ? await new Promise<number[]>((resolve) => {
-              const selectedCodigo = deliveryForAusente.codigo?.trim() || "—";
-              const others = pendingInGroup.filter((x) => x.id_saida !== deliveryForAusente.id_saida);
-              const othersList = others.map((x) => x.codigo?.trim() || "—").join("\n");
-              Alert.alert(
-                "Marcar como ausente?",
-                `Pacote: ${selectedCodigo}\n\nEsta parada tem mais ${others.length} pacote${others.length !== 1 ? "s" : ""} pendente${others.length !== 1 ? "s" : ""}:\n${othersList}\n\nDeseja marcar todos os pacotes desta parada?`,
-                [
-                  {
-                    text: "Não, só este",
-                    style: "cancel" as const,
-                    onPress: () => resolve([deliveryForAusente.id_saida]),
-                  },
-                  { text: "Sim, todos", onPress: () => resolve(pendingInGroup.map((d) => d.id_saida)) },
-                ]
-              );
-            })
-          : [deliveryForAusente.id_saida];
-
-      const uploadedIds = new Set(pendingAusenteIds);
-      const extraIds = idsToMark.filter((id) => !uploadedIds.has(id));
-      if (photoUris.length > 0 && extraIds.length > 0) {
-        await uploadAusentePhotosForDeliveryIds(photoUris, extraIds);
-      }
-
-      let entregaAtrasada = false;
-      let routeJustCompleted = false;
-      let rotaIdForResumo: string | null = null;
-      const activeRotaId = useDeliveryStore.getState().activeRouteId;
-
-      for (let i = 0; i < idsToMark.length; i++) {
-        const res = await markAbsent(idsToMark[i], motivoId, observacao);
-        if (res.entrega_atrasada) entregaAtrasada = true;
-        if (res.routeJustCompleted) {
-          routeJustCompleted = true;
-          rotaIdForResumo = res.rotaIdForResumo;
-        }
-      }
-      if (activeRotaId && !routeJustCompleted) {
-        recalcPolyline();
-        const nextIdx = useDeliveryStore.getState().activeStopIndex;
-        const order = useDeliveryStore.getState().routeOrder;
-        if (nextIdx < order.length) {
-          playSound("warn");
-          setCenterOnStopId(order[nextIdx]);
-          openNextStopNavigation();
-        } else {
-          playSound("warn");
-        }
-      } else {
-        playSound(routeJustCompleted ? "success" : "warn");
-      }
-      const codigoFeedback = deliveryForAusente.codigo;
-      closeAusenteModal();
-      setSelectedDelivery(null);
-      runPostFinalizeFeedback({
-        tipo: "ausente",
-        codigo: codigoFeedback,
-        entregaAtrasada,
-        routeJustCompleted,
-        rotaIdForResumo,
-        isRouteFlow: activeRotaId != null,
-      });
-      } catch (e: unknown) {
-        Alert.alert("Erro", formatApiError(e, "Erro ao salvar."));
-        throw e;
-      }
-    },
-    [
-      deliveryForAusente,
-      pendingAusenteIds,
-      markAbsent,
-      findGroupForDelivery,
-      routeDeliveryStatus,
-      recalcPolyline,
-      openNextStopNavigation,
-      closeAusenteModal,
-    ]
-  );
 
   const openNavegarModal = useCallback(() => {
     if (!selectedDelivery) return;
@@ -1863,7 +1818,8 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
               })()
             : undefined
         }
-        onConfirm={handleConfirmarAusente}
+        resolveBatchTargets={resolveAusenteBatchTargets}
+        onSuccess={handleAusenteSuccess}
         onClose={closeAusenteModal}
       />
 
@@ -1881,6 +1837,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       <FormEntregaConcluida
         visible={pendingEntregueIds != null && pendingEntregueIds.length > 0}
         idSaida={pendingEntregueIds?.[0] ?? 0}
+        extraIdSaidas={(pendingEntregueIds ?? []).slice(1)}
         destinatarioPreenchido={selectedDelivery?.cliente ?? undefined}
         requiredFields={selectedDelivery?.campos_obrigatorios_entregue || []}
         codigo={selectedDelivery?.codigo ?? undefined}
@@ -1890,9 +1847,8 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
             ? `Parada ${selectedOrderNumber} de ${groupedStops.length}`
             : undefined
         }
-        onConfirm={handleConfirmarEntregueBatch}
         onClose={() => setPendingEntregueIds(null)}
-        onSuccess={() => {}}
+        onSuccess={handleEntregueSuccess}
       />
     </View>
   );

@@ -51,6 +51,7 @@ import {
   type RouteReconcileResult,
 } from "../features/entregas/utils/routeReconcile";
 import { formatApiError } from "../utils/formatApiError";
+import { getNetworkState } from "../services/outbox/networkStatus";
 import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
 import {
@@ -151,8 +152,21 @@ interface DeliveryState {
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
   startRoute: (deliveryIds?: number[]) => Promise<number>;
   suggestRoute: (fromLat?: number, fromLon?: number) => void;
-  markDelivered: (idSaida: number, body?: EntregueBody) => Promise<MarkDeliveryResult>;
-  markAbsent: (idSaida: number, motivoId: number, observacao?: string) => Promise<MarkDeliveryResult>;
+  markDelivered: (
+    idSaida: number,
+    body?: EntregueBody,
+    headers?: Record<string, string>,
+    options?: { skipReconcile?: boolean }
+  ) => Promise<MarkDeliveryResult>;
+  markAbsent: (
+    idSaida: number,
+    motivoId: number,
+    observacao?: string,
+    headers?: Record<string, string>,
+    options?: { skipReconcile?: boolean }
+  ) => Promise<MarkDeliveryResult>;
+  applyLocalMarkDelivered: (idSaidas: number[]) => void;
+  applyLocalMarkAbsent: (idSaidas: number[]) => void;
   finalizePendingBatch: (body: FinalizarLoteBody) => Promise<FinalizeBatchResult>;
   setSelectedDelivery: (d: EntregaListItem | null) => void;
   setMapMode: (mode: MapMode) => void;
@@ -265,7 +279,7 @@ function loteStatusToRouteStatus(status: string): "entregue" | "ausente" {
   return "entregue";
 }
 
-function buildApplyRouteSyncDeps(get: () => DeliveryState, set: (p: Partial<DeliveryState>) => void) {
+export function buildApplyRouteSyncDeps(get: () => DeliveryState, set: (p: Partial<DeliveryState>) => void) {
   return {
     getActiveRouteId: () => get().activeRouteId,
     getRouteOrder: () => get().routeOrder,
@@ -312,6 +326,12 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   loadDeliveries: async (opts) => {
     set({ loading: true, error: null });
     try {
+      const { online } = await getNetworkState();
+      if (!online) {
+        set({ loading: false });
+        return;
+      }
+
       const prefOnlyToday = useMotoboyPrefsStore.getState().somenteHojePendentes;
       const useOnlyToday = opts?.onlyToday ?? prefOnlyToday;
       const list = await getEntregas(
@@ -329,13 +349,13 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao carregar entregas";
-      set({
+      set((state) => ({
         error: message,
         loading: false,
-        pendingDeliveries: [],
-        deliveriesWithAddress: [],
-        deliveriesWithoutAddress: [],
-      });
+        pendingDeliveries: state.pendingDeliveries,
+        deliveriesWithAddress: state.deliveriesWithAddress,
+        deliveriesWithoutAddress: state.deliveriesWithoutAddress,
+      }));
     }
   },
 
@@ -558,22 +578,58 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     set({ suggestedOrder: orderedIds });
   },
 
-  markDelivered: async (idSaida, body) => {
-    const response = await marcarEntregue(idSaida, body);
+  applyLocalMarkDelivered: (idSaidas) => {
+    const ids = new Set(idSaidas.filter((id) => id > 0));
+    if (ids.size === 0) return;
     set((state) => ({
-      pendingDeliveries: state.pendingDeliveries.filter((d) => d.id_saida !== idSaida),
-      deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => d.id_saida !== idSaida),
-      deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => d.id_saida !== idSaida),
-      selectedDelivery: state.selectedDelivery?.id_saida === idSaida ? null : state.selectedDelivery,
+      pendingDeliveries: state.pendingDeliveries.filter((d) => !ids.has(d.id_saida)),
+      deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => !ids.has(d.id_saida)),
+      deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => !ids.has(d.id_saida)),
+      selectedDelivery:
+        state.selectedDelivery && ids.has(state.selectedDelivery.id_saida)
+          ? null
+          : state.selectedDelivery,
       routeDeliveries: state.routeDeliveries.map((d) =>
-        d.id_saida === idSaida ? { ...d, exibicao: "Entregue", status: "Entregue" } : d
+        ids.has(d.id_saida) ? { ...d, exibicao: "Entregue", status: "Entregue" } : d
       ),
-      routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: "entregue" as const },
+      routeDeliveryStatus: {
+        ...state.routeDeliveryStatus,
+        ...Object.fromEntries([...ids].map((id) => [id, "entregue" as const])),
+      },
     }));
+  },
+
+  applyLocalMarkAbsent: (idSaidas) => {
+    const ids = new Set(idSaidas.filter((id) => id > 0));
+    if (ids.size === 0) return;
+    set((state) => ({
+      pendingDeliveries: state.pendingDeliveries.filter((d) => !ids.has(d.id_saida)),
+      deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => !ids.has(d.id_saida)),
+      deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => !ids.has(d.id_saida)),
+      selectedDelivery:
+        state.selectedDelivery && ids.has(state.selectedDelivery.id_saida)
+          ? null
+          : state.selectedDelivery,
+      routeDeliveries: state.routeDeliveries.map((d) =>
+        ids.has(d.id_saida) ? { ...d, exibicao: "Ausente", status: "Ausente" } : d
+      ),
+      routeDeliveryStatus: {
+        ...state.routeDeliveryStatus,
+        ...Object.fromEntries([...ids].map((id) => [id, "ausente" as const])),
+      },
+    }));
+  },
+
+  markDelivered: async (idSaida, body, headers, options) => {
+    const response = await marcarEntregue(idSaida, body, headers);
+    get().applyLocalMarkDelivered([idSaida]);
     const syncResult = await applyRouteSyncFromResponse(
       response.rota_sync,
       buildApplyRouteSyncDeps(get, set)
     );
+    if (options?.skipReconcile) {
+      return { ...response, ...syncResult };
+    }
     if (syncResult.routeJustCompleted) {
       return { ...response, ...syncResult };
     }
@@ -588,22 +644,16 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     return { ...response, ...syncResult };
   },
 
-  markAbsent: async (idSaida, motivoId, observacao) => {
-    const response = await marcarAusente(idSaida, motivoId, observacao);
-    set((state) => ({
-      pendingDeliveries: state.pendingDeliveries.filter((d) => d.id_saida !== idSaida),
-      deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => d.id_saida !== idSaida),
-      deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => d.id_saida !== idSaida),
-      selectedDelivery: state.selectedDelivery?.id_saida === idSaida ? null : state.selectedDelivery,
-      routeDeliveries: state.routeDeliveries.map((d) =>
-        d.id_saida === idSaida ? { ...d, exibicao: "Ausente", status: "Ausente" } : d
-      ),
-      routeDeliveryStatus: { ...state.routeDeliveryStatus, [idSaida]: "ausente" as const },
-    }));
+  markAbsent: async (idSaida, motivoId, observacao, headers, options) => {
+    const response = await marcarAusente(idSaida, motivoId, observacao, headers);
+    get().applyLocalMarkAbsent([idSaida]);
     const syncResult = await applyRouteSyncFromResponse(
       response.rota_sync,
       buildApplyRouteSyncDeps(get, set)
     );
+    if (options?.skipReconcile) {
+      return { ...response, ...syncResult };
+    }
     if (syncResult.routeJustCompleted) {
       return { ...response, ...syncResult };
     }

@@ -18,14 +18,24 @@ import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
+import { useScannerTorch } from "../hooks/useScannerTorch";
+import ScannerTorchButton from "../components/ScannerTorchButton";
 import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, lancarAvulsoMobile } from "../api";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
+import { useAuthStore } from "../../../store/authStore";
+import { effectivePodeDigitarCodigoManual } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
+import {
+  AVULSO_IDENT_AJUDA,
+  AVULSO_IDENT_MAX,
+  AVULSO_QTD_MAX,
+  validarLancamentoAvulso,
+} from "../../operacao/utils/avulsoLancamento";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Scan">;
 
@@ -108,17 +118,22 @@ function extrairErroApi(error: unknown): { code?: string; message: string } {
     response?: {
       data?: {
         detail?: string | ApiErroDetalhe;
+        code?: string;
       };
     };
   };
-  const detail = maybe.response?.data?.detail;
+  const data = maybe.response?.data;
+  const detail = data?.detail;
   if (typeof detail === "string" && detail.trim()) {
     return { message: detail };
   }
   if (detail && typeof detail === "object") {
-    const code = typeof detail.code === "string" ? detail.code : undefined;
+    const code = typeof detail.code === "string" ? detail.code : data?.code;
     const message = typeof detail.message === "string" && detail.message.trim() ? detail.message : fallback;
     return { code, message };
+  }
+  if (data?.code) {
+    return { code: data.code, message: fallback };
   }
   return { message: fallback };
 }
@@ -197,6 +212,14 @@ export default function ScanScreen({ navigation }: Props) {
         linkManualText: { fontSize: 15, color: colors.primary },
         linkManualWhite: { paddingVertical: 12, alignItems: "center" },
         linkManualTextWhite: { fontSize: 15, color: "rgba(255,255,255,0.95)" },
+        btnAvulsoFooter: {
+          marginTop: 8,
+          backgroundColor: colors.primary,
+          paddingVertical: 14,
+          borderRadius: 12,
+          alignItems: "center",
+        },
+        btnAvulsoFooterText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
         permissionText: { fontSize: 16, color: colors.text, textAlign: "center", marginBottom: 24 },
         loadingOverlay: {
           ...StyleSheet.absoluteFillObject,
@@ -272,8 +295,8 @@ export default function ScanScreen({ navigation }: Props) {
           borderBottomWidth: 1,
           borderBottomColor: "rgba(255,255,255,0.2)",
         },
-        listaItemInfo: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
-        listaItemCodigo: { color: "#fff", fontSize: 15, fontWeight: "600" },
+        listaItemInfo: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+        listaItemCodigo: { color: "#fff", fontSize: 15, fontWeight: "600", flexShrink: 1 },
         servicoBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
         servicoBadgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
         btnRemover: {
@@ -292,6 +315,7 @@ export default function ScanScreen({ navigation }: Props) {
         modalBox: { backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 24 },
         modalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 12, color: colors.text },
         modalMessage: { fontSize: 16, color: colors.text, marginBottom: 24 },
+        modalHelp: { fontSize: 12, color: colors.textSecondary, marginBottom: 8, marginTop: -4 },
         modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12 },
         modalBtnCancel: { paddingVertical: 12, paddingHorizontal: 24 },
         modalBtnCancelText: { color: colors.textSecondary, fontSize: 16 },
@@ -342,7 +366,11 @@ export default function ScanScreen({ navigation }: Props) {
   const startRoute = useDeliveryStore((s) => s.startRoute);
   const loadDeliveries = useDeliveryStore((s) => s.loadDeliveries);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const [permission, requestPermission] = useCameraPermissions();
+  const isFocused = useIsFocused();
+  const torch = useScannerTorch(isFocused && !!permission?.granted && !modoManual);
 
   const pushFeedback = useCallback((tipo: FeedbackTipo, mensagem: string, codigoItem?: string) => {
     if (feedbackClearRef.current) {
@@ -528,9 +556,22 @@ export default function ScanScreen({ navigation }: Props) {
           setTimeout(() => (scanLocked.current = false), 400);
         }
       } catch (e: unknown) {
-        const ax = e as { response?: { data?: { detail?: string } } };
+        const ax = e as {
+          response?: { status?: number; data?: { detail?: string | ApiErroDetalhe; code?: string } };
+        };
+        const apiErro = extrairErroApi(e);
+        if (apiErro.code === "BLOQUEADO_AUSENCIAS") {
+          playSound("error");
+          pushFeedback("erro", "Limite de tentativas atingido.", c);
+          Alert.alert(
+            "Limite de tentativas",
+            "Limite de tentativas atingido. Solicite liberação à operação."
+          );
+          setTimeout(() => (scanLocked.current = false), 500);
+          return;
+        }
         const msg =
-          ax?.response?.data?.detail ?? "Código não encontrado ou erro ao processar.";
+          ax?.response?.data?.detail ?? apiErro.message ?? "Código não encontrado ou erro ao processar.";
         playSound("error");
         pushFeedback("erro", typeof msg === "string" ? msg : "Erro ao processar leitura", c);
         Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
@@ -565,16 +606,16 @@ export default function ScanScreen({ navigation }: Props) {
   };
 
   const handleLancarAvulso = useCallback(async () => {
-    const qtd = Number(avulsoQuantidade);
-    if (!Number.isFinite(qtd) || qtd < 1) {
-      Alert.alert("Atenção", "Quantidade mínima é 1.");
+    const validacao = validarLancamentoAvulso(avulsoIdentificacao, avulsoQuantidade);
+    if (!validacao.ok) {
+      Alert.alert("Atenção", validacao.message);
       return;
     }
     setLoading(true);
     try {
       const res = await lancarAvulsoMobile({
-        identificacao: avulsoIdentificacao.trim() || null,
-        quantidade: Math.floor(qtd),
+        identificacao: validacao.identificacao,
+        quantidade: validacao.quantidade,
       });
       (res.saidas ?? []).forEach((s) => {
         addLeitura({ id_saida: s.id_saida, codigo: s.codigo, servico: "Avulso" });
@@ -692,8 +733,52 @@ export default function ScanScreen({ navigation }: Props) {
     navigation.navigate("EntregasList");
   };
 
-  // Modo manual: digitação como opção secundária
-  if (modoManual) {
+  const avulsoModal = (
+    <Modal visible={showAvulsoModal} transparent animationType="fade" onRequestClose={() => setShowAvulsoModal(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalBox}>
+          <Text style={styles.modalTitle}>Lançar Avulso</Text>
+          <Text style={styles.modalMessage}>Identificação (opcional)</Text>
+          <Text style={styles.modalHelp}>{AVULSO_IDENT_AJUDA}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex.: Empresa ABC"
+            placeholderTextColor={colors.placeholder}
+            value={avulsoIdentificacao}
+            onChangeText={setAvulsoIdentificacao}
+            maxLength={AVULSO_IDENT_MAX}
+            editable={!loading}
+          />
+          <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade (máx. {AVULSO_QTD_MAX})</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="1"
+            placeholderTextColor={colors.placeholder}
+            value={avulsoQuantidade}
+            onChangeText={setAvulsoQuantidade}
+            keyboardType="number-pad"
+            maxLength={2}
+            editable={!loading}
+          />
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAvulsoModal(false)} disabled={loading}>
+              <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalBtnOk, loading && styles.btnDisabled]}
+              onPress={() => void handleLancarAvulso()}
+              disabled={loading}
+            >
+              {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalBtnOkText}>Confirmar</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // Modo manual: digitação como opção secundária (somente com permissão)
+  if (modoManual && podeDigitarManual) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -726,13 +811,6 @@ export default function ScanScreen({ navigation }: Props) {
           ) : (
             <Text style={styles.btnScanText}>Confirmar</Text>
           )}
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
-          onPress={() => setShowAvulsoModal(true)}
-          disabled={loading}
-        >
-          <Text style={styles.btnScanText}>Lançar Avulso</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -782,40 +860,7 @@ export default function ScanScreen({ navigation }: Props) {
             </View>
           </View>
         </Modal>
-        <Modal visible={showAvulsoModal} transparent animationType="fade" onRequestClose={() => setShowAvulsoModal(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalBox}>
-              <Text style={styles.modalTitle}>Lançar Avulso</Text>
-              <Text style={styles.modalMessage}>Identificação (opcional)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex.: Empresa ABC"
-                placeholderTextColor={colors.placeholder}
-                value={avulsoIdentificacao}
-                onChangeText={setAvulsoIdentificacao}
-                editable={!loading}
-              />
-              <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="1"
-                placeholderTextColor={colors.placeholder}
-                value={avulsoQuantidade}
-                onChangeText={setAvulsoQuantidade}
-                keyboardType="number-pad"
-                editable={!loading}
-              />
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAvulsoModal(false)} disabled={loading}>
-                  <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.modalBtnOk, loading && styles.btnDisabled]} onPress={() => void handleLancarAvulso()} disabled={loading}>
-                  {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalBtnOkText}>Confirmar</Text>}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        {avulsoModal}
       </View>
     );
   }
@@ -836,9 +881,19 @@ export default function ScanScreen({ navigation }: Props) {
         <TouchableOpacity style={styles.btnScan} onPress={requestPermission}>
           <Text style={styles.btnScanText}>Permitir câmera</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.linkManual} onPress={() => setModoManual(true)}>
-          <Text style={styles.linkManualText}>Digitar código manualmente</Text>
+        <TouchableOpacity
+          style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
+          onPress={() => setShowAvulsoModal(true)}
+          disabled={loading}
+        >
+          <Text style={styles.btnScanText}>Lançar Avulso</Text>
         </TouchableOpacity>
+        {podeDigitarManual ? (
+          <TouchableOpacity style={styles.linkManual} onPress={() => setModoManual(true)}>
+            <Text style={styles.linkManualText}>Digitar código manualmente</Text>
+          </TouchableOpacity>
+        ) : null}
+        {avulsoModal}
       </View>
     );
   }
@@ -859,7 +914,15 @@ export default function ScanScreen({ navigation }: Props) {
         barcodeScannerSettings={{
           barcodeTypes: BARCODE_TYPES,
         }}
+        enableTorch={torch.enableTorch}
+        onCameraReady={torch.onCameraReady}
         onBarcodeScanned={loading ? undefined : handleBarcodeScanned}
+      />
+
+      <ScannerTorchButton
+        mode={torch.mode}
+        onPress={torch.cycleMode}
+        style={{ top: insets.top + 72, right: 16 }}
       />
 
       {renderFeedback()}
@@ -925,7 +988,13 @@ export default function ScanScreen({ navigation }: Props) {
               {leiturasSession.map((l) => (
                 <View key={l.id_saida} style={styles.listaItem}>
                   <View style={styles.listaItemInfo}>
-                    <Text style={styles.listaItemCodigo}>{l.codigo || "—"}</Text>
+                    <Text
+                      style={styles.listaItemCodigo}
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                    >
+                      {l.codigo || "—"}
+                    </Text>
                     <View style={[styles.servicoBadge, l.servico === "Shopee" && styles.badgeShopee, l.servico === "Flex" && styles.badgeFlex, l.servico === "Avulso" && styles.badgeAvulso]}>
                       <Text style={styles.servicoBadgeText}>{l.servico}</Text>
                     </View>
@@ -948,13 +1017,25 @@ export default function ScanScreen({ navigation }: Props) {
         )}
 
         <TouchableOpacity
-          style={styles.linkManualWhite}
-          onPress={() => setModoManual(true)}
+          style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+          onPress={() => setShowAvulsoModal(true)}
           disabled={loading}
         >
-          <Text style={styles.linkManualTextWhite}>Digitar código manualmente</Text>
+          <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
         </TouchableOpacity>
+
+        {podeDigitarManual ? (
+          <TouchableOpacity
+            style={styles.linkManualWhite}
+            onPress={() => setModoManual(true)}
+            disabled={loading}
+          >
+            <Text style={styles.linkManualTextWhite}>Digitar código manualmente</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
+
+      {avulsoModal}
 
       <Modal visible={!!conflito} transparent animationType="fade">
         <View style={styles.modalOverlay}>

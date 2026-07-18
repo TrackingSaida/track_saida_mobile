@@ -18,12 +18,16 @@ import { useThemeColors } from "../../../theme/colors";
 import type { EntregueBody } from "../api";
 import type { MarcacaoEntregaResponse } from "../types";
 import { formatCPF, formatRG, unmaskCPF, unmaskRG } from "../utils/formatDocument";
+import { enqueueEntregueCompletion } from "../../../services/outbox/deliveryOutboxService";
 import {
-  selectOrTakePhoto,
+  takeDeliveryPhoto,
+  pickDeliveryPhotoFromGallery,
   preparePhoto,
-  uploadDeliveryPhoto,
   MAX_PHOTOS,
 } from "../../../services/deliveryPhotoService";
+import {
+  canConfirmWithPhotos,
+} from "../utils/photoValidationUtils";
 
 const TIPOS_RECEBEDOR = ["Comprador", "Familiar", "Vizinho", "Porteiro", "Outro"] as const;
 const TIPOS_DOCUMENTO = ["RG", "CPF"] as const;
@@ -63,9 +67,11 @@ export interface FormEntregaConcluidaProps {
   batchCount?: number;
   /** Ex.: "Parada 7 de 19". */
   stopLabel?: string;
-  onConfirm: (body: EntregueBody) => Promise<MarcacaoEntregaResponse | void>;
+  onConfirm?: (body: EntregueBody) => Promise<MarcacaoEntregaResponse | void>;
   onClose: () => void;
-  onSuccess: (marcacao?: MarcacaoEntregaResponse) => void | Promise<void>;
+  /** IDs adicionais no lote (rota) — fotos propagadas a todos. */
+  extraIdSaidas?: number[];
+  onSuccess: (result?: { marcacao?: MarcacaoEntregaResponse; queued?: boolean }) => void | Promise<void>;
 }
 
 export default function FormEntregaConcluida({
@@ -79,6 +85,7 @@ export default function FormEntregaConcluida({
   onConfirm,
   onClose,
   onSuccess,
+  extraIdSaidas = [],
 }: FormEntregaConcluidaProps) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
@@ -221,7 +228,7 @@ export default function FormEntregaConcluida({
     });
   };
 
-  type PhotoItem = { uri: string; status: "idle" | "uploading" | "sent" | "error"; object_key?: string };
+  type PhotoItem = { uri: string };
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
 
   useEffect(() => {
@@ -236,6 +243,8 @@ export default function FormEntregaConcluida({
       setPhotos([]);
     }
   }, [visible, destinatarioPreenchido]);
+
+  const fotoObrigatoria = required.has("foto");
 
   useEffect(() => {
     if (photos.length > 0) clearMissing("foto");
@@ -268,52 +277,29 @@ export default function FormEntregaConcluida({
     setNumeroDocumento(formatted);
   };
 
-  const addPhoto = async () => {
+  const addPhotoFromSource = async (pick: () => Promise<{ uri: string } | null>) => {
     if (photos.length >= MAX_PHOTOS) return;
     try {
-      const picked = await selectOrTakePhoto();
+      const picked = await pick();
       if (!picked) return;
-      const prepared = await preparePhoto(picked.uri);
-      setPhotos((prev) => [...prev, { uri: prepared.uri, status: "idle" }]);
+      const prepared = await preparePhoto(picked.uri, photos.length);
+      setPhotos((prev) => [...prev, { uri: prepared.uri }]);
     } catch (e) {
       Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
     }
   };
 
-  const uploadOnePhoto = async (item: PhotoItem, idx: number) => {
-    setPhotos((prev) =>
-      prev.map((p, j) => (j === idx ? { ...p, status: "uploading" as const } : p))
-    );
-    try {
-      const objectKey = await uploadDeliveryPhoto({
-        id_saida: idSaida,
-        tipo: "entregue",
-        uri: item.uri,
-        mimeType: "image/jpeg",
-        filename: "foto.jpg",
-        validarCamposObrigatorios: false,
-        alterarStatus: false,
-      });
-      setPhotos((prev) =>
-        prev.map((p, j) => (j === idx ? { ...p, status: "sent" as const, object_key: objectKey } : p))
-      );
-    } catch (e) {
-      setPhotos((prev) =>
-        prev.map((p, j) => (j === idx ? { ...p, status: "error" as const } : p))
-      );
-      throw e;
-    }
-  };
+  const addPhotoFromCamera = () => addPhotoFromSource(takeDeliveryPhoto);
+  const addPhotoFromGallery = () => addPhotoFromSource(pickDeliveryPhotoFromGallery);
 
   const removePhoto = (index: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const retryPhotoUpload = (index: number) => {
-    setPhotos((prev) =>
-      prev.map((p, i) => (i === index && p.status === "error" ? { ...p, status: "idle" as const } : p))
-    );
-  };
+  const uploadTargets = useMemo(() => {
+    const ids = [idSaida, ...extraIdSaidas].filter((id) => id > 0);
+    return [...new Set(ids)];
+  }, [idSaida, extraIdSaidas]);
 
   const handleConfirmar = async () => {
     setError(null);
@@ -322,7 +308,13 @@ export default function FormEntregaConcluida({
     if (required.has("tipo_recebedor") && !tipoRecebedor.trim()) missingSet.add("tipo_recebedor");
     if (required.has("documento") && !numeroDocumento.trim()) missingSet.add("documento");
     if (required.has("observacao") && !observacao.trim()) missingSet.add("observacao");
-    if (required.has("foto") && photos.length === 0) missingSet.add("foto");
+    const photoCheck = canConfirmWithPhotos(photos, fotoObrigatoria);
+    if (!photoCheck.ok) {
+      missingSet.add("foto");
+      setMissingKeys(missingSet);
+      setError(photoCheck.reason || "Adicione pelo menos uma foto de comprovante.");
+      return;
+    }
     if (missingSet.size) {
       setMissingKeys(missingSet);
       const labels = Array.from(missingSet).map((k) => labelCampo(k));
@@ -332,20 +324,6 @@ export default function FormEntregaConcluida({
     setMissingKeys(new Set());
     setSaving(true);
     try {
-      const photosSnapshot = photos;
-      const idleItems = photosSnapshot
-        .map((p, i) => (p.status === "idle" ? { item: p, idx: i } : null))
-        .filter((x): x is { item: PhotoItem; idx: number } => x !== null);
-      for (const { item, idx } of idleItems) {
-        try {
-          await uploadOnePhoto(item, idx);
-        } catch (uploadErr) {
-          Alert.alert("Erro ao enviar foto", (uploadErr as Error)?.message || "Falha no envio.");
-          setSaving(false);
-          return;
-        }
-      }
-
       const body: EntregueBody = {
         tipo_recebedor: tipoRecebedor || undefined,
         nome_recebedor: nomeRecebedor.trim() || undefined,
@@ -354,9 +332,19 @@ export default function FormEntregaConcluida({
           numeroDocumento.trim() ? (tipoDocumento === "CPF" ? unmaskCPF(numeroDocumento) : unmaskRG(numeroDocumento)) : undefined,
         observacao_entrega: observacao.trim() || undefined,
       };
-      const marcacao = await onConfirm(body);
+      const photoUris = photos.map((p) => p.uri);
+      const result = await enqueueEntregueCompletion({
+        idSaidas: uploadTargets,
+        body,
+        photoUris,
+        fotoObrigatoria,
+      });
+      let marcacao = result.marcacao;
+      if (!marcacao && onConfirm && !result.queued) {
+        marcacao = (await onConfirm(body)) ?? undefined;
+      }
       onClose();
-      await onSuccess(marcacao ?? undefined);
+      await onSuccess({ marcacao, queued: result.queued });
     } catch (e: unknown) {
       const detail =
         e && typeof e === "object" && "response" in e
@@ -392,8 +380,6 @@ export default function FormEntregaConcluida({
     }
   };
 
-  const anyUploading = photos.some((p) => p.status === "uploading");
-  const hasErrorPhoto = photos.some((p) => p.status === "error");
   const canAddPhoto = photos.length < MAX_PHOTOS;
 
   if (!visible) return null;
@@ -503,7 +489,12 @@ export default function FormEntregaConcluida({
               <Text style={styles.fieldHint}>Informe o número do documento.</Text>
             ) : null}
 
-            {renderLabel(`Comprovante (até ${MAX_PHOTOS} fotos)`, "foto")}
+            {renderLabel(
+              fotoObrigatoria
+                ? "Comprovante (1 obrigatória, até 3 opcionais)"
+                : `Comprovante (até ${MAX_PHOTOS} fotos)`,
+              "foto"
+            )}
             <View style={[styles.photoRow, missingKeys.has("foto") && styles.sectionError]}>
               {photos.map((p, idx) => (
                 <View key={idx} style={styles.photoWrap}>
@@ -511,31 +502,29 @@ export default function FormEntregaConcluida({
                   <TouchableOpacity
                     style={styles.photoRemove}
                     onPress={() => removePhoto(idx)}
-                    disabled={saving || anyUploading}
+                    disabled={saving}
                   >
                     <Text style={{ color: "#fff", fontSize: 12 }}>✕</Text>
                   </TouchableOpacity>
-                  <Text style={styles.photoStatus} numberOfLines={1}>
-                    {p.status === "idle" && "Pendente"}
-                    {p.status === "uploading" && "Enviando…"}
-                    {p.status === "sent" && "Enviado"}
-                    {p.status === "error" && "Falhou"}
-                  </Text>
-                  {p.status === "error" && (
-                    <TouchableOpacity onPress={() => retryPhotoUpload(idx)} disabled={saving}>
-                      <Text style={{ fontSize: 10, color: colors.primary, marginTop: 2 }}>Tentar novamente</Text>
-                    </TouchableOpacity>
-                  )}
                 </View>
               ))}
               {canAddPhoto && (
-                <TouchableOpacity
-                  style={styles.btnAddPhoto}
-                  onPress={addPhoto}
-                  disabled={saving || anyUploading}
-                >
-                  <Text style={styles.btnAddPhotoText}>+ Adicionar foto</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={styles.btnAddPhoto}
+                    onPress={addPhotoFromCamera}
+                    disabled={saving}
+                  >
+                    <Text style={styles.btnAddPhotoText}>+ Tirar foto</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.btnAddPhoto}
+                    onPress={addPhotoFromGallery}
+                    disabled={saving}
+                  >
+                    <Text style={styles.btnAddPhotoText}>Galeria</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </View>
             {missingKeys.has("foto") ? (
@@ -574,13 +563,13 @@ export default function FormEntregaConcluida({
           </ScrollView>
           <View style={[styles.footer, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
             <View style={styles.actions}>
-              <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={saving || anyUploading}>
+              <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={saving}>
                 <Text style={styles.btnCancelText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.btnOk, (saving || anyUploading) && styles.btnDisabled]}
+                style={[styles.btnOk, saving && styles.btnDisabled]}
                 onPress={handleConfirmar}
-                disabled={saving || anyUploading}
+                disabled={saving}
               >
                 {saving ? (
                   <ActivityIndicator color={colors.primaryContrast} size="small" />

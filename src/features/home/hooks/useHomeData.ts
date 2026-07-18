@@ -4,6 +4,7 @@ import { getResumoEntregas, getTodayISO, getEntregas } from "../../entregas/api"
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useHomeRouteStore } from "../../../store/homeRouteStore";
+import { getNetworkState } from "../../../services/outbox/networkStatus";
 import type { HomeResumo } from "../utils/homeOperationalState";
 
 const EMPTY_RESUMO: HomeResumo = {
@@ -12,6 +13,29 @@ const EMPTY_RESUMO: HomeResumo = {
   ausentes: 0,
   atraso_d1: 0,
 };
+
+function buildLocalResumo(prev: HomeResumo): HomeResumo {
+  const store = useDeliveryStore.getState();
+  const routePending = store.routeOrder.filter(
+    (id) => (store.routeDeliveryStatus[id] ?? "pendente") === "pendente"
+  ).length;
+  const pendentes =
+    store.pendingDeliveries.length > 0
+      ? store.pendingDeliveries.length
+      : routePending > 0
+        ? routePending
+        : prev.pendentes;
+  return { ...prev, pendentes };
+}
+
+function hasLocalOperationalData(): boolean {
+  const store = useDeliveryStore.getState();
+  return (
+    store.pendingDeliveries.length > 0 ||
+    store.activeRouteId != null ||
+    store.routeOrder.length > 0
+  );
+}
 
 export function useHomeData() {
   const [resumo, setResumo] = useState<HomeResumo>(EMPTY_RESUMO);
@@ -31,9 +55,21 @@ export function useHomeData() {
   const hydrateHomeRoute = useHomeRouteStore((s) => s.hydrate);
   const clearEphemeral = useHomeRouteStore((s) => s.clearEphemeral);
 
+  const applyLocalRouteValidity = useCallback(() => {
+    const store = useDeliveryStore.getState();
+    setRotaAtivaValid(store.activeRouteId != null && store.routeOrder.length > 0);
+  }, []);
+
   const loadResumo = useCallback(async () => {
-    setLoading(true);
+    if (!hasLocalOperationalData()) setLoading(true);
+
     try {
+      const { online } = await getNetworkState();
+      if (!online) {
+        setResumo((prev) => buildLocalResumo(prev));
+        return;
+      }
+
       const r = await getResumoEntregas();
       if (somenteHojePendentes) {
         const hoje = getTodayISO();
@@ -56,7 +92,7 @@ export function useHomeData() {
         });
       }
     } catch {
-      setResumo(EMPTY_RESUMO);
+      setResumo((prev) => buildLocalResumo(prev));
     } finally {
       setLoading(false);
     }
@@ -68,19 +104,23 @@ export function useHomeData() {
       setRotaAtivaValid(false);
       return;
     }
+
+    const { online } = await getNetworkState();
+    if (!online) {
+      applyLocalRouteValidity();
+      return;
+    }
+
     try {
       const result = await reconcileActiveRoute();
       const store = useDeliveryStore.getState();
       setRotaAtivaValid(
-        result.stillActive &&
-          store.activeRouteId != null &&
-          store.routeOrder.length > 0
+        result.stillActive && store.activeRouteId != null && store.routeOrder.length > 0
       );
     } catch {
-      useDeliveryStore.getState().clearActiveRouteState();
-      setRotaAtivaValid(false);
+      applyLocalRouteValidity();
     }
-  }, [roteirizacaoHabilitada, reconcileActiveRoute]);
+  }, [roteirizacaoHabilitada, reconcileActiveRoute, applyLocalRouteValidity]);
 
   useFocusEffect(
     useCallback(() => {

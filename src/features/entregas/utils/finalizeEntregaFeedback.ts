@@ -24,6 +24,7 @@ export interface PostFinalizeFeedbackOptions {
   routeJustCompleted?: boolean;
   rotaIdForResumo?: string | number | null;
   isRouteFlow?: boolean;
+  queued?: boolean;
   onAfterIndividualAlert?: () => void;
 }
 
@@ -71,16 +72,17 @@ function showIndividualAlert(
   tipo: "entregue" | "ausente",
   codigo: string | null | undefined,
   context: CompletionContext,
-  onOk: () => void
+  onOk: () => void,
+  pendingSync?: boolean
 ): void {
   if (context === "LATE_DELIVERY") {
-    alertEntregaAtrasadaConcluida(codigo, tipo, onOk);
+    alertEntregaAtrasadaConcluida(codigo, tipo, onOk, pendingSync);
     return;
   }
   if (tipo === "entregue") {
-    alertEntregaFinalizada(codigo, onOk);
+    alertEntregaFinalizada(codigo, onOk, pendingSync);
   } else {
-    alertAusenciaRegistrada(codigo, onOk);
+    alertAusenciaRegistrada(codigo, onOk, pendingSync);
   }
 }
 
@@ -92,12 +94,22 @@ export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void
     routeJustCompleted = false,
     rotaIdForResumo = null,
     isRouteFlow = false,
+    queued = false,
     onAfterIndividualAlert,
   } = opts;
+
+  if (queued) {
+    showIndividualAlert(tipo, codigo, "NORMAL_DELIVERY", () => {
+      onAfterIndividualAlert?.();
+    }, true);
+    return;
+  }
 
   const activeRouteId = useDeliveryStore.getState().activeRouteId;
 
   const afterAlert = async () => {
+    // Libera navegação imediatamente; resumo/modais seguem em segundo plano.
+    onAfterIndividualAlert?.();
     try {
       if (routeJustCompleted && rotaIdForResumo != null) {
         await openRouteCompletedModal(rotaIdForResumo);
@@ -115,13 +127,11 @@ export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void
       );
 
       if (context === "DAY_COMPLETED") {
+        // openDayCompletedModal já busca resumo; evita chamada duplicada prévia.
         await openDayCompletedModal();
-        return;
       }
-
-      onAfterIndividualAlert?.();
     } catch {
-      onAfterIndividualAlert?.();
+      /* feedback secundário não deve bloquear o fluxo operacional */
     }
   };
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -16,9 +16,13 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import * as ImagePicker from "expo-image-picker";
-import { getEntrega, fetchComprovanteImagesDataUris, getEntregaHistorico } from "../api";
+import { getEntrega, fetchComprovanteImagesDataUris, getEntregaHistorico, exportComprovante, arrayBufferToBase64 } from "../api";
 import type { EntregaListItem, EntregaHistoricoItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
+import { getNetworkState } from "../../../services/outbox/networkStatus";
+import { useOutboxStore, resolveLocalComprovanteUris } from "../../../store/outboxStore";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import AddressQuickForm from "../components/AddressQuickForm";
 import FormEntregaConcluida from "../components/FormEntregaConcluida";
@@ -61,6 +65,27 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           borderColor: colors.warning + "55",
         },
         avisoRotaText: { fontSize: 14, color: colors.text, fontWeight: "600" },
+        avisoBloqueio: {
+          backgroundColor: colors.danger + "22",
+          padding: 12,
+          borderRadius: 10,
+          marginBottom: 12,
+          borderWidth: 1,
+          borderColor: colors.danger + "55",
+        },
+        avisoBloqueioText: { fontSize: 14, color: colors.text, lineHeight: 20 },
+        comprovanteViewerHeader: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        },
+        btnCompartilhar: {
+          paddingVertical: 8,
+          paddingHorizontal: 14,
+          borderRadius: 8,
+          backgroundColor: "rgba(255,255,255,0.2)",
+        },
+        btnCompartilharText: { color: "#fff", fontSize: 14, fontWeight: "700" },
         actions: { marginTop: 8, gap: 12 },
         btnEntregue: {
           backgroundColor: colors.success,
@@ -126,6 +151,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [loadingComprovante, setLoadingComprovante] = useState(false);
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
   const [comprovanteViewerIndex, setComprovanteViewerIndex] = useState(0);
+  const [sharingComprovante, setSharingComprovante] = useState(false);
   const comprovanteViewerRef = useRef<ScrollView>(null);
   const { width: windowWidth } = useWindowDimensions();
   const [showTimelineSheet, setShowTimelineSheet] = useState(false);
@@ -136,37 +162,103 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const novaTentativa = useDeliveryStore((s) => s.novaTentativa);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
+  const outboxActions = useOutboxStore((s) => s.actions);
+
+  const applyLocalFinalized = useCallback((kind: "entregue" | "ausente", withComprovante = false) => {
+    setEntrega((prev) =>
+      prev
+        ? {
+            ...prev,
+            status: kind === "entregue" ? "Entregue" : "Ausente",
+            exibicao: kind === "entregue" ? "Entregue" : "Ausente",
+            ...(withComprovante ? { tem_comprovante: true } : {}),
+          }
+        : prev
+    );
+  }, []);
+
+  const applyLocalComprovante = useCallback(async () => {
+    const uris = await resolveLocalComprovanteUris(idSaida);
+    setComprovanteUris(uris);
+    if (uris.length > 0) {
+      setEntrega((prev) => (prev ? { ...prev, tem_comprovante: true } : prev));
+    }
+    return uris;
+  }, [idSaida]);
+
+  const findLocalDelivery = useCallback((targetId: number): EntregaListItem | null => {
+    const store = useDeliveryStore.getState();
+    return (
+      store.pendingDeliveries.find((d) => d.id_saida === targetId) ??
+      store.routeDeliveries.find((d) => d.id_saida === targetId) ??
+      null
+    );
+  }, []);
+
+  const loadComprovanteForEntrega = useCallback(
+    async (e: EntregaListItem | null, online: boolean) => {
+      if (!e) {
+        setComprovanteUris([]);
+        setLoadingComprovante(false);
+        return;
+      }
+
+      const statusKind = resolveDetailStatusKind(e);
+      const shouldLoadComprovante =
+        statusKind === "entregue" || statusKind === "cancelado" || statusKind === "ausente";
+      if (!shouldLoadComprovante) {
+        setComprovanteUris([]);
+        setLoadingComprovante(false);
+        return;
+      }
+
+      setLoadingComprovante(true);
+      try {
+        if (online && e.tem_comprovante) {
+          try {
+            const uris = await fetchComprovanteImagesDataUris(idSaida);
+            if (uris.length > 0) {
+              setComprovanteUris(uris);
+              return;
+            }
+          } catch {
+            /* fallback local abaixo */
+          }
+        }
+
+        const localUris = await resolveLocalComprovanteUris(idSaida);
+        setComprovanteUris(localUris);
+      } finally {
+        setLoadingComprovante(false);
+      }
+    },
+    [idSaida]
+  );
 
   const load = async () => {
     setLoading(true);
     try {
+      const { online } = await getNetworkState();
+      if (!online) {
+        const local = findLocalDelivery(idSaida);
+        setEntrega(local);
+        setHistorico([]);
+        await loadComprovanteForEntrega(local, false);
+        return;
+      }
+
       const [e, hist] = await Promise.all([
         getEntrega(idSaida),
         getEntregaHistorico(idSaida).catch(() => [] as EntregaHistoricoItem[]),
       ]);
       setEntrega(e);
       setHistorico(hist);
-      const statusKind = resolveDetailStatusKind(e);
-      const shouldLoadComprovante =
-        !!e?.tem_comprovante &&
-        (statusKind === "entregue" || statusKind === "cancelado" || statusKind === "ausente");
-      if (shouldLoadComprovante) {
-        setLoadingComprovante(true);
-        try {
-          const uris = await fetchComprovanteImagesDataUris(idSaida);
-          setComprovanteUris(uris);
-        } catch {
-          setComprovanteUris([]);
-        } finally {
-          setLoadingComprovante(false);
-        }
-      } else {
-        setComprovanteUris([]);
-        setLoadingComprovante(false);
-      }
+      await loadComprovanteForEntrega(e, true);
     } catch {
-      setEntrega(null);
+      const local = findLocalDelivery(idSaida);
+      setEntrega(local);
       setHistorico([]);
+      await loadComprovanteForEntrega(local, false);
     } finally {
       setLoading(false);
     }
@@ -186,37 +278,54 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     });
   }, [showComprovanteViewer, comprovanteViewerIndex, comprovanteUris.length, windowWidth]);
 
+  const handleCompartilharComprovante = useCallback(async () => {
+    if (sharingComprovante) return;
+    const available = await Sharing.isAvailableAsync();
+    if (!available) {
+      Alert.alert("Indisponível", "Compartilhamento não está disponível neste dispositivo.");
+      return;
+    }
+    setSharingComprovante(true);
+    try {
+      const exported = await exportComprovante(idSaida, comprovanteViewerIndex);
+      const base64 = arrayBufferToBase64(exported.buffer);
+      const path = `${FileSystem.cacheDirectory}comprovante-${idSaida}-${comprovanteViewerIndex}.jpg`;
+      await FileSystem.writeAsStringAsync(path, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      // Preferir arquivo: a imagem já inclui cartão com recebedor, data/hora e status (WhatsApp).
+      await Sharing.shareAsync(path, {
+        mimeType: "image/jpeg",
+        dialogTitle: exported.status ? `Comprovante — ${exported.status}` : "Comprovante",
+      });
+    } catch {
+      Alert.alert("Erro", "Não foi possível compartilhar o comprovante.");
+    } finally {
+      setSharingComprovante(false);
+    }
+  }, [comprovanteViewerIndex, idSaida, sharingComprovante]);
+
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
   const handleAbrirAusente = () => setModalAusente(true);
 
-  const handleConfirmarAusente = async ({
-    motivoId,
-    observacao,
-  }: {
-    motivoId: number;
-    observacao?: string;
-    photoUris: string[];
-  }) => {
-    try {
-      const marcacao = await markAbsent(idSaida, motivoId, observacao);
-      setModalAusente(false);
-      runPostFinalizeFeedback({
-        tipo: "ausente",
-        codigo: entrega?.codigo,
-        entregaAtrasada: marcacao.entrega_atrasada ?? false,
-        routeJustCompleted: marcacao.routeJustCompleted,
-        rotaIdForResumo: marcacao.rotaIdForResumo,
-        isRouteFlow: marcacao.rota_sync?.in_active_route ?? false,
-        onAfterIndividualAlert: () => navigation.goBack(),
-      });
-    } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : "Erro ao salvar.";
-      Alert.alert("Erro", String(msg));
-      throw e;
+  const handleAusenteSuccess = async (result?: { queued?: boolean }) => {
+    setModalAusente(false);
+    if (result?.queued) {
+      const uris = await applyLocalComprovante();
+      applyLocalFinalized("ausente", uris.length > 0);
+    } else {
+      await load();
     }
+    runPostFinalizeFeedback({
+      tipo: "ausente",
+      codigo: entrega?.codigo,
+      entregaAtrasada: false,
+      routeJustCompleted: false,
+      rotaIdForResumo: null,
+      isRouteFlow: false,
+      queued: result?.queued,
+      onAfterIndividualAlert: () => navigation.goBack(),
+    });
   };
 
   const handleAbrirEndereco = () => setModalEnderecoOpcoes(true);
@@ -374,20 +483,30 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
     );
   }
 
-  const statusNorm = (entrega.status || "").toUpperCase();
-  const podeFinalizar = statusNorm === "EM_ROTA";
+  const statusNorm = (entrega.status || "").toUpperCase().replace(/\s+/g, "_");
+  // Finalizar não depende de roteirização: SAIU_PARA_ENTREGA (após scan/nova tentativa) ou EM_ROTA.
+  const podeFinalizar =
+    statusNorm === "EM_ROTA" ||
+    statusNorm === "SAIU_PARA_ENTREGA" ||
+    statusNorm === "SAIU";
+  const awaitingSync = outboxActions.some(
+    (action) =>
+      (action.state === "pending" || action.state === "syncing" || action.state === "failed") &&
+      action.idSaidas.includes(idSaida)
+  );
+  const podeFinalizarEfetivo = podeFinalizar && !awaitingSync;
   const statusKind = resolveDetailStatusKind(entrega);
   const isAusente = statusKind === "ausente";
   const isEntregue = statusKind === "entregue";
   const isCancelado = statusKind === "cancelado";
   const isPendente = statusKind === "pendente";
   const isFinalizado = isEntregue || isAusente || isCancelado;
-  const mostrarAvisoRota = !isFinalizado && !podeFinalizar && !isAusente;
   const temObsEntrega = !!(entrega.observacao_entrega || "").trim();
   const showComprovanteBlock =
     isEntregue ||
     (isCancelado && !!entrega.tem_comprovante) ||
     (isAusente && (comprovanteUris.length > 0 || !!entrega.tem_comprovante));
+  const bloqueadoAusencias = isAusente && !!entrega.bloqueado_ausencias;
 
   return (
     <View style={styles.container}>
@@ -397,14 +516,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         paddingTop={Math.max(12, insets.top)}
       />
       <ScrollView contentContainerStyle={styles.content}>
-        {mostrarAvisoRota ? (
-          <View style={styles.avisoRota}>
-            <Text style={styles.avisoRotaText}>
-              Inicie a rota na tela de escaneamento para poder finalizar esta entrega.
-            </Text>
-          </View>
-        ) : null}
-
         <DetailStatusHero entrega={entrega} />
         <DetailOperacaoResumoBlock
           entrega={entrega}
@@ -470,15 +581,21 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         ) : null}
 
         <View style={styles.actions}>
-          {isAusente ? (
+          {bloqueadoAusencias ? (
+            <View style={styles.avisoBloqueio}>
+              <Text style={styles.avisoBloqueioText}>
+                Limite de tentativas atingido. Solicite liberação à operação.
+              </Text>
+            </View>
+          ) : isAusente ? (
             <TouchableOpacity
               style={[styles.btnNovaTentativa, saving && styles.btnDisabled]}
               onPress={async () => {
                 setSaving(true);
                 try {
                   await novaTentativa(idSaida);
-                  Alert.alert("Sucesso", "Pedido colocado em rota para nova tentativa.", [
-                    { text: "OK", onPress: () => navigation.goBack() },
+                  Alert.alert("Sucesso", "Nova tentativa liberada. Você já pode finalizar a entrega.", [
+                    { text: "OK", onPress: () => void load() },
                   ]);
                 } catch (e: unknown) {
                   const msg =
@@ -496,7 +613,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             </TouchableOpacity>
           ) : null}
 
-          {podeFinalizar ? (
+          {podeFinalizarEfetivo ? (
             <>
               <TouchableOpacity style={styles.btnEntregue} onPress={handleAbrirEntregueModal}>
                 <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
@@ -586,10 +703,16 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         idSaida={idSaida}
         destinatarioPreenchido={entrega?.cliente ?? undefined}
         requiredFields={entrega?.campos_obrigatorios_entregue || []}
-        onConfirm={async (body) => markDelivered(idSaida, body)}
         onClose={() => setShowEntregueModal(false)}
-        onSuccess={async (marcacao) => {
-          await load();
+        onSuccess={async ({ marcacao, queued } = {}) => {
+          setShowEntregueModal(false);
+          if (queued) {
+            const uris = await applyLocalComprovante();
+            applyLocalFinalized("entregue", uris.length > 0);
+          } else {
+            applyLocalFinalized("entregue", true);
+            void load();
+          }
           const extra = marcacao as { routeJustCompleted?: boolean; rotaIdForResumo?: string | number | null };
           runPostFinalizeFeedback({
             tipo: "entregue",
@@ -598,6 +721,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             routeJustCompleted: extra.routeJustCompleted ?? false,
             rotaIdForResumo: extra.rotaIdForResumo ?? null,
             isRouteFlow: marcacao?.rota_sync?.in_active_route ?? false,
+            queued,
             onAfterIndividualAlert: () => navigation.goBack(),
           });
         }}
@@ -608,7 +732,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         idSaidas={[idSaida]}
         requiredFields={entrega?.campos_obrigatorios_ausente || []}
         codigo={entrega?.codigo ?? undefined}
-        onConfirm={handleConfirmarAusente}
+        onSuccess={handleAusenteSuccess}
         onClose={() => setModalAusente(false)}
       />
 
@@ -627,11 +751,24 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
               backgroundColor: "rgba(0,0,0,0.3)",
             }}
           >
-            <TouchableOpacity onPress={() => setShowComprovanteViewer(false)}>
-              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 6 }}>Fechar</Text>
-            </TouchableOpacity>
-            <Text style={{ color: "#fff", fontSize: 14 }}>
-              Comprovante {entrega?.codigo ? `- ${entrega.codigo}` : ""}
+            <View style={styles.comprovanteViewerHeader}>
+              <TouchableOpacity onPress={() => setShowComprovanteViewer(false)}>
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Fechar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.btnCompartilhar}
+                onPress={() => void handleCompartilharComprovante()}
+                disabled={sharingComprovante || comprovanteUris.length === 0}
+              >
+                {sharingComprovante ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.btnCompartilharText}>Compartilhar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: "#fff", fontSize: 14, marginTop: 6 }}>
+              Comprovante
               {comprovanteUris.length > 1
                 ? ` (${comprovanteViewerIndex + 1}/${comprovanteUris.length})`
                 : ""}

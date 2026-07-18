@@ -6,7 +6,18 @@ type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 
 let refreshPromise: Promise<boolean> | null = null;
 
-async function tryRefreshToken(): Promise<boolean> {
+function isNetworkOrTimeoutError(e: unknown): boolean {
+  if (!axios.isAxiosError(e)) {
+    if (e instanceof Error && e.name === "AbortError") return true;
+    return false;
+  }
+  if (e.code === "ECONNABORTED" || e.code === "ERR_NETWORK" || !e.response) {
+    return true;
+  }
+  return false;
+}
+
+async function tryRefreshToken(attempt = 1): Promise<boolean> {
   const { refreshToken, setTokens, onSessionExpired } = useAuthStore.getState();
   if (!refreshToken) {
     await onSessionExpired();
@@ -25,13 +36,21 @@ async function tryRefreshToken(): Promise<boolean> {
     );
     await setTokens(data.access_token, data.refresh_token || refreshToken);
     return true;
-  } catch {
+  } catch (e) {
+    if (isNetworkOrTimeoutError(e) && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 800));
+      return tryRefreshToken(attempt + 1);
+    }
+    if (isNetworkOrTimeoutError(e)) {
+      return false;
+    }
     await onSessionExpired();
     return false;
   }
 }
 
-function refreshOnce(): Promise<boolean> {
+/** Renova access token (claims atualizados do banco). Deduplica chamadas paralelas. */
+export function refreshOnce(): Promise<boolean> {
   if (!refreshPromise) {
     refreshPromise = tryRefreshToken().finally(() => {
       refreshPromise = null;
@@ -47,6 +66,7 @@ export const apiClient = axios.create({
     "Cache-Control": "no-cache, no-store, must-revalidate",
     Pragma: "no-cache",
   },
+  timeout: 45_000,
 });
 
 apiClient.interceptors.request.use((config) => {
@@ -72,6 +92,9 @@ apiClient.interceptors.response.use(
     config._retry = true;
     const ok = await refreshOnce();
     if (!ok) {
+      if (isNetworkOrTimeoutError(error)) {
+        return Promise.reject(error);
+      }
       return Promise.reject(error);
     }
     const token = useAuthStore.getState().token;
@@ -87,3 +110,6 @@ export function getAuthHeaders(): Record<string, string> {
   if (!token) return {};
   return { Authorization: `Bearer ${token}` };
 }
+
+/** Indica se o erro parece ser de rede (não expirar sessão). */
+export { isNetworkOrTimeoutError };

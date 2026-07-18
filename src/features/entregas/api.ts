@@ -147,11 +147,13 @@ export interface CamposObrigatoriosValidationError {
 
 export async function marcarEntregue(
   idSaida: number,
-  body?: EntregueBody
+  body?: EntregueBody,
+  headers?: Record<string, string>
 ): Promise<MarcacaoEntregaResponse> {
   const { data } = await client.post<MarcacaoEntregaResponse>(
     `/mobile/entrega/${idSaida}/entregue`,
-    body ?? {}
+    body ?? {},
+    headers ? { headers } : undefined
   );
   return data;
 }
@@ -159,11 +161,13 @@ export async function marcarEntregue(
 export async function marcarAusente(
   idSaida: number,
   motivoId: number,
-  observacao?: string
+  observacao?: string,
+  headers?: Record<string, string>
 ): Promise<MarcacaoEntregaResponse> {
   const { data } = await client.post<MarcacaoEntregaResponse>(
     `/mobile/entrega/${idSaida}/ausente`,
-    { motivo_id: motivoId, observacao: observacao || null }
+    { motivo_id: motivoId, observacao: observacao || null },
+    headers ? { headers } : undefined
   );
   return data;
 }
@@ -184,6 +188,7 @@ export async function getPresignUpload(params: {
   id_saida: number;
   tipo: "entregue" | "ausente";
   content_type: string;
+  photo_id?: string;
 }): Promise<PresignUploadResponse> {
   const { data } = await client.post<PresignUploadResponse>("/upload/presign", params);
   return data;
@@ -194,11 +199,13 @@ export async function patchFotoSaida(
   fotoUrl: string,
   status: "entregue" | "ausente",
   validarCamposObrigatorios = true,
-  alterarStatus = true
+  alterarStatus = true,
+  photoId?: string
 ): Promise<void> {
   await client.patch(`/saidas/${idSaida}/foto`, {
     foto_url: fotoUrl,
     status,
+    photo_id: photoId || undefined,
     validar_campos_obrigatorios: !!validarCamposObrigatorios,
     alterar_status: !!alterarStatus,
   });
@@ -361,7 +368,7 @@ export async function getComprovanteWatermark(idSaida: number): Promise<Comprova
 const BASE64_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let out = "";
   for (let i = 0; i < bytes.length; i += 3) {
@@ -403,6 +410,57 @@ export async function fetchComprovanteImagesDataUris(idSaida: number): Promise<s
 export async function fetchComprovanteImageDataUri(idSaida: number): Promise<string | null> {
   const images = await fetchComprovanteImagesDataUris(idSaida);
   return images[0] ?? null;
+}
+
+export type ComprovanteExportResult = {
+  buffer: ArrayBuffer;
+  codigo?: string;
+  status?: string;
+  dataHora?: string;
+  recebedor?: string;
+  entregador?: string;
+  caption: string;
+};
+
+/** Exporta JPEG com cartão + até 3 fotos do mesmo evento (WhatsApp/share). */
+export async function exportComprovante(
+  idSaida: number,
+  index = 0
+): Promise<ComprovanteExportResult> {
+  const response = await client.post<ArrayBuffer>(
+    `/upload/saida/${idSaida}/comprovante-export`,
+    { index },
+    { responseType: "arraybuffer" }
+  );
+  const headers = response.headers || {};
+  const getHeader = (name: string): string => {
+    const key = Object.keys(headers).find((k) => k.toLowerCase() === name.toLowerCase());
+    const raw = key ? headers[key] : undefined;
+    return typeof raw === "string" ? raw.trim() : "";
+  };
+  const codigo = getHeader("x-comprovante-codigo");
+  const status = getHeader("x-comprovante-status");
+  const dataHora = getHeader("x-comprovante-data");
+  const recebedor = getHeader("x-comprovante-recebedor");
+  const entregador = getHeader("x-comprovante-entregador");
+  const labelEntregador =
+    String(status || "").toLowerCase() === "entregue" ? "Entregue por" : "Motoboy";
+  const captionParts = [
+    status ? `Comprovante — ${status}` : "Comprovante de entrega",
+    codigo ? `Código: ${codigo}` : null,
+    dataHora ? `Data/hora: ${dataHora}` : null,
+    recebedor ? `Recebido por: ${recebedor}` : null,
+    entregador ? `${labelEntregador}: ${entregador}` : null,
+  ].filter(Boolean) as string[];
+  return {
+    buffer: response.data,
+    codigo: codigo || undefined,
+    status: status || undefined,
+    dataHora: dataHora || undefined,
+    recebedor: recebedor || undefined,
+    entregador: entregador || undefined,
+    caption: captionParts.join("\n"),
+  };
 }
 
 // --- Otimização e rotas ativas persistidas ---

@@ -1,6 +1,6 @@
 import "./src/services/location/backgroundLocationTask";
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { ActivityIndicator, StyleSheet } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -22,6 +22,9 @@ import LoginScreen from "./src/screens/LoginScreen";
 import SelectSubBaseScreen from "./src/screens/SelectSubBaseScreen";
 import ChangePasswordRequiredScreen from "./src/screens/ChangePasswordRequiredScreen";
 import { SessionExpiredModal } from "./src/components/SessionExpiredModal";
+import PendingSyncBanner from "./src/components/PendingSyncBanner";
+import { startSyncEngine } from "./src/services/outbox/syncEngine";
+import { hydrateOutboxStore } from "./src/store/outboxStore";
 import { recoverRouteState } from "./src/features/entregas/services/routeRecovery";
 import HomeScreen from "./src/screens/HomeScreen";
 import MaisScreen, { type MaisStackParamList } from "./src/screens/MaisScreen";
@@ -265,6 +268,13 @@ export default function App() {
     void recoverRouteState({ force: true });
   }, [token, currentUser, requiresBiometricUnlock]);
 
+  useEffect(() => {
+    if (!token || requiresBiometricUnlock || !currentUser) return;
+    void hydrateOutboxStore();
+    const stopSync = startSyncEngine();
+    return () => stopSync();
+  }, [token, currentUser, requiresBiometricUnlock]);
+
   if (isLoading) {
     const loadingColors = getColors(theme);
     return (
@@ -296,11 +306,14 @@ export default function App() {
         {pendingChangePassword ? (
           <ChangePasswordRequiredScreen onDone={() => setPendingChangePassword(false)} />
         ) : showMainApp ? (
-          <>
-            <MainTabs onLogout={logout} />
+          <View style={{ flex: 1 }}>
+            <PendingSyncBanner />
+            <View style={{ flex: 1 }}>
+              <MainTabs onLogout={logout} />
+            </View>
             <DiaRotaConcluidaModal />
             <SessionExpiredModal onRelogin={() => {}} />
-          </>
+          </View>
         ) : (
           <AuthStack.Navigator screenOptions={{ headerShown: false }}>
             <AuthStack.Screen name="Login">

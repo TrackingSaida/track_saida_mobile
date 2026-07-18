@@ -27,7 +27,7 @@ import { useAuthStore } from "../../../store/authStore";
 import { playSound } from "../../../utils/sound";
 import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
-import { effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
+import { effectivePodeDigitarCodigoManual, effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
 import {
   lerSaidaAdmin,
   lancarAvulso,
@@ -37,6 +37,12 @@ import {
   type MotoboyItem,
 } from "../saidasApi";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
+import {
+  AVULSO_IDENT_AJUDA,
+  AVULSO_IDENT_MAX,
+  AVULSO_QTD_MAX,
+  validarLancamentoAvulso,
+} from "../utils/avulsoLancamento";
 
 const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
 const CORNER_LENGTH = 40;
@@ -477,7 +483,7 @@ export default function LeituraSaidasScreen() {
           borderBottomWidth: StyleSheet.hairlineWidth,
           borderBottomColor: colors.border,
         },
-        listaCodigo: { fontSize: 14, fontWeight: "700", color: colors.text },
+        listaCodigo: { fontSize: 14, fontWeight: "700", color: colors.text, flexShrink: 1 },
         listaSubtitle: { fontSize: 11, color: colors.textSecondary, marginTop: 3 },
         statusBadge: {
           paddingHorizontal: 8,
@@ -650,11 +656,13 @@ export default function LeituraSaidasScreen() {
         },
         modalBtnPrimaryText: { fontSize: 15, fontWeight: "700", color: colors.primaryContrast },
         modalMessage: { fontSize: 14, color: colors.textSecondary, marginBottom: 10 },
+        modalHelp: { fontSize: 12, color: colors.textSecondary, marginBottom: 10, marginTop: -4 },
       }),
     [colors, insets.bottom, insets.top]
   );
 
   const podeLerSaida = effectivePodeLerSaida(currentUser);
+  const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const username = currentUser?.username ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
@@ -1012,16 +1020,16 @@ export default function LeituraSaidasScreen() {
       pushFeedback("info", "Selecione um motoboy.");
       return;
     }
-    const qtd = Number(avulsoQuantidade);
-    if (!Number.isFinite(qtd) || qtd < 1) {
-      pushFeedback("erro", "Quantidade mínima é 1.");
+    const validacao = validarLancamentoAvulso(avulsoIdentificacao, avulsoQuantidade);
+    if (!validacao.ok) {
+      pushFeedback("erro", validacao.message);
       return;
     }
     setLoading(true);
     try {
       const res = await lancarAvulso({
-        identificacao: avulsoIdentificacao.trim() || null,
-        quantidade: Math.floor(qtd),
+        identificacao: validacao.identificacao,
+        quantidade: validacao.quantidade,
         motoboy_id: motoboyId,
       });
       const novos = (res.saidas ?? []).map((s) => ({
@@ -1353,47 +1361,52 @@ export default function LeituraSaidasScreen() {
           </View>
         </View>
 
-        <Pressable
-          style={styles.manualToggle}
-          onPress={() => setManualExpanded((v) => !v)}
-          accessibilityRole="button"
-          accessibilityLabel="Digitar código manualmente"
+        <TouchableOpacity
+          style={[styles.btnOutline, { marginBottom: 10 }]}
+          onPress={() => setAvulsoModalVisible(true)}
+          disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
         >
-          <Text style={styles.manualToggleText}>Digitar código manualmente</Text>
-          <Ionicons name={manualExpanded ? "chevron-up" : "chevron-down"} size={22} color={colors.primary} />
-        </Pressable>
-        {manualExpanded ? (
-          <View style={{ marginBottom: 14 }}>
-            <TextInput
-              style={[styles.input, !motoboySelecionadoOk && { opacity: 0.5 }]}
-              placeholder="Código da saída"
-              placeholderTextColor={colors.placeholder}
-              value={codigoInput}
-              onChangeText={setCodigoInput}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={!loading && motoboySelecionadoOk && podeLerSaida}
-              onSubmitEditing={() => void handleRegistrarManual()}
-            />
-            <TouchableOpacity
-              style={styles.btnOutline}
-              onPress={() => void handleRegistrarManual()}
-              disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+          <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
+        </TouchableOpacity>
+
+        {podeDigitarManual ? (
+          <>
+            <Pressable
+              style={styles.manualToggle}
+              onPress={() => setManualExpanded((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel="Digitar código manualmente"
             >
-              {loading ? (
-                <ActivityIndicator color={colors.primary} size="small" />
-              ) : (
-                <Text style={styles.btnTextOutline}>Registrar</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btnOutline, { marginTop: 8 }]}
-              onPress={() => setAvulsoModalVisible(true)}
-              disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-            >
-              <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
-            </TouchableOpacity>
-          </View>
+              <Text style={styles.manualToggleText}>Digitar código manualmente</Text>
+              <Ionicons name={manualExpanded ? "chevron-up" : "chevron-down"} size={22} color={colors.primary} />
+            </Pressable>
+            {manualExpanded ? (
+              <View style={{ marginBottom: 14 }}>
+                <TextInput
+                  style={[styles.input, !motoboySelecionadoOk && { opacity: 0.5 }]}
+                  placeholder="Código da saída"
+                  placeholderTextColor={colors.placeholder}
+                  value={codigoInput}
+                  onChangeText={setCodigoInput}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  editable={!loading && motoboySelecionadoOk && podeLerSaida}
+                  onSubmitEditing={() => void handleRegistrarManual()}
+                />
+                <TouchableOpacity
+                  style={styles.btnOutline}
+                  onPress={() => void handleRegistrarManual()}
+                  disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                >
+                  {loading ? (
+                    <ActivityIndicator color={colors.primary} size="small" />
+                  ) : (
+                    <Text style={styles.btnTextOutline}>Registrar</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </>
         ) : null}
 
         <View style={styles.listaContainer}>
@@ -1413,8 +1426,10 @@ export default function LeituraSaidasScreen() {
                 const sb = statusBadgeStyles(l.status);
                 return (
                   <View key={key} style={styles.listaItem}>
-                    <View style={{ flex: 1, paddingRight: 6 }}>
-                      <Text style={styles.listaCodigo}>{l.codigo}</Text>
+                    <View style={{ flex: 1, paddingRight: 6, minWidth: 0 }}>
+                      <Text style={styles.listaCodigo} numberOfLines={2} ellipsizeMode="tail">
+                        {l.codigo}
+                      </Text>
                       <Text style={styles.listaSubtitle} numberOfLines={2}>
                         {l.entregador}
                         {l.servico ? ` · ${l.servico}` : ""}
@@ -1552,6 +1567,7 @@ export default function LeituraSaidasScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Lançar Avulso</Text>
             <Text style={styles.modalMessage}>Identificação do avulso (opcional)</Text>
+            <Text style={styles.modalHelp}>{AVULSO_IDENT_AJUDA}</Text>
             <TextInput
               style={styles.input}
               placeholder="Ex.: Cliente João"
@@ -1560,9 +1576,10 @@ export default function LeituraSaidasScreen() {
               onChangeText={setAvulsoIdentificacao}
               autoCapitalize="words"
               autoCorrect={false}
+              maxLength={AVULSO_IDENT_MAX}
               editable={!loading}
             />
-            <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade</Text>
+            <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade (máx. {AVULSO_QTD_MAX})</Text>
             <TextInput
               style={styles.input}
               placeholder="1"
@@ -1570,6 +1587,7 @@ export default function LeituraSaidasScreen() {
               value={avulsoQuantidade}
               onChangeText={setAvulsoQuantidade}
               keyboardType="number-pad"
+              maxLength={2}
               editable={!loading}
             />
             <View style={styles.modalActions}>

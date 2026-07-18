@@ -17,38 +17,21 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
 import { getMotivosAusencia } from "../api";
 import type { MotivoAusencia } from "../types";
+import { enqueueAusenteCompletion } from "../../../services/outbox/deliveryOutboxService";
 import {
-  selectOrTakePhoto,
+  takeDeliveryPhoto,
+  pickDeliveryPhotoFromGallery,
   preparePhoto,
-  uploadDeliveryPhoto,
   MAX_PHOTOS,
 } from "../../../services/deliveryPhotoService";
+import { canConfirmWithPhotos } from "../utils/photoValidationUtils";
 
 const CAMPO_LABEL: Record<string, string> = {
   foto: "Foto",
   observacao: "Observação",
 };
 
-type PhotoItem = { uri: string; status: "idle" | "uploading" | "sent" | "error" };
-
-export async function uploadAusentePhotosForDeliveryIds(
-  photoUris: string[],
-  idSaidas: number[]
-): Promise<void> {
-  for (const idSaida of idSaidas) {
-    for (const uri of photoUris) {
-      await uploadDeliveryPhoto({
-        id_saida: idSaida,
-        tipo: "ausente",
-        uri,
-        mimeType: "image/jpeg",
-        filename: "foto.jpg",
-        validarCamposObrigatorios: false,
-        alterarStatus: false,
-      });
-    }
-  }
-}
+type PhotoItem = { uri: string };
 
 export interface FormAusenteModalProps {
   visible: boolean;
@@ -57,11 +40,15 @@ export interface FormAusenteModalProps {
   codigo?: string;
   batchCount?: number;
   stopLabel?: string;
-  onConfirm: (data: {
+  onConfirm?: (data: {
     motivoId: number;
     observacao?: string;
     photoUris: string[];
   }) => Promise<void>;
+  /** Chamado após enfileirar/concluir (sem nova chamada API). */
+  onSuccess?: (result?: { queued?: boolean }) => void | Promise<void>;
+  /** Quando batchCount > 1, resolve ids finais antes do enqueue. */
+  resolveBatchTargets?: () => Promise<number[]>;
   onClose: () => void;
 }
 
@@ -73,6 +60,8 @@ export default function FormAusenteModal({
   batchCount = 1,
   stopLabel,
   onConfirm,
+  onSuccess,
+  resolveBatchTargets,
   onClose,
 }: FormAusenteModalProps) {
   const insets = useSafeAreaInsets();
@@ -199,36 +188,33 @@ export default function FormAusenteModal({
     [colors]
   );
 
-  const addPhoto = useCallback(async () => {
-    if (photos.length >= MAX_PHOTOS) return;
-    try {
-      const picked = await selectOrTakePhoto();
-      if (!picked) return;
-      const prepared = await preparePhoto(picked.uri);
-      setPhotos((prev) => [...prev, { uri: prepared.uri, status: "idle" }]);
-    } catch (e) {
-      Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
-    }
-  }, [photos.length]);
+  const addPhotoFromSource = useCallback(
+    async (pick: () => Promise<{ uri: string } | null>) => {
+      if (photos.length >= MAX_PHOTOS) return;
+      try {
+        const picked = await pick();
+        if (!picked) return;
+        const prepared = await preparePhoto(picked.uri, photos.length);
+        setPhotos((prev) => [...prev, { uri: prepared.uri }]);
+      } catch (e) {
+        Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+      }
+    },
+    [photos.length]
+  );
+
+  const addPhotoFromCamera = useCallback(
+    () => addPhotoFromSource(takeDeliveryPhoto),
+    [addPhotoFromSource]
+  );
+
+  const addPhotoFromGallery = useCallback(
+    () => addPhotoFromSource(pickDeliveryPhotoFromGallery),
+    [addPhotoFromSource]
+  );
 
   const removePhoto = useCallback((index: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const uploadPhotosToIds = useCallback(async (uris: string[], targets: number[]) => {
-    if (uris.length === 0 || targets.length === 0) return;
-    setPhotos((prev) =>
-      prev.map((p) => (p.status === "idle" ? { ...p, status: "uploading" as const } : p))
-    );
-    try {
-      await uploadAusentePhotosForDeliveryIds(uris, targets);
-      setPhotos((prev) => prev.map((p) => ({ ...p, status: "sent" as const })));
-    } catch (uploadErr) {
-      setPhotos((prev) =>
-        prev.map((p) => (p.status === "uploading" ? { ...p, status: "error" as const } : p))
-      );
-      throw uploadErr;
-    }
   }, []);
 
   const handleConfirmar = useCallback(async () => {
@@ -241,8 +227,12 @@ export default function FormAusenteModal({
       Alert.alert("Atenção", "Informe a observação quando o motivo for 'Outro'.");
       return;
     }
+    const photoCheck = canConfirmWithPhotos(photos, fotoObrigatoria);
+    if (!photoCheck.ok) {
+      Alert.alert("Atenção", photoCheck.reason || "Adicione pelo menos uma foto.");
+      return;
+    }
     const missing: string[] = [];
-    if (fotoObrigatoria && photos.length === 0) missing.push(CAMPO_LABEL.foto);
     if (required.has("observacao") && !observacao.trim()) missing.push(CAMPO_LABEL.observacao);
     if (missing.length) {
       Alert.alert(
@@ -252,19 +242,31 @@ export default function FormAusenteModal({
       return;
     }
 
-    const photoUris = photos.map((p) => p.uri);
     const uploadTargets = idSaidas.filter((id) => id > 0);
 
     setSaving(true);
     try {
-      if (photoUris.length > 0 && uploadTargets.length > 0) {
-        await uploadPhotosToIds(photoUris, uploadTargets);
+      let targets = idSaidas.filter((id) => id > 0);
+      if (batchCount > 1 && resolveBatchTargets) {
+        targets = await resolveBatchTargets();
       }
-      await onConfirm({
+      const photoUris = photos.map((p) => p.uri);
+      const result = await enqueueAusenteCompletion({
+        idSaidas: targets,
         motivoId,
         observacao: observacao.trim() || undefined,
         photoUris,
+        fotoObrigatoria,
       });
+      if (onSuccess) {
+        await onSuccess({ queued: result.queued });
+      } else if (onConfirm && !result.queued) {
+        await onConfirm({
+          motivoId,
+          observacao: observacao.trim() || undefined,
+          photoUris,
+        });
+      }
     } catch (e) {
       Alert.alert("Erro", (e as Error)?.message || "Não foi possível concluir a ausência.");
       throw e;
@@ -277,9 +279,10 @@ export default function FormAusenteModal({
     observacao,
     fotoObrigatoria,
     photos,
-    required,
     idSaidas,
-    uploadPhotosToIds,
+    batchCount,
+    resolveBatchTargets,
+    onSuccess,
     onConfirm,
   ]);
 
@@ -364,18 +367,25 @@ export default function FormAusenteModal({
                       <Text style={{ color: "#fff", fontSize: 10 }}>✕</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.photoStatus} numberOfLines={1}>
-                    {p.status === "idle" && "Pendente"}
-                    {p.status === "uploading" && "Enviando…"}
-                    {p.status === "sent" && "Enviado"}
-                    {p.status === "error" && "Falhou"}
-                  </Text>
                 </View>
               ))}
               {photos.length < MAX_PHOTOS && (
-                <TouchableOpacity style={styles.btnAddPhoto} onPress={addPhoto} disabled={saving}>
-                  <Text style={styles.btnAddPhotoText}>+ Foto</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={styles.btnAddPhoto}
+                    onPress={addPhotoFromCamera}
+                    disabled={saving}
+                  >
+                    <Text style={styles.btnAddPhotoText}>+ Tirar foto</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.btnAddPhoto}
+                    onPress={addPhotoFromGallery}
+                    disabled={saving}
+                  >
+                    <Text style={styles.btnAddPhotoText}>Galeria</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </View>
           </ScrollView>
