@@ -21,7 +21,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
-import { fetchFinalizadasFiltradas, getEntregas, getTodayISO } from "../api";
+import { fetchFinalizadasFiltradas, getEntregas, getResumoEntregas, getTodayISO } from "../api";
 import {
   FINALIZADAS_FILTROS_PADRAO,
   FINALIZAR_LOTE_MAX_IDS,
@@ -834,8 +834,10 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       if (tab === "pendente") {
         loadDeliveries({ onlyToday: somenteHojePendentes });
         if (roteirizacaoHabilitada) {
-          getEntregas("pendente")
-            .then((all) => setTotalPendentesCount(all.length))
+          getResumoEntregas()
+            .then((resumo) =>
+              setTotalPendentesCount(Number(resumo.pendentes ?? 0) + Number(resumo.atraso_d1 ?? 0))
+            )
             .catch(() => setTotalPendentesCount(0));
         } else {
           setTotalPendentesCount(0);

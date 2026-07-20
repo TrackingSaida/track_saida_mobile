@@ -420,7 +420,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   startRoute: async (deliveryIds) => {
     const { atualizados } = await iniciarRota(deliveryIds);
     set({ routeStarted: true });
-    await get().loadDeliveries();
+    // Após iniciar, recarrega só o recorte operacional do dia para não travar com histórico enorme.
+    await get().loadDeliveries({ onlyToday: true });
     return atualizados;
   },
 
@@ -494,9 +495,9 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     const state = get();
     const existingById = new Map(state.routeDeliveries.map((d) => [d.id_saida, d]));
     const [pendentes, finalizadas, ausentes] = await Promise.all([
-      getEntregas("pendente"),
-      getEntregas("finalizadas"),
-      getEntregas("ausentes"),
+      getEntregas("pendente", { dia: "hoje", data: getTodayISO() }),
+      getEntregas("finalizadas", { dia: "hoje", data: getTodayISO() }),
+      getEntregas("ausentes", { dia: "hoje", data: getTodayISO() }),
     ]);
     const freshListIds = new Set<number>();
     const byId = new Map<number, EntregaListItem>();
