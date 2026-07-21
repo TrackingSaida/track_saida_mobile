@@ -705,7 +705,8 @@ export default function ScanScreen({ navigation }: Props) {
     if (leiturasSession.length === 0) return;
     setIniciandoRota(true);
     try {
-      await startRoute();
+      const ids = leiturasSession.map((l) => l.id_saida);
+      await startRoute(ids);
       clearLeituras();
       setRotaIniciada(true);
       if (roteirizacaoHabilitada) {
