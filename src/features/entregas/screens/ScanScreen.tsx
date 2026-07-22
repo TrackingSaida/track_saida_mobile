@@ -80,11 +80,11 @@ const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
   "qr",
 ];
 
-const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
-const CORNER_LENGTH = 40;
-const CORNER_THICKNESS = 5;
+const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.52;
+const CORNER_LENGTH = 32;
+const CORNER_THICKNESS = 4;
 const CORNER_COLOR = "#00bfff"; // azul claro visível sobre a câmera
-const FEEDBACK_MS = 1100;
+const FEEDBACK_MS = 900;
 
 type FeedbackTipo = "sucesso" | "duplicado" | "erro" | "info";
 type ScanConflictLocal = {
@@ -186,11 +186,11 @@ export default function ScanScreen({ navigation }: Props) {
           zIndex: 10,
         },
         backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
-        backTextWhite: { fontSize: 16, color: "#fff", marginBottom: 8, fontWeight: "600" },
+        backTextWhite: { fontSize: 15, color: "#fff", marginBottom: 4, fontWeight: "600" },
         title: { fontSize: 22, fontWeight: "700", color: colors.text },
-        titleWhite: { fontSize: 22, fontWeight: "700", color: "#fff" },
+        titleWhite: { fontSize: 20, fontWeight: "700", color: "#fff" },
         subtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
-        subtitleWhite: { fontSize: 14, color: "rgba(255,255,255,0.9)", marginTop: 4 },
+        subtitleWhite: { fontSize: 13, color: "rgba(255,255,255,0.85)", marginTop: 2 },
         input: {
           backgroundColor: colors.inputBackground,
           borderWidth: 1,
@@ -211,16 +211,16 @@ export default function ScanScreen({ navigation }: Props) {
         btnScanText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
         linkManual: { marginTop: 24, alignItems: "center" },
         linkManualText: { fontSize: 15, color: colors.primary },
-        linkManualWhite: { paddingVertical: 12, alignItems: "center" },
-        linkManualTextWhite: { fontSize: 15, color: "rgba(255,255,255,0.95)" },
+        linkManualWhite: { paddingVertical: 8, alignItems: "center" },
+        linkManualTextWhite: { fontSize: 14, color: "rgba(255,255,255,0.92)" },
         btnAvulsoFooter: {
-          marginTop: 8,
+          marginTop: 4,
           backgroundColor: colors.primary,
-          paddingVertical: 14,
-          borderRadius: 12,
+          paddingVertical: 12,
+          borderRadius: 10,
           alignItems: "center",
         },
-        btnAvulsoFooterText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnAvulsoFooterText: { color: colors.primaryContrast, fontSize: 15, fontWeight: "600" },
         permissionText: { fontSize: 16, color: colors.text, textAlign: "center", marginBottom: 24 },
         loadingOverlay: {
           ...StyleSheet.absoluteFillObject,
@@ -230,74 +230,95 @@ export default function ScanScreen({ navigation }: Props) {
           zIndex: 5,
         },
         loadingText: { color: "#fff", marginTop: 12, fontSize: 16 },
+        processingChip: {
+          position: "absolute",
+          alignSelf: "center",
+          top: "58%",
+          zIndex: 8,
+          backgroundColor: "rgba(0,0,0,0.55)",
+          paddingHorizontal: 14,
+          paddingVertical: 6,
+          borderRadius: 16,
+        },
+        processingChipText: { color: "#fff", fontSize: 13, fontWeight: "600" },
         footerOverlay: {
           position: "absolute",
           bottom: 0,
-          left: 16,
-          right: 16,
+          left: 12,
+          right: 12,
           zIndex: 10,
-          maxHeight: "50%",
+          maxHeight: "42%",
         },
         scanFrameContainer: {
           ...StyleSheet.absoluteFillObject,
           justifyContent: "center",
           alignItems: "center",
+          paddingBottom: 88,
           zIndex: 5,
         },
         scanFrameWrap: { position: "relative" as const },
         contadorRow: {
           flexDirection: "row",
           justifyContent: "space-around",
-          marginBottom: 8,
-          gap: 8,
+          marginBottom: 6,
+          gap: 6,
         },
         contadorBadge: {
           flex: 1,
-          paddingVertical: 8,
-          paddingHorizontal: 12,
+          paddingVertical: 6,
+          paddingHorizontal: 6,
           borderRadius: 8,
           alignItems: "center",
         },
         badgeShopee: { backgroundColor: "rgba(238,77,45,0.9)" },
         badgeFlex: { backgroundColor: "rgba(255,224,102,0.9)" },
         badgeAvulso: { backgroundColor: "rgba(99,102,241,0.9)" },
-        contadorNum: { fontSize: 20, fontWeight: "700", color: "#fff" },
-        contadorLabel: { fontSize: 12, color: "rgba(255,255,255,0.95)" },
+        contadorNum: { fontSize: 18, fontWeight: "700", color: "#fff" },
+        contadorLabel: { fontSize: 11, color: "rgba(255,255,255,0.95)" },
         btnComecarEntregar: {
           backgroundColor: colors.primary,
-          paddingVertical: 16,
+          paddingVertical: 14,
           borderRadius: 12,
           alignItems: "center",
-          marginBottom: 10,
+          marginBottom: 4,
         },
-        btnComecarEntregarText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        btnComecarEntregarText: { color: colors.primaryContrast, fontSize: 17, fontWeight: "600" },
         verListaBtn: {
-          paddingVertical: 10,
+          paddingVertical: 6,
           alignItems: "center",
-          backgroundColor: "rgba(0,0,0,0.5)",
+          backgroundColor: "rgba(0,0,0,0.45)",
           borderRadius: 8,
-          marginBottom: 8,
+          marginBottom: 4,
         },
-        verListaText: { color: "#fff", fontSize: 14 },
+        verListaText: { color: "#fff", fontSize: 13 },
+        secondaryActionsRow: {
+          flexDirection: "row",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: 12,
+          paddingTop: 2,
+        },
+        secondaryActionText: { fontSize: 14, color: "rgba(255,255,255,0.92)", fontWeight: "600" },
+        secondaryActionSep: { fontSize: 14, color: "rgba(255,255,255,0.35)" },
         listaLeituras: {
-          maxHeight: 200,
+          maxHeight: 160,
           backgroundColor: "rgba(0,0,0,0.75)",
           borderRadius: 8,
-          marginBottom: 8,
+          marginBottom: 6,
           overflow: "hidden",
         },
-        listaScroll: { maxHeight: 200 },
+        listaScroll: { maxHeight: 160 },
         listaItem: {
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",
-          paddingVertical: 10,
+          paddingVertical: 8,
           paddingHorizontal: 12,
           borderBottomWidth: 1,
           borderBottomColor: "rgba(255,255,255,0.2)",
         },
         listaItemInfo: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
-        listaItemCodigo: { color: "#fff", fontSize: 15, fontWeight: "600", flexShrink: 1 },
+        listaItemCodigo: { color: "#fff", fontSize: 14, fontWeight: "600", flexShrink: 1 },
         servicoBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
         servicoBadgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
         btnRemover: {
@@ -344,6 +365,8 @@ export default function ScanScreen({ navigation }: Props) {
   const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
   const [showAvulsoModal, setShowAvulsoModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  /** Só para bip de câmera: chip leve, sem pausar o scanner nem overlay cheio. */
+  const [cameraBusy, setCameraBusy] = useState(false);
   const [conflito, setConflito] = useState<{
     motoboy_atual: string;
     id_saida: number;
@@ -474,11 +497,19 @@ export default function ScanScreen({ navigation }: Props) {
     }
   }, [leiturasSession, removeLeituraStore, setLeiturasStore]);
 
-  const contadores = {
-    Shopee: leiturasSession.filter((l) => l.servico === "Shopee").length,
-    Flex: leiturasSession.filter((l) => l.servico === "Flex").length,
-    Avulso: leiturasSession.filter((l) => l.servico === "Avulso").length,
-  };
+  const contadores = useMemo(() => {
+    let Shopee = 0;
+    let Flex = 0;
+    let Avulso = 0;
+    for (const l of leiturasSession) {
+      const s = classifyServico(l.servico);
+      if (s === "Shopee") Shopee += 1;
+      else if (s === "Flex") Flex += 1;
+      else Avulso += 1;
+    }
+    return { Shopee, Flex, Avulso };
+  }, [leiturasSession]);
+
   const codigosLidosSessao = useMemo(() => {
     const set = new Set<string>();
     leiturasSession.forEach((l) => {
@@ -487,6 +518,15 @@ export default function ScanScreen({ navigation }: Props) {
     });
     return set;
   }, [leiturasSession]);
+
+  const scannerAtivo =
+    isFocused &&
+    !listaExpandida &&
+    !modoManual &&
+    !showAvulsoModal &&
+    !conflito &&
+    !conflitoDiaAnterior &&
+    !conflitoEncerrado;
 
   const processarCodigo = useCallback(
     async (raw: string, origem: "camera" | "manual" = "camera") => {
@@ -519,7 +559,9 @@ export default function ScanScreen({ navigation }: Props) {
       markScanned(c);
       markScanned(rawTrim);
       scanLocked.current = true;
-      setLoading(true);
+      // Câmera: não usa loading global (pausava o scanner e cobria a tela).
+      if (origem === "manual") setLoading(true);
+      else setCameraBusy(true);
       setConflito(null);
       setConflitoDiaAnterior(null);
       setConflitoEncerrado(null);
@@ -607,7 +649,8 @@ export default function ScanScreen({ navigation }: Props) {
         Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
         setTimeout(() => (scanLocked.current = false), 500);
       } finally {
-        setLoading(false);
+        if (origem === "manual") setLoading(false);
+        else setCameraBusy(false);
       }
     },
     [addLeitura, codigosLidosSessao, pushFeedback, handlePostScanDelivery]
@@ -981,13 +1024,13 @@ export default function ScanScreen({ navigation }: Props) {
         }}
         enableTorch={torch.enableTorch}
         onCameraReady={torch.onCameraReady}
-        onBarcodeScanned={loading ? undefined : handleBarcodeScanned}
+        onBarcodeScanned={scannerAtivo ? handleBarcodeScanned : undefined}
       />
 
       <ScannerTorchButton
         mode={torch.mode}
         onPress={torch.cycleMode}
-        style={{ top: insets.top + 72, right: 16 }}
+        style={{ top: insets.top + 56, right: 16 }}
       />
 
       {renderFeedback()}
@@ -996,14 +1039,13 @@ export default function ScanScreen({ navigation }: Props) {
         <ScanFrameOverlay wrapStyle={styles.scanFrameWrap} />
       </View>
 
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator color="#fff" size="large" />
-          <Text style={styles.loadingText}>Processando...</Text>
+      {cameraBusy ? (
+        <View style={[styles.processingChip, { top: insets.top + 120 }]} pointerEvents="none">
+          <Text style={styles.processingChipText}>Lendo…</Text>
         </View>
-      )}
+      ) : null}
 
-      <View style={[styles.footerOverlay, { paddingBottom: Math.max(24, insets.bottom) }]}>
+      <View style={[styles.footerOverlay, { paddingBottom: Math.max(16, insets.bottom) }]}>
         {/* Contador Shopee | Flex | Avulso */}
         <View style={styles.contadorRow}>
           <View style={[styles.contadorBadge, styles.badgeShopee]}>
@@ -1034,7 +1076,6 @@ export default function ScanScreen({ navigation }: Props) {
           </TouchableOpacity>
         )}
 
-        {/* Arrastar para cima = lista de leituras */}
         {leiturasSession.length > 0 && (
           <TouchableOpacity
             style={styles.verListaBtn}
@@ -1081,23 +1122,19 @@ export default function ScanScreen({ navigation }: Props) {
           </View>
         )}
 
-        <TouchableOpacity
-          style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-          onPress={() => setShowAvulsoModal(true)}
-          disabled={loading}
-        >
-          <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-        </TouchableOpacity>
-
-        {podeDigitarManual ? (
-          <TouchableOpacity
-            style={styles.linkManualWhite}
-            onPress={() => setModoManual(true)}
-            disabled={loading}
-          >
-            <Text style={styles.linkManualTextWhite}>Digitar código manualmente</Text>
+        <View style={styles.secondaryActionsRow}>
+          <TouchableOpacity onPress={() => setShowAvulsoModal(true)} disabled={cameraBusy || loading}>
+            <Text style={styles.secondaryActionText}>Lançar Avulso</Text>
           </TouchableOpacity>
-        ) : null}
+          {podeDigitarManual ? (
+            <>
+              <Text style={styles.secondaryActionSep}>·</Text>
+              <TouchableOpacity onPress={() => setModoManual(true)} disabled={cameraBusy || loading}>
+                <Text style={styles.secondaryActionText}>Digitar código</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </View>
       </View>
 
       {avulsoModal}
