@@ -293,13 +293,28 @@ export default function ScanScreen({ navigation }: Props) {
         verListaText: { color: "#fff", fontSize: 13 },
         secondaryActionsRow: {
           flexDirection: "row",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: 12,
-          paddingTop: 2,
+          gap: 8,
+          marginTop: 4,
         },
-        secondaryActionText: { fontSize: 14, color: "rgba(255,255,255,0.92)", fontWeight: "600" },
-        secondaryActionSep: { fontSize: 14, color: "rgba(255,255,255,0.35)" },
+        secondaryActionBtn: {
+          flex: 1,
+          minHeight: 44,
+          paddingVertical: 10,
+          paddingHorizontal: 8,
+          borderRadius: 10,
+          borderWidth: 1.5,
+          borderColor: "rgba(255,255,255,0.55)",
+          backgroundColor: "rgba(0,0,0,0.35)",
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        secondaryActionBtnDisabled: { opacity: 0.5 },
+        secondaryActionBtnText: {
+          fontSize: 14,
+          color: "#fff",
+          fontWeight: "700",
+          textAlign: "center",
+        },
         listaLeituras: {
           maxHeight: 160,
           backgroundColor: "rgba(0,0,0,0.75)",
@@ -1123,16 +1138,23 @@ export default function ScanScreen({ navigation }: Props) {
         )}
 
         <View style={styles.secondaryActionsRow}>
-          <TouchableOpacity onPress={() => setShowAvulsoModal(true)} disabled={cameraBusy || loading}>
-            <Text style={styles.secondaryActionText}>Lançar Avulso</Text>
+          <TouchableOpacity
+            style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+            onPress={() => setShowAvulsoModal(true)}
+            disabled={cameraBusy || loading}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.secondaryActionBtnText}>Lançar Avulso</Text>
           </TouchableOpacity>
           {podeDigitarManual ? (
-            <>
-              <Text style={styles.secondaryActionSep}>·</Text>
-              <TouchableOpacity onPress={() => setModoManual(true)} disabled={cameraBusy || loading}>
-                <Text style={styles.secondaryActionText}>Digitar código</Text>
-              </TouchableOpacity>
-            </>
+            <TouchableOpacity
+              style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+              onPress={() => setModoManual(true)}
+              disabled={cameraBusy || loading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.secondaryActionBtnText}>Digitar código</Text>
+            </TouchableOpacity>
           ) : null}
         </View>
       </View>
