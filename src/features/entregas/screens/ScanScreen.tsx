@@ -21,7 +21,7 @@ import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
-import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, lancarAvulsoMobile } from "../api";
+import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, confirmarReativacaoEncerrado, lancarAvulsoMobile } from "../api";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -354,8 +354,13 @@ export default function ScanScreen({ navigation }: Props) {
     motoboy_nome: string;
     codigo: string;
   } | null>(null);
+  const [conflitoEncerrado, setConflitoEncerrado] = useState<{
+    id_saida: number;
+    codigo: string;
+  } | null>(null);
   const [assumindo, setAssumindo] = useState(false);
   const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
+  const [confirmandoEncerrado, setConfirmandoEncerrado] = useState(false);
   const [iniciandoRota, setIniciandoRota] = useState(false);
   const [listaExpandida, setListaExpandida] = useState(false);
   const [removendoId, setRemovendoId] = useState<number | null>(null);
@@ -503,6 +508,7 @@ export default function ScanScreen({ navigation }: Props) {
       setLoading(true);
       setConflito(null);
       setConflitoDiaAnterior(null);
+      setConflitoEncerrado(null);
 
       try {
         const result = await scanCodigo(codigoParaApi, origem);
@@ -527,6 +533,16 @@ export default function ScanScreen({ navigation }: Props) {
           });
           playSound("warn");
           pushFeedback("info", "Pedido já lido em data anterior. Confirme saída hoje.", c);
+          return;
+        }
+        if ((result as { code?: string }).code === "LEITURA_ENCERRADO_SISTEMA") {
+          const r = result as { id_saida: number };
+          setConflitoEncerrado({
+            id_saida: Number(r.id_saida ?? 0),
+            codigo: c,
+          });
+          playSound("warn");
+          pushFeedback("info", "Pedido encerrado. Confirme para abrir nova saída.", c);
           return;
         }
         if ((result as { conflito?: boolean }).conflito) {
@@ -698,6 +714,40 @@ export default function ScanScreen({ navigation }: Props) {
 
   const handleCancelarDiaAnterior = useCallback(() => {
     setConflitoDiaAnterior(null);
+    scanLocked.current = false;
+  }, []);
+
+  const handleConfirmarEncerrado = useCallback(async () => {
+    if (!conflitoEncerrado) return;
+    const idSaida = conflitoEncerrado.id_saida;
+    setConfirmandoEncerrado(true);
+    try {
+      await confirmarReativacaoEncerrado(idSaida);
+      const entrega = await getEntrega(idSaida);
+      addLeitura(entrega);
+      playSound("success");
+      pushFeedback("sucesso", "Nova saída confirmada", entrega.codigo ?? conflitoEncerrado.codigo);
+      setConflitoEncerrado(null);
+      scanLocked.current = false;
+      handlePostScanDelivery(idSaida);
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string; message?: string } } };
+      const msg =
+        ax?.response?.data?.detail ?? ax?.response?.data?.message ?? "Erro ao confirmar nova saída.";
+      playSound("error");
+      pushFeedback(
+        "erro",
+        typeof msg === "string" ? msg : "Erro ao confirmar nova saída",
+        conflitoEncerrado.codigo
+      );
+      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+    } finally {
+      setConfirmandoEncerrado(false);
+    }
+  }, [addLeitura, conflitoEncerrado, pushFeedback, handlePostScanDelivery]);
+
+  const handleCancelarEncerrado = useCallback(() => {
+    setConflitoEncerrado(null);
     scanLocked.current = false;
   }, []);
 
@@ -1097,6 +1147,39 @@ export default function ScanScreen({ navigation }: Props) {
                   <ActivityIndicator color={colors.primaryContrast} />
                 ) : (
                   <Text style={styles.modalBtnOkText}>Confirmar saída hoje</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!conflitoEncerrado} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Pedido encerrado</Text>
+            <Text style={styles.modalMessage}>
+              Este pedido foi encerrado pelo sistema e não está mais na lista de pendentes.
+              {"\n\n"}
+              Deseja confirmar uma nova saída para entrega?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalBtnCancel}
+                onPress={handleCancelarEncerrado}
+                disabled={confirmandoEncerrado}
+              >
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalBtnOk}
+                onPress={handleConfirmarEncerrado}
+                disabled={confirmandoEncerrado}
+              >
+                {confirmandoEncerrado ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.modalBtnOkText}>Confirmar saída</Text>
                 )}
               </TouchableOpacity>
             </View>

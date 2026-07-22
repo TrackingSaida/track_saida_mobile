@@ -282,6 +282,16 @@ export interface ScanLeituraDiaAnterior {
   motoboy_nome?: string | null;
 }
 
+export interface ScanLeituraEncerrado {
+  code: "LEITURA_ENCERRADO_SISTEMA";
+  conflito?: false;
+  id_saida: number;
+  status_atual?: string;
+  motoboy_id?: number | null;
+  motoboy_nome?: string | null;
+  message?: string;
+}
+
 export interface ScanStatusFinalizado {
   code: "STATUS_FINALIZADO";
   id_saida?: number;
@@ -296,7 +306,9 @@ export interface ScanStatusFinalizado {
 export async function scanCodigo(
   codigoBrutoOuNormalizado: string,
   origem: "camera" | "manual" = "camera"
-): Promise<ScanSuccess | ScanConflict | ScanLeituraDiaAnterior | ScanStatusFinalizado> {
+): Promise<
+  ScanSuccess | ScanConflict | ScanLeituraDiaAnterior | ScanLeituraEncerrado | ScanStatusFinalizado
+> {
   try {
     const { data } = await client.post<ScanSuccess>("/mobile/scan", {
       codigo: codigoBrutoOuNormalizado,
@@ -304,7 +316,9 @@ export async function scanCodigo(
     });
     return data;
   } catch (err) {
-    const ax = err as AxiosError<ScanConflict | ScanLeituraDiaAnterior | ScanStatusFinalizado>;
+    const ax = err as AxiosError<
+      ScanConflict | ScanLeituraDiaAnterior | ScanLeituraEncerrado | ScanStatusFinalizado
+    >;
     if (ax.response?.status === 409 && ax.response?.data) {
       return ax.response.data;
     }
@@ -321,6 +335,10 @@ export async function assumirEntrega(idSaida: number): Promise<void> {
 
 export async function confirmarNovaSaidaMesmoEntregador(idSaida: number): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/confirmar-nova-saida-mesmo-entregador`, { origem: "mobile" });
+}
+
+export async function confirmarReativacaoEncerrado(idSaida: number): Promise<void> {
+  await client.post(`/mobile/entrega/${idSaida}/confirmar-reativacao-encerrado`, { origem: "mobile" });
 }
 
 export interface LancarAvulsoResult {

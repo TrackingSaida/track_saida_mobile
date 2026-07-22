@@ -10,8 +10,8 @@ export function formatStatusSaidaLabel(status?: string | null): string {
   if (status == null || status === "") return "—";
   const s = String(status).replace(/_/g, " ").trim();
   const lower = s.toLowerCase();
-  if (lower === "encerrado sistema" || lower === "encerrado pelo sistema") {
-    return "Encerrado pelo sistema";
+  if (lower === "encerrado sistema" || lower === "encerrado pelo sistema" || lower === "encerrado") {
+    return "Encerrado";
   }
   if (lower === "saiu" || lower === "saiu para entrega") return "SAIU PARA ENTREGA";
   return s.toUpperCase();
@@ -19,9 +19,9 @@ export function formatStatusSaidaLabel(status?: string | null): string {
 
 export function statusVisualSaida(s?: string | null): { label: string; bg: string; fg: string } {
   const u = (s || "").toLowerCase().replace(/\s+/g, "_");
-  if (u === "encerrado_sistema" || (u.includes("encerrado") && u.includes("sistema"))) {
+  if (u === "encerrado_sistema" || u === "encerrado" || (u.includes("encerrado") && u.includes("sistema"))) {
     return {
-      label: "Encerrado pelo sistema",
+      label: "Encerrado",
       bg: "rgba(108,117,125,0.2)",
       fg: "#6c757d",
     };
