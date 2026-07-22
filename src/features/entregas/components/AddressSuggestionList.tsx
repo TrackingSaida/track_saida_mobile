@@ -13,6 +13,8 @@ import {
   filterSelectableSuggestions,
   formatSuggestionLines,
   isDisplayableDidYouMean,
+  pickBestAddressSuggestion,
+  rankAddressSuggestions,
 } from "../utils/addressSuggestions";
 
 interface AddressSuggestionListProps {
@@ -113,7 +115,17 @@ export default function AddressSuggestionList({
     [colors]
   );
 
-  const selectableSuggestions = filterSelectableSuggestions(suggestions);
+  const selectableSuggestions = useMemo(
+    () => rankAddressSuggestions(filterSelectableSuggestions(suggestions)),
+    [suggestions]
+  );
+  const recommendedId = useMemo(() => {
+    if (selectableSuggestions.length <= 1) return null;
+    if (autoApplied && selectedId) return selectedId;
+    const best = pickBestAddressSuggestion(selectableSuggestions);
+    return best?.id ?? selectableSuggestions[0]?.id ?? null;
+  }, [selectableSuggestions, autoApplied, selectedId]);
+
   const showDidYouMean =
     didYouMean &&
     isDisplayableDidYouMean(didYouMean) &&
@@ -142,6 +154,12 @@ export default function AddressSuggestionList({
 
   const dymLines = showDidYouMean ? formatSuggestionLines(didYouMean!) : null;
   const onlyDidYouMean = selectableSuggestions.length === 0 && showDidYouMean;
+  const headerLabel =
+    selectableSuggestions.length === 1
+      ? "Endereço encontrado"
+      : autoApplied
+        ? "Melhor endereço aplicado — toque para trocar"
+        : "Selecione o endereço";
 
   return (
     <View style={styles.wrap}>
@@ -168,11 +186,7 @@ export default function AddressSuggestionList({
       {selectableSuggestions.length > 0 && (
         <View style={styles.header}>
           <Ionicons name="location-outline" size={16} color={colors.primary} />
-          <Text style={styles.headerText}>
-            {selectableSuggestions.length === 1
-              ? "Endereço encontrado"
-              : "Selecione o endereço"}
-          </Text>
+          <Text style={styles.headerText}>{headerLabel}</Text>
         </View>
       )}
 
@@ -185,13 +199,17 @@ export default function AddressSuggestionList({
       {autoApplied && (
         <View style={styles.autoBadge}>
           <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-          <Text style={styles.autoBadgeText}>Sugestão aplicada</Text>
+          <Text style={styles.autoBadgeText}>
+            {selectableSuggestions.length > 1
+              ? "Melhor endereço aplicado"
+              : "Sugestão aplicada"}
+          </Text>
         </View>
       )}
 
       {selectableSuggestions.map((s) => {
         const selected = selectedId === s.id;
-        const lines = formatSuggestionLines(s);
+        const lines = formatSuggestionLines(s, { recommendedId });
         const isLocal = s.provider === "local";
         return (
           <TouchableOpacity

@@ -14,6 +14,14 @@ import {
   normalizeNumero,
   normalizeStreet,
 } from "./routeUtils";
+import {
+  addressIdentityKey,
+  pickBestAddressSuggestion as pickBestAddressSuggestionCore,
+  rankAddressSuggestions as rankAddressSuggestionsCore,
+  suggestionCompletenessScore,
+} from "./addressSuggestionRank";
+
+export { addressIdentityKey, suggestionCompletenessScore };
 
 export type AddressSuggestion = {
   id: string;
@@ -121,9 +129,13 @@ export function formatSuggestionDistanceMeters(meters: number | null | undefined
   return formatSuggestionDistance(meters / 1000);
 }
 
-export function suggestionBadgeLabel(s: AddressSuggestion): string | null {
+export function suggestionBadgeLabel(
+  s: AddressSuggestion,
+  opts?: { recommendedId?: string | null }
+): string | null {
   if (s.alreadyUsed || s.badge === "used") return "Endereço já utilizado";
   if (s.badge === "frequente") return "Frequente";
+  if (opts?.recommendedId && s.id === opts.recommendedId) return "Melhor sugestão";
   return null;
 }
 
@@ -131,7 +143,10 @@ export function isGooglePendingSuggestion(s: AddressSuggestion): boolean {
   return Boolean(s.requiresPlaceDetails && s.placeId && s.provider === "google_places");
 }
 
-export function formatSuggestionLines(s: AddressSuggestion): {
+export function formatSuggestionLines(
+  s: AddressSuggestion,
+  opts?: { recommendedId?: string | null }
+): {
   line1: string;
   line2: string;
   line3: string;
@@ -144,6 +159,7 @@ export function formatSuggestionLines(s: AddressSuggestion): {
   const estado = normalizeEstadoUf(v.estado) || (v.estado ?? "").trim().toUpperCase();
   const line3FromValues = cidade && estado ? `${cidade} - ${estado}` : cidade || estado;
   const cepDigits = normalizeCep(v.cep ?? "");
+  const badge = suggestionBadgeLabel(s, opts);
 
   if (s.mainText || s.secondaryText) {
     return {
@@ -154,7 +170,7 @@ export function formatSuggestionLines(s: AddressSuggestion): {
       distance:
         formatSuggestionDistanceMeters(s.distanceMeters) ??
         formatSuggestionDistance(s.distanceKm),
-      badge: suggestionBadgeLabel(s),
+      badge,
     };
   }
 
@@ -169,7 +185,7 @@ export function formatSuggestionLines(s: AddressSuggestion): {
       distance:
         formatSuggestionDistanceMeters(s.distanceMeters) ??
         formatSuggestionDistance(s.distanceKm),
-      badge: suggestionBadgeLabel(s),
+      badge,
     };
   }
   const line1 = [v.rua, v.numero].filter(Boolean).join(", ");
@@ -182,7 +198,7 @@ export function formatSuggestionLines(s: AddressSuggestion): {
     line3,
     line4,
     distance: formatSuggestionDistance(s.distanceKm),
-    badge: suggestionBadgeLabel(s),
+    badge,
   };
 }
 
@@ -224,6 +240,16 @@ export function isSelectableSuggestion(s: AddressSuggestion): boolean {
 
 export function filterSelectableSuggestions(list: AddressSuggestion[]): AddressSuggestion[] {
   return list.filter(isDisplayableAddressSuggestion);
+}
+
+export function rankAddressSuggestions(list: AddressSuggestion[]): AddressSuggestion[] {
+  return rankAddressSuggestionsCore(filterSelectableSuggestions(list));
+}
+
+export function pickBestAddressSuggestion(
+  list: AddressSuggestion[]
+): AddressSuggestion | null {
+  return pickBestAddressSuggestionCore(filterSelectableSuggestions(list));
 }
 
 /** Critério mais permissivo para exibir bloco "Você quis dizer?" (não auto-aplica). */

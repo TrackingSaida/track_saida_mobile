@@ -36,6 +36,8 @@ import {
   formatSelectedAddress,
   isGooglePendingSuggestion,
   isSelectableAddressSuggestion,
+  pickBestAddressSuggestion,
+  rankAddressSuggestions,
   resetAddressSessionToken,
   resolveGooglePlaceSuggestion,
   sanitizeAddressFormValues,
@@ -276,17 +278,16 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
             }
           }
 
-          setSuggestions(merged);
+          const ranked = rankAddressSuggestions(merged);
+          const ordered = ranked.length > 0 ? ranked : merged;
+          setSuggestions(ordered);
           setDidYouMean(finalDym);
           setSearchEmpty(merged.length === 0 && !finalDym);
 
-          if (
-            options?.autoApply &&
-            merged.length === 1 &&
-            isSelectableAddressSuggestion(merged[0]) &&
-            !isGooglePendingSuggestion(merged[0])
-          ) {
-            applySuggestionRef.current(merged[0], true);
+          // Auto-aplica com 1 resultado ou vencedor claro (mesmo local / CEP / score).
+          const best = pickBestAddressSuggestion(ordered);
+          if (best) {
+            applySuggestionRef.current(best, true);
           } else {
             setAutoApplied(false);
             setSelectedSuggestionId(null);
