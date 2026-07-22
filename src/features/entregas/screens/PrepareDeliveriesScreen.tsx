@@ -92,11 +92,13 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     activeRouteId,
     routeOrder,
     routeDeliveries,
+    routeDeliveryStatus,
     routeSeparationAcknowledged,
     acknowledgeRouteSeparation,
     optimizeRoute,
     startActiveRoute,
     reconcileActiveRoute,
+    rebuildRouteFromPendentes,
   } = useDeliveryStore();
 
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
@@ -138,6 +140,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const [ordemDraftModo, setOrdemDraftModo] = useState<PrepOrdemModo>(prepOrdemModo);
   const [ordemDraftServico, setOrdemDraftServico] = useState<ServicoTipo>(prepServicoInicio);
   const [optimizing, setOptimizing] = useState(false);
+  const [optimizingLabel, setOptimizingLabel] = useState("Criando rota...");
   const [showSeparationSheet, setShowSeparationSheet] = useState(false);
 
   const voiceResolveRef = useRef<(v: AddressCandidate[] | AddressCandidate | null) => void>(
@@ -253,6 +256,36 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           marginBottom: 12,
         },
         feedbackText: { fontSize: 13, color: colors.text, textAlign: "center" },
+        optimizingOverlay: {
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.45)",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 28,
+        },
+        optimizingBox: {
+          backgroundColor: colors.backgroundCard,
+          borderRadius: 14,
+          paddingVertical: 28,
+          paddingHorizontal: 24,
+          alignItems: "center",
+          minWidth: 240,
+          maxWidth: 320,
+        },
+        optimizingTitle: {
+          marginTop: 16,
+          fontSize: 17,
+          fontWeight: "700",
+          color: colors.text,
+          textAlign: "center",
+        },
+        optimizingHint: {
+          marginTop: 8,
+          fontSize: 13,
+          color: colors.textSecondary,
+          textAlign: "center",
+          lineHeight: 18,
+        },
         listSection: { flex: 1, marginHorizontal: 20, marginBottom: 16 },
         listTitle: { fontSize: 15, fontWeight: "600", color: colors.text, marginBottom: 8 },
         modalWrap: { flex: 1, backgroundColor: colors.backgroundCard },
@@ -307,6 +340,14 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     [deliveriesWithAddress]
   );
 
+  const routePendingCount = useMemo(
+    () =>
+      routeOrder.filter(
+        (id) => (routeDeliveryStatus[id] ?? "pendente") === "pendente"
+      ).length,
+    [routeOrder, routeDeliveryStatus]
+  );
+
   const prepFlow = useMemo(
     () =>
       derivePrepFlowView({
@@ -315,6 +356,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         semEndereco,
         withCoordsCount: withCoords.length,
         routeOrderLength: routeOrder.length,
+        routePendingCount,
         activeRouteId,
         separationViewed: routeSeparationAcknowledged,
       }),
@@ -324,6 +366,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       semEndereco,
       withCoords.length,
       routeOrder.length,
+      routePendingCount,
       activeRouteId,
       routeSeparationAcknowledged,
     ]
@@ -442,7 +485,11 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
             origem,
             latitude: geo.latitude,
             longitude: geo.longitude,
-            coord_precision: inferCoordPrecision(origem),
+            coord_precision: inferCoordPrecision(origem, geo.confidence),
+            geocode_source:
+              origem === "google_places" || origem === "mapa"
+                ? origem
+                : geo.source ?? "nominatim_strict",
           };
           setFlowState("saving");
           await saveAddress(activeDelivery.id_saida, body);
@@ -827,6 +874,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       }
 
       const runOptimize = async () => {
+        setOptimizingLabel("Criando rota...");
         setOptimizing(true);
         try {
           clearActiveRouteState();
@@ -879,6 +927,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para iniciar a rota.");
       return;
     }
+    setOptimizingLabel("Iniciando entrega...");
     setOptimizing(true);
     try {
       await startActiveRoute();
@@ -889,6 +938,40 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       setOptimizing(false);
     }
   }, [activeRouteId, routeOrder.length, withCoords.length, startActiveRoute, navigation]);
+
+  const handleRefazerRota = useCallback(() => {
+    Alert.alert(
+      "Refazer rota?",
+      "Vamos cancelar esta rota e montar outra com todos os pedidos pendentes de agora.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Refazer rota",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setOptimizingLabel("Refazendo rota...");
+              setOptimizing(true);
+              try {
+                const result = await rebuildRouteFromPendentes({
+                  onlyToday: somenteHojePendentes,
+                });
+                if (!result.ok) {
+                  Alert.alert("Não foi possível refazer", result.message);
+                  return;
+                }
+                navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
+              } catch (e) {
+                Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao refazer a rota.");
+              } finally {
+                setOptimizing(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, [rebuildRouteFromPendentes, somenteHojePendentes, navigation]);
 
   const handleOpenAdvancedForm = useCallback(() => {
     const q = refreshQueue();
@@ -950,11 +1033,14 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         case "generate_partial_route":
           void handleGerarRotaOtimizada({ partial: true });
           break;
+        case "rebuild_route":
+          handleRefazerRota();
+          break;
         default:
           break;
       }
     },
-    [navigation, prepOrdemModo, prepServicoInicio, handleGerarRotaOtimizada, handleStartScan]
+    [navigation, prepOrdemModo, prepServicoInicio, handleGerarRotaOtimizada, handleStartScan, handleRefazerRota]
   );
 
   const primaryDisabled =
@@ -1030,9 +1116,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           disabled={primaryDisabled}
           activeOpacity={0.92}
         >
-          {optimizing &&
-          (prepFlow.primaryAction === "generate_route" ||
-            prepFlow.primaryAction === "start_route") ? (
+          {optimizing ? (
             <ActivityIndicator color={colors.primaryContrast} />
           ) : (
             <View style={styles.btnInner}>
@@ -1049,8 +1133,9 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         {prepFlow.secondaryActions.map((sec) => (
           <TouchableOpacity
             key={sec.action}
-            style={styles.btnOutline}
+            style={[styles.btnOutline, optimizing && styles.btnDisabled]}
             onPress={() => handleSecondaryAction(sec.action)}
+            disabled={optimizing}
             activeOpacity={0.85}
           >
             <View style={styles.btnOutlineInner}>
@@ -1093,6 +1178,16 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         }}
         onClose={() => setShowSeparationSheet(false)}
       />
+
+      <Modal visible={optimizing} transparent animationType="fade">
+        <View style={styles.optimizingOverlay}>
+          <View style={styles.optimizingBox}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.optimizingTitle}>{optimizingLabel}</Text>
+            <Text style={styles.optimizingHint}>Aguarde alguns segundos. Não feche o app.</Text>
+          </View>
+        </View>
+      </Modal>
 
       <PrepScanSheet
         visible={showScanSheet}

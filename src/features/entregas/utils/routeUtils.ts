@@ -528,16 +528,19 @@ export function getStopAddressLine(d: EntregaListItem): string {
 
 export function isApproximateLocation(d: EntregaListItem): boolean {
   const precision = d.coord_precision;
-  if (precision === "rooftop") return false;
-  if (precision === "street" || precision === "approx") return true;
+  if (precision === "rooftop" || precision === "street") return false;
+  if (precision === "approx") return true;
   const origem = (d.endereco_origem ?? "").toLowerCase();
   if (origem === "google_places" || origem === "mapa") return false;
-  if (origem === "suggestion" || origem === "autocomplete") return true;
+  if (origem === "suggestion" || origem === "autocomplete") return false;
   return false;
 }
 
 export function getApproximateLocationLabel(d: EntregaListItem): string | null {
-  return isApproximateLocation(d) ? "Localização aproximada" : null;
+  if (d.coord_precision === "approx") return "Localização aproximada";
+  if (d.coord_precision === "street") return "Precisão ao nível da rua";
+  if (isApproximateLocation(d)) return "Localização aproximada";
+  return null;
 }
 
 export function countRoutePedidos(groupedStops: GroupedStop[]): number {

@@ -950,7 +950,11 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
             ? {
                 latitude: coords!.latitude,
                 longitude: coords!.longitude,
-                coord_precision: inferCoordPrecision(effectiveOrigem),
+                coord_precision: inferCoordPrecision(effectiveOrigem, coords?.confidence),
+                geocode_source:
+                  effectiveOrigem === "google_places" || effectiveOrigem === "mapa"
+                    ? effectiveOrigem
+                    : coords?.source ?? "nominatim_strict",
               }
             : {}),
         };
