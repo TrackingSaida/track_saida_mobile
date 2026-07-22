@@ -33,6 +33,9 @@ interface RouteAdvancedMenuSheetProps {
   onLocate: () => void;
   onToggleList: () => void;
   onIniciar?: () => void;
+  onCancelar?: () => void;
+  onRefazer?: () => void;
+  showRouteManagement?: boolean;
   listExpanded: boolean;
   optimizing?: boolean;
   iniciando?: boolean;
@@ -51,6 +54,9 @@ export default function RouteAdvancedMenuSheet({
   onLocate,
   onToggleList,
   onIniciar,
+  onCancelar,
+  onRefazer,
+  showRouteManagement = false,
   listExpanded,
   optimizing = false,
   iniciando = false,
@@ -99,6 +105,7 @@ export default function RouteAdvancedMenuSheet({
         itemDisabled: { opacity: 0.45 },
         itemIcon: { marginRight: 12 },
         itemLabel: { fontSize: 16, color: colors.text, flex: 1 },
+        itemLabelDanger: { color: colors.danger },
         cancel: {
           marginTop: 8,
           paddingVertical: 14,
@@ -151,6 +158,28 @@ export default function RouteAdvancedMenuSheet({
           },
         ]
       : []),
+    ...(showRouteManagement && onRefazer
+      ? [
+          {
+            key: "refazer",
+            label: "Refazer rota",
+            icon: "repeat-outline" as IoniconName,
+            onPress: onRefazer,
+            disabled: optimizing || iniciando,
+          },
+        ]
+      : []),
+    ...(showRouteManagement && onCancelar
+      ? [
+          {
+            key: "cancelar",
+            label: "Cancelar rota",
+            icon: "close-circle-outline" as IoniconName,
+            onPress: onCancelar,
+            disabled: optimizing || iniciando,
+          },
+        ]
+      : []),
     {
       key: "add",
       label: "+ Parada",
@@ -200,7 +229,14 @@ export default function RouteAdvancedMenuSheet({
                 ) : (
                   <Ionicons name={item.icon} size={22} color={colors.text} style={styles.itemIcon} />
                 )}
-                <Text style={styles.itemLabel}>{item.label}</Text>
+                <Text
+                  style={[
+                    styles.itemLabel,
+                    item.key === "cancelar" && styles.itemLabelDanger,
+                  ]}
+                >
+                  {item.label}
+                </Text>
               </TouchableOpacity>
             ))}
             <TouchableOpacity style={styles.cancel} onPress={onClose}>

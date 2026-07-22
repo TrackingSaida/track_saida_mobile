@@ -703,9 +703,10 @@ export default function ScanScreen({ navigation }: Props) {
 
   const handleComecarEntregar = async () => {
     if (leiturasSession.length === 0) return;
+    const deliveryIds = leiturasSession.map((l) => l.id_saida);
     setIniciandoRota(true);
     try {
-      await startRoute();
+      await startRoute(deliveryIds);
       clearLeituras();
       setRotaIniciada(true);
       if (roteirizacaoHabilitada) {

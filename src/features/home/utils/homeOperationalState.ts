@@ -216,7 +216,7 @@ export function deriveHomeCtas(
       layout: "route",
       primary: { label: "Ver resumo", action: "view_summary", primary: true },
       secondary: [
-        { label: "Histórico de rotas", action: "route_history" },
+        { label: "Minhas rotas", action: "route_history" },
         SCAN_INSERT_CTA,
       ],
     };

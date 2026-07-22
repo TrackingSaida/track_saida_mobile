@@ -5,6 +5,7 @@ import LeituraSaidasScreen from "../features/operacao/screens/LeituraSaidasScree
 import LeituraColetasScreen from "../features/operacao/screens/LeituraColetasScreen";
 import ConsultaCodigosScreen from "../features/operacao/screens/ConsultaCodigosScreen";
 import AcompanharOperacaoScreen from "../features/operacao/screens/AcompanharOperacaoScreen";
+import AcompanharMotoboyDiaScreen from "../features/operacao/screens/AcompanharMotoboyDiaScreen";
 import type { StaffStackParamList } from "./staffStackTypes";
 import { useThemeColors } from "../theme/colors";
 
@@ -41,6 +42,11 @@ export default function StaffHomeStack() {
         options={{ headerShown: false }}
       />
       <Stack.Screen name="AcompanharOperacao" component={AcompanharOperacaoScreen} options={{ headerShown: false }} />
+      <Stack.Screen
+        name="AcompanharMotoboyDia"
+        component={AcompanharMotoboyDiaScreen}
+        options={{ headerShown: false }}
+      />
     </Stack.Navigator>
   );
 }

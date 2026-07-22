@@ -314,7 +314,23 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
                 const colorsBadge = motoboyStatusColors(status.key);
                 const ultima = fmtUltimaEntrega(row.ultima_entrega);
                 return (
-                  <View key={row.motoboy_id} style={styles.motoboyCard}>
+                  <TouchableOpacity
+                    key={row.motoboy_id}
+                    style={styles.motoboyCard}
+                    activeOpacity={0.85}
+                    onPress={() =>
+                      navigation.navigate("AcompanharMotoboyDia", {
+                        motoboyId: row.motoboy_id,
+                        motoboyNome: row.motoboy_nome,
+                        data: dataRef,
+                        pedidos: row.pedidos,
+                        entregues: row.entregues,
+                        emRota: row.em_rota,
+                        ocorrencias: row.ausente_ou_ocorrencias,
+                        sla: row.sla ?? null,
+                      })
+                    }
+                  >
                     <Text style={styles.motoboyName}>{row.motoboy_nome}</Text>
                     <Text style={styles.motoboyMeta}>
                       {row.entregues}/{row.pedidos} entregues · {fmtSLA(row.sla)}
@@ -325,7 +341,7 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
                         {status.label}
                       </Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 );
               })
             )}

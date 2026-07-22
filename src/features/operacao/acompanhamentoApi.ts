@@ -27,6 +27,26 @@ export interface AcompanhamentoDiaResponse {
   totais: AcompanhamentoTotais;
 }
 
+export interface AcompanhamentoSaidasDiaResponse {
+  data: string;
+  motoboy_id: number;
+  motoboy_nome: string;
+  pendentes_hoje: number;
+  sum_shopee: number;
+  sum_mercado: number;
+  sum_avulso: number;
+}
+
+export async function getAcompanhamentoSaidasDia(
+  motoboyId: number,
+  data: string
+): Promise<AcompanhamentoSaidasDiaResponse> {
+  const { data: res } = await client.get<AcompanhamentoSaidasDiaResponse>("/acompanhamento/saidas-dia", {
+    params: { motoboy_id: motoboyId, data },
+  });
+  return res;
+}
+
 export async function getAcompanhamentoDia(
   data: string,
   motoboyId?: number

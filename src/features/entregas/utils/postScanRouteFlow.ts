@@ -32,7 +32,7 @@ export function notifyActiveRoutePendingAdded(): void {
 export async function runPostScanRouteFlow(
   idSaida: number,
   navigation: ScanNavigation,
-  loadDeliveries: () => Promise<void>
+  loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<{ ok: boolean; count: number }>
 ): Promise<void> {
   await loadDeliveries();
   const roteirizacaoHabilitada = useMotoboyPrefsStore.getState().roteirizacaoHabilitada;

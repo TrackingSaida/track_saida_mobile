@@ -123,6 +123,8 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const reoptimizeFromGroupAnchor = useDeliveryStore((s) => s.reoptimizeFromGroupAnchor);
   const restoreOriginalRoute = useDeliveryStore((s) => s.restoreOriginalRoute);
   const reoptimizeFullRoute = useDeliveryStore((s) => s.reoptimizeFullRoute);
+  const cancelActiveRoute = useDeliveryStore((s) => s.cancelActiveRoute);
+  const rebuildRouteFromPendentes = useDeliveryStore((s) => s.rebuildRouteFromPendentes);
   const routeManuallyAdjusted = useDeliveryStore((s) => s.routeManuallyAdjusted);
   const routeAdjustMode = useDeliveryStore((s) => s.routeAdjustMode);
   const routeOriginalOrder = useDeliveryStore((s) => s.routeOriginalOrder);
@@ -150,6 +152,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showAdvancedMenu, setShowAdvancedMenu] = useState(false);
+  const [routeActionLoading, setRouteActionLoading] = useState(false);
   const [pendingEntregueIds, setPendingEntregueIds] = useState<number[] | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<number, { latitude: number; longitude: number }>>({});
   const [geocodedMeta, setGeocodedMeta] = useState<GeocodedMetaMap>({});
@@ -650,6 +653,70 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       setIniciandoRota(false);
     }
   }, [ordered.length, startActiveRoute]);
+
+  const handleCancelarRota = useCallback(() => {
+    Alert.alert(
+      "Cancelar rota?",
+      "A rota atual será cancelada. Os pedidos não entregues voltam para preparação.",
+      [
+        { text: "Voltar", style: "cancel" },
+        {
+          text: "Cancelar rota",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setRouteActionLoading(true);
+              try {
+                const result = await cancelActiveRoute();
+                if (!result.ok) {
+                  Alert.alert("Erro", result.error);
+                  return;
+                }
+                navigation.navigate("EntregasList", { initialTab: "pendente" });
+              } finally {
+                setRouteActionLoading(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, [cancelActiveRoute, navigation]);
+
+  const handleRefazerRota = useCallback(() => {
+    Alert.alert(
+      "Refazer rota?",
+      "Vamos cancelar esta rota e montar outra com todos os pedidos pendentes de agora.",
+      [
+        { text: "Voltar", style: "cancel" },
+        {
+          text: "Refazer rota",
+          onPress: () => {
+            void (async () => {
+              setRouteActionLoading(true);
+              try {
+                const result = await rebuildRouteFromPendentes();
+                if (!result.ok) {
+                  Alert.alert(
+                    result.reason === "no_pending" ? "Sem pedidos" : "Erro",
+                    result.message
+                  );
+                  if (result.reason === "no_pending") {
+                    navigation.navigate("EntregasList", { initialTab: "pendente" });
+                  }
+                  return;
+                }
+                playSound("success");
+                setShowLocateHint(true);
+              } finally {
+                setRouteActionLoading(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, [rebuildRouteFromPendentes, navigation]);
 
   const confirmReorderDuringActiveRoute = useCallback((onConfirm: () => void | Promise<void>) => {
     if (!isRouteActive) {
@@ -1623,10 +1690,13 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         onImport={() => setShowBulkImport(true)}
         onLocate={() => setShowLocateSheet(true)}
         onIniciar={() => void handleIniciarEntrega()}
+        onCancelar={handleCancelarRota}
+        onRefazer={handleRefazerRota}
+        showRouteManagement={routeOrder.length > 0 || isRouteActive}
         onToggleList={() => setRouteListCollapsed((c) => !c)}
         listExpanded={!routeListCollapsed}
-        optimizing={optimizingHeader || recalculatingRoute}
-        iniciando={iniciandoRota}
+        optimizing={optimizingHeader || recalculatingRoute || routeActionLoading}
+        iniciando={iniciandoRota || routeActionLoading}
         canOptimize={groupedStops.length >= 2}
         showPlanningActions={!isRouteActive}
       />

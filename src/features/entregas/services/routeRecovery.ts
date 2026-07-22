@@ -48,6 +48,17 @@ export async function recoverRouteState(opts?: { force?: boolean }): Promise<Rou
 
   try {
     const server = await getRotasAtiva(dataHoje);
+    const cancelledId = useDeliveryStore.getState().lastCancelledRouteId;
+    if (
+      server?.rota_id &&
+      cancelledId &&
+      server.rota_id === cancelledId
+    ) {
+      await clearPersistedRouteSnapshot().catch(() => undefined);
+      useDeliveryStore.getState().clearActiveRouteState();
+      setRecoveryReady(true);
+      return { source: "none", payload: null, localOnly: false };
+    }
     if (server && server.status && server.status !== "sem_rota" && server.rota_id) {
       const snap = snapshotFromRotasAtiva(
         server,
@@ -62,6 +73,12 @@ export async function recoverRouteState(opts?: { force?: boolean }): Promise<Rou
     }
   } catch {
     const snapshot = await loadRouteSnapshot(motoboyId, subBase, dataHoje);
+    const cancelledId = useDeliveryStore.getState().lastCancelledRouteId;
+    if (snapshot?.route_id && cancelledId && snapshot.route_id === cancelledId) {
+      await clearPersistedRouteSnapshot().catch(() => undefined);
+      setRecoveryReady(true);
+      return { source: "none", payload: null, localOnly: false };
+    }
     if (snapshot?.route_id) {
       const payload = rotasAtivaFromSnapshot(snapshot, subBase, motoboyId);
       payload.pending_sync = true;
