@@ -50,6 +50,9 @@ export function useHomeData() {
   const routeDeliveries = useDeliveryStore((s) => s.routeDeliveries);
   const activeStopIndex = useDeliveryStore((s) => s.activeStopIndex);
   const routeDeliveryStatus = useDeliveryStore((s) => s.routeDeliveryStatus);
+  const deliveriesWithAddress = useDeliveryStore((s) => s.deliveriesWithAddress);
+  const deliveriesWithoutAddress = useDeliveryStore((s) => s.deliveriesWithoutAddress);
+  const loadDeliveries = useDeliveryStore((s) => s.loadDeliveries);
   const reconcileActiveRoute = useDeliveryStore((s) => s.reconcileActiveRoute);
   const ephemeralCompleted = useHomeRouteStore((s) => s.ephemeralCompleted);
   const hydrateHomeRoute = useHomeRouteStore((s) => s.hydrate);
@@ -127,10 +130,21 @@ export function useHomeData() {
       void hydrateHomeRoute();
       void loadResumo();
       void syncActiveRoute();
+      if (roteirizacaoHabilitada) {
+        void loadDeliveries({ onlyToday: somenteHojePendentes });
+      }
       return () => {
         clearEphemeral();
       };
-    }, [hydrateHomeRoute, loadResumo, syncActiveRoute, clearEphemeral])
+    }, [
+      hydrateHomeRoute,
+      loadResumo,
+      syncActiveRoute,
+      clearEphemeral,
+      roteirizacaoHabilitada,
+      loadDeliveries,
+      somenteHojePendentes,
+    ])
   );
 
   const startRoute = useCallback(async () => {
@@ -155,6 +169,8 @@ export function useHomeData() {
     routeDeliveries,
     activeStopIndex,
     routeDeliveryStatus,
+    deliveriesWithAddressCount: deliveriesWithAddress.length,
+    deliveriesWithoutAddressCount: deliveriesWithoutAddress.length,
     ephemeralCompleted,
     loadResumo,
     startRoute,

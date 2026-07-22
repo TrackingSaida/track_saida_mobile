@@ -75,12 +75,22 @@ export function validateGeocodeCandidate(
   return isValidGeocodeCoords(lat, lon);
 }
 
-function inferStrictConfidence(candidate: NominatimCandidate): "alta" | "media" {
+function normalizeHouseDigits(raw: string): string {
+  return (raw || "").replace(/\D/g, "");
+}
+
+function inferStrictConfidence(
+  candidate: NominatimCandidate,
+  input: StrictGeocodeInput
+): "alta" | "media" {
   const addr = candidate.address ?? {};
-  const house = (addr.house_number ?? "").trim();
-  const numero = (candidate.address?.house_number ?? "").trim();
+  const house = normalizeHouseDigits(addr.house_number ?? "");
+  const expected = normalizeHouseDigits(input.numero ?? "");
   const typ = (candidate.type ?? "").toLowerCase();
-  if (house || numero || typ === "house" || typ === "building") return "alta";
+  if (house && expected && (house === expected || house.includes(expected) || expected.includes(house))) {
+    return "alta";
+  }
+  if (house || typ === "house" || typ === "building") return "alta";
   return "media";
 }
 
@@ -125,17 +135,37 @@ export async function geocodeAddressStrictDetailed(
   const candidates = await fetchNominatimCandidates(query);
   if (candidates === null) return { status: "unavailable" };
 
-  for (const candidate of candidates) {
-    if (!validateGeocodeCandidate(candidate, input)) continue;
-    const latitude = parseFloat(candidate.lat!);
-    const longitude = parseFloat(candidate.lon!);
-    if (!isValidGeocodeCoords(latitude, longitude)) continue;
+  const expectedNum = normalizeHouseDigits(input.numero ?? "");
+  const scored = candidates
+    .map((candidate) => {
+      if (!validateGeocodeCandidate(candidate, input)) return null;
+      const latitude = parseFloat(candidate.lat ?? "");
+      const longitude = parseFloat(candidate.lon ?? "");
+      if (!isValidGeocodeCoords(latitude, longitude)) return null;
+      const house = normalizeHouseDigits(candidate.address?.house_number ?? "");
+      let rank = 0;
+      if (
+        expectedNum &&
+        house &&
+        (house === expectedNum || house.includes(expectedNum) || expectedNum.includes(house))
+      ) {
+        rank = 2;
+      } else if (house || (candidate.type ?? "").toLowerCase() === "house") {
+        rank = 1;
+      }
+      return { candidate, latitude, longitude, rank };
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null)
+    .sort((a, b) => b.rank - a.rank);
+
+  const best = scored[0];
+  if (best) {
     return {
       status: "ok",
       result: {
-        latitude,
-        longitude,
-        confidence: inferStrictConfidence(candidate),
+        latitude: best.latitude,
+        longitude: best.longitude,
+        confidence: inferStrictConfidence(best.candidate, input),
         validated: true,
       },
     };

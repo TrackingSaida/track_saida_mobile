@@ -69,7 +69,15 @@ export function mapApiConfidence(d: EntregaListItem): DestinationConfidence {
   if (precision === "street") return "media";
   if (precision === "rooftop") {
     if (origem === "google_places" || origem === "mapa") return "alta";
-    if (source === "google" || source === "nominatim" || source === "geoapify") return "alta";
+    if (
+      source === "google" ||
+      source === "nominatim" ||
+      source === "nominatim_strict" ||
+      source === "geoapify" ||
+      source === "geocode_provider"
+    ) {
+      return "alta";
+    }
     return "alta";
   }
 
@@ -198,7 +206,13 @@ export function resolveGroupDestination(
 }
 
 /** Fontes de geocode validadas (não precisam de revalidação client-side). */
-const TRUSTED_GEOCODE_SOURCES = new Set(["google_places", "mapa", "nominatim_strict"]);
+const TRUSTED_GEOCODE_SOURCES = new Set([
+  "google_places",
+  "mapa",
+  "nominatim_strict",
+  "google",
+  "geocode_provider",
+]);
 
 export function isTrustedGeocodeSource(source?: string | null): boolean {
   return TRUSTED_GEOCODE_SOURCES.has((source ?? "").trim().toLowerCase());

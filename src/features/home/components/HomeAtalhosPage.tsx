@@ -109,7 +109,7 @@ export default function HomeAtalhosPage({
         <PressableMenuRow icon="list-outline" title="Minhas entregas" onPress={onMinhasEntregas} />
         <PressableMenuRow icon="map-outline" title="Mapa de pendentes" onPress={onMapaPendentes} />
         {roteirizacaoHabilitada ? (
-          <PressableMenuRow icon="time-outline" title="Histórico de rotas" onPress={onHistoricoRotas} />
+          <PressableMenuRow icon="time-outline" title="Minhas rotas" onPress={onHistoricoRotas} />
         ) : null}
         <PressableMenuRow
           icon="settings-outline"

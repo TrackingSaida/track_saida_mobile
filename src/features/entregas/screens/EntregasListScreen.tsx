@@ -227,6 +227,16 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           backgroundColor: colors.primary,
         },
         activeRouteBannerBtnText: { color: colors.primaryContrast, fontSize: 13, fontWeight: "700" },
+        refreshErrorBanner: {
+          marginHorizontal: 16,
+          marginTop: 8,
+          padding: 10,
+          borderRadius: 8,
+          backgroundColor: hexToRgba(colors.warning, 0.12),
+          borderWidth: 1,
+          borderColor: hexToRgba(colors.warning, 0.35),
+        },
+        refreshErrorText: { fontSize: 13, color: colors.text, lineHeight: 18 },
         searchRow: {
           flexDirection: "row",
           alignItems: "center",
@@ -679,6 +689,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     finalizePendingBatch,
     ensureActiveRouteLoaded,
     reconcileActiveRoute,
+    pendingRefreshError,
   } = useDeliveryStore();
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
@@ -723,6 +734,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const [totalPendentesCount, setTotalPendentesCount] = useState(0);
   const [tabCounts, setTabCounts] = useState<Record<Tab, number>>(TAB_DEFAULT_COUNTS);
+  const [tabCountsError, setTabCountsError] = useState<string | null>(null);
   const [lastDelivered, setLastDelivered] = useState<EntregaListItem | null>(null);
 
   const listForTab = (tab === "pendente" ? pendingDeliveries : list) ?? [];
@@ -755,35 +767,37 @@ export default function EntregasListScreen({ navigation, route }: Props) {
 
   const loadTabCounts = useCallback(async () => {
     const paramsToday = { dia: "hoje" as const, data: getTodayISO() };
-    const [pendentes, ausentes, finalizadas] = await Promise.all([
-      getEntregas("pendente", somenteHojePendentes ? paramsToday : undefined).catch(() => [] as EntregaListItem[]),
-      getEntregas("ausentes", somenteHojePendentes ? paramsToday : undefined).catch(() => [] as EntregaListItem[]),
-      fetchFinalizadasFiltradas(somenteHojePendentes ? paramsToday : undefined, finalizadasFiltros).catch(
-        () => [] as EntregaListItem[]
-      ),
-    ]);
-    setTabCounts({
-      pendente: pendentes.length,
-      ausentes: ausentes.length,
-      finalizadas: finalizadas.length,
-    });
-    setAusentesCache(ausentes);
-    setFinalizadasCache(finalizadas);
-    const deliveredOnly = finalizadas.filter((item) => item.exibicao === "Entregue");
-    const recentDelivered = deliveredOnly
-      .slice()
-      .sort((a, b) => {
-        const ta =
-          parseDateSafe(a.data_hora_entrega) ??
-          parseDateSafe(a.data) ??
-          Number.MIN_SAFE_INTEGER;
-        const tb =
-          parseDateSafe(b.data_hora_entrega) ??
-          parseDateSafe(b.data) ??
-          Number.MIN_SAFE_INTEGER;
-        return tb - ta;
-      })[0];
-    setLastDelivered(recentDelivered ?? null);
+    setTabCountsError(null);
+    try {
+      const [ausentes, finalizadas] = await Promise.all([
+        getEntregas("ausentes", somenteHojePendentes ? paramsToday : undefined),
+        fetchFinalizadasFiltradas(somenteHojePendentes ? paramsToday : undefined, finalizadasFiltros),
+      ]);
+      setTabCounts((prev) => ({
+        ...prev,
+        ausentes: ausentes.length,
+        finalizadas: finalizadas.length,
+      }));
+      setAusentesCache(ausentes);
+      setFinalizadasCache(finalizadas);
+      const deliveredOnly = finalizadas.filter((item) => item.exibicao === "Entregue");
+      const recentDelivered = deliveredOnly
+        .slice()
+        .sort((a, b) => {
+          const ta =
+            parseDateSafe(a.data_hora_entrega) ??
+            parseDateSafe(a.data) ??
+            Number.MIN_SAFE_INTEGER;
+          const tb =
+            parseDateSafe(b.data_hora_entrega) ??
+            parseDateSafe(b.data) ??
+            Number.MIN_SAFE_INTEGER;
+          return tb - ta;
+        })[0];
+      setLastDelivered(recentDelivered ?? null);
+    } catch {
+      setTabCountsError("Não foi possível atualizar as contagens das abas.");
+    }
   }, [somenteHojePendentes, finalizadasFiltros]);
 
   const toggleFilterDraftFinalizadas = useCallback((key: keyof FinalizadasFiltros) => {
@@ -832,19 +846,24 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     useCallback(() => {
       void loadTabCounts();
       if (tab === "pendente") {
-        loadDeliveries({ onlyToday: somenteHojePendentes });
-        if (roteirizacaoHabilitada) {
-          getEntregas("pendente")
-            .then((all) => setTotalPendentesCount(all.length))
-            .catch(() => setTotalPendentesCount(0));
-        } else {
-          setTotalPendentesCount(0);
-        }
+        void loadDeliveries({ onlyToday: somenteHojePendentes }).then((result) => {
+          if (result.ok) {
+            setTabCounts((prev) => ({ ...prev, pendente: result.count }));
+            setTotalPendentesCount(result.count);
+          }
+        });
       } else {
         void load();
       }
-    }, [tab, loadDeliveries, load, somenteHojePendentes, roteirizacaoHabilitada, loadTabCounts])
+    }, [tab, loadDeliveries, load, somenteHojePendentes, loadTabCounts])
   );
+
+  useEffect(() => {
+    if (tab !== "pendente") return;
+    const count = pendingDeliveries.length;
+    setTabCounts((prev) => ({ ...prev, pendente: count }));
+    setTotalPendentesCount(count);
+  }, [pendingDeliveries, tab]);
 
   useEffect(() => {
     if (tab === "finalizadas") void load();
@@ -1391,7 +1410,11 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             ? {
                 latitude: coords!.latitude,
                 longitude: coords!.longitude,
-                coord_precision: inferCoordPrecision(effectiveOrigem),
+                coord_precision: inferCoordPrecision(effectiveOrigem, coords?.confidence),
+                geocode_source:
+                  effectiveOrigem === "google_places" || effectiveOrigem === "mapa"
+                    ? effectiveOrigem
+                    : coords?.source ?? "nominatim_strict",
               }
             : {}),
         };
@@ -1709,6 +1732,16 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         ))}
       </View>
+
+      {(tab === "pendente" && pendingRefreshError) || tabCountsError ? (
+        <View style={styles.refreshErrorBanner}>
+          <Text style={styles.refreshErrorText}>
+            {tab === "pendente" && pendingRefreshError
+              ? pendingRefreshError
+              : tabCountsError}
+          </Text>
+        </View>
+      ) : null}
 
       {tab === "pendente" && (
         <View style={styles.searchRow}>

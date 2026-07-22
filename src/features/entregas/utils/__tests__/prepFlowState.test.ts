@@ -83,3 +83,52 @@ test("zero pedidos mantém primary de leitura inicial", () => {
   assert.equal(view.primaryAction, "scan");
   assert.equal(view.primaryLabel, "Escanear pacote");
 });
+
+test("rota ativa com pacotes extras oferece Refazer rota", () => {
+  const view = derivePrepFlowView({
+    ...baseInput,
+    comEndereco: 5,
+    withCoordsCount: 5,
+    routeOrderLength: 3,
+    routePendingCount: 3,
+    activeRouteId: "r1",
+  });
+  assert.equal(view.primaryAction, "start_route");
+  assert.equal(view.canRebuildActiveRoute, true);
+  assert.equal(
+    view.secondaryActions.some((s) => s.action === "rebuild_route"),
+    true
+  );
+  assert.match(view.statusHint ?? "", /refazer a rota/i);
+});
+
+test("rota ativa alinhada sem pendências de endereço não oferece Refazer", () => {
+  const view = derivePrepFlowView({
+    ...baseInput,
+    routeOrderLength: 14,
+    routePendingCount: 14,
+    activeRouteId: "r1",
+  });
+  assert.equal(view.canRebuildActiveRoute, false);
+  assert.equal(
+    view.secondaryActions.some((s) => s.action === "rebuild_route"),
+    false
+  );
+});
+
+test("rota ativa após entregas não oferece Refazer só porque a ordem total é maior", () => {
+  const view = derivePrepFlowView({
+    ...baseInput,
+    totalPedidos: 2,
+    comEndereco: 2,
+    withCoordsCount: 2,
+    routeOrderLength: 5,
+    routePendingCount: 2,
+    activeRouteId: "r1",
+  });
+  assert.equal(view.canRebuildActiveRoute, false);
+  assert.equal(
+    view.secondaryActions.some((s) => s.action === "rebuild_route"),
+    false
+  );
+});

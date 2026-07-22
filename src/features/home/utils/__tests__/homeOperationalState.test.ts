@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   deriveHomeCtas,
   deriveHomeOperationalView,
+  shouldOfferPrepareRouteWhileActive,
   type HomeOperationalInput,
 } from "../homeOperationalState";
 import {
@@ -51,6 +52,58 @@ test("deriveHomeCtas inclui scan_insert em route_ready, route_active e route_com
   });
   assert.equal(completedView.heroState, "route_completed");
   assert.equal(hasScanInsert(deriveHomeCtas(completedView, true)), true);
+});
+
+test("deriveHomeCtas inclui Preparar rota em route_active quando há diferença de pacotes", () => {
+  const activeView = deriveHomeOperationalView({
+    ...baseInput,
+    activeRouteId: "r1",
+    rotaAtivaValid: true,
+  });
+  const ctas = deriveHomeCtas(activeView, true, { offerPrepareRoute: true });
+  assert.equal(ctas.layout, "route");
+  if (ctas.layout === "route") {
+    assert.equal(
+      ctas.secondary.some((c) => c.action === "prepare_route"),
+      true
+    );
+  }
+});
+
+test("shouldOfferPrepareRouteWhileActive exige sem endereço ou diferença de quantidade", () => {
+  assert.equal(
+    shouldOfferPrepareRouteWhileActive({
+      semEndereco: 2,
+      preparadosComEndereco: 3,
+      pedidosPendentesNaRotaAtiva: 3,
+    }),
+    true
+  );
+  assert.equal(
+    shouldOfferPrepareRouteWhileActive({
+      semEndereco: 0,
+      preparadosComEndereco: 5,
+      pedidosPendentesNaRotaAtiva: 3,
+    }),
+    true
+  );
+  assert.equal(
+    shouldOfferPrepareRouteWhileActive({
+      semEndereco: 0,
+      preparadosComEndereco: 3,
+      pedidosPendentesNaRotaAtiva: 3,
+    }),
+    false
+  );
+  // Após entregar na rota: ordem ainda tem 5, mas só 2 pendentes e 2 preparados → não oferecer
+  assert.equal(
+    shouldOfferPrepareRouteWhileActive({
+      semEndereco: 0,
+      preparadosComEndereco: 2,
+      pedidosPendentesNaRotaAtiva: 2,
+    }),
+    false
+  );
 });
 
 test("resolvePostScanRouteContext distingue rota pronta, ativa e sem roteirização", () => {

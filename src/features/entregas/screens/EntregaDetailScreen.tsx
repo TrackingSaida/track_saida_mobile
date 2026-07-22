@@ -445,9 +445,16 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       const body = {
         ...vals,
         origem,
-        coord_precision: inferCoordPrecision(origem),
+        coord_precision: inferCoordPrecision(origem, coords?.confidence),
         ...(isValidGeocodeCoords(coords?.latitude, coords?.longitude)
-          ? { latitude: coords!.latitude, longitude: coords!.longitude }
+          ? {
+              latitude: coords!.latitude,
+              longitude: coords!.longitude,
+              geocode_source:
+                origem === "google_places" || origem === "mapa"
+                  ? origem
+                  : coords?.source ?? "nominatim_strict",
+            }
           : {}),
       };
       const updated = await saveAddress(idSaida, body);

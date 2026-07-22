@@ -10,12 +10,22 @@ export function formatStatusSaidaLabel(status?: string | null): string {
   if (status == null || status === "") return "—";
   const s = String(status).replace(/_/g, " ").trim();
   const lower = s.toLowerCase();
+  if (lower === "encerrado sistema" || lower === "encerrado pelo sistema" || lower === "encerrado") {
+    return "Encerrado";
+  }
   if (lower === "saiu" || lower === "saiu para entrega") return "SAIU PARA ENTREGA";
   return s.toUpperCase();
 }
 
 export function statusVisualSaida(s?: string | null): { label: string; bg: string; fg: string } {
   const u = (s || "").toLowerCase().replace(/\s+/g, "_");
+  if (u === "encerrado_sistema" || u === "encerrado" || (u.includes("encerrado") && u.includes("sistema"))) {
+    return {
+      label: "Encerrado",
+      bg: "rgba(108,117,125,0.2)",
+      fg: "#6c757d",
+    };
+  }
   if (u.includes("cancelad")) {
     return { label: formatStatusSaidaLabel(s || "Cancelado"), bg: "rgba(220,53,69,0.14)", fg: "#dc3545" };
   }

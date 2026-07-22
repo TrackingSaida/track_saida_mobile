@@ -82,6 +82,7 @@ function formatRealStatus(status: string, fallback: string): string {
     .toLowerCase()
     .trim();
   if (!normalized) return fallback;
+  if (normalized === "encerrado" || normalized.includes("encerrado")) return "Encerrado";
   return normalized
     .split(" ")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

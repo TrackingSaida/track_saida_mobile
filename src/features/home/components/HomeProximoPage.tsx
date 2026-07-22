@@ -9,8 +9,10 @@ import { space } from "../../../theme/spacing";
 import HomeStateHero from "./HomeStateHero";
 import HomeOperationalActions from "./HomeOperationalActions";
 import {
+  countPendingOnActiveRoute,
   deriveHomeCtas,
   deriveHomeOperationalView,
+  shouldOfferPrepareRouteWhileActive,
   type HomeCtaAction,
 } from "../utils/homeOperationalState";
 import { ctaActionToIcon } from "../../../theme/operationalIcons";
@@ -69,7 +71,19 @@ export default function HomeProximoPage({ data, navigation }: Props) {
     ephemeralCompleted: data.ephemeralCompleted,
   });
 
-  const ctas = deriveHomeCtas(view, data.roteirizacaoHabilitada, data.iniciandoRota);
+  const offerPrepareRoute = shouldOfferPrepareRouteWhileActive({
+    semEndereco: data.deliveriesWithoutAddressCount,
+    preparadosComEndereco: data.deliveriesWithAddressCount,
+    pedidosPendentesNaRotaAtiva: countPendingOnActiveRoute(
+      data.routeOrder,
+      data.routeDeliveryStatus
+    ),
+  });
+
+  const ctas = deriveHomeCtas(view, data.roteirizacaoHabilitada, {
+    loadingStartRoute: data.iniciandoRota,
+    offerPrepareRoute,
+  });
 
   const runAction = useCallback(
     (action: HomeCtaAction) => {

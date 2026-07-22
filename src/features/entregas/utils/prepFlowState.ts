@@ -12,7 +12,8 @@ export type PrepSecondaryAction =
   | "edit_ordering"
   | "locate_package"
   | "open_route_builder"
-  | "generate_partial_route";
+  | "generate_partial_route"
+  | "rebuild_route";
 
 export type PrepStatusChip = "empty" | "missing_addresses" | "ready" | "route_ready" | "route_active";
 
@@ -22,6 +23,8 @@ export type PrepFlowInput = {
   semEndereco: number;
   withCoordsCount: number;
   routeOrderLength: number;
+  /** Pedidos ainda pendentes na rota ativa (exclui entregues/ausentes). */
+  routePendingCount?: number;
   activeRouteId: string | null;
   separationViewed: boolean;
   apiRouteStatus?: "sem_rota" | "rota_pronta" | "em_entrega";
@@ -48,6 +51,7 @@ export type PrepFlowView = {
   addressCompleteMessage: string | null;
   canGenerateRoute: boolean;
   canGeneratePartialRoute: boolean;
+  canRebuildActiveRoute: boolean;
 };
 
 const SCAN_ADDRESS_BY_QR_LABEL = "Adicionar endereço por QR Code";
@@ -61,12 +65,33 @@ function missingAddressChipLabel(count: number): string {
   return `${count} pacote${count !== 1 ? "s" : ""} sem endereço`;
 }
 
+/** Rota ativa + pacotes sem endereço ou quantidade preparada diferente da rota. */
+export function canRebuildActiveRoute(input: PrepFlowInput): boolean {
+  const routeActive =
+    input.activeRouteId != null || input.apiRouteStatus === "em_entrega";
+  if (!routeActive) return false;
+  if (input.semEndereco > 0) return true;
+  if (input.comEndereco <= 0) return false;
+  const pendentesNaRota = input.routePendingCount ?? input.routeOrderLength;
+  return input.comEndereco !== pendentesNaRota;
+}
+
 function buildSecondaries(
   input: PrepFlowInput,
   primary: PrepPrimaryAction,
-  canGeneratePartialRoute: boolean
+  canGeneratePartialRoute: boolean,
+  rebuildActive: boolean
 ): PrepSecondaryItem[] {
   const items: PrepSecondaryItem[] = [];
+
+  if (rebuildActive) {
+    items.push({
+      action: "rebuild_route",
+      label: "Refazer rota",
+      subtitle: "Cancela a atual e monta com todos os pendentes",
+      iconKey: "prepGenerateRoute",
+    });
+  }
 
   if (
     canGeneratePartialRoute &&
@@ -143,6 +168,7 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
     activeRouteId == null &&
     apiRouteStatus !== "rota_pronta" &&
     apiRouteStatus !== "em_entrega";
+  const rebuildActive = canRebuildActiveRoute(input);
 
   let statusChip: PrepStatusChip = "empty";
   let statusChipLabel = "";
@@ -151,6 +177,12 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
   if (activeRouteId != null || apiRouteStatus === "em_entrega") {
     statusChip = "route_active";
     statusChipLabel = "Rota em andamento";
+    if (rebuildActive) {
+      statusHint =
+        semEndereco > 0
+          ? "Há pacotes sem endereço ou fora da rota. Você pode refazer a rota."
+          : "Há pacotes preparados que não estão nesta rota. Você pode refazer a rota.";
+    }
   } else if (routeOrderLength > 0 || apiRouteStatus === "rota_pronta") {
     statusChip = "route_ready";
     statusChipLabel = separationViewed ? "Pronto para iniciar" : "Rota gerada — separe os pacotes";
@@ -202,7 +234,12 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
     primaryIconKey = "prepScan";
   }
 
-  const secondaryActions = buildSecondaries(input, primaryAction, canGeneratePartialRoute);
+  const secondaryActions = buildSecondaries(
+    input,
+    primaryAction,
+    canGeneratePartialRoute,
+    rebuildActive
+  );
 
   return {
     primaryAction,
@@ -218,5 +255,6 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
     addressCompleteMessage,
     canGenerateRoute,
     canGeneratePartialRoute,
+    canRebuildActiveRoute: rebuildActive,
   };
 }

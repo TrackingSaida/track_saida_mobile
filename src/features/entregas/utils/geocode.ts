@@ -16,6 +16,8 @@ export { isValidGeocodeCoords } from "./coordsUtils";
 export interface GeocodeResult {
   latitude: number;
   longitude: number;
+  confidence?: "alta" | "media";
+  source?: string;
 }
 
 /** Geocode estruturado — delega ao strict (sem limit=1 sem validação). */
@@ -37,7 +39,12 @@ export async function geocodeAddressFromValues(
     cep: (vals.cep ?? "").trim(),
   });
   if (!result) return null;
-  return { latitude: result.latitude, longitude: result.longitude };
+  return {
+    latitude: result.latitude,
+    longitude: result.longitude,
+    confidence: result.confidence,
+    source: "nominatim_strict",
+  };
 }
 
 export function deliveryToGeocodeValues(d: EntregaListItem): Partial<AddressFormValues> {
@@ -62,9 +69,15 @@ export function deliveryToGeocodeValues(d: EntregaListItem): Partial<AddressForm
   };
 }
 
-export function inferCoordPrecision(origem: string): CoordPrecision {
+/** Precisão a partir da origem do formulário e/ou confiança do geocode. */
+export function inferCoordPrecision(
+  origem: string,
+  confidence?: "alta" | "media" | null
+): CoordPrecision {
   const o = origem.toLowerCase();
   if (o === "google_places" || o === "mapa") return "rooftop";
+  if (confidence === "alta") return "rooftop";
+  if (confidence === "media") return "street";
   if (o === "suggestion" || o === "autocomplete") return "street";
   return "approx";
 }

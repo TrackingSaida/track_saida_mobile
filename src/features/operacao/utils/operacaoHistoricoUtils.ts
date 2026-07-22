@@ -27,6 +27,8 @@ export type EventoHistoricoKey =
   | "endereco_atualizado"
   | "rota_criada"
   | "rota_recalculada"
+  | "encerrado_sistema"
+  | "rota_cancelada"
   | "unknown";
 
 const LABELS: Partial<Record<EventoHistoricoKey, string>> = {
@@ -56,6 +58,8 @@ const LABELS: Partial<Record<EventoHistoricoKey, string>> = {
   endereco_atualizado: "Endereço atualizado",
   rota_criada: "Inserido na rota",
   rota_recalculada: "Rota recalculada",
+  encerrado_sistema: "Encerrado pelo sistema",
+  rota_cancelada: "Rota cancelada",
 };
 
 const GREEN_KEYS = new Set<EventoHistoricoKey>([
@@ -89,12 +93,14 @@ export function normalizeEventoKey(evento?: string | null): EventoHistoricoKey {
     .replace(/\s+/g, "_");
   if (!raw) return "unknown";
   if (raw in LABELS) return raw as EventoHistoricoKey;
+  if (raw.includes("encerrado")) return "encerrado_sistema";
   if (raw.includes("entregue")) return "entregue";
   if (raw.includes("ausente")) return "ausente";
   if (raw.includes("cancel")) return "cancelado";
   if (raw.includes("endereco")) return "endereco_atualizado";
   if (raw.includes("recalcul")) return "rota_recalculada";
   if (raw.includes("rota_criada") || raw === "rota_criada") return "rota_criada";
+  if (raw === "rota_cancelada" || raw.includes("rota_cancel")) return "rota_cancelada";
   if (raw.includes("rota") || raw === "saiu") return raw === "saiu" ? "saiu" : "em_rota";
   if (raw.includes("scan") || raw.includes("escane")) return "scan";
   if (raw.includes("lido") || raw.includes("leitura")) return "lido";

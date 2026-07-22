@@ -19,6 +19,7 @@ import {
   postRotasIniciar,
   postRotasOtimizar,
   getRotasAtiva,
+  postRotasCancelar,
   postRotasAvancar,
   postRotasFinalizar,
   putRotasOrdem,
@@ -103,6 +104,12 @@ export type ReoptimizeFromGroupAnchorResult =
 
 export type RestoreOriginalRouteResult = { ok: true } | { ok: false; reason: "no_snapshot" | "unchanged" };
 
+export type CancelActiveRouteResult = { ok: true } | { ok: false; error: string };
+
+export type RebuildRouteResult =
+  | { ok: true; count: number }
+  | { ok: false; reason: "no_pending" | "optimize_failed" | "error"; message: string };
+
 interface DeliveryState {
   pendingDeliveries: EntregaListItem[];
   deliveriesWithAddress: EntregaListItem[];
@@ -114,6 +121,11 @@ interface DeliveryState {
   suggestedOrder: number[] | null;
   loading: boolean;
   error: string | null;
+  /** Último erro ao atualizar pendentes (não zera contadores em falha). */
+  pendingRefreshError: string | null;
+
+  /** Evita reidratar rota cancelada na mesma sessão. */
+  lastCancelledRouteId: string | null;
 
   /** Entregas da rota em construção (tela RouteBuilder). */
   routeDeliveries: EntregaListItem[];
@@ -148,7 +160,9 @@ interface DeliveryState {
   /** Parada (1-based) usada como âncora no último recálculo parcial. */
   routeLastRecalcAnchor: number | null;
 
-  loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<void>;
+  loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<{ ok: boolean; count: number }>;
+  /** Insere/atualiza um pendente local sem refetch da lista (hot path do scanner). */
+  upsertPendingDelivery: (delivery: EntregaListItem) => void;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
   startRoute: (deliveryIds?: number[]) => Promise<number>;
   suggestRoute: (fromLat?: number, fromLon?: number) => void;
@@ -212,6 +226,8 @@ interface DeliveryState {
   applyRouteSync: (sync?: RotaSyncInfo | null) => Promise<RouteFinalizeSyncResult>;
   restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
   novaTentativa: (idSaida: number) => Promise<void>;
+  cancelActiveRoute: () => Promise<CancelActiveRouteResult>;
+  rebuildRouteFromPendentes: (opts?: { onlyToday?: boolean }) => Promise<RebuildRouteResult>;
 }
 
 function withAddress(d: EntregaListItem): boolean {
@@ -307,6 +323,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   suggestedOrder: null,
   loading: false,
   error: null,
+  pendingRefreshError: null,
+  lastCancelledRouteId: null,
   routeDeliveries: [],
   routeOrder: [],
   routeDeliveryStatus: {},
@@ -324,12 +342,13 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   setCurrentLocation: (location) => set({ currentLocation: location }),
 
   loadDeliveries: async (opts) => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, pendingRefreshError: null });
     try {
       const { online } = await getNetworkState();
       if (!online) {
-        set({ loading: false });
-        return;
+        const count = get().pendingDeliveries.length;
+        set({ loading: false, pendingRefreshError: "Sem conexão. Mostrando últimos pendentes salvos." });
+        return { ok: false, count };
       }
 
       const prefOnlyToday = useMotoboyPrefsStore.getState().somenteHojePendentes;
@@ -346,17 +365,36 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         deliveriesWithoutAddress: withoutAddr,
         suggestedOrder: null,
         loading: false,
+        pendingRefreshError: null,
       });
+      return { ok: true, count: list.length };
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao carregar entregas";
       set((state) => ({
         error: message,
         loading: false,
+        pendingRefreshError: "Não foi possível atualizar os pendentes.",
         pendingDeliveries: state.pendingDeliveries,
         deliveriesWithAddress: state.deliveriesWithAddress,
         deliveriesWithoutAddress: state.deliveriesWithoutAddress,
       }));
+      return { ok: false, count: get().pendingDeliveries.length };
     }
+  },
+
+  upsertPendingDelivery: (delivery) => {
+    set((state) => {
+      const idx = state.pendingDeliveries.findIndex((d) => d.id_saida === delivery.id_saida);
+      const list =
+        idx >= 0
+          ? state.pendingDeliveries.map((d, i) => (i === idx ? { ...d, ...delivery } : d))
+          : [delivery, ...state.pendingDeliveries];
+      return {
+        pendingDeliveries: list,
+        deliveriesWithAddress: list.filter(withAddress),
+        deliveriesWithoutAddress: list.filter((d) => !withAddress(d)),
+      };
+    });
   },
 
   saveAddress: async (idSaida, body) => {
@@ -418,9 +456,11 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   },
 
   startRoute: async (deliveryIds) => {
+    if (!deliveryIds?.length) {
+      throw new Error("Escaneie os pacotes antes de começar a entrega.");
+    }
     const { atualizados } = await iniciarRota(deliveryIds);
     set({ routeStarted: true });
-    await get().loadDeliveries();
     return atualizados;
   },
 
@@ -491,6 +531,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   },
 
   restoreActiveRoute: async (payload) => {
+    const cancelledId = get().lastCancelledRouteId;
+    if (payload.rota_id && cancelledId && payload.rota_id === cancelledId) {
+      return;
+    }
     const state = get();
     const existingById = new Map(state.routeDeliveries.map((d) => [d.id_saida, d]));
     const [pendentes, finalizadas, ausentes] = await Promise.all([
@@ -769,6 +813,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     set({
       activeRouteId: null,
       activeStopIndex: 0,
+      routeStarted: false,
       routeDeliveries: [],
       routeOrder: [],
       routeDeliveryStatus: {},
@@ -782,6 +827,112 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeAdjustMode: null,
       routeLastRecalcAnchor: null,
     });
+  },
+  cancelActiveRoute: async () => {
+    const { activeRouteId } = get();
+    const { clearPersistedRouteSnapshot } = await import(
+      "../features/entregas/services/routeRecovery"
+    );
+
+    if (activeRouteId) {
+      try {
+        await postRotasCancelar(activeRouteId);
+      } catch (err: unknown) {
+        return {
+          ok: false,
+          error: formatApiError(err, "Não foi possível cancelar a rota."),
+        };
+      }
+      set({ lastCancelledRouteId: activeRouteId });
+    }
+
+    await stopBackgroundTracking().catch(() => undefined);
+    await clearPersistedRouteSnapshot().catch(() => undefined);
+    get().clearRoute();
+    get().clearActiveRouteState();
+    return { ok: true };
+  },
+  rebuildRouteFromPendentes: async (opts) => {
+    const cancelResult = await get().cancelActiveRoute();
+    if (!cancelResult.ok) {
+      return { ok: false, reason: "error", message: cancelResult.error };
+    }
+
+    try {
+      const prefOnlyToday = useMotoboyPrefsStore.getState().somenteHojePendentes;
+      const useOnlyToday = opts?.onlyToday ?? prefOnlyToday;
+      const pendentes = await getEntregas(
+        "pendente",
+        useOnlyToday ? { dia: "hoje", data: getTodayISO() } : undefined
+      );
+
+      if (pendentes.length === 0) {
+        return {
+          ok: false,
+          reason: "no_pending",
+          message: "Não há pedidos pendentes para montar outra rota agora.",
+        };
+      }
+
+      const withCoords = pendentes.filter(
+        (d) => withAddress(d) && d.latitude != null && d.longitude != null
+      );
+      if (withCoords.length === 0) {
+        return {
+          ok: false,
+          reason: "no_pending",
+          message:
+            "Os pedidos pendentes ainda não têm endereço completo para montar a rota.",
+        };
+      }
+
+      const withAddr = pendentes.filter(withAddress);
+      const withoutAddr = pendentes.filter((d) => !withAddress(d));
+      set({
+        pendingDeliveries: pendentes,
+        deliveriesWithAddress: withAddr,
+        deliveriesWithoutAddress: withoutAddr,
+        pendingRefreshError: null,
+      });
+
+      get().setRouteDeliveries(withCoords);
+      const optimizeResult = await get().optimizeRoute({
+        fromDeliveryIndex: 0,
+        persistActive: false,
+      });
+      if (!optimizeResult.ok) {
+        get().clearRoute();
+        return {
+          ok: false,
+          reason: "optimize_failed",
+          message: "Não foi possível montar a nova rota. Tente novamente.",
+        };
+      }
+
+      try {
+        const ativa = await getRotasAtiva(getTodayISO());
+        if (
+          ativa?.rota_id &&
+          (ativa.status === "rota_pronta" || ativa.status === "em_entrega")
+        ) {
+          set({
+            activeRouteId: ativa.rota_id,
+            activeStopIndex: ativa.parada_atual ?? 0,
+            routeStarted: ativa.status === "em_entrega",
+          });
+        }
+      } catch {
+        /* rota local permanece utilizável */
+      }
+
+      return { ok: true, count: withCoords.length };
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        reason: "error",
+        message: formatApiError(err, "Não foi possível refazer a rota."),
+      };
+    }
   },
   optimizeRoute: async (opts) => {
     const { routeDeliveries, routeOrder, activeRouteId, activeStopIndex } = get();

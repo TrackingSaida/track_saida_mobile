@@ -79,8 +79,14 @@ export default function StaffHomeScreen({ navigation }: Props) {
           onPress={() => go("ConsultaCodigos")}
         />
         <OperacaoActionCard
-          title="Acompanhar operação"
-          subtitle="Ver progresso dos motoboys hoje"
+          title="Saídas por motoboy"
+          subtitle="Quantidades por serviço (Shopee, ML e Avulso)"
+          icon="cube-outline"
+          onPress={() => go("SaidasPorMotoboy")}
+        />
+        <OperacaoActionCard
+          title="Acompanhamento do dia"
+          subtitle="Progresso dos motoboys e detalhes por entregador"
           icon="stats-chart-outline"
           onPress={() => go("AcompanharOperacao")}
         />

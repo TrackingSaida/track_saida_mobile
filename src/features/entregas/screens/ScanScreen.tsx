@@ -21,7 +21,7 @@ import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
-import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, lancarAvulsoMobile } from "../api";
+import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, confirmarReativacaoEncerrado, lancarAvulsoMobile } from "../api";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -30,6 +30,7 @@ import { useAuthStore } from "../../../store/authStore";
 import { effectivePodeDigitarCodigoManual } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
+import type { EntregaListItem } from "../types";
 import {
   AVULSO_IDENT_AJUDA,
   AVULSO_IDENT_MAX,
@@ -79,11 +80,11 @@ const BARCODE_TYPES: import("expo-camera").BarcodeType[] = [
   "qr",
 ];
 
-const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
-const CORNER_LENGTH = 40;
-const CORNER_THICKNESS = 5;
+const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.52;
+const CORNER_LENGTH = 32;
+const CORNER_THICKNESS = 4;
 const CORNER_COLOR = "#00bfff"; // azul claro visível sobre a câmera
-const FEEDBACK_MS = 1100;
+const FEEDBACK_MS = 900;
 
 type FeedbackTipo = "sucesso" | "duplicado" | "erro" | "info";
 type ScanConflictLocal = {
@@ -185,11 +186,11 @@ export default function ScanScreen({ navigation }: Props) {
           zIndex: 10,
         },
         backText: { fontSize: 16, color: colors.primary, marginBottom: 8 },
-        backTextWhite: { fontSize: 16, color: "#fff", marginBottom: 8, fontWeight: "600" },
+        backTextWhite: { fontSize: 15, color: "#fff", marginBottom: 4, fontWeight: "600" },
         title: { fontSize: 22, fontWeight: "700", color: colors.text },
-        titleWhite: { fontSize: 22, fontWeight: "700", color: "#fff" },
+        titleWhite: { fontSize: 20, fontWeight: "700", color: "#fff" },
         subtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
-        subtitleWhite: { fontSize: 14, color: "rgba(255,255,255,0.9)", marginTop: 4 },
+        subtitleWhite: { fontSize: 13, color: "rgba(255,255,255,0.85)", marginTop: 2 },
         input: {
           backgroundColor: colors.inputBackground,
           borderWidth: 1,
@@ -210,16 +211,16 @@ export default function ScanScreen({ navigation }: Props) {
         btnScanText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
         linkManual: { marginTop: 24, alignItems: "center" },
         linkManualText: { fontSize: 15, color: colors.primary },
-        linkManualWhite: { paddingVertical: 12, alignItems: "center" },
-        linkManualTextWhite: { fontSize: 15, color: "rgba(255,255,255,0.95)" },
+        linkManualWhite: { paddingVertical: 8, alignItems: "center" },
+        linkManualTextWhite: { fontSize: 14, color: "rgba(255,255,255,0.92)" },
         btnAvulsoFooter: {
-          marginTop: 8,
+          marginTop: 4,
           backgroundColor: colors.primary,
-          paddingVertical: 14,
-          borderRadius: 12,
+          paddingVertical: 12,
+          borderRadius: 10,
           alignItems: "center",
         },
-        btnAvulsoFooterText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnAvulsoFooterText: { color: colors.primaryContrast, fontSize: 15, fontWeight: "600" },
         permissionText: { fontSize: 16, color: colors.text, textAlign: "center", marginBottom: 24 },
         loadingOverlay: {
           ...StyleSheet.absoluteFillObject,
@@ -229,74 +230,110 @@ export default function ScanScreen({ navigation }: Props) {
           zIndex: 5,
         },
         loadingText: { color: "#fff", marginTop: 12, fontSize: 16 },
+        processingChip: {
+          position: "absolute",
+          alignSelf: "center",
+          top: "58%",
+          zIndex: 8,
+          backgroundColor: "rgba(0,0,0,0.55)",
+          paddingHorizontal: 14,
+          paddingVertical: 6,
+          borderRadius: 16,
+        },
+        processingChipText: { color: "#fff", fontSize: 13, fontWeight: "600" },
         footerOverlay: {
           position: "absolute",
           bottom: 0,
-          left: 16,
-          right: 16,
+          left: 12,
+          right: 12,
           zIndex: 10,
-          maxHeight: "50%",
+          maxHeight: "42%",
         },
         scanFrameContainer: {
           ...StyleSheet.absoluteFillObject,
           justifyContent: "center",
           alignItems: "center",
+          paddingBottom: 88,
           zIndex: 5,
         },
         scanFrameWrap: { position: "relative" as const },
         contadorRow: {
           flexDirection: "row",
           justifyContent: "space-around",
-          marginBottom: 8,
-          gap: 8,
+          marginBottom: 6,
+          gap: 6,
         },
         contadorBadge: {
           flex: 1,
-          paddingVertical: 8,
-          paddingHorizontal: 12,
+          paddingVertical: 6,
+          paddingHorizontal: 6,
           borderRadius: 8,
           alignItems: "center",
         },
         badgeShopee: { backgroundColor: "rgba(238,77,45,0.9)" },
         badgeFlex: { backgroundColor: "rgba(255,224,102,0.9)" },
         badgeAvulso: { backgroundColor: "rgba(99,102,241,0.9)" },
-        contadorNum: { fontSize: 20, fontWeight: "700", color: "#fff" },
-        contadorLabel: { fontSize: 12, color: "rgba(255,255,255,0.95)" },
+        contadorNum: { fontSize: 18, fontWeight: "700", color: "#fff" },
+        contadorLabel: { fontSize: 11, color: "rgba(255,255,255,0.95)" },
         btnComecarEntregar: {
           backgroundColor: colors.primary,
-          paddingVertical: 16,
+          paddingVertical: 14,
           borderRadius: 12,
           alignItems: "center",
-          marginBottom: 10,
+          marginBottom: 4,
         },
-        btnComecarEntregarText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "600" },
+        btnComecarEntregarText: { color: colors.primaryContrast, fontSize: 17, fontWeight: "600" },
         verListaBtn: {
-          paddingVertical: 10,
+          paddingVertical: 6,
           alignItems: "center",
-          backgroundColor: "rgba(0,0,0,0.5)",
+          backgroundColor: "rgba(0,0,0,0.45)",
           borderRadius: 8,
-          marginBottom: 8,
+          marginBottom: 4,
         },
-        verListaText: { color: "#fff", fontSize: 14 },
+        verListaText: { color: "#fff", fontSize: 13 },
+        secondaryActionsRow: {
+          flexDirection: "row",
+          gap: 8,
+          marginTop: 4,
+        },
+        secondaryActionBtn: {
+          flex: 1,
+          minHeight: 44,
+          paddingVertical: 10,
+          paddingHorizontal: 8,
+          borderRadius: 10,
+          borderWidth: 1.5,
+          borderColor: "rgba(255,255,255,0.55)",
+          backgroundColor: "rgba(0,0,0,0.35)",
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        secondaryActionBtnDisabled: { opacity: 0.5 },
+        secondaryActionBtnText: {
+          fontSize: 14,
+          color: "#fff",
+          fontWeight: "700",
+          textAlign: "center",
+        },
         listaLeituras: {
-          maxHeight: 200,
+          maxHeight: 160,
           backgroundColor: "rgba(0,0,0,0.75)",
           borderRadius: 8,
-          marginBottom: 8,
+          marginBottom: 6,
           overflow: "hidden",
         },
-        listaScroll: { maxHeight: 200 },
+        listaScroll: { maxHeight: 160 },
         listaItem: {
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",
-          paddingVertical: 10,
+          paddingVertical: 8,
           paddingHorizontal: 12,
           borderBottomWidth: 1,
           borderBottomColor: "rgba(255,255,255,0.2)",
         },
         listaItemInfo: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
-        listaItemCodigo: { color: "#fff", fontSize: 15, fontWeight: "600", flexShrink: 1 },
+        listaItemCodigo: { color: "#fff", fontSize: 14, fontWeight: "600", flexShrink: 1 },
         servicoBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
         servicoBadgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
         btnRemover: {
@@ -343,6 +380,8 @@ export default function ScanScreen({ navigation }: Props) {
   const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
   const [showAvulsoModal, setShowAvulsoModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  /** Só para bip de câmera: chip leve, sem pausar o scanner nem overlay cheio. */
+  const [cameraBusy, setCameraBusy] = useState(false);
   const [conflito, setConflito] = useState<{
     motoboy_atual: string;
     id_saida: number;
@@ -354,8 +393,13 @@ export default function ScanScreen({ navigation }: Props) {
     motoboy_nome: string;
     codigo: string;
   } | null>(null);
+  const [conflitoEncerrado, setConflitoEncerrado] = useState<{
+    id_saida: number;
+    codigo: string;
+  } | null>(null);
   const [assumindo, setAssumindo] = useState(false);
   const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
+  const [confirmandoEncerrado, setConfirmandoEncerrado] = useState(false);
   const [iniciandoRota, setIniciandoRota] = useState(false);
   const [listaExpandida, setListaExpandida] = useState(false);
   const [removendoId, setRemovendoId] = useState<number | null>(null);
@@ -364,13 +408,25 @@ export default function ScanScreen({ navigation }: Props) {
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRoute = useDeliveryStore((s) => s.startRoute);
-  const loadDeliveries = useDeliveryStore((s) => s.loadDeliveries);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const [permission, requestPermission] = useCameraPermissions();
   const isFocused = useIsFocused();
   const torch = useScannerTorch(isFocused && !!permission?.granted && !modoManual);
+  const sessionHadNewScanRef = useRef(false);
+
+  // Ao sair do scanner, uma única sincronização dos pendentes (não a cada bip).
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (sessionHadNewScanRef.current) {
+          sessionHadNewScanRef.current = false;
+          void useDeliveryStore.getState().loadDeliveries();
+        }
+      };
+    }, [])
+  );
 
   const pushFeedback = useCallback((tipo: FeedbackTipo, mensagem: string, codigoItem?: string) => {
     if (feedbackClearRef.current) {
@@ -430,10 +486,11 @@ export default function ScanScreen({ navigation }: Props) {
   }, [addLeituraStore]);
 
   const handlePostScanDelivery = useCallback(
-    (idSaida: number) => {
-      void runPostScanRouteFlow(idSaida, navigation, loadDeliveries);
+    (idSaida: number, delivery?: EntregaListItem | null) => {
+      if (delivery) sessionHadNewScanRef.current = true;
+      runPostScanRouteFlow(idSaida, navigation, { delivery });
     },
-    [navigation, loadDeliveries]
+    [navigation]
   );
 
   const removerLeitura = useCallback(async (id_saida: number) => {
@@ -455,11 +512,19 @@ export default function ScanScreen({ navigation }: Props) {
     }
   }, [leiturasSession, removeLeituraStore, setLeiturasStore]);
 
-  const contadores = {
-    Shopee: leiturasSession.filter((l) => l.servico === "Shopee").length,
-    Flex: leiturasSession.filter((l) => l.servico === "Flex").length,
-    Avulso: leiturasSession.filter((l) => l.servico === "Avulso").length,
-  };
+  const contadores = useMemo(() => {
+    let Shopee = 0;
+    let Flex = 0;
+    let Avulso = 0;
+    for (const l of leiturasSession) {
+      const s = classifyServico(l.servico);
+      if (s === "Shopee") Shopee += 1;
+      else if (s === "Flex") Flex += 1;
+      else Avulso += 1;
+    }
+    return { Shopee, Flex, Avulso };
+  }, [leiturasSession]);
+
   const codigosLidosSessao = useMemo(() => {
     const set = new Set<string>();
     leiturasSession.forEach((l) => {
@@ -468,6 +533,15 @@ export default function ScanScreen({ navigation }: Props) {
     });
     return set;
   }, [leiturasSession]);
+
+  const scannerAtivo =
+    isFocused &&
+    !listaExpandida &&
+    !modoManual &&
+    !showAvulsoModal &&
+    !conflito &&
+    !conflitoDiaAnterior &&
+    !conflitoEncerrado;
 
   const processarCodigo = useCallback(
     async (raw: string, origem: "camera" | "manual" = "camera") => {
@@ -500,9 +574,12 @@ export default function ScanScreen({ navigation }: Props) {
       markScanned(c);
       markScanned(rawTrim);
       scanLocked.current = true;
-      setLoading(true);
+      // Câmera: não usa loading global (pausava o scanner e cobria a tela).
+      if (origem === "manual") setLoading(true);
+      else setCameraBusy(true);
       setConflito(null);
       setConflitoDiaAnterior(null);
+      setConflitoEncerrado(null);
 
       try {
         const result = await scanCodigo(codigoParaApi, origem);
@@ -529,6 +606,16 @@ export default function ScanScreen({ navigation }: Props) {
           pushFeedback("info", "Pedido já lido em data anterior. Confirme saída hoje.", c);
           return;
         }
+        if ((result as { code?: string }).code === "LEITURA_ENCERRADO_SISTEMA") {
+          const r = result as { id_saida: number };
+          setConflitoEncerrado({
+            id_saida: Number(r.id_saida ?? 0),
+            codigo: c,
+          });
+          playSound("warn");
+          pushFeedback("info", "Pedido encerrado. Confirme para abrir nova saída.", c);
+          return;
+        }
         if ((result as { conflito?: boolean }).conflito) {
           const conflitoResult = result as ScanConflictLocal;
           playSound("warn");
@@ -552,7 +639,7 @@ export default function ScanScreen({ navigation }: Props) {
           setCodigo("");
           playSound("success");
           pushFeedback("sucesso", "Leitura registrada", c);
-          handlePostScanDelivery(sucessoResult.entrega.id_saida);
+          handlePostScanDelivery(sucessoResult.entrega.id_saida, sucessoResult.entrega);
           setTimeout(() => (scanLocked.current = false), 400);
         }
       } catch (e: unknown) {
@@ -577,7 +664,8 @@ export default function ScanScreen({ navigation }: Props) {
         Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
         setTimeout(() => (scanLocked.current = false), 500);
       } finally {
-        setLoading(false);
+        if (origem === "manual") setLoading(false);
+        else setCameraBusy(false);
       }
     },
     [addLeitura, codigosLidosSessao, pushFeedback, handlePostScanDelivery]
@@ -654,7 +742,7 @@ export default function ScanScreen({ navigation }: Props) {
         eraEntregue ? "Reatribuído — Em rota" : "Leitura assumida",
         entrega.codigo ?? String(conflito.id_saida)
       );
-      handlePostScanDelivery(conflito.id_saida);
+      handlePostScanDelivery(conflito.id_saida, entrega);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
       const msg = ax?.response?.data?.detail ?? "Erro ao assumir.";
@@ -684,7 +772,7 @@ export default function ScanScreen({ navigation }: Props) {
       pushFeedback("sucesso", "Nova saída confirmada", entrega.codigo ?? conflitoDiaAnterior.codigo);
       setConflitoDiaAnterior(null);
       scanLocked.current = false;
-      handlePostScanDelivery(idSaida);
+      handlePostScanDelivery(idSaida, entrega);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string; message?: string } } };
       const msg = ax?.response?.data?.detail ?? ax?.response?.data?.message ?? "Erro ao confirmar nova saída.";
@@ -701,11 +789,46 @@ export default function ScanScreen({ navigation }: Props) {
     scanLocked.current = false;
   }, []);
 
+  const handleConfirmarEncerrado = useCallback(async () => {
+    if (!conflitoEncerrado) return;
+    const idSaida = conflitoEncerrado.id_saida;
+    setConfirmandoEncerrado(true);
+    try {
+      await confirmarReativacaoEncerrado(idSaida);
+      const entrega = await getEntrega(idSaida);
+      addLeitura(entrega);
+      playSound("success");
+      pushFeedback("sucesso", "Nova saída confirmada", entrega.codigo ?? conflitoEncerrado.codigo);
+      setConflitoEncerrado(null);
+      scanLocked.current = false;
+      handlePostScanDelivery(idSaida, entrega);
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string; message?: string } } };
+      const msg =
+        ax?.response?.data?.detail ?? ax?.response?.data?.message ?? "Erro ao confirmar nova saída.";
+      playSound("error");
+      pushFeedback(
+        "erro",
+        typeof msg === "string" ? msg : "Erro ao confirmar nova saída",
+        conflitoEncerrado.codigo
+      );
+      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+    } finally {
+      setConfirmandoEncerrado(false);
+    }
+  }, [addLeitura, conflitoEncerrado, pushFeedback, handlePostScanDelivery]);
+
+  const handleCancelarEncerrado = useCallback(() => {
+    setConflitoEncerrado(null);
+    scanLocked.current = false;
+  }, []);
+
   const handleComecarEntregar = async () => {
     if (leiturasSession.length === 0) return;
+    const deliveryIds = leiturasSession.map((l) => l.id_saida);
     setIniciandoRota(true);
     try {
-      await startRoute();
+      await startRoute(deliveryIds);
       clearLeituras();
       setRotaIniciada(true);
       if (roteirizacaoHabilitada) {
@@ -916,13 +1039,13 @@ export default function ScanScreen({ navigation }: Props) {
         }}
         enableTorch={torch.enableTorch}
         onCameraReady={torch.onCameraReady}
-        onBarcodeScanned={loading ? undefined : handleBarcodeScanned}
+        onBarcodeScanned={scannerAtivo ? handleBarcodeScanned : undefined}
       />
 
       <ScannerTorchButton
         mode={torch.mode}
         onPress={torch.cycleMode}
-        style={{ top: insets.top + 72, right: 16 }}
+        style={{ top: insets.top + 56, right: 16 }}
       />
 
       {renderFeedback()}
@@ -931,14 +1054,13 @@ export default function ScanScreen({ navigation }: Props) {
         <ScanFrameOverlay wrapStyle={styles.scanFrameWrap} />
       </View>
 
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator color="#fff" size="large" />
-          <Text style={styles.loadingText}>Processando...</Text>
+      {cameraBusy ? (
+        <View style={[styles.processingChip, { top: insets.top + 120 }]} pointerEvents="none">
+          <Text style={styles.processingChipText}>Lendo…</Text>
         </View>
-      )}
+      ) : null}
 
-      <View style={[styles.footerOverlay, { paddingBottom: Math.max(24, insets.bottom) }]}>
+      <View style={[styles.footerOverlay, { paddingBottom: Math.max(16, insets.bottom) }]}>
         {/* Contador Shopee | Flex | Avulso */}
         <View style={styles.contadorRow}>
           <View style={[styles.contadorBadge, styles.badgeShopee]}>
@@ -969,7 +1091,6 @@ export default function ScanScreen({ navigation }: Props) {
           </TouchableOpacity>
         )}
 
-        {/* Arrastar para cima = lista de leituras */}
         {leiturasSession.length > 0 && (
           <TouchableOpacity
             style={styles.verListaBtn}
@@ -1016,23 +1137,26 @@ export default function ScanScreen({ navigation }: Props) {
           </View>
         )}
 
-        <TouchableOpacity
-          style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-          onPress={() => setShowAvulsoModal(true)}
-          disabled={loading}
-        >
-          <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-        </TouchableOpacity>
-
-        {podeDigitarManual ? (
+        <View style={styles.secondaryActionsRow}>
           <TouchableOpacity
-            style={styles.linkManualWhite}
-            onPress={() => setModoManual(true)}
-            disabled={loading}
+            style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+            onPress={() => setShowAvulsoModal(true)}
+            disabled={cameraBusy || loading}
+            activeOpacity={0.85}
           >
-            <Text style={styles.linkManualTextWhite}>Digitar código manualmente</Text>
+            <Text style={styles.secondaryActionBtnText}>Lançar Avulso</Text>
           </TouchableOpacity>
-        ) : null}
+          {podeDigitarManual ? (
+            <TouchableOpacity
+              style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+              onPress={() => setModoManual(true)}
+              disabled={cameraBusy || loading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.secondaryActionBtnText}>Digitar código</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
       {avulsoModal}
@@ -1096,6 +1220,39 @@ export default function ScanScreen({ navigation }: Props) {
                   <ActivityIndicator color={colors.primaryContrast} />
                 ) : (
                   <Text style={styles.modalBtnOkText}>Confirmar saída hoje</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!conflitoEncerrado} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Pedido encerrado</Text>
+            <Text style={styles.modalMessage}>
+              Este pedido foi encerrado pelo sistema e não está mais na lista de pendentes.
+              {"\n\n"}
+              Deseja confirmar uma nova saída para entrega?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalBtnCancel}
+                onPress={handleCancelarEncerrado}
+                disabled={confirmandoEncerrado}
+              >
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalBtnOk}
+                onPress={handleConfirmarEncerrado}
+                disabled={confirmandoEncerrado}
+              >
+                {confirmandoEncerrado ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.modalBtnOkText}>Confirmar saída</Text>
                 )}
               </TouchableOpacity>
             </View>

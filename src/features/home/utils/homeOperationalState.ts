@@ -188,6 +188,28 @@ const VIEW_PENDING_CTA: HomeCta = {
   layout: "full",
 };
 
+/** Conta pedidos ainda pendentes na ordem da rota ativa. */
+export function countPendingOnActiveRoute(
+  routeOrder: number[],
+  routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente">
+): number {
+  return routeOrder.filter(
+    (id) => (routeDeliveryStatus[id] ?? "pendente") === "pendente"
+  ).length;
+}
+
+/** Quando a rota já está ativa, oferece Preparar rota se faltam endereços ou há pacotes preparados fora da rota. */
+export function shouldOfferPrepareRouteWhileActive(input: {
+  semEndereco: number;
+  preparadosComEndereco: number;
+  /** Pedidos ainda pendentes na rota (não o tamanho total da ordem). */
+  pedidosPendentesNaRotaAtiva: number;
+}): boolean {
+  if (input.semEndereco > 0) return true;
+  if (input.preparadosComEndereco <= 0) return false;
+  return input.preparadosComEndereco !== input.pedidosPendentesNaRotaAtiva;
+}
+
 export type HomeRouteCtas = {
   layout: "route";
   primary: HomeCta;
@@ -204,11 +226,23 @@ export type HomeOperationalActionsCtas = {
 
 export type HomeCtasResult = HomeRouteCtas | HomeOperationalActionsCtas;
 
+export type DeriveHomeCtasOptions = {
+  loadingStartRoute?: boolean;
+  offerPrepareRoute?: boolean;
+};
+
 export function deriveHomeCtas(
   view: HomeOperationalView,
   roteirizacaoHabilitada: boolean,
-  loadingStartRoute?: boolean
+  loadingStartRouteOrOpts?: boolean | DeriveHomeCtasOptions,
+  maybeOpts?: DeriveHomeCtasOptions
 ): HomeCtasResult {
+  const opts: DeriveHomeCtasOptions =
+    typeof loadingStartRouteOrOpts === "object" && loadingStartRouteOrOpts != null
+      ? loadingStartRouteOrOpts
+      : { loadingStartRoute: Boolean(loadingStartRouteOrOpts), ...maybeOpts };
+  const loadingStartRoute = opts.loadingStartRoute === true;
+  const offerPrepareRoute = opts.offerPrepareRoute === true;
   const { heroState } = view;
 
   if (heroState === "route_completed") {
@@ -216,20 +250,24 @@ export function deriveHomeCtas(
       layout: "route",
       primary: { label: "Ver resumo", action: "view_summary", primary: true },
       secondary: [
-        { label: "Histórico de rotas", action: "route_history" },
+        { label: "Minhas rotas", action: "route_history" },
         SCAN_INSERT_CTA,
       ],
     };
   }
 
   if (heroState === "route_active") {
+    const secondary: HomeCta[] = [
+      { label: "Localizar pacote", action: "locate_package" },
+      SCAN_INSERT_CTA,
+    ];
+    if (roteirizacaoHabilitada && offerPrepareRoute) {
+      secondary.push({ label: "Preparar rota", action: "prepare_route" });
+    }
     return {
       layout: "route",
       primary: { label: "Continuar rota", action: "continue_route", primary: true },
-      secondary: [
-        { label: "Localizar pacote", action: "locate_package" },
-        SCAN_INSERT_CTA,
-      ],
+      secondary,
     };
   }
 
