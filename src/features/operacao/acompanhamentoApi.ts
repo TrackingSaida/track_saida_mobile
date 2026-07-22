@@ -25,6 +25,8 @@ export interface AcompanhamentoTotais {
 export interface AcompanhamentoDiaResponse {
   items: AcompanhamentoMotoboyItem[];
   totais: AcompanhamentoTotais;
+  data_inicio?: string | null;
+  data_fim?: string | null;
 }
 
 export interface AcompanhamentoSaidasDiaResponse {
@@ -35,23 +37,50 @@ export interface AcompanhamentoSaidasDiaResponse {
   sum_shopee: number;
   sum_mercado: number;
   sum_avulso: number;
+  data_inicio?: string | null;
+  data_fim?: string | null;
+}
+
+export type PeriodoParams = {
+  data?: string;
+  dataInicio?: string;
+  dataFim?: string;
+};
+
+function buildPeriodoQuery(periodo?: PeriodoParams): Record<string, string | number> {
+  if (!periodo) return {};
+  if (periodo.dataInicio && periodo.dataFim) {
+    if (periodo.dataInicio === periodo.dataFim) {
+      return { data: periodo.dataInicio };
+    }
+    return { data_inicio: periodo.dataInicio, data_fim: periodo.dataFim };
+  }
+  if (periodo.data) return { data: periodo.data };
+  return {};
 }
 
 export async function getAcompanhamentoSaidasDia(
   motoboyId: number,
-  data: string
+  periodo: string | PeriodoParams
 ): Promise<AcompanhamentoSaidasDiaResponse> {
+  const params =
+    typeof periodo === "string"
+      ? { motoboy_id: motoboyId, data: periodo }
+      : { motoboy_id: motoboyId, ...buildPeriodoQuery(periodo) };
   const { data: res } = await client.get<AcompanhamentoSaidasDiaResponse>("/acompanhamento/saidas-dia", {
-    params: { motoboy_id: motoboyId, data },
+    params,
   });
   return res;
 }
 
 export async function getAcompanhamentoDia(
-  data: string,
+  dataOrPeriodo: string | PeriodoParams,
   motoboyId?: number
 ): Promise<AcompanhamentoDiaResponse> {
-  const params: Record<string, string | number> = { data };
+  const params: Record<string, string | number> =
+    typeof dataOrPeriodo === "string"
+      ? { data: dataOrPeriodo }
+      : { ...buildPeriodoQuery(dataOrPeriodo) };
   if (motoboyId != null) params.motoboy_id = motoboyId;
   const { data: res } = await client.get<AcompanhamentoDiaResponse>("/acompanhamento/dia", { params });
   return {
@@ -63,5 +92,7 @@ export async function getAcompanhamentoDia(
       ausente_ou_ocorrencias: 0,
       sla: null,
     },
+    data_inicio: res.data_inicio,
+    data_fim: res.data_fim,
   };
 }

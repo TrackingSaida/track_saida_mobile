@@ -4,6 +4,7 @@ import StaffHomeScreen from "../screens/StaffHomeScreen";
 import LeituraSaidasScreen from "../features/operacao/screens/LeituraSaidasScreen";
 import LeituraColetasScreen from "../features/operacao/screens/LeituraColetasScreen";
 import ConsultaCodigosScreen from "../features/operacao/screens/ConsultaCodigosScreen";
+import SaidasPorMotoboyScreen from "../features/operacao/screens/SaidasPorMotoboyScreen";
 import AcompanharOperacaoScreen from "../features/operacao/screens/AcompanharOperacaoScreen";
 import AcompanharMotoboyDiaScreen from "../features/operacao/screens/AcompanharMotoboyDiaScreen";
 import type { StaffStackParamList } from "./staffStackTypes";
@@ -39,6 +40,11 @@ export default function StaffHomeStack() {
       <Stack.Screen
         name="ConsultaCodigos"
         component={ConsultaCodigosScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="SaidasPorMotoboy"
+        component={SaidasPorMotoboyScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen name="AcompanharOperacao" component={AcompanharOperacaoScreen} options={{ headerShown: false }} />
