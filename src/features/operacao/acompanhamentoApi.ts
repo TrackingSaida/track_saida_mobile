@@ -45,18 +45,25 @@ export type PeriodoParams = {
   data?: string;
   dataInicio?: string;
   dataFim?: string;
+  /** pendentes = web; saidas = totais históricos por data da saída */
+  modo?: "pendentes" | "saidas";
 };
 
 function buildPeriodoQuery(periodo?: PeriodoParams): Record<string, string | number> {
   if (!periodo) return {};
+  const out: Record<string, string | number> = {};
   if (periodo.dataInicio && periodo.dataFim) {
     if (periodo.dataInicio === periodo.dataFim) {
-      return { data: periodo.dataInicio };
+      out.data = periodo.dataInicio;
+    } else {
+      out.data_inicio = periodo.dataInicio;
+      out.data_fim = periodo.dataFim;
     }
-    return { data_inicio: periodo.dataInicio, data_fim: periodo.dataFim };
+  } else if (periodo.data) {
+    out.data = periodo.data;
   }
-  if (periodo.data) return { data: periodo.data };
-  return {};
+  if (periodo.modo) out.modo = periodo.modo;
+  return out;
 }
 
 export async function getAcompanhamentoSaidasDia(

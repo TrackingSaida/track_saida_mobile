@@ -22,6 +22,7 @@ import { useThemeColors } from "../../../theme/colors";
 import type { StaffStackParamList } from "../../../navigation/staffStackTypes";
 import { getAcompanhamentoSaidasDia } from "../acompanhamentoApi";
 import { listMotoboysOperacao, type MotoboyItem } from "../saidasApi";
+import { normalizeMotoboyList } from "../utils/motoboyListFormat";
 import {
   buildPeriodo,
   formatDateLabel,
@@ -159,8 +160,12 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
   const loadMotoboys = useCallback(async () => {
     setLoadingMotoboys(true);
     try {
-      const list = await listMotoboysOperacao();
+      const list = normalizeMotoboyList(await listMotoboysOperacao());
       setMotoboys(list);
+      setMotoboy((prev) => {
+        if (!prev) return null;
+        return list.find((m) => m.id_motoboy === prev.id_motoboy) ?? prev;
+      });
     } catch {
       setMotoboys([]);
     } finally {
@@ -180,6 +185,7 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
       const res = await getAcompanhamentoSaidasDia(motoboy.id_motoboy, {
         dataInicio: periodo.dataInicio,
         dataFim: periodo.dataFim,
+        modo: "saidas",
       });
       setDetail(res);
     } catch {
@@ -298,7 +304,7 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
             <View style={styles.heroCard}>
               <Text style={styles.heroTitle}>ENTREGADOR SELECIONADO</Text>
               <Text style={styles.heroName}>{detail?.motoboy_nome || motoboy.nome}</Text>
-              <Text style={styles.heroTotalLabel}>Total de leituras</Text>
+              <Text style={styles.heroTotalLabel}>Total de saídas</Text>
               <Text style={styles.heroTotal}>{detail?.pendentes_hoje ?? 0}</Text>
               {periodo.preset !== "hoje" ? (
                 <Text style={[styles.periodoMeta, { marginBottom: 0, marginTop: 8 }]}>
