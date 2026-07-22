@@ -22,7 +22,7 @@ import { useThemeColors } from "../../../theme/colors";
 import type { StaffStackParamList } from "../../../navigation/staffStackTypes";
 import { getAcompanhamentoSaidasDia } from "../acompanhamentoApi";
 import { listMotoboysOperacao, type MotoboyItem } from "../saidasApi";
-import { normalizeMotoboyList } from "../utils/motoboyListFormat";
+import { normalizeMotoboyList, formatMotoboyNome } from "../utils/motoboyListFormat";
 import {
   buildPeriodo,
   formatDateLabel,
@@ -303,7 +303,9 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
           <>
             <View style={styles.heroCard}>
               <Text style={styles.heroTitle}>ENTREGADOR SELECIONADO</Text>
-              <Text style={styles.heroName}>{detail?.motoboy_nome || motoboy.nome}</Text>
+              <Text style={styles.heroName}>
+                {formatMotoboyNome(detail?.motoboy_nome || motoboy.nome)}
+              </Text>
               <Text style={styles.heroTotalLabel}>Total de saídas</Text>
               <Text style={styles.heroTotal}>{detail?.pendentes_hoje ?? 0}</Text>
               {periodo.preset !== "hoje" ? (
