@@ -30,6 +30,7 @@ import { useAuthStore } from "../../../store/authStore";
 import { effectivePodeDigitarCodigoManual } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
+import type { EntregaListItem } from "../types";
 import {
   AVULSO_IDENT_AJUDA,
   AVULSO_IDENT_MAX,
@@ -369,13 +370,25 @@ export default function ScanScreen({ navigation }: Props) {
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRoute = useDeliveryStore((s) => s.startRoute);
-  const loadDeliveries = useDeliveryStore((s) => s.loadDeliveries);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const [permission, requestPermission] = useCameraPermissions();
   const isFocused = useIsFocused();
   const torch = useScannerTorch(isFocused && !!permission?.granted && !modoManual);
+  const sessionHadNewScanRef = useRef(false);
+
+  // Ao sair do scanner, uma única sincronização dos pendentes (não a cada bip).
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (sessionHadNewScanRef.current) {
+          sessionHadNewScanRef.current = false;
+          void useDeliveryStore.getState().loadDeliveries();
+        }
+      };
+    }, [])
+  );
 
   const pushFeedback = useCallback((tipo: FeedbackTipo, mensagem: string, codigoItem?: string) => {
     if (feedbackClearRef.current) {
@@ -435,10 +448,11 @@ export default function ScanScreen({ navigation }: Props) {
   }, [addLeituraStore]);
 
   const handlePostScanDelivery = useCallback(
-    (idSaida: number) => {
-      void runPostScanRouteFlow(idSaida, navigation, loadDeliveries);
+    (idSaida: number, delivery?: EntregaListItem | null) => {
+      if (delivery) sessionHadNewScanRef.current = true;
+      runPostScanRouteFlow(idSaida, navigation, { delivery });
     },
-    [navigation, loadDeliveries]
+    [navigation]
   );
 
   const removerLeitura = useCallback(async (id_saida: number) => {
@@ -568,7 +582,7 @@ export default function ScanScreen({ navigation }: Props) {
           setCodigo("");
           playSound("success");
           pushFeedback("sucesso", "Leitura registrada", c);
-          handlePostScanDelivery(sucessoResult.entrega.id_saida);
+          handlePostScanDelivery(sucessoResult.entrega.id_saida, sucessoResult.entrega);
           setTimeout(() => (scanLocked.current = false), 400);
         }
       } catch (e: unknown) {
@@ -670,7 +684,7 @@ export default function ScanScreen({ navigation }: Props) {
         eraEntregue ? "Reatribuído — Em rota" : "Leitura assumida",
         entrega.codigo ?? String(conflito.id_saida)
       );
-      handlePostScanDelivery(conflito.id_saida);
+      handlePostScanDelivery(conflito.id_saida, entrega);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
       const msg = ax?.response?.data?.detail ?? "Erro ao assumir.";
@@ -700,7 +714,7 @@ export default function ScanScreen({ navigation }: Props) {
       pushFeedback("sucesso", "Nova saída confirmada", entrega.codigo ?? conflitoDiaAnterior.codigo);
       setConflitoDiaAnterior(null);
       scanLocked.current = false;
-      handlePostScanDelivery(idSaida);
+      handlePostScanDelivery(idSaida, entrega);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string; message?: string } } };
       const msg = ax?.response?.data?.detail ?? ax?.response?.data?.message ?? "Erro ao confirmar nova saída.";
@@ -729,7 +743,7 @@ export default function ScanScreen({ navigation }: Props) {
       pushFeedback("sucesso", "Nova saída confirmada", entrega.codigo ?? conflitoEncerrado.codigo);
       setConflitoEncerrado(null);
       scanLocked.current = false;
-      handlePostScanDelivery(idSaida);
+      handlePostScanDelivery(idSaida, entrega);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string; message?: string } } };
       const msg =

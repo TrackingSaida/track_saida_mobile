@@ -1,6 +1,7 @@
 import { Alert } from "react-native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
+import type { EntregaListItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import {
@@ -29,12 +30,25 @@ export function notifyActiveRoutePendingAdded(): void {
   Alert.alert(PENDING_ADDED_TITLE, ACTIVE_ROUTE_PENDING_MESSAGE);
 }
 
-export async function runPostScanRouteFlow(
+export type PostScanRouteFlowOpts = {
+  /** Entrega retornada pelo /scan — upsert local, sem GET /entregas. */
+  delivery?: EntregaListItem | null;
+};
+
+/**
+ * Pós-bipagem: atualiza store local e, se houver rota, pergunta/notifica.
+ * Não chama loadDeliveries no hot path (listagem completa derruba a API).
+ */
+export function runPostScanRouteFlow(
   idSaida: number,
   navigation: ScanNavigation,
-  loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<{ ok: boolean; count: number }>
-): Promise<void> {
-  await loadDeliveries();
+  opts?: PostScanRouteFlowOpts
+): void {
+  const delivery = opts?.delivery ?? null;
+  if (delivery) {
+    useDeliveryStore.getState().upsertPendingDelivery(delivery);
+  }
+
   const roteirizacaoHabilitada = useMotoboyPrefsStore.getState().roteirizacaoHabilitada;
   const { routeOrder, activeRouteId } = useDeliveryStore.getState();
   const ctx = resolvePostScanRouteContext({

@@ -161,6 +161,8 @@ interface DeliveryState {
   routeLastRecalcAnchor: number | null;
 
   loadDeliveries: (opts?: { onlyToday?: boolean }) => Promise<{ ok: boolean; count: number }>;
+  /** Insere/atualiza um pendente local sem refetch da lista (hot path do scanner). */
+  upsertPendingDelivery: (delivery: EntregaListItem) => void;
   saveAddress: (idSaida: number, body: EnderecoBody) => Promise<EntregaListItem>;
   startRoute: (deliveryIds?: number[]) => Promise<number>;
   suggestRoute: (fromLat?: number, fromLon?: number) => void;
@@ -378,6 +380,21 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       }));
       return { ok: false, count: get().pendingDeliveries.length };
     }
+  },
+
+  upsertPendingDelivery: (delivery) => {
+    set((state) => {
+      const idx = state.pendingDeliveries.findIndex((d) => d.id_saida === delivery.id_saida);
+      const list =
+        idx >= 0
+          ? state.pendingDeliveries.map((d, i) => (i === idx ? { ...d, ...delivery } : d))
+          : [delivery, ...state.pendingDeliveries];
+      return {
+        pendingDeliveries: list,
+        deliveriesWithAddress: list.filter(withAddress),
+        deliveriesWithoutAddress: list.filter((d) => !withAddress(d)),
+      };
+    });
   },
 
   saveAddress: async (idSaida, body) => {
