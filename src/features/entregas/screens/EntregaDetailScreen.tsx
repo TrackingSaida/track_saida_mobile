@@ -346,7 +346,10 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         return;
       }
       const lines = await extractTextFromImage(result.assets[0].uri);
-      const parsed = pickBestOcrAddress(lines);
+      const parsed = pickBestOcrAddress(lines, {
+        cidade: cidadePadrao || undefined,
+        estado: estadoPadrao || undefined,
+      });
       const nomeOriginal = (entrega?.cliente ?? "").trim();
       const nomeOcr = (parsed.destinatario ?? "").trim();
       const openFormWithDest = (dest: string) => {

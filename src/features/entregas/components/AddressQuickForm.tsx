@@ -49,6 +49,12 @@ import {
 import AddressSuggestionList from "./AddressSuggestionList";
 import { isValidGeocodeCoords, type GeocodeResult } from "../utils/geocode";
 import { deriveAddressVisualStatus } from "../utils/deriveAddressVisualStatus";
+import { enrichAddressValuesFromCep } from "../utils/viaCep";
+import {
+  peekCachedSearchCityDefaults,
+  resolveSearchCityDefaults,
+  type SearchCitySource,
+} from "../utils/resolveSearchCityDefaults";
 
 export type QuickFormFlowState =
   | "idle"
@@ -149,12 +155,40 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       focusAddress: () => freeTextRef.current?.focus(),
     }));
 
+    const [citySource, setCitySource] = useState<SearchCitySource>("none");
+    const [resolvedCity, setResolvedCity] = useState(() =>
+      peekCachedSearchCityDefaults({
+        cidadePadrao,
+        estadoPadrao,
+      })
+    );
+
+    useEffect(() => {
+      let cancelled = false;
+      void resolveSearchCityDefaults({
+        cidadePadrao,
+        estadoPadrao,
+      }).then((resolved) => {
+        if (cancelled) return;
+        setResolvedCity(resolved);
+        setCitySource(resolved.source);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [cidadePadrao, estadoPadrao, delivery.id_saida]);
+
+    // Cidade/UF efetivas: GPS (ou fallback) — não só preferência local vazia.
     const defaults = useMemo(
-      () => ({ cidade: cidadePadrao, estado: estadoPadrao }),
-      [cidadePadrao, estadoPadrao]
+      () => ({
+        cidade: resolvedCity.cidade || cidadePadrao || undefined,
+        estado: resolvedCity.estado || estadoPadrao || undefined,
+      }),
+      [resolvedCity.cidade, resolvedCity.estado, cidadePadrao, estadoPadrao]
     );
 
     const applySuggestionRef = useRef<(s: AddressSuggestion, fromAuto?: boolean) => void>(() => {});
+    const runParseRef = useRef<(text: string, options?: { autoApply?: boolean }) => void>(() => {});
     const runSearchRef = useRef<
       (vals: Partial<AddressFormValues>, options?: { autoApply?: boolean }) => Promise<void>
     >(async () => {});
@@ -215,14 +249,54 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
         vals: Partial<AddressFormValues>,
         options?: { autoApply?: boolean }
       ) => {
-        if (!needsAddressEnrichment(vals)) {
-          setSuggestions([]);
-          setDidYouMean(null);
-          setSearching(false);
-          onFlowStateChange?.("idle");
-          return;
+        const requestId = ++searchRequestIdRef.current;
+        onFlowStateChange?.("searching");
+        setSearching(true);
+        setSearchEmpty(false);
+        setSearchErrorMessage(null);
+
+        let enriched = vals;
+        const cepDigits = (vals.cep ?? "").replace(/\D/g, "");
+        const missingCityOrState =
+          !(vals.cidade ?? "").trim() || !(vals.estado ?? "").trim();
+        if (cepDigits.length === 8 && missingCityOrState) {
+          enriched = await enrichAddressValuesFromCep(vals);
+          if (requestId !== searchRequestIdRef.current) return;
+          const cleaned = sanitizeAddressFormValues({
+            destinatario: (enriched.destinatario ?? "").trim(),
+            rua: (enriched.rua ?? "").trim(),
+            numero: (enriched.numero ?? "").trim(),
+            complemento: (enriched.complemento ?? "").trim(),
+            bairro: (enriched.bairro ?? "").trim(),
+            cidade: (enriched.cidade ?? "").trim(),
+            estado: (enriched.estado ?? "").trim(),
+            cep: (enriched.cep ?? "").replace(/\D/g, "").slice(0, 8),
+          });
+          enriched = cleaned;
+          setParsedInternal((prev) => ({ ...prev, ...cleaned }));
+          const summary = formatAddressSummary(cleaned);
+          if (summary) {
+            setFreeText((prev) => {
+              // Mantém texto do usuário se já estiver mais completo; senão limpa ruído do OCR.
+              const prevHasCepLabel = /\bcep\s*:/i.test(prev);
+              return prevHasCepLabel || !(prev ?? "").trim() ? summary : prev;
+            });
+          }
         }
-        const query = buildSearchQuery(vals, defaults);
+
+        // Mesmo completo (ex.: ViaCEP preencheu cidade), segue buscando coordenadas.
+        if (!needsAddressEnrichment(enriched)) {
+          const fullQuery = buildSearchQuery(enriched, defaults);
+          if (fullQuery.replace(/\s/g, "").length < 8) {
+            setSuggestions([]);
+            setDidYouMean(null);
+            setSearching(false);
+            onFlowStateChange?.("idle");
+            return;
+          }
+        }
+
+        const query = buildSearchQuery(enriched, defaults);
         if (query === lastSearchQueryRef.current) {
           setSearching(false);
           onFlowStateChange?.("idle");
@@ -238,18 +312,13 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
         }
         lastSearchQueryRef.current = query;
         resetAddressSessionToken();
-        const requestId = ++searchRequestIdRef.current;
-        setSearching(true);
-        setSearchEmpty(false);
-        setSearchErrorMessage(null);
-        onFlowStateChange?.("searching");
         try {
-          const local = findLocalAddressSuggestions(vals, knownDeliveries, defaults);
+          const local = findLocalAddressSuggestions(enriched, knownDeliveries, defaults);
           if (local.length > 0) {
             setSuggestions(filterSelectableSuggestions(local));
           }
           const { suggestions: remote, didYouMean: dym } = await searchAddressSuggestions(query, {
-            hints: vals,
+            hints: enriched,
             defaults,
           });
           if (requestId !== searchRequestIdRef.current) return;
@@ -262,14 +331,41 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           let finalDym = dym;
 
           if (merged.length === 0 && !finalDym) {
-            const hadExtra = (vals.numero ?? "").trim() || (vals.bairro ?? "").trim();
-            const relaxedQuery = buildSearchQuery(
-              { ...vals, numero: "", bairro: "" },
+            // 1) Mantém bairro (hábito rua+número+bairro) e tira só o número.
+            const withBairroQuery = buildSearchQuery(
+              { ...enriched, numero: "" },
               defaults
             );
-            if (hadExtra && relaxedQuery !== query && relaxedQuery.replace(/\s/g, "").length >= 4) {
+            if (
+              (enriched.numero ?? "").trim() &&
+              withBairroQuery !== query &&
+              withBairroQuery.replace(/\s/g, "").length >= 4
+            ) {
+              const withBairro = await searchAddressSuggestions(withBairroQuery, {
+                hints: enriched,
+                defaults,
+              });
+              if (requestId !== searchRequestIdRef.current) return;
+              merged = filterSelectableSuggestions(withBairro.suggestions);
+              finalDym = withBairro.didYouMean;
+            }
+          }
+
+          if (merged.length === 0 && !finalDym) {
+            // 2) Fallback mais amplo: só logradouro + cidade.
+            const hadExtra =
+              (enriched.numero ?? "").trim() || (enriched.bairro ?? "").trim();
+            const relaxedQuery = buildSearchQuery(
+              { ...enriched, numero: "", bairro: "" },
+              defaults
+            );
+            if (
+              hadExtra &&
+              relaxedQuery !== query &&
+              relaxedQuery.replace(/\s/g, "").length >= 4
+            ) {
               const relaxed = await searchAddressSuggestions(relaxedQuery, {
-                hints: vals,
+                hints: enriched,
                 defaults,
               });
               if (requestId !== searchRequestIdRef.current) return;
@@ -342,6 +438,19 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       },
       [defaults, onFlowStateChange]
     );
+    runParseRef.current = runParse;
+
+    // Quando o GPS resolve a cidade depois do parse inicial, rebusca.
+    const prevResolvedCityRef = useRef(resolvedCity.cidade);
+    useEffect(() => {
+      const prev = prevResolvedCityRef.current;
+      prevResolvedCityRef.current = resolvedCity.cidade;
+      if (!resolvedCity.cidade || resolvedCity.cidade === prev) return;
+      const text = freeText.trim();
+      if (!text) return;
+      if ((parsedInternalRef.current.cidade ?? "").trim()) return;
+      runParseRef.current(text, { autoApply: true });
+    }, [resolvedCity.cidade, freeText]);
 
     useEffect(() => {
       setFreeText(initialFreeText);
@@ -456,11 +565,14 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       if (selectableCount > 0 && !selectedSuggestionId) {
         return "Selecione uma das sugestões de endereço abaixo.";
       }
+      if (!vals.cidade.trim() && !defaults.cidade) {
+        return "Falta a cidade. Ative a localização do aparelho ou force a cidade em Configurações.";
+      }
       return `Faltam: ${missing.join(", ")}. Aguarde a busca ou use o modo avançado.`;
     };
 
-    const executeSave = async () => {
-      const vals = buildValues();
+    const executeSave = async (overrideVals?: AddressFormValues) => {
+      const vals = overrideVals ?? buildValues();
       onFlowStateChange?.("saving");
       try {
         const origem: AddressOrigem =
@@ -475,7 +587,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
     };
 
     const handleSave = async (skipNumeroWarn = false) => {
-      const vals = buildValues();
+      let vals = buildValues();
       const hasStreet = !!(vals.rua.trim() || vals.bairro.trim());
       if (!skipNumeroWarn && hasStreet && !vals.numero.trim()) {
         Alert.alert(
@@ -489,13 +601,43 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
         return;
       }
       if (!skipNumeroWarn) {
+        const missingCityOrState = !vals.cidade.trim() || !vals.estado.trim();
+        const cepDigits = vals.cep.replace(/\D/g, "");
+        if (missingCityOrState && cepDigits.length === 8) {
+          onFlowStateChange?.("searching");
+          try {
+            const enriched = await enrichAddressValuesFromCep(vals);
+            vals = sanitizeAddressFormValues({
+              ...vals,
+              ...enriched,
+              destinatario: vals.destinatario,
+              complemento: vals.complemento,
+            });
+            setParsedInternal(vals);
+            const summary = formatAddressSummary(vals);
+            if (summary) setFreeText(summary);
+            if (vals.cidade.trim() && vals.estado.trim() && !selectedSuggestionId) {
+              await runSearchRef.current(vals, { autoApply: true });
+              // Se a busca auto-aplicou sugestão, usa o estado atualizado.
+              vals = { ...vals, ...parsedInternalRef.current };
+            }
+          } finally {
+            onFlowStateChange?.("idle");
+          }
+        }
+
+        // Motoboy costuma falar só rua+número — usa cidade/UF padrão da operação.
+        if (!vals.cidade.trim() && defaults.cidade) vals = { ...vals, cidade: defaults.cidade };
+        if (!vals.estado.trim() && defaults.estado) vals = { ...vals, estado: defaults.estado };
+        setParsedInternal((prev) => ({ ...prev, ...vals }));
+
         const validationError = validateValues(vals);
         if (validationError) {
           Alert.alert("Endereço incompleto", validationError);
           return;
         }
       }
-      await executeSave();
+      await executeSave(vals);
     };
 
     const inputLocked =
@@ -630,9 +772,24 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           cancel: { alignItems: "center", paddingVertical: 14 },
           cancelText: { fontSize: 16, color: colors.textSecondary },
           status: { fontSize: 12, color: colors.textSecondary, marginBottom: 8, textAlign: "center" },
+          cityHint: {
+            fontSize: 12,
+            color: colors.textSecondary,
+            marginTop: 6,
+            marginBottom: 4,
+          },
+          cityHintStrong: { fontWeight: "700", color: colors.text },
         }),
       [colors]
     );
+
+    const cityHintLabel = (() => {
+      if (!defaults.cidade) return null;
+      if (citySource === "gps") return `Buscando perto de ${defaults.cidade}${defaults.estado ? `/${defaults.estado}` : ""} (sua localização)`;
+      if (citySource === "manual") return `Cidade forçada: ${defaults.cidade}${defaults.estado ? `/${defaults.estado}` : ""}`;
+      if (citySource === "sub_base") return `Cidade da operação: ${defaults.cidade}${defaults.estado ? `/${defaults.estado}` : ""}`;
+      return defaults.cidade ? `Cidade: ${defaults.cidade}` : null;
+    })();
 
     const statusLabel =
       flowState === "listening"
@@ -707,6 +864,11 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
             multiline
             editable={!inputLocked}
           />
+          {cityHintLabel ? (
+            <Text style={styles.cityHint}>
+              <Text style={styles.cityHintStrong}>{cityHintLabel}</Text>
+            </Text>
+          ) : null}
 
           <AddressSuggestionList
             suggestions={suggestions}

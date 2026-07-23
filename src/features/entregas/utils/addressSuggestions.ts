@@ -360,6 +360,19 @@ export function sanitizeAddressFormValues(values: AddressFormValues): AddressFor
   const complemento = (values.complemento ?? "").trim();
   const destinatario = (values.destinatario ?? "").trim();
 
+  // OCR frequentemente cola "CEP: 00000-000" no bairro/rua.
+  const stripCepNoise = (text: string) =>
+    text
+      .replace(/\bcep\s*[:.]?\s*\d{5}-?\d{3}\b/gi, " ")
+      .replace(/\b\d{5}-?\d{3}\b/g, " ")
+      .replace(/\bcep\s*[:.]?\s*/gi, " ")
+      .replace(/\s+/g, " ")
+      .replace(/[,\s]+$/g, "")
+      .trim();
+  rua = stripCepNoise(rua);
+  bairro = stripCepNoise(bairro);
+  cidade = stripCepNoise(cidade);
+
   if (rua.includes(",")) {
     const segments = rua.split(",").map((s) => s.trim()).filter(Boolean);
     const first = segments[0] ?? "";
@@ -488,6 +501,9 @@ export function addressCompletenessScore(vals: Partial<AddressFormValues>): numb
 
 export function needsAddressEnrichment(vals: Partial<AddressFormValues>): boolean {
   if (!(vals.rua ?? "").trim()) return false;
+  // OCR costuma trazer rua+número+bairro+CEP (score 8) sem cidade — ainda precisa buscar.
+  if (!(vals.cidade ?? "").trim()) return true;
+  if (!(vals.estado ?? "").trim()) return true;
   return addressCompletenessScore(vals) < 8;
 }
 
@@ -495,12 +511,24 @@ export function buildSearchQuery(
   vals: Partial<AddressFormValues>,
   defaults?: { cidade?: string; estado?: string }
 ): string {
+  const rua = (vals.rua ?? "").trim();
+  const bairro = (vals.bairro ?? "").trim();
+  const numero = (vals.numero ?? "").trim();
+  const cidade = ((vals.cidade || defaults?.cidade) ?? "").trim();
+  const estado = ((vals.estado || defaults?.estado) ?? "").trim();
+  const cepDigits = normalizeCep(vals.cep ?? "");
+
+  // Ordem que os provedores acertam melhor no Brasil — a mesma da fala
+  // "rua + bairro + número" (bairro junto do logradouro, número depois).
+  // Motoboy costuma falar "rua + número + bairro"; os campos já vêm separados,
+  // mas a query precisa ir nessa ordem para manter a precisão.
+  const streetWithNeighborhood = [rua, bairro].filter(Boolean).join(", ");
   const parts = [
-    vals.rua,
-    vals.numero,
-    vals.bairro,
-    vals.cidade || defaults?.cidade,
-    vals.estado || defaults?.estado,
+    streetWithNeighborhood,
+    numero,
+    cidade,
+    estado,
+    cepDigits.length === 8 ? cepDigits : null,
     "Brasil",
   ].filter((p) => (p ?? "").trim());
   return parts.join(", ");

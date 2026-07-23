@@ -57,6 +57,7 @@ import {
   type GeocodeResult,
 } from "../utils/geocode";
 import type { EnderecoBody } from "../api";
+import { getCidadesOperacao } from "../api";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { formatApiError } from "../../../utils/formatApiError";
 import { operationalIcons } from "../../../theme/operationalIcons";
@@ -68,6 +69,10 @@ import {
 import { runOptimizeRouteWithFeedback } from "../utils/optimizeRouteFeedback";
 import { deliveryToFreeText } from "../utils/deliveryAddress";
 import { formatAddressSummary } from "../utils/addressSuggestions";
+import {
+  resolveSearchCityDefaults,
+  setCidadesOperacaoFetcher,
+} from "../utils/resolveSearchCityDefaults";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
@@ -108,6 +113,25 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const setPrepOrdem = useMotoboyPrefsStore((s) => s.setPrepOrdem);
+
+  useEffect(() => {
+    setCidadesOperacaoFetcher(async () => {
+      try {
+        const list = await getCidadesOperacao();
+        return list.map((c) => ({
+          cidade: (c.cidade ?? "").trim(),
+          estado: (c.estado ?? "").trim(),
+        }));
+      } catch {
+        return [];
+      }
+    });
+    void resolveSearchCityDefaults({
+      cidadePadrao: cidadePadrao || undefined,
+      estadoPadrao: estadoPadrao || undefined,
+    });
+    return () => setCidadesOperacaoFetcher(null);
+  }, [cidadePadrao, estadoPadrao]);
 
   const [showScanSheet, setShowScanSheet] = useState(false);
   const [addressExistsDelivery, setAddressExistsDelivery] = useState<EntregaListItem | null>(
@@ -707,9 +731,16 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     });
     if (result.canceled || !result.assets?.[0]?.uri) return null;
     const lines = await extractTextFromImage(result.assets[0].uri);
-    const parsed = pickBestOcrAddress(lines);
+    const cityDefaults = await resolveSearchCityDefaults({
+      cidadePadrao: cidadePadrao || undefined,
+      estadoPadrao: estadoPadrao || undefined,
+    });
+    const parsed = pickBestOcrAddress(lines, {
+      cidade: cityDefaults.cidade || undefined,
+      estado: cityDefaults.estado || undefined,
+    });
     return parsed ?? "failed";
-  }, []);
+  }, [cidadePadrao, estadoPadrao]);
 
   const showOcrFailureAlert = useCallback((onRetry: () => void) => {
     Alert.alert(
@@ -824,24 +855,30 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
 
   const handleVoiceDone = useCallback(
     (transcript: string) => {
-      const parsed = parseVoiceAddress(transcript, {
-        cidade: cidadePadrao || undefined,
-        estado: estadoPadrao || undefined,
-      });
-      if (showAdvancedForm) {
-        if (Object.keys(parsed).length > 0) {
-          voiceResolveRef.current(parsedToFormValues(parsed));
-        } else {
-          voiceResolveRef.current(null);
+      void (async () => {
+        const cityDefaults = await resolveSearchCityDefaults({
+          cidadePadrao: cidadePadrao || undefined,
+          estadoPadrao: estadoPadrao || undefined,
+        });
+        const parsed = parseVoiceAddress(transcript, {
+          cidade: cityDefaults.cidade || undefined,
+          estado: cityDefaults.estado || undefined,
+        });
+        if (showAdvancedForm) {
+          if (Object.keys(parsed).length > 0) {
+            voiceResolveRef.current(parsedToFormValues(parsed));
+          } else {
+            voiceResolveRef.current(null);
+          }
+          return;
         }
-        return;
-      }
-      setShowVoiceModal(false);
-      setSpeechModule(null);
-      setFlowState("parsing");
-      injectAddressIntoQuickForm(parsed, transcript);
-      setQuickFormInlineFeedback({ message: "✓ Endereço reconhecido", tone: "success" });
-      setTimeout(() => setQuickFormInlineFeedback(null), 2500);
+        setShowVoiceModal(false);
+        setSpeechModule(null);
+        setFlowState("parsing");
+        injectAddressIntoQuickForm(parsed, transcript);
+        setQuickFormInlineFeedback({ message: "✓ Endereço reconhecido", tone: "success" });
+        setTimeout(() => setQuickFormInlineFeedback(null), 2500);
+      })();
     },
     [cidadePadrao, estadoPadrao, showAdvancedForm, injectAddressIntoQuickForm]
   );
