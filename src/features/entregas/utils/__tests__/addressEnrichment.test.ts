@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseVoiceAddress, pickBestOcrAddress } from "../ocrAddress";
+import { parseFreeTextAddress, parseVoiceAddress, pickBestOcrAddress } from "../ocrAddress";
 import { stripCepNoiseFromText } from "../viaCep";
 
 /** Espelha a regra de addressSuggestions.needsAddressEnrichment (puro, sem RN). */
