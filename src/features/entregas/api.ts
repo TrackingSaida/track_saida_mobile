@@ -271,6 +271,21 @@ export async function postEnderecoSugestoes(
   return data;
 }
 
+export type CidadeOperacaoApi = {
+  cidade: string;
+  estado: string;
+  peso?: number;
+};
+
+/** Top cidades da sub_base do motoboy (endereços conhecidos / operação). */
+export async function getCidadesOperacao(): Promise<CidadeOperacaoApi[]> {
+  const { data } = await client.get<{ cidades: CidadeOperacaoApi[] }>(
+    "/mobile/enderecos/cidades-operacao",
+    { timeout: 10_000 }
+  );
+  return data?.cidades ?? [];
+}
+
 export async function postEnderecoPlaceDetails(
   body: PlaceDetailsBody
 ): Promise<PlaceDetailsResponse> {

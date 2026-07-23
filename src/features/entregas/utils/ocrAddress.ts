@@ -49,6 +49,19 @@ const LOGRADOURO_WORDS = [
   "r.",
 ];
 
+/** Prefixo típico de bairro no Brasil — não deve virar cidade na voz. */
+const BAIRRO_PREFIX_RE =
+  /^(parque|jardim|jd\.?|vila|vl\.?|conjunto|cj\.?|residencial|res\.?|bairro|distrito|núcleo|nucleo|chácara|chacara|fazenda|recanto|portal|parque residencial)\b/i;
+
+function looksLikeBairroName(fragment: string): boolean {
+  const text = fragment.trim();
+  if (!text) return false;
+  if (BAIRRO_PREFIX_RE.test(text)) return true;
+  // "Centro", "Industrial" etc. sozinhos são bairro comum; cidade raramente é 1 palavra curta após número.
+  if (/^(centro|industrial|comercial)$/i.test(text)) return true;
+  return false;
+}
+
 function removeDiacritics(text: string): string {
   return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
@@ -652,6 +665,24 @@ export function parseFreeTextAddress(
       ? normalized.replace(cepMatch[0], "").trim()
       : normalized;
 
+    const assignAfterNumero = (after: string | undefined) => {
+      const fragment = (after ?? "").trim().replace(/^(bairro)\s+/i, "");
+      if (!fragment) return;
+      const cityState = extractCityAndState(fragment);
+      if (cityState.cidade || cityState.estado) {
+        if (cityState.cidade && !(parsed.cidade ?? "").trim()) parsed.cidade = cityState.cidade;
+        if (cityState.estado && !(parsed.estado ?? "").trim()) parsed.estado = cityState.estado;
+        return;
+      }
+      // Habito do motoboy: "rua + número + bairro". Prefixo de bairro ou cidade padrão
+      // evitam promover "Parque Jandaia" a cidade.
+      if (defaults?.cidade || looksLikeBairroName(fragment)) {
+        if (!(parsed.bairro ?? "").trim()) parsed.bairro = fragment;
+        return;
+      }
+      if (!(parsed.cidade ?? "").trim()) parsed.cidade = fragment;
+    };
+
     if (!(parsed.rua ?? "").trim()) {
       const numMatch = withoutCep.match(/^(.*?)[\s,]+(\d+[a-zA-Z]?)(?:\s+(.+))?$/);
       if (numMatch) {
@@ -659,9 +690,9 @@ export function parseFreeTextAddress(
           ...parsed,
           rua: numMatch[1].trim(),
           numero: numMatch[2],
-          cidade: numMatch[3]?.trim() || parsed.cidade,
           cep: cepMatch ? normalizeCep(cepMatch[1]) : parsed.cep,
         };
+        assignAfterNumero(numMatch[3]);
       } else {
         parsed = { ...parsed, rua: withoutCep };
       }
@@ -671,11 +702,7 @@ export function parseFreeTextAddress(
       );
       if (rua) parsed.rua = rua;
       if (numero) parsed.numero = numero;
-      if (!(parsed.cidade ?? "").trim() && afterNumero) {
-        const cityState = extractCityAndState(afterNumero);
-        if (cityState.cidade) parsed.cidade = cityState.cidade;
-        if (cityState.estado) parsed.estado = cityState.estado;
-      }
+      assignAfterNumero(afterNumero);
     }
   }
 
@@ -704,23 +731,50 @@ export function parseVoiceAddress(
 
   text = replaceSpokenNumbers(text);
 
+  // "rua X número 40 bairro Parque Jandaia" → mantém bairro explícito após o número.
+  const spokenBairro = text.match(/\bbairro\s+(.+)$/i);
+  let forcedBairro = "";
+  if (spokenBairro?.[1]) {
+    forcedBairro = spokenBairro[1].trim();
+    text = text.replace(/\bbairro\s+.+$/i, forcedBairro).trim();
+  }
+
   let parsed = parseFreeTextAddress(text, defaults);
+  if (forcedBairro && !(parsed.bairro ?? "").trim()) {
+    parsed = { ...parsed, bairro: forcedBairro };
+  }
 
   const words = text.split(/\s+/);
   if (!(parsed.cidade ?? "").trim() && words.length >= 2) {
     const last = words[words.length - 1];
     const secondLast = words[words.length - 2];
     if (/^[A-Z]{2}$/i.test(last) && secondLast.length > 2) {
+      // "… Barueri SP" — UF explícita
       parsed = {
         ...parsed,
         cidade: secondLast.charAt(0).toUpperCase() + secondLast.slice(1).toLowerCase(),
         estado: last.toUpperCase(),
       };
     } else if (last.length > 3 && !/^\d+$/.test(last)) {
-      parsed = {
-        ...parsed,
-        cidade: last.charAt(0).toUpperCase() + last.slice(1).toLowerCase(),
-      };
+      const titled = last.charAt(0).toUpperCase() + last.slice(1).toLowerCase();
+      if (defaults?.cidade) {
+        // Com cidade padrão, o hábito "rua + número + bairro" não deve virar cidade errada.
+        if (!(parsed.bairro ?? "").trim()) {
+          // "Rua X 40 Parque Jandaia" → bairro; cidade vem do default.
+          const afterNum = (() => {
+            if (!(parsed.numero ?? "").trim()) return "";
+            const idx = text.toLowerCase().lastIndexOf(String(parsed.numero).toLowerCase());
+            if (idx < 0) return "";
+            return text.slice(idx + String(parsed.numero).length).trim();
+          })();
+          const bairroGuess = afterNum || titled;
+          if (bairroGuess && !/^[A-Z]{2}$/i.test(bairroGuess)) {
+            parsed = { ...parsed, bairro: bairroGuess };
+          }
+        }
+      } else {
+        parsed = { ...parsed, cidade: titled };
+      }
     }
   }
 
@@ -734,10 +788,23 @@ export function parseVoiceAddress(
 
 /** Escolhe o melhor candidato OCR por completude. */
 export function pickBestOcrAddress(
-  lines: string[]
+  lines: string[],
+  defaults?: AddressParseDefaults
 ): ParsedAddress {
   const normalizedLines = lines.map((l) => preprocessAddressInput(l, "ocr"));
-  const parsed = parseOcrToAddress(normalizedLines);
+  let parsed = applyParseDefaults(parseOcrToAddress(normalizedLines), defaults);
+  // Limpa "CEP: xxxxx" colado em bairro/rua pelo OCR.
+  if (parsed.bairro) {
+    parsed = {
+      ...parsed,
+      bairro: parsed.bairro
+        .replace(/\bcep\s*[:.]?\s*\d{5}-?\d{3}\b/gi, " ")
+        .replace(/\b\d{5}-?\d{3}\b/g, " ")
+        .replace(/\bcep\s*[:.]?\s*/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    };
+  }
   const score = scoreParsedAddress(parsed);
   const confidence: ParsedAddress["confidence"] =
     score >= 6 ? "high" : score >= 4 ? "medium" : "low";

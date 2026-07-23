@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -22,6 +23,11 @@ import SettingsSection from "../components/settings/SettingsSection";
 import SettingsToggleRow from "../components/settings/SettingsToggleRow";
 import { isMotoboyRole } from "../utils/role";
 import type { MaisStackParamList } from "./MaisScreen";
+import {
+  clearSearchCityCaches,
+  resolveCityFromGps,
+  resolveSearchCityDefaults,
+} from "../features/entregas/utils/resolveSearchCityDefaults";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "Configuracoes">;
 
@@ -40,14 +46,51 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
   const setSomenteHojePendentes = useMotoboyPrefsStore((s) => s.setSomenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const setRoteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.setRoteirizacaoHabilitada);
+  const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
+  const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
+  const setCidadePadrao = useMotoboyPrefsStore((s) => s.setCidadePadrao);
   const colors = useThemeColors();
   const showOperacao = isMotoboyRole(role);
   const [biometricEnabled, setBiometricEnabledLocal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [cidadeDraft, setCidadeDraft] = useState(cidadePadrao);
+  const [estadoDraft, setEstadoDraft] = useState(estadoPadrao || "SP");
+  const [gpsCityLabel, setGpsCityLabel] = useState<string>("Detectando…");
 
   useEffect(() => {
     getBiometricEnabled().then((enabled) => setBiometricEnabledLocal(enabled));
   }, []);
+
+  useEffect(() => {
+    setCidadeDraft(cidadePadrao);
+    setEstadoDraft(estadoPadrao || "SP");
+  }, [cidadePadrao, estadoPadrao]);
+
+  useEffect(() => {
+    if (!showOperacao) return;
+    let cancelled = false;
+    void (async () => {
+      clearSearchCityCaches();
+      const gps = await resolveCityFromGps({ forceRefresh: true });
+      const resolved = await resolveSearchCityDefaults({
+        cidadePadrao: cidadePadrao || undefined,
+        estadoPadrao: estadoPadrao || undefined,
+        forceRefresh: true,
+      });
+      if (cancelled) return;
+      if (gps?.cidade) {
+        setGpsCityLabel(`${gps.cidade}${gps.estado ? `/${gps.estado}` : ""}`);
+      } else {
+        setGpsCityLabel("Não foi possível detectar (ative a localização)");
+      }
+      if (!cidadePadrao && resolved.source === "gps" && resolved.cidade) {
+        // só atualiza o rótulo; não grava preferência automática
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showOperacao, cidadePadrao, estadoPadrao]);
 
   const styles = useMemo(
     () =>
@@ -91,6 +134,56 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
         aboutRowLast: { borderBottomWidth: 0 },
         aboutLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 2 },
         aboutValue: { fontSize: 15, fontWeight: "600", color: colors.text },
+        cityHelp: {
+          fontSize: 13,
+          color: colors.textSecondary,
+          lineHeight: 18,
+          paddingHorizontal: 16,
+          paddingTop: 12,
+          paddingBottom: 8,
+        },
+        cityGps: {
+          fontSize: 13,
+          color: colors.text,
+          fontWeight: "600",
+          paddingHorizontal: 16,
+          paddingBottom: 10,
+        },
+        cityInputRow: {
+          paddingHorizontal: 16,
+          paddingBottom: 10,
+          gap: 8,
+        },
+        cityInput: {
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.inputBackground,
+          borderRadius: 10,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          fontSize: 15,
+          color: colors.text,
+        },
+        cityActions: {
+          flexDirection: "row",
+          gap: 10,
+          paddingHorizontal: 16,
+          paddingBottom: 14,
+        },
+        cityBtn: {
+          flex: 1,
+          borderRadius: 10,
+          paddingVertical: 12,
+          alignItems: "center",
+          backgroundColor: colors.primary,
+        },
+        cityBtnSecondary: {
+          backgroundColor: colors.backgroundCard,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+        },
+        cityBtnText: { fontSize: 14, fontWeight: "700", color: colors.primaryContrast },
+        cityBtnTextSecondary: { fontSize: 14, fontWeight: "700", color: colors.text },
         savingOverlay: {
           position: "absolute",
           top: 0,
@@ -150,6 +243,37 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
     await runWithSave(() => setRoteirizacaoHabilitada(value));
   };
 
+  const handleSaveCidadeForcada = async () => {
+    const cidade = cidadeDraft.trim();
+    const estado = (estadoDraft.trim() || "SP").toUpperCase().slice(0, 2);
+    if (!cidade) {
+      Alert.alert("Cidade", "Informe a cidade ou use a localização automática.");
+      return;
+    }
+    await runWithSave(async () => {
+      await setCidadePadrao(cidade, estado);
+      clearSearchCityCaches();
+    });
+    Alert.alert("Salvo", "A busca de endereço vai priorizar esta cidade.");
+  };
+
+  const handleUsarLocalizacao = async () => {
+    await runWithSave(async () => {
+      await setCidadePadrao("", estadoPadrao || "SP");
+      clearSearchCityCaches();
+      const gps = await resolveCityFromGps({ forceRefresh: true });
+      if (gps?.cidade) {
+        setGpsCityLabel(`${gps.cidade}${gps.estado ? `/${gps.estado}` : ""}`);
+        setCidadeDraft("");
+      } else {
+        Alert.alert(
+          "Localização",
+          "Não foi possível detectar a cidade. Verifique a permissão de localização do aparelho."
+        );
+      }
+    });
+  };
+
   const renderThemeOption = (mode: ThemeMode, label: string, isLast = false) => {
     const active = theme === mode;
     return (
@@ -193,23 +317,69 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
         </SettingsSection>
 
         {showOperacao ? (
-          <SettingsSection title="Operação">
-            <SettingsToggleRow
-              label="Mostrar apenas pedidos de hoje"
-              description="Exibir apenas entregas previstas para o dia atual."
-              value={somenteHojePendentes}
-              onValueChange={(value) => void handleSomenteHojeToggle(value)}
-              disabled={saving}
-            />
-            <SettingsToggleRow
-              label="Habilitar preparação de rota"
-              description="Exibe recursos para organizar, agrupar e otimizar entregas em rotas."
-              value={roteirizacaoHabilitada}
-              onValueChange={(value) => void handleRoteirizacaoToggle(value)}
-              disabled={saving}
-              isLast
-            />
-          </SettingsSection>
+          <>
+            <SettingsSection title="Operação">
+              <SettingsToggleRow
+                label="Mostrar apenas pedidos de hoje"
+                description="Exibir apenas entregas previstas para o dia atual."
+                value={somenteHojePendentes}
+                onValueChange={(value) => void handleSomenteHojeToggle(value)}
+                disabled={saving}
+              />
+              <SettingsToggleRow
+                label="Habilitar preparação de rota"
+                description="Exibe recursos para organizar, agrupar e otimizar entregas em rotas."
+                value={roteirizacaoHabilitada}
+                onValueChange={(value) => void handleRoteirizacaoToggle(value)}
+                disabled={saving}
+                isLast
+              />
+            </SettingsSection>
+
+            <SettingsSection title="Cidade da busca">
+              <Text style={styles.cityHelp}>
+                Por padrão o app usa a cidade da sua localização atual. Só force uma cidade se
+                trabalhar sempre na mesma região sem GPS confiável.
+              </Text>
+              <Text style={styles.cityGps}>Localização atual: {gpsCityLabel}</Text>
+              <View style={styles.cityInputRow}>
+                <TextInput
+                  style={styles.cityInput}
+                  placeholder="Forçar cidade (opcional)"
+                  placeholderTextColor={colors.placeholder}
+                  value={cidadeDraft}
+                  onChangeText={setCidadeDraft}
+                  editable={!saving}
+                />
+                <TextInput
+                  style={styles.cityInput}
+                  placeholder="UF"
+                  placeholderTextColor={colors.placeholder}
+                  value={estadoDraft}
+                  onChangeText={setEstadoDraft}
+                  maxLength={2}
+                  autoCapitalize="characters"
+                  editable={!saving}
+                />
+              </View>
+              <View style={styles.cityActions}>
+                <TouchableOpacity
+                  style={[styles.cityBtn, styles.cityBtnSecondary]}
+                  onPress={() => void handleUsarLocalizacao()}
+                  disabled={saving}
+                >
+                  <Text style={styles.cityBtnTextSecondary}>Usar localização</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.cityBtn}
+                  onPress={() => void handleSaveCidadeForcada()}
+                  disabled={saving}
+                >
+                  <Text style={styles.cityBtnText}>Forçar cidade</Text>
+                </TouchableOpacity>
+              </View>
+            </SettingsSection>
+          </>
         ) : null}
 
         <SettingsSection title="Sobre">
