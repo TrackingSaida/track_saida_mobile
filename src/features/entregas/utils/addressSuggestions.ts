@@ -162,8 +162,14 @@ export function formatSuggestionLines(
   const badge = suggestionBadgeLabel(s, opts);
 
   if (s.mainText || s.secondaryText) {
+    let line1 = (s.mainText ?? "").trim();
+    const num = (v.numero ?? "").trim();
+    // Provedor (Google) costuma omitir o número no mainText — reanexa se soubermos.
+    if (num && line1 && !new RegExp(`(^|\\D)${num.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\D|$)`).test(line1)) {
+      line1 = `${line1}, ${num}`;
+    }
     return {
-      line1: (s.mainText ?? "").trim(),
+      line1,
       line2: (s.secondaryText ?? "").trim(),
       line3: line3FromValues,
       line4: cepDigits.length === 8 ? `CEP ${cepDigits}` : "",

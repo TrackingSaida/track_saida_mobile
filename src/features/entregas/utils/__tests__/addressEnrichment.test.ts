@@ -105,6 +105,17 @@ test("query de busca usa ordem rua+bairro+número (mais precisa)", () => {
   assert.ok(q.indexOf("Parque Jandaia") < q.indexOf(", 40,"));
 });
 
+test("OCR com CEP espaçado preserva número da casa (não usa 06330 como número)", () => {
+  const parsed = parseFreeTextAddress(
+    "Rua Maria L uiza de Campos., 43, Parque Jandaia 06330 100, Carapicuíba, SP",
+    { cidade: "Carapicuíba", estado: "SP" }
+  );
+  assert.equal(parsed.numero, "43");
+  assert.equal((parsed.cep ?? "").replace(/\D/g, ""), "06330100");
+  assert.match((parsed.bairro ?? "").toLowerCase(), /parque jandaia/);
+  assert.ok((parsed.rua ?? "").toLowerCase().includes("maria"));
+});
+
 test("pickBestOcrAddress aplica cidade padrão e limpa CEP no bairro", () => {
   const parsed = pickBestOcrAddress(
     [

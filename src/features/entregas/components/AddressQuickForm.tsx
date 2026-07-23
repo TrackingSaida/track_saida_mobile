@@ -220,25 +220,49 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           resetAddressSessionToken();
         }
 
-        const parsedNumero = (parsedInternalRef.current.numero ?? "").trim();
+        const hintNumero = (() => {
+          const fromParsed = (parsedInternalRef.current.numero ?? "").trim();
+          const fromSuggestion = (resolved.values.numero ?? "").trim();
+          const digits = (n: string) => n.replace(/\D/g, "");
+          const plausible = (n: string) => {
+            const d = digits(n);
+            return d.length >= 1 && d.length <= 5;
+          };
+          if (fromSuggestion && plausible(fromSuggestion)) return fromSuggestion;
+          if (fromParsed && plausible(fromParsed)) return fromParsed;
+          // Fallback: ", 43," no texto livre / OCR (quando CEP quebrado poluiu o parse).
+          const freeMatch = freeText.match(/,\s*(\d{1,5}[A-Za-z]?)\s*,/);
+          if (freeMatch?.[1] && plausible(freeMatch[1])) return freeMatch[1];
+          return fromSuggestion || fromParsed || "";
+        })();
         const vals: AddressFormValues = sanitizeAddressFormValues({
           ...resolved.values,
-          numero: (resolved.values.numero ?? "").trim() || parsedNumero,
+          numero: hintNumero,
           destinatario: destinatario.trim() || delivery.cliente || "",
           complemento: complemento.trim(),
         });
         const origem: AddressOrigem =
           resolved.provider === "google_places" ? "google_places" : "suggestion";
+        const displaySuggestion: AddressSuggestion = {
+          ...resolved,
+          values: vals,
+          mainText:
+            resolved.mainText && vals.numero && !resolved.mainText.includes(vals.numero)
+              ? `${resolved.mainText.trim()}, ${vals.numero}`
+              : resolved.mainText,
+          label: formatSelectedAddress({ ...resolved, values: vals }),
+          displayName: formatSelectedAddress({ ...resolved, values: vals }),
+        };
         setParsedInternal(vals);
         setSelectedCoords({ latitude: resolved.latitude, longitude: resolved.longitude });
-        setFreeText(formatSelectedAddress({ ...resolved, values: vals }));
+        setFreeText(formatSelectedAddress(displaySuggestion));
         setSelectedSuggestionId(resolved.id);
         setSelectedOrigem(origem);
         setAutoApplied(fromAuto);
-        setSuggestions([resolved]);
+        setSuggestions([displaySuggestion]);
         setSearchEmpty(false);
       },
-      [destinatario, complemento, delivery.cliente, defaults, onFlowStateChange]
+      [destinatario, complemento, delivery.cliente, defaults, freeText, onFlowStateChange]
     );
     applySuggestionRef.current = (s, fromAuto) => {
       void applySuggestion(s, fromAuto);

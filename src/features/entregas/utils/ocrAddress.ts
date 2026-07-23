@@ -18,6 +18,8 @@ export type AddressParseDefaults = {
 };
 
 const CEP_REGEX = /\b(\d{5}-?\d{3})\b/;
+/** OCR frequentemente quebra CEP com espaço: "06330 100". */
+const CEP_SPACED_REGEX = /\b(\d{5})\s+(\d{3})\b/g;
 const ESTADO_REGEX = /\b([A-Z]{2})\b/;
 
 type ParsedCepInfo = {
@@ -75,6 +77,24 @@ function normalizeCep(cepRaw: string): string {
   const digits = cepRaw.replace(/\D/g, "");
   if (!digits) return "";
   return digits.padStart(8, "0").slice(0, 8);
+}
+
+/** Une CEP quebrado por espaço antes de parsear ("06330 100" → "06330-100"). */
+export function normalizeSpacedCepsInText(text: string): string {
+  return text.replace(CEP_SPACED_REGEX, "$1-$2");
+}
+
+/** Número de casa plausível (evita tratar prefixo de CEP como número). */
+function isPlausibleHouseNumber(num: string, context = ""): boolean {
+  const raw = (num ?? "").trim();
+  if (!raw) return false;
+  const digits = raw.replace(/\D/g, "");
+  if (!digits || digits.length > 5) return false;
+  // "06330" + "100" no mesmo texto = fragmento de CEP, não número da casa.
+  if (digits.length === 5 && new RegExp(`${digits}\\s*-?\\s*\\d{3}`).test(context)) {
+    return false;
+  }
+  return true;
 }
 
 function isNoiseLine(line: string): boolean {
@@ -278,11 +298,16 @@ function splitStreetAndNumber(addressLine: string): SplitStreetResult {
     }
   }
 
-  // Remover CEP e palavra CEP da linha para não confundir com número da casa
-  line = line.replace(CEP_REGEX, "").replace(/cep[:\s]*/i, "").trim();
+  // Remover CEP (incl. quebrado por espaço) e rótulo CEP
+  line = normalizeSpacedCepsInText(line)
+    .replace(CEP_REGEX, "")
+    .replace(/cep[:\s]*/i, "")
+    .trim();
 
-  // Encontrar o último número de 1–5 dígitos (provável número da residência)
-  const matches = Array.from(line.matchAll(/\b(\d{1,5})\b/g));
+  // Encontrar o último número de casa plausível (1–5 dígitos, não fragmento de CEP)
+  const matches = Array.from(line.matchAll(/\b(\d{1,5}[A-Za-z]?)\b/g)).filter((m) =>
+    isPlausibleHouseNumber(m[1], addressLine)
+  );
   if (matches.length === 0) {
     return {
       rua: line.trim(),
@@ -606,6 +631,29 @@ export function parseOcrToAddress(lines: string[]): Partial<AddressFormValues> {
     result.cep = globalCepInfo.cep;
   }
 
+  // Linha só com número (comum após split por vírgula no OCR): "43"
+  if (!(result.numero ?? "").trim()) {
+    const standalone = findStandaloneHouseNumber(
+      normalizedLines,
+      normalizedLines.join(" ")
+    );
+    if (standalone) result.numero = standalone;
+  }
+
+  // Bairro em linha própria com prefixo típico (Parque/Jardim/Vila…)
+  if (!(result.bairro ?? "").trim()) {
+    for (const line of normalizedLines) {
+      const cleaned = normalizeSpacedCepsInText(line)
+        .replace(CEP_REGEX, "")
+        .replace(/cep[:\s]*/i, "")
+        .trim();
+      if (looksLikeBairroName(cleaned)) {
+        result.bairro = cleaned;
+        break;
+      }
+    }
+  }
+
   // Destinatário de fallback se até aqui não encontrou
   if (!result.destinatario) {
     const destinatario = findFallbackDestinatario(normalizedLines);
@@ -615,6 +663,16 @@ export function parseOcrToAddress(lines: string[]): Partial<AddressFormValues> {
   }
 
   return result;
+}
+
+function findStandaloneHouseNumber(lines: string[], context: string): string {
+  for (const line of lines) {
+    const t = line.trim();
+    if (/^\d{1,5}[A-Za-z]?$/.test(t) && isPlausibleHouseNumber(t, context)) {
+      return t;
+    }
+  }
+  return "";
 }
 
 function scoreParsedAddress(p: Partial<AddressFormValues>): number {
@@ -646,7 +704,7 @@ export function parseFreeTextAddress(
   const rawText = text.trim();
   if (!rawText) return { rawText, confidence: "low" };
 
-  const normalized = rawText
+  const normalized = normalizeSpacedCepsInText(rawText)
     .replace(/\s+número\s+/gi, " ")
     .replace(/\s+nº\s+/gi, " ")
     .replace(/\s+no\s+/gi, " ")
@@ -683,9 +741,18 @@ export function parseFreeTextAddress(
       if (!(parsed.cidade ?? "").trim()) parsed.cidade = fragment;
     };
 
+    if (cepMatch && !(parsed.cep ?? "").trim()) {
+      parsed.cep = normalizeCep(cepMatch[1]);
+    }
+
+    // Se o parse anterior pegou fragmento de CEP como número, corrige.
+    if ((parsed.numero ?? "").trim() && !isPlausibleHouseNumber(parsed.numero ?? "", normalized)) {
+      parsed = { ...parsed, numero: "" };
+    }
+
     if (!(parsed.rua ?? "").trim()) {
       const numMatch = withoutCep.match(/^(.*?)[\s,]+(\d+[a-zA-Z]?)(?:\s+(.+))?$/);
-      if (numMatch) {
+      if (numMatch && isPlausibleHouseNumber(numMatch[2], normalized)) {
         parsed = {
           ...parsed,
           rua: numMatch[1].trim(),
@@ -693,8 +760,15 @@ export function parseFreeTextAddress(
           cep: cepMatch ? normalizeCep(cepMatch[1]) : parsed.cep,
         };
         assignAfterNumero(numMatch[3]);
-      } else {
-        parsed = { ...parsed, rua: withoutCep };
+      } else if (!(parsed.rua ?? "").trim()) {
+        const split = splitStreetAndNumber(withoutCep);
+        parsed = {
+          ...parsed,
+          rua: split.rua || withoutCep,
+          numero: split.numero || parsed.numero,
+          cep: cepMatch ? normalizeCep(cepMatch[1]) : parsed.cep,
+        };
+        assignAfterNumero(split.afterNumero);
       }
     } else if (!(parsed.numero ?? "").trim()) {
       const { rua, numero, afterNumero } = splitStreetAndNumber(
@@ -703,6 +777,24 @@ export function parseFreeTextAddress(
       if (rua) parsed.rua = rua;
       if (numero) parsed.numero = numero;
       assignAfterNumero(afterNumero);
+    }
+
+    if (!(parsed.numero ?? "").trim()) {
+      const standalone = findStandaloneHouseNumber(lines, normalized);
+      if (standalone) parsed.numero = standalone;
+    }
+
+    if (!(parsed.bairro ?? "").trim()) {
+      for (const line of lines) {
+        const cleaned = normalizeSpacedCepsInText(line)
+          .replace(CEP_REGEX, "")
+          .replace(/cep[:\s]*/i, "")
+          .trim();
+        if (looksLikeBairroName(cleaned)) {
+          parsed.bairro = cleaned;
+          break;
+        }
+      }
     }
   }
 
@@ -791,8 +883,20 @@ export function pickBestOcrAddress(
   lines: string[],
   defaults?: AddressParseDefaults
 ): ParsedAddress {
-  const normalizedLines = lines.map((l) => preprocessAddressInput(l, "ocr"));
+  const normalizedLines = lines.map((l) =>
+    normalizeSpacedCepsInText(preprocessAddressInput(l, "ocr"))
+  );
   let parsed = applyParseDefaults(parseOcrToAddress(normalizedLines), defaults);
+  // Reparse unificado: corrige CEP espaçado e número colado no logradouro.
+  const joined = normalizedLines.join(", ");
+  if (joined.trim()) {
+    const free = parseFreeTextAddress(joined, defaults);
+    const freeScore = scoreParsedAddress(free);
+    const ocrScore = scoreParsedAddress(parsed);
+    if (freeScore >= ocrScore) {
+      parsed = { ...free, rawText: lines.join("\n") };
+    }
+  }
   // Limpa "CEP: xxxxx" colado em bairro/rua pelo OCR.
   if (parsed.bairro) {
     parsed = {
