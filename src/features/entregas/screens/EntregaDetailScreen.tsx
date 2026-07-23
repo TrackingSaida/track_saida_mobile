@@ -33,6 +33,7 @@ import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import type { GeocodeResult } from "../utils/geocode";
 import { inferCoordPrecision, isValidGeocodeCoords } from "../utils/geocode";
 import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
+import { navigateToEntregasPendentes } from "../utils/navigationHelpers";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import DetailStatusHero from "../components/detail/DetailStatusHero";
 import DetailOperacaoResumoBlock from "../components/detail/DetailOperacaoResumoBlock";
@@ -164,28 +165,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const outboxActions = useOutboxStore((s) => s.actions);
 
-  const applyLocalFinalized = useCallback((kind: "entregue" | "ausente", withComprovante = false) => {
-    setEntrega((prev) =>
-      prev
-        ? {
-            ...prev,
-            status: kind === "entregue" ? "Entregue" : "Ausente",
-            exibicao: kind === "entregue" ? "Entregue" : "Ausente",
-            ...(withComprovante ? { tem_comprovante: true } : {}),
-          }
-        : prev
-    );
-  }, []);
-
-  const applyLocalComprovante = useCallback(async () => {
-    const uris = await resolveLocalComprovanteUris(idSaida);
-    setComprovanteUris(uris);
-    if (uris.length > 0) {
-      setEntrega((prev) => (prev ? { ...prev, tem_comprovante: true } : prev));
-    }
-    return uris;
-  }, [idSaida]);
-
   const findLocalDelivery = useCallback((targetId: number): EntregaListItem | null => {
     const store = useDeliveryStore.getState();
     return (
@@ -310,12 +289,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
 
   const handleAusenteSuccess = async (result?: { queued?: boolean }) => {
     setModalAusente(false);
-    if (result?.queued) {
-      const uris = await applyLocalComprovante();
-      applyLocalFinalized("ausente", uris.length > 0);
-    } else {
-      await load();
-    }
+    // Fecha e vai para a lista geral na hora (mesmo syncando).
+    navigateToEntregasPendentes(navigation);
     runPostFinalizeFeedback({
       tipo: "ausente",
       codigo: entrega?.codigo,
@@ -324,7 +299,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       rotaIdForResumo: null,
       isRouteFlow: false,
       queued: result?.queued,
-      onAfterIndividualAlert: () => navigation.goBack(),
     });
   };
 
@@ -713,13 +687,8 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         onClose={() => setShowEntregueModal(false)}
         onSuccess={async ({ marcacao, queued } = {}) => {
           setShowEntregueModal(false);
-          if (queued) {
-            const uris = await applyLocalComprovante();
-            applyLocalFinalized("entregue", uris.length > 0);
-          } else {
-            applyLocalFinalized("entregue", true);
-            void load();
-          }
+          // Confirmed → fecha e vai para Pendentes|Ausentes|Finalizadas (não espera sync).
+          navigateToEntregasPendentes(navigation);
           const extra = marcacao as { routeJustCompleted?: boolean; rotaIdForResumo?: string | number | null };
           runPostFinalizeFeedback({
             tipo: "entregue",
@@ -729,7 +698,6 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
             rotaIdForResumo: extra.rotaIdForResumo ?? null,
             isRouteFlow: marcacao?.rota_sync?.in_active_route ?? false,
             queued,
-            onAfterIndividualAlert: () => navigation.goBack(),
           });
         }}
       />

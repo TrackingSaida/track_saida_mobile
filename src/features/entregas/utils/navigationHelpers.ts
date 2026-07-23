@@ -1,4 +1,4 @@
-import { CommonActions } from "@react-navigation/native";
+import { CommonActions, StackActions } from "@react-navigation/native";
 import type { NavigationProp, ParamListBase } from "@react-navigation/native";
 
 function getTabNavigator(navigation: NavigationProp<ParamListBase>) {
@@ -9,6 +9,54 @@ function getTabNavigator(navigation: NavigationProp<ParamListBase>) {
     nav = parent as NavigationProp<ParamListBase>;
   }
   return nav;
+}
+
+function dispatchToEntregasList(navigation: NavigationProp<ParamListBase>): void {
+  const state = navigation.getState?.();
+  const routes = state?.routes ?? [];
+  const routeNames = state?.routeNames ?? [];
+  const hasListInStack = routes.some((r) => r.name === "EntregasList");
+  const listRegistered = routeNames.includes("EntregasList");
+
+  // Sempre a tela geral com abas (Pendentes | Ausentes | Finalizadas).
+  if (hasListInStack) {
+    navigation.dispatch(StackActions.popTo("EntregasList", { initialTab: "pendente" }));
+    return;
+  }
+
+  if (listRegistered) {
+    navigation.dispatch(StackActions.replace("EntregasList", { initialTab: "pendente" }));
+    return;
+  }
+
+  // Detalhe aberto por outro stack (ex.: Mais): abre a lista no Home.
+  const tabNav = getTabNavigator(navigation);
+  if (tabNav?.navigate) {
+    tabNav.navigate("Home", {
+      screen: "EntregasList",
+      params: { initialTab: "pendente" },
+    });
+    return;
+  }
+
+  if (navigation.canGoBack()) {
+    navigation.goBack();
+  }
+}
+
+/**
+ * Após confirmar entrega/ausência: fecha o detalhe e vai para a lista geral
+ * (Pendentes | Ausentes | Finalizadas), mesmo com sync ainda em andamento.
+ */
+export function navigateToEntregasPendentes(navigation: NavigationProp<ParamListBase>): void {
+  // Modal nativo pode engolir navigate síncrono; próximo frame é mais confiável.
+  requestAnimationFrame(() => {
+    try {
+      dispatchToEntregasList(navigation);
+    } catch {
+      if (navigation.canGoBack()) navigation.goBack();
+    }
+  });
 }
 
 /** Volta à Home (tab Home + stack HomeInicio). */

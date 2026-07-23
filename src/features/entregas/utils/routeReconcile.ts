@@ -9,6 +9,7 @@ import {
   groupOrderedByAddress,
   getOrderedRouteDeliveries,
   routeHasPendingDeliveries,
+  type RouteDeliveryStatus,
 } from "./routeUtils";
 import { stopBackgroundTracking } from "../../../services/location/locationService";
 import { recordHomeRouteCompleted } from "../../../store/homeRouteStore";
@@ -23,7 +24,7 @@ export type RouteReconcileDeps = {
   getActiveRouteId: () => string | null;
   getRouteOrder: () => number[];
   getRouteDeliveries: () => import("../types").EntregaListItem[];
-  getRouteDeliveryStatus: () => Record<number, "pendente" | "entregue" | "ausente">;
+  getRouteDeliveryStatus: () => Record<number, RouteDeliveryStatus>;
   clearActiveRouteState: () => void;
   restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
 };
@@ -159,7 +160,7 @@ export function buildRouteReconcileDeps(
     activeRouteId: string | null;
     routeOrder: number[];
     routeDeliveries: import("../types").EntregaListItem[];
-    routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente">;
+    routeDeliveryStatus: Record<number, RouteDeliveryStatus>;
     clearActiveRouteState: () => void;
     restoreActiveRoute: (payload: {
       rota_id: string;

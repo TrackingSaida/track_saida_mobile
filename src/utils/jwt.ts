@@ -2,6 +2,8 @@ export interface JwtClaims {
   sub?: string;
   username?: string;
   sub_base?: string;
+  /** Nome amigável da base (JWT); fallback operacional: sub_base. */
+  sub_base_nome?: string;
   role?: number;
   tipo_owner?: string;
   ignorar_coleta?: boolean;
@@ -11,6 +13,8 @@ export interface JwtClaims {
   pode_ler_coleta?: boolean;
   pode_ler_saida?: boolean;
   pode_digitar_codigo_manual?: boolean;
+  /** Owner habilitou devolução de pacotes à sub_base pelo app. */
+  devolucao_sub_base_habilitada?: boolean;
   [key: string]: unknown;
 }
 

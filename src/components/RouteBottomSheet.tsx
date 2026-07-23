@@ -39,11 +39,12 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-type RouteItemStatus = "pendente" | "entregue" | "ausente";
+type RouteItemStatus = "pendente" | "entregue" | "ausente" | "cancelado";
 
 function routeStatusExibicao(status: RouteItemStatus): string {
   if (status === "entregue") return "Entregue";
   if (status === "ausente") return "Ausente";
+  if (status === "cancelado") return "Cancelado";
   return "Pendente";
 }
 

@@ -26,6 +26,11 @@ import {
   MAX_PHOTOS,
 } from "../../../services/deliveryPhotoService";
 import {
+  clearDeliveryPhotoDraft,
+  loadDeliveryPhotoDraft,
+  saveDeliveryPhotoDraft,
+} from "../../../services/deliveryPhotoDraft";
+import {
   canConfirmWithPhotos,
 } from "../utils/photoValidationUtils";
 
@@ -230,19 +235,41 @@ export default function FormEntregaConcluida({
 
   type PhotoItem = { uri: string };
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [draftReady, setDraftReady] = useState(false);
 
   useEffect(() => {
-    if (visible) {
-      setTipoRecebedor("Comprador");
-      setNomeRecebedor(destinatarioPreenchido?.trim() ?? "");
-      setTipoDocumento("RG");
-      setNumeroDocumento("");
-      setObservacao("");
-      setError(null);
-      setMissingKeys(new Set());
-      setPhotos([]);
+    if (!visible) {
+      setDraftReady(false);
+      return;
     }
-  }, [visible, destinatarioPreenchido]);
+    setTipoRecebedor("Comprador");
+    setNomeRecebedor(destinatarioPreenchido?.trim() ?? "");
+    setTipoDocumento("RG");
+    setNumeroDocumento("");
+    setObservacao("");
+    setError(null);
+    setMissingKeys(new Set());
+    setDraftReady(false);
+    let cancelled = false;
+    void (async () => {
+      const uris = await loadDeliveryPhotoDraft("entregue", idSaida);
+      if (cancelled) return;
+      setPhotos(uris.map((uri) => ({ uri })));
+      setDraftReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, destinatarioPreenchido, idSaida]);
+
+  useEffect(() => {
+    if (!visible || !draftReady) return;
+    void saveDeliveryPhotoDraft(
+      "entregue",
+      idSaida,
+      photos.map((p) => p.uri)
+    );
+  }, [visible, draftReady, idSaida, photos]);
 
   const fotoObrigatoria = required.has("foto");
 
@@ -280,6 +307,12 @@ export default function FormEntregaConcluida({
   const addPhotoFromSource = async (pick: () => Promise<{ uri: string } | null>) => {
     if (photos.length >= MAX_PHOTOS) return;
     try {
+      // Persiste rascunho antes de abrir a câmera (Android pode matar o processo).
+      await saveDeliveryPhotoDraft(
+        "entregue",
+        idSaida,
+        photos.map((p) => p.uri)
+      );
       const picked = await pick();
       if (!picked) return;
       const prepared = await preparePhoto(picked.uri, photos.length);
@@ -343,6 +376,7 @@ export default function FormEntregaConcluida({
       if (!marcacao && onConfirm && !result.queued) {
         marcacao = (await onConfirm(body)) ?? undefined;
       }
+      await clearDeliveryPhotoDraft("entregue", idSaida);
       onClose();
       await onSuccess({ marcacao, queued: result.queued });
     } catch (e: unknown) {

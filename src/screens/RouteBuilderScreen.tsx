@@ -546,7 +546,6 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         const nextIdx = useDeliveryStore.getState().activeStopIndex;
         const order = useDeliveryStore.getState().routeOrder;
         if (nextIdx < order.length) {
-          playSound("success");
           setCenterOnStopId(order[nextIdx]);
           openNextStopNavigation();
         }
@@ -602,14 +601,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       const nextIdx = useDeliveryStore.getState().activeStopIndex;
       const order = useDeliveryStore.getState().routeOrder;
       if (nextIdx < order.length) {
-        playSound("warn");
         setCenterOnStopId(order[nextIdx]);
         openNextStopNavigation();
-      } else {
-        playSound("warn");
       }
-    } else {
-      playSound("warn");
     }
     const codigoFeedback = deliveryForAusente.codigo;
     closeAusenteModal();

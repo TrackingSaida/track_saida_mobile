@@ -1,6 +1,5 @@
 import type { AxiosError } from "axios";
-import { marcarEntregue, marcarAusente } from "../../features/entregas/api";
-import { uploadDeliveryPhoto } from "../deliveryPhotoService";
+import { marcarEntregue, marcarAusente, marcarDevolver } from "../../features/entregas/api";
 import { isNetworkOrTimeoutError } from "../apiClient";
 import {
   loadManifest,
@@ -16,6 +15,11 @@ import {
   reconcileActiveRouteState,
 } from "../../features/entregas/utils/routeReconcile";
 import { applyRouteSyncFromResponse } from "../../features/entregas/utils/routeActiveSync";
+import {
+  uploadAusentePhotosForDeliveryIds,
+  uploadDevolucaoPhotosForDeliveryIds,
+  uploadEntreguePhotosForDeliveryIds,
+} from "../../features/entregas/utils/deliveryPhotoBatch";
 
 const MAX_ATTEMPTS = 5;
 let processing = false;
@@ -35,66 +39,54 @@ function isAlreadyFinalizedError(e: unknown): boolean {
 }
 
 async function uploadActionPhotos(action: OutboxDeliveryAction): Promise<OutboxDeliveryAction> {
-  const tipo = action.kind === "entregue" ? "entregue" : "ausente";
-  let current = action;
+  const pending = action.photos
+    .map((photo, index) => ({ photo, index }))
+    .filter(
+      ({ photo }) => !(photo.status === "uploaded" && (photo.uploadedKeys?.length ?? 0) > 0)
+    );
 
-  for (let i = 0; i < current.photos.length; i++) {
-    const photo = current.photos[i];
-    if (photo.status === "uploaded" && (photo.uploadedKeys?.length ?? 0) > 0) continue;
+  if (pending.length === 0) return action;
 
-    const photoId = photo.photoId || createPhotoId();
-    const primaryId = current.idSaidas[0];
-    const filename = photo.localUri.split("/").pop() || "foto.jpg";
-    const existingKey = photo.uploadedKeys?.[0];
+  const photoIds = pending.map(({ photo }) => photo.photoId || createPhotoId());
+  const uris = pending.map(({ photo }) => photo.localUri);
+  const keys =
+    action.kind === "entregue"
+      ? await uploadEntreguePhotosForDeliveryIds(uris, action.idSaidas, photoIds)
+      : action.kind === "devolucao"
+        ? await uploadDevolucaoPhotosForDeliveryIds(uris, action.idSaidas, photoIds)
+        : await uploadAusentePhotosForDeliveryIds(uris, action.idSaidas, photoIds);
 
-    const objectKey = await uploadDeliveryPhoto({
-      id_saida: primaryId,
-      tipo,
-      uri: photo.localUri,
-      mimeType: "image/jpeg",
-      filename,
-      photoId,
-      existingObjectKey: existingKey,
-      validarCamposObrigatorios: false,
-      alterarStatus: false,
-    });
-
-    for (const idSaida of current.idSaidas.slice(1)) {
-      await uploadDeliveryPhoto({
-        id_saida: idSaida,
-        tipo,
-        uri: photo.localUri,
-        mimeType: "image/jpeg",
-        filename,
-        photoId,
-        existingObjectKey: objectKey,
-        validarCamposObrigatorios: false,
-        alterarStatus: false,
-      });
-    }
-
-    const updatedPhotos = [...current.photos];
-    updatedPhotos[i] = {
+  const updatedPhotos = [...action.photos];
+  pending.forEach(({ photo, index }, i) => {
+    updatedPhotos[index] = {
       ...photo,
-      photoId,
+      photoId: photoIds[i],
       status: "uploaded",
-      uploadedKeys: [objectKey],
+      uploadedKeys: [keys[i]],
     };
-    current = { ...current, photos: updatedPhotos };
-    await persistAction(current);
-  }
-
+  });
+  const current = { ...action, photos: updatedPhotos };
+  await persistAction(current);
   return current;
 }
 
 async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
   const headers = { "X-Client-Action-Id": action.clientActionId };
-  let lastResponse: Awaited<ReturnType<typeof marcarEntregue>> | null = null;
+  let lastResponse:
+    | Awaited<ReturnType<typeof marcarEntregue>>
+    | Awaited<ReturnType<typeof marcarDevolver>>
+    | null = null;
 
   for (const idSaida of action.idSaidas) {
     try {
       if (action.kind === "entregue") {
         lastResponse = await marcarEntregue(idSaida, action.entregueBody, headers);
+      } else if (action.kind === "devolucao") {
+        lastResponse = await marcarDevolver(
+          idSaida,
+          action.observacao ? { observacao: action.observacao } : undefined,
+          headers
+        );
       } else if (action.motivoId != null) {
         lastResponse = await marcarAusente(
           idSaida,

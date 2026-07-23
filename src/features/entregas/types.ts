@@ -81,6 +81,9 @@ export interface MarcacaoEntregaResponse {
   data_operacional?: string;
   complemento?: boolean;
   rota_sync?: RotaSyncInfo;
+  /** Preenchido no client após sync/local quando a rota acaba. */
+  routeJustCompleted?: boolean;
+  rotaIdForResumo?: string | number | null;
 }
 
 export interface RotaSyncInfo {
