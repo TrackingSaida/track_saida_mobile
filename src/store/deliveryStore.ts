@@ -63,12 +63,44 @@ const ACTIVE_OUTBOX_STATES = new Set<OutboxDeliveryAction["state"]>([
   "failed",
 ]);
 
+/** Cobre race: sync remove outbox antes da API tirar o pedido de pendentes. */
+const LOCAL_FINALIZED_TTL_MS = 120_000;
+
 function getActiveOutboxSaidaIds(): Set<number> {
   const ids = new Set<number>();
   for (const action of useOutboxStore.getState().actions) {
     if (!ACTIVE_OUTBOX_STATES.has(action.state)) continue;
     for (const id of action.idSaidas) {
       if (id > 0) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function pruneExpiredLocallyFinalized(
+  current: Record<number, number>
+): Record<number, number> {
+  const now = Date.now();
+  const next: Record<number, number> = {};
+  for (const [idStr, ts] of Object.entries(current)) {
+    const id = Number(idStr);
+    if (id > 0 && now - Number(ts) <= LOCAL_FINALIZED_TTL_MS) {
+      next[id] = Number(ts);
+    }
+  }
+  return next;
+}
+
+/** Outbox ativa + marcações locais recentes (anti pendente fantasma). */
+function getPendingExclusionSaidaIds(
+  locallyFinalizedSaidaIds: Record<number, number>
+): Set<number> {
+  const ids = getActiveOutboxSaidaIds();
+  const now = Date.now();
+  for (const [idStr, ts] of Object.entries(locallyFinalizedSaidaIds)) {
+    const id = Number(idStr);
+    if (id > 0 && now - Number(ts) <= LOCAL_FINALIZED_TTL_MS) {
+      ids.add(id);
     }
   }
   return ids;
@@ -154,6 +186,12 @@ interface DeliveryState {
   error: string | null;
   /** Último erro ao atualizar pendentes (não zera contadores em falha). */
   pendingRefreshError: string | null;
+
+  /**
+   * id_saida → timestamp da finalização local.
+   * Evita reaparecer em pendentes quando a outbox já syncou e a API ainda atrasa.
+   */
+  locallyFinalizedSaidaIds: Record<number, number>;
 
   /** Evita reidratar rota cancelada na mesma sessão. */
   lastCancelledRouteId: string | null;
@@ -358,6 +396,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   loading: false,
   error: null,
   pendingRefreshError: null,
+  locallyFinalizedSaidaIds: {},
   lastCancelledRouteId: null,
   routeDeliveries: [],
   routeOrder: [],
@@ -391,9 +430,9 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         "pendente",
         useOnlyToday ? { dia: "hoje", data: getTodayISO() } : undefined
       );
-      const outboxIds = getActiveOutboxSaidaIds();
-      const filtered = outboxIds.size
-        ? list.filter((d) => !outboxIds.has(d.id_saida))
+      const excludeIds = getPendingExclusionSaidaIds(get().locallyFinalizedSaidaIds);
+      const filtered = excludeIds.size
+        ? list.filter((d) => !excludeIds.has(d.id_saida))
         : list;
       const withAddr = filtered.filter(withAddress);
       const withoutAddr = filtered.filter((d) => !withAddress(d));
@@ -404,6 +443,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         suggestedOrder: null,
         loading: false,
         pendingRefreshError: null,
+        locallyFinalizedSaidaIds: pruneExpiredLocallyFinalized(get().locallyFinalizedSaidaIds),
       });
       return { ok: true, count: filtered.length };
     } catch (e: unknown) {
@@ -603,13 +643,20 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     }
     const deliveries: EntregaListItem[] = [];
     const routeDeliveryStatus: Record<number, RouteDeliveryStatus> = {};
+    const localFinalized = get().locallyFinalizedSaidaIds;
+    const now = Date.now();
     for (const id of payload.ordem) {
       const d = byId.get(id);
       if (!d) continue;
       deliveries.push(d);
       const outboxKind = outboxKindForSaida(id);
+      const locallyRecent =
+        localFinalized[id] != null && now - localFinalized[id] <= LOCAL_FINALIZED_TTL_MS;
       if (outboxKind) {
         routeDeliveryStatus[id] = outboxKind;
+      } else if (locallyRecent && state.routeDeliveryStatus[id]) {
+        // Mantém status local enquanto a API de pendentes ainda atrasa.
+        routeDeliveryStatus[id] = state.routeDeliveryStatus[id];
       } else if (freshListIds.has(id)) {
         routeDeliveryStatus[id] = routeStatusFromExibicao(d.exibicao);
       } else {
@@ -666,6 +713,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   applyLocalMarkDelivered: (idSaidas) => {
     const ids = new Set(idSaidas.filter((id) => id > 0));
     if (ids.size === 0) return;
+    const now = Date.now();
     set((state) => ({
       pendingDeliveries: state.pendingDeliveries.filter((d) => !ids.has(d.id_saida)),
       deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => !ids.has(d.id_saida)),
@@ -681,12 +729,17 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         ...state.routeDeliveryStatus,
         ...Object.fromEntries([...ids].map((id) => [id, "entregue" as const])),
       },
+      locallyFinalizedSaidaIds: {
+        ...state.locallyFinalizedSaidaIds,
+        ...Object.fromEntries([...ids].map((id) => [id, now])),
+      },
     }));
   },
 
   applyLocalMarkAbsent: (idSaidas) => {
     const ids = new Set(idSaidas.filter((id) => id > 0));
     if (ids.size === 0) return;
+    const now = Date.now();
     set((state) => ({
       pendingDeliveries: state.pendingDeliveries.filter((d) => !ids.has(d.id_saida)),
       deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => !ids.has(d.id_saida)),
@@ -702,12 +755,17 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         ...state.routeDeliveryStatus,
         ...Object.fromEntries([...ids].map((id) => [id, "ausente" as const])),
       },
+      locallyFinalizedSaidaIds: {
+        ...state.locallyFinalizedSaidaIds,
+        ...Object.fromEntries([...ids].map((id) => [id, now])),
+      },
     }));
   },
 
   applyLocalMarkReturned: (idSaidas) => {
     const ids = new Set(idSaidas.filter((id) => id > 0));
     if (ids.size === 0) return;
+    const now = Date.now();
     set((state) => ({
       pendingDeliveries: state.pendingDeliveries.filter((d) => !ids.has(d.id_saida)),
       deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => !ids.has(d.id_saida)),
@@ -722,6 +780,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDeliveryStatus: {
         ...state.routeDeliveryStatus,
         ...Object.fromEntries([...ids].map((id) => [id, "cancelado" as const])),
+      },
+      locallyFinalizedSaidaIds: {
+        ...state.locallyFinalizedSaidaIds,
+        ...Object.fromEntries([...ids].map((id) => [id, now])),
       },
     }));
   },
@@ -923,10 +985,14 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     try {
       const prefOnlyToday = useMotoboyPrefsStore.getState().somenteHojePendentes;
       const useOnlyToday = opts?.onlyToday ?? prefOnlyToday;
-      const pendentes = await getEntregas(
+      const pendentesRaw = await getEntregas(
         "pendente",
         useOnlyToday ? { dia: "hoje", data: getTodayISO() } : undefined
       );
+      const excludeIds = getPendingExclusionSaidaIds(get().locallyFinalizedSaidaIds);
+      const pendentes = excludeIds.size
+        ? pendentesRaw.filter((d) => !excludeIds.has(d.id_saida))
+        : pendentesRaw;
 
       if (pendentes.length === 0) {
         return {
@@ -955,6 +1021,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         deliveriesWithAddress: withAddr,
         deliveriesWithoutAddress: withoutAddr,
         pendingRefreshError: null,
+        locallyFinalizedSaidaIds: pruneExpiredLocallyFinalized(get().locallyFinalizedSaidaIds),
       });
 
       get().setRouteDeliveries(withCoords);
