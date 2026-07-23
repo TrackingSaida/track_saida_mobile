@@ -40,6 +40,7 @@ import {
   groupOrderedByAddress,
   moveGroupInOrder,
   routeHasPendingDeliveries,
+  type RouteDeliveryStatus,
 } from "../features/entregas/utils/routeUtils";
 import {
   applyRouteSyncFromResponse,
@@ -53,6 +54,36 @@ import {
 } from "../features/entregas/utils/routeReconcile";
 import { formatApiError } from "../utils/formatApiError";
 import { getNetworkState } from "../services/outbox/networkStatus";
+import { useOutboxStore } from "./outboxStore";
+import type { OutboxDeliveryAction } from "../services/outbox/types";
+
+const ACTIVE_OUTBOX_STATES = new Set<OutboxDeliveryAction["state"]>([
+  "pending",
+  "syncing",
+  "failed",
+]);
+
+function getActiveOutboxSaidaIds(): Set<number> {
+  const ids = new Set<number>();
+  for (const action of useOutboxStore.getState().actions) {
+    if (!ACTIVE_OUTBOX_STATES.has(action.state)) continue;
+    for (const id of action.idSaidas) {
+      if (id > 0) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function outboxKindForSaida(idSaida: number): RouteDeliveryStatus | null {
+  for (const action of useOutboxStore.getState().actions) {
+    if (!ACTIVE_OUTBOX_STATES.has(action.state)) continue;
+    if (!action.idSaidas.includes(idSaida)) continue;
+    if (action.kind === "ausente") return "ausente";
+    if (action.kind === "devolucao") return "cancelado";
+    return "entregue";
+  }
+  return null;
+}
 import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
 import {
@@ -131,8 +162,8 @@ interface DeliveryState {
   routeDeliveries: EntregaListItem[];
   /** Ordem dos id_saida na rota. */
   routeOrder: number[];
-  /** Status por id_saida na rota: pendente | entregue | ausente (para mapa/lista). */
-  routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente">;
+  /** Status por id_saida na rota: pendente | entregue | ausente | cancelado (para mapa/lista). */
+  routeDeliveryStatus: Record<number, RouteDeliveryStatus>;
 
   /** ID da rota ativa persistida no backend (null quando não há rota ativa). */
   activeRouteId: string | null;
@@ -181,6 +212,8 @@ interface DeliveryState {
   ) => Promise<MarkDeliveryResult>;
   applyLocalMarkDelivered: (idSaidas: number[]) => void;
   applyLocalMarkAbsent: (idSaidas: number[]) => void;
+  /** Devolução à base: remove de pendentes e marca como cancelado na rota. */
+  applyLocalMarkReturned: (idSaidas: number[]) => void;
   finalizePendingBatch: (body: FinalizarLoteBody) => Promise<FinalizeBatchResult>;
   setSelectedDelivery: (d: EntregaListItem | null) => void;
   setMapMode: (mode: MapMode) => void;
@@ -192,7 +225,7 @@ interface DeliveryState {
   clearActiveRouteState: () => void;
   optimizeRoute: (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
   reorderRoute: (order: number[]) => void;
-  setRouteDeliveryStatus: (idSaida: number, status: "pendente" | "entregue" | "ausente") => void;
+  setRouteDeliveryStatus: (idSaida: number, status: RouteDeliveryStatus) => void;
   removeFromRoute: (idSaidas: number[]) => void;
   moveGroupedStopToIndex: (fromStopIndex: number, toStopIndex: number) => void;
   moveGroupedStopToStart: (stopIndex: number) => void;
@@ -240,9 +273,10 @@ function distSq(lat1: number, lon1: number, lat2: number, lon2: number): number 
   return dlat * dlat + dlon * dlon;
 }
 
-function routeStatusFromExibicao(exibicao: string): "pendente" | "entregue" | "ausente" {
+function routeStatusFromExibicao(exibicao: string): RouteDeliveryStatus {
   if (exibicao === "Entregue") return "entregue";
   if (exibicao === "Ausente") return "ausente";
+  if (exibicao === "Cancelado") return "cancelado";
   return "pendente";
 }
 
@@ -357,17 +391,21 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         "pendente",
         useOnlyToday ? { dia: "hoje", data: getTodayISO() } : undefined
       );
-      const withAddr = list.filter(withAddress);
-      const withoutAddr = list.filter((d) => !withAddress(d));
+      const outboxIds = getActiveOutboxSaidaIds();
+      const filtered = outboxIds.size
+        ? list.filter((d) => !outboxIds.has(d.id_saida))
+        : list;
+      const withAddr = filtered.filter(withAddress);
+      const withoutAddr = filtered.filter((d) => !withAddress(d));
       set({
-        pendingDeliveries: list,
+        pendingDeliveries: filtered,
         deliveriesWithAddress: withAddr,
         deliveriesWithoutAddress: withoutAddr,
         suggestedOrder: null,
         loading: false,
         pendingRefreshError: null,
       });
-      return { ok: true, count: list.length };
+      return { ok: true, count: filtered.length };
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao carregar entregas";
       set((state) => ({
@@ -564,12 +602,15 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       }
     }
     const deliveries: EntregaListItem[] = [];
-    const routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente"> = {};
+    const routeDeliveryStatus: Record<number, RouteDeliveryStatus> = {};
     for (const id of payload.ordem) {
       const d = byId.get(id);
       if (!d) continue;
       deliveries.push(d);
-      if (freshListIds.has(id)) {
+      const outboxKind = outboxKindForSaida(id);
+      if (outboxKind) {
+        routeDeliveryStatus[id] = outboxKind;
+      } else if (freshListIds.has(id)) {
         routeDeliveryStatus[id] = routeStatusFromExibicao(d.exibicao);
       } else {
         routeDeliveryStatus[id] =
@@ -660,6 +701,27 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDeliveryStatus: {
         ...state.routeDeliveryStatus,
         ...Object.fromEntries([...ids].map((id) => [id, "ausente" as const])),
+      },
+    }));
+  },
+
+  applyLocalMarkReturned: (idSaidas) => {
+    const ids = new Set(idSaidas.filter((id) => id > 0));
+    if (ids.size === 0) return;
+    set((state) => ({
+      pendingDeliveries: state.pendingDeliveries.filter((d) => !ids.has(d.id_saida)),
+      deliveriesWithAddress: state.deliveriesWithAddress.filter((d) => !ids.has(d.id_saida)),
+      deliveriesWithoutAddress: state.deliveriesWithoutAddress.filter((d) => !ids.has(d.id_saida)),
+      selectedDelivery:
+        state.selectedDelivery && ids.has(state.selectedDelivery.id_saida)
+          ? null
+          : state.selectedDelivery,
+      routeDeliveries: state.routeDeliveries.map((d) =>
+        ids.has(d.id_saida) ? { ...d, exibicao: "Cancelado", status: "Cancelado" } : d
+      ),
+      routeDeliveryStatus: {
+        ...state.routeDeliveryStatus,
+        ...Object.fromEntries([...ids].map((id) => [id, "cancelado" as const])),
       },
     }));
   },
@@ -778,7 +840,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       deliveries,
       deliveries.map((d) => d.id_saida)
     );
-    const routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente"> = {};
+    const routeDeliveryStatus: Record<number, RouteDeliveryStatus> = {};
     deliveries.forEach((d) => {
       routeDeliveryStatus[d.id_saida] = "pendente";
     });

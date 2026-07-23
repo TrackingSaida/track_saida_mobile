@@ -1,6 +1,6 @@
 import { getRotasAtiva, getTodayISO, type RotasAtivaResponse } from "../api";
 import type { RotaSyncInfo } from "../types";
-import { getFirstPendingRouteIndex } from "./routeUtils";
+import { getFirstPendingRouteIndex, type RouteDeliveryStatus as RouteStatusValue } from "./routeUtils";
 import { stopBackgroundTracking } from "../../../services/location/locationService";
 
 export type RouteFinalizeSyncResult = {
@@ -8,12 +8,12 @@ export type RouteFinalizeSyncResult = {
   rotaIdForResumo: string | null;
 };
 
-type RouteDeliveryStatus = Record<number, "pendente" | "entregue" | "ausente">;
+type RouteDeliveryStatusMap = Record<number, RouteStatusValue>;
 
 type ApplyRouteSyncDeps = {
   getActiveRouteId: () => string | null;
   getRouteOrder: () => number[];
-  getRouteDeliveryStatus: () => RouteDeliveryStatus;
+  getRouteDeliveryStatus: () => RouteDeliveryStatusMap;
   restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
   clearActiveRouteState: () => void;
   setActiveStopIndex: (index: number) => void;

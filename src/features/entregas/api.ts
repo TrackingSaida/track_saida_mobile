@@ -172,6 +172,25 @@ export async function marcarAusente(
   return data;
 }
 
+export interface DevolverBody {
+  observacao?: string | null;
+}
+
+export async function marcarDevolver(
+  idSaida: number,
+  body?: DevolverBody,
+  headers?: Record<string, string>
+): Promise<MarcacaoEntregaResponse> {
+  const { data } = await client.post<MarcacaoEntregaResponse>(
+    `/mobile/entrega/${idSaida}/devolver`,
+    body ?? {},
+    headers ? { headers } : undefined
+  );
+  return data;
+}
+
+export type DeliveryPhotoTipo = "entregue" | "ausente" | "devolucao";
+
 export async function finalizarLote(body: FinalizarLoteBody): Promise<FinalizarLoteResponse> {
   const { data } = await client.post<FinalizarLoteResponse>("/mobile/entregas/finalizar-lote", body);
   return data;
@@ -186,7 +205,7 @@ export interface PresignUploadResponse {
 export async function getPresignUpload(params: {
   filename: string;
   id_saida: number;
-  tipo: "entregue" | "ausente";
+  tipo: DeliveryPhotoTipo;
   content_type: string;
   photo_id?: string;
 }): Promise<PresignUploadResponse> {
@@ -197,7 +216,7 @@ export async function getPresignUpload(params: {
 export async function patchFotoSaida(
   idSaida: number,
   fotoUrl: string,
-  status: "entregue" | "ausente",
+  status: DeliveryPhotoTipo,
   validarCamposObrigatorios = true,
   alterarStatus = true,
   photoId?: string

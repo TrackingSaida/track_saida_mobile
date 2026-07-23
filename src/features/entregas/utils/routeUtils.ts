@@ -735,7 +735,7 @@ export function getStopVolumesSummary(group: GroupedStop): string {
   return `📦 ${volumes} volume${volumes !== 1 ? "s" : ""}`;
 }
 
-export type RouteDeliveryStatus = "pendente" | "entregue" | "ausente";
+export type RouteDeliveryStatus = "pendente" | "entregue" | "ausente" | "cancelado";
 
 /** Cores operacionais dos marcadores de parada na rota. */
 export const ROUTE_STOP_MARKER_COLORS = {
@@ -750,9 +750,11 @@ export function getGroupStatus(
   statusMap: Record<number, RouteDeliveryStatus>
 ): RouteDeliveryStatus {
   const statuses = deliveries.map((d) => statusMap[d.id_saida] ?? "pendente");
+  if (statuses.some((s) => s === "pendente")) return "pendente";
   if (statuses.every((s) => s === "entregue")) return "entregue";
   if (statuses.some((s) => s === "ausente")) return "ausente";
-  return "pendente";
+  if (statuses.every((s) => s === "cancelado")) return "cancelado";
+  return "entregue";
 }
 
 export function isGroupCompleted(

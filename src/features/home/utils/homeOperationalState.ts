@@ -7,6 +7,7 @@ import {
   getOrderedRouteDeliveries,
   groupOrderedByAddress,
   routeHasPendingDeliveries,
+  type RouteDeliveryStatus,
 } from "../../entregas/utils/routeUtils";
 import type { EntregaListItem } from "../../entregas/types";
 
@@ -25,7 +26,7 @@ export type HomeOperationalInput = {
   routeOrder: number[];
   routeDeliveries: EntregaListItem[];
   activeStopIndex: number;
-  routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente">;
+  routeDeliveryStatus: Record<number, RouteDeliveryStatus>;
   ephemeralCompleted: CompletedRouteSummary | null;
 };
 
@@ -50,7 +51,7 @@ function buildRouteStats(routeDeliveries: EntregaListItem[], routeOrder: number[
 function buildActiveRouteLines(
   groups: ReturnType<typeof groupOrderedByAddress>,
   activeStopIndex: number,
-  routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente">
+  routeDeliveryStatus: Record<number, RouteDeliveryStatus>
 ): { stopNumber: number; totalStops: number; address: string; pedidos: number; extraLines: string[] } {
   const totalStops = groups.length;
   const activeGroupIdx = getActiveGroupIndex(groups, activeStopIndex);
@@ -191,7 +192,7 @@ const VIEW_PENDING_CTA: HomeCta = {
 /** Conta pedidos ainda pendentes na ordem da rota ativa. */
 export function countPendingOnActiveRoute(
   routeOrder: number[],
-  routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente">
+  routeDeliveryStatus: Record<number, RouteDeliveryStatus>
 ): number {
   return routeOrder.filter(
     (id) => (routeDeliveryStatus[id] ?? "pendente") === "pendente"

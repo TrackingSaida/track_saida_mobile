@@ -11,6 +11,7 @@ export type EventoHistoricoKey =
   | "ausente"
   | "ausente_lote"
   | "cancelado"
+  | "devolucao"
   | "nova_tentativa"
   | "liberacao_ausencias"
   | "coleta"
@@ -43,6 +44,7 @@ const LABELS: Partial<Record<EventoHistoricoKey, string>> = {
   ausente: "Destinatário ausente",
   ausente_lote: "Destinatário ausente",
   cancelado: "Pedido cancelado",
+  devolucao: "Devolvido à base",
   nova_tentativa: "Nova tentativa liberada",
   liberacao_ausencias: "Nova tentativa liberada pela operação",
   coleta: "Pacote coletado",
@@ -84,6 +86,7 @@ const RED_KEYS = new Set<EventoHistoricoKey>([
   "ausente",
   "ausente_lote",
   "cancelado",
+  "devolucao",
 ]);
 
 export function normalizeEventoKey(evento?: string | null): EventoHistoricoKey {
@@ -96,6 +99,7 @@ export function normalizeEventoKey(evento?: string | null): EventoHistoricoKey {
   if (raw.includes("encerrado")) return "encerrado_sistema";
   if (raw.includes("entregue")) return "entregue";
   if (raw.includes("ausente")) return "ausente";
+  if (raw.includes("devoluc")) return "devolucao";
   if (raw.includes("cancel")) return "cancelado";
   if (raw.includes("endereco")) return "endereco_atualizado";
   if (raw.includes("recalcul")) return "rota_recalculada";
@@ -155,6 +159,8 @@ export function iconEventoHistorico(evento?: string | null): keyof typeof Ionico
       return "person-remove-outline";
     case "cancelado":
       return "close-circle";
+    case "devolucao":
+      return "return-down-back-outline";
     case "em_rota":
       return "bicycle";
     case "nova_tentativa":

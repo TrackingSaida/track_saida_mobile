@@ -10,19 +10,20 @@ import {
 import { useThemeColors } from "../../../theme/colors";
 import EntregaCodigoHeader from "./EntregaCodigoHeader";
 import type { EntregaListItem } from "../types";
-import { getStopPedidoLabel, type GroupedStop } from "../utils/routeUtils";
+import { getStopPedidoLabel, type GroupedStop, type RouteDeliveryStatus } from "../utils/routeUtils";
 
 interface RouteStopPedidosModalProps {
   visible: boolean;
   group: GroupedStop | null;
-  routeDeliveryStatus: Record<number, "pendente" | "entregue" | "ausente">;
+  routeDeliveryStatus: Record<number, RouteDeliveryStatus>;
   onClose: () => void;
   onSelectPedido?: (delivery: EntregaListItem) => void;
 }
 
-function statusLabel(status: "pendente" | "entregue" | "ausente"): string {
+function statusLabel(status: RouteDeliveryStatus): string {
   if (status === "entregue") return "Entregue";
   if (status === "ausente") return "Ausente";
+  if (status === "cancelado") return "Cancelado";
   return "Pendente";
 }
 

@@ -26,6 +26,7 @@ type Props = {
   onNavigateRotasHistorico: () => void;
   onNavigateMinhasEntregas: () => void;
   onNavigatePreferencias: () => void;
+  onNavigateDevolverPacotes?: () => void;
 };
 
 export default function HomeScreen({
@@ -37,6 +38,7 @@ export default function HomeScreen({
   onNavigateRotasHistorico,
   onNavigateMinhasEntregas,
   onNavigatePreferencias,
+  onNavigateDevolverPacotes,
 }: Props) {
   const colors = useThemeColors();
   const data = useHomeData();
@@ -44,6 +46,7 @@ export default function HomeScreen({
   const claims = token ? decodeJwtPayload(token) : {};
   const nome = claims.username || "Motoboy";
   const subBase = claims.sub_base || "";
+  const devolucaoHabilitada = claims.devolucao_sub_base_habilitada === true;
 
   const styles = useMemo(
     () =>
@@ -69,6 +72,10 @@ export default function HomeScreen({
     onMinhasEntregas: onNavigateMinhasEntregas,
     onMapaPendentes: () => onNavigateEntregas("pendente", { initialMapMode: "map" }),
     onPreferencias: onNavigatePreferencias,
+    onDevolverPacotes:
+      devolucaoHabilitada && onNavigateDevolverPacotes
+        ? onNavigateDevolverPacotes
+        : undefined,
   };
 
   const headerGradient: readonly [string, string] = [

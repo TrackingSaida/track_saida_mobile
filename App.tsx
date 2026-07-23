@@ -23,6 +23,7 @@ import SelectSubBaseScreen from "./src/screens/SelectSubBaseScreen";
 import ChangePasswordRequiredScreen from "./src/screens/ChangePasswordRequiredScreen";
 import { SessionExpiredModal } from "./src/components/SessionExpiredModal";
 import PendingSyncBanner from "./src/components/PendingSyncBanner";
+import OperationalToast from "./src/components/OperationalToast";
 import { startSyncEngine } from "./src/services/outbox/syncEngine";
 import { hydrateOutboxStore } from "./src/store/outboxStore";
 import { recoverRouteState } from "./src/features/entregas/services/routeRecovery";
@@ -38,6 +39,7 @@ import PrepareDeliveriesScreen from "./src/features/entregas/screens/PrepareDeli
 import RouteBuilderScreen from "./src/screens/RouteBuilderScreen";
 import MinhasEntregasScreen from "./src/features/entregas/screens/MinhasEntregasScreen";
 import MinhasEntregasDiaScreen from "./src/features/entregas/screens/MinhasEntregasDiaScreen";
+import DevolverPacotesScreen from "./src/features/entregas/screens/DevolverPacotesScreen";
 import DiaRotaConcluidaModal from "./src/features/entregas/components/DiaRotaConcluidaModal";
 import RotasHistoricoScreen from "./src/features/home/screens/RotasHistoricoScreen";
 import StaffHomeStack from "./src/navigation/StaffHomeStack";
@@ -73,6 +75,7 @@ export type RootStackParamList = {
       }
     | undefined;
   RotasHistorico: undefined;
+  DevolverPacotes: undefined;
 };
 
 export type AuthStackParamList = {
@@ -119,6 +122,7 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
             onNavigateRotasHistorico={() => navigation.navigate("RotasHistorico")}
             onNavigateMinhasEntregas={() => navigateToMinhasEntregas(navigation)}
             onNavigatePreferencias={() => navigateToConfiguracoes(navigation)}
+            onNavigateDevolverPacotes={() => navigation.navigate("DevolverPacotes")}
           />
         )}
       </HomeStack.Screen>
@@ -133,6 +137,7 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       />
       <HomeStack.Screen name="RouteBuilder" component={RouteBuilderScreen} />
       <HomeStack.Screen name="RotasHistorico" component={RotasHistoricoScreen} />
+      <HomeStack.Screen name="DevolverPacotes" component={DevolverPacotesScreen} />
     </HomeStack.Navigator>
   );
 }
@@ -311,6 +316,7 @@ export default function App() {
             <View style={{ flex: 1 }}>
               <MainTabs onLogout={logout} />
             </View>
+            <OperationalToast />
             <DiaRotaConcluidaModal />
             <SessionExpiredModal onRelogin={() => {}} />
           </View>

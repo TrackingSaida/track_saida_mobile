@@ -24,6 +24,11 @@ import {
   preparePhoto,
   MAX_PHOTOS,
 } from "../../../services/deliveryPhotoService";
+import {
+  clearDeliveryPhotoDraft,
+  loadDeliveryPhotoDraft,
+  saveDeliveryPhotoDraft,
+} from "../../../services/deliveryPhotoDraft";
 import { canConfirmWithPhotos } from "../utils/photoValidationUtils";
 
 const CAMPO_LABEL: Record<string, string> = {
@@ -71,6 +76,8 @@ export default function FormAusenteModal({
   const [observacao, setObservacao] = useState("");
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [saving, setSaving] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const primaryIdSaida = idSaidas.find((id) => id > 0) ?? 0;
 
   const required = useMemo(
     () => new Set(requiredFields.map((f) => String(f || "").trim().toLowerCase())),
@@ -79,17 +86,40 @@ export default function FormAusenteModal({
   const fotoObrigatoria = required.has("foto");
 
   useEffect(() => {
-    if (!visible) return;
-    setPhotos([]);
+    if (!visible) {
+      setDraftReady(false);
+      return;
+    }
     setObservacao("");
     setMotivoId(null);
+    setDraftReady(false);
+    let cancelled = false;
+    void (async () => {
+      const uris = await loadDeliveryPhotoDraft("ausente", primaryIdSaida);
+      if (cancelled) return;
+      setPhotos(uris.map((uri) => ({ uri })));
+      setDraftReady(true);
+    })();
     getMotivosAusencia()
       .then((m) => {
+        if (cancelled) return;
         setMotivos(m);
         if (m.length) setMotivoId(m[0].id);
       })
       .catch(() => setMotivos([]));
-  }, [visible]);
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, primaryIdSaida]);
+
+  useEffect(() => {
+    if (!visible || !draftReady || primaryIdSaida <= 0) return;
+    void saveDeliveryPhotoDraft(
+      "ausente",
+      primaryIdSaida,
+      photos.map((p) => p.uri)
+    );
+  }, [visible, draftReady, primaryIdSaida, photos]);
 
   const styles = useMemo(
     () =>
@@ -192,6 +222,11 @@ export default function FormAusenteModal({
     async (pick: () => Promise<{ uri: string } | null>) => {
       if (photos.length >= MAX_PHOTOS) return;
       try {
+        await saveDeliveryPhotoDraft(
+          "ausente",
+          primaryIdSaida,
+          photos.map((p) => p.uri)
+        );
         const picked = await pick();
         if (!picked) return;
         const prepared = await preparePhoto(picked.uri, photos.length);
@@ -200,7 +235,7 @@ export default function FormAusenteModal({
         Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
       }
     },
-    [photos.length]
+    [photos, primaryIdSaida]
   );
 
   const addPhotoFromCamera = useCallback(
@@ -258,6 +293,7 @@ export default function FormAusenteModal({
         photoUris,
         fotoObrigatoria,
       });
+      await clearDeliveryPhotoDraft("ausente", primaryIdSaida);
       if (onSuccess) {
         await onSuccess({ queued: result.queued });
       } else if (onConfirm && !result.queued) {

@@ -7,7 +7,6 @@ import {
 import {
   determineSyncCompletionContext,
   resolveCompletionContextAfterFinalize,
-  type CompletionContext,
 } from "./determineCompletionContext";
 import {
   useDiaRotaConcluidaStore,
@@ -16,6 +15,7 @@ import {
 } from "../../../store/diaRotaConcluidaStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { recordHomeRouteCompleted } from "../../../store/homeRouteStore";
+import { playSound } from "../../../utils/sound";
 
 export interface PostFinalizeFeedbackOptions {
   tipo: "entregue" | "ausente";
@@ -68,24 +68,27 @@ async function openRouteCompletedModal(rotaId: string | number): Promise<boolean
   return true;
 }
 
-function showIndividualAlert(
+function showIndividualToast(
   tipo: "entregue" | "ausente",
   codigo: string | null | undefined,
-  context: CompletionContext,
-  onOk: () => void,
+  entregaAtrasada: boolean,
   pendingSync?: boolean
 ): void {
-  if (context === "LATE_DELIVERY") {
-    alertEntregaAtrasadaConcluida(codigo, tipo, onOk, pendingSync);
+  if (entregaAtrasada) {
+    alertEntregaAtrasadaConcluida(codigo, tipo, undefined, pendingSync);
     return;
   }
   if (tipo === "entregue") {
-    alertEntregaFinalizada(codigo, onOk, pendingSync);
+    alertEntregaFinalizada(codigo, undefined, pendingSync);
   } else {
-    alertAusenciaRegistrada(codigo, onOk, pendingSync);
+    alertAusenciaRegistrada(codigo, undefined, pendingSync);
   }
 }
 
+/**
+ * Feedback pós-finalização sem Alert bloqueante:
+ * libera navegação na hora + toast curto; modais de rota/dia seguem em background.
+ */
 export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void {
   const {
     tipo,
@@ -98,21 +101,31 @@ export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void
     onAfterIndividualAlert,
   } = opts;
 
-  if (queued) {
-    showIndividualAlert(tipo, codigo, "NORMAL_DELIVERY", () => {
-      onAfterIndividualAlert?.();
-    }, true);
-    return;
-  }
-
   const activeRouteId = useDeliveryStore.getState().activeRouteId;
 
-  const afterAlert = async () => {
-    // Libera navegação imediatamente; resumo/modais seguem em segundo plano.
-    onAfterIndividualAlert?.();
+  const syncContext = determineSyncCompletionContext({
+    activeRouteId,
+    routeJustCompleted,
+    entregaAtrasada,
+    isRouteFlow,
+  });
+
+  // Navegação imediatamente (sem esperar OK).
+  onAfterIndividualAlert?.();
+
+  if (syncContext !== "ROUTE_COMPLETED") {
+    void playSound(tipo === "entregue" ? "success" : "warn");
+    showIndividualToast(tipo, codigo, syncContext === "LATE_DELIVERY" || entregaAtrasada, queued);
+  }
+
+  void (async () => {
     try {
       if (routeJustCompleted && rotaIdForResumo != null) {
         await openRouteCompletedModal(rotaIdForResumo);
+        return;
+      }
+
+      if (syncContext === "ROUTE_COMPLETED") {
         return;
       }
 
@@ -127,25 +140,10 @@ export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void
       );
 
       if (context === "DAY_COMPLETED") {
-        // openDayCompletedModal já busca resumo; evita chamada duplicada prévia.
         await openDayCompletedModal();
       }
     } catch {
       /* feedback secundário não deve bloquear o fluxo operacional */
     }
-  };
-
-  const syncContext = determineSyncCompletionContext({
-    activeRouteId,
-    routeJustCompleted,
-    entregaAtrasada,
-    isRouteFlow,
-  });
-
-  if (syncContext === "ROUTE_COMPLETED") {
-    void afterAlert();
-    return;
-  }
-
-  showIndividualAlert(tipo, codigo, syncContext, () => void afterAlert());
+  })();
 }

@@ -24,7 +24,7 @@ function resolveMarkerStyle(props: RouteStopMarkerProps): {
   textColor: string;
 } {
   const { status = "pendente", isCurrent, isNext } = props;
-  if (status === "entregue" || status === "ausente") {
+  if (status === "entregue" || status === "ausente" || status === "cancelado") {
     return { backgroundColor: "#FFFFFF", textColor: FINALIZED_TEXT_COLOR };
   }
   if (isCurrent) {
@@ -51,7 +51,7 @@ export default function RouteStopMarker({
     isCompleted,
     isNext,
   });
-  const isFinalized = status === "entregue" || status === "ausente";
+  const isFinalized = status === "entregue" || status === "ausente" || status === "cancelado";
 
   return (
     <View style={styles.snapshotBox} collapsable={false}>
@@ -68,6 +68,9 @@ export default function RouteStopMarker({
         )}
         {status === "ausente" && (
           <Ionicons name="close" size={13} color={STATUS_ICON_COLOR} style={styles.statusIcon} />
+        )}
+        {status === "cancelado" && (
+          <Ionicons name="return-down-back" size={12} color={STATUS_ICON_COLOR} style={styles.statusIcon} />
         )}
         {isSelected && <View style={styles.selectedRing} pointerEvents="none" />}
       </View>

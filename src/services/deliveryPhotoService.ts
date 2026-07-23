@@ -45,7 +45,7 @@ function getCameraLaunchOptions(): ImagePicker.ImagePickerOptions {
   return {
     mediaTypes: ["images"],
     allowsEditing: false,
-    quality: 1,
+    quality: 0.7,
     cameraType: ImagePicker.CameraType.back,
     ...(Platform.OS === "android" ? { legacy: true } : {}),
   };
@@ -137,7 +137,7 @@ export async function copyPhotoToPath(sourceUri: string, destPath: string): Prom
 
 export interface UploadDeliveryPhotoParams {
   id_saida: number;
-  tipo: "entregue" | "ausente";
+  tipo: "entregue" | "ausente" | "devolucao";
   uri: string;
   mimeType: string;
   filename: string;

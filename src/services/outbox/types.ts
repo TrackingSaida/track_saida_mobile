@@ -1,6 +1,6 @@
 import type { EntregueBody } from "../../features/entregas/api";
 
-export type OutboxActionKind = "entregue" | "ausente";
+export type OutboxActionKind = "entregue" | "ausente" | "devolucao";
 
 export type OutboxPhotoEntry = {
   localUri: string;

@@ -37,7 +37,7 @@ type GroupedMapPoint = {
   latitude: number;
   longitude: number;
   firstDelivery: EntregaListItem;
-  status: "pendente" | "entregue" | "ausente";
+  status: "pendente" | "entregue" | "ausente" | "cancelado";
 };
 
 export interface DeliveryMapProps {
