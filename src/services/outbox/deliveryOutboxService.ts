@@ -44,6 +44,16 @@ function applyLocalDevolucao(idSaidas: number[]): void {
   useDeliveryStore.getState().syncActiveStopIndex();
 }
 
+function allLocallyEntregue(idSaidas: number[]): boolean {
+  if (idSaidas.length === 0) return false;
+  const { routeDeliveryStatus, locallyFinalizedSaidaIds } = useDeliveryStore.getState();
+  return idSaidas.every(
+    (id) =>
+      routeDeliveryStatus[id] === "entregue" ||
+      locallyFinalizedSaidaIds[id] != null
+  );
+}
+
 function buildLocalRouteMarcacao(): MarcacaoEntregaResponse | undefined {
   const { activeRouteId, routeOrder, routeDeliveryStatus } = useDeliveryStore.getState();
   if (!activeRouteId || routeOrder.length === 0) return undefined;
@@ -92,6 +102,11 @@ export async function enqueueEntregueCompletion(params: {
     }
     applyLocalEntregue(idSaidas);
     return { queued: true, actionId: existing.actionId, marcacao: buildLocalRouteMarcacao() };
+  }
+
+  // Já marcado localmente (retry após UI falhar): não cria outbox duplicada.
+  if (allLocallyEntregue(idSaidas)) {
+    return { queued: true, marcacao: buildLocalRouteMarcacao() };
   }
 
   const actionId = createActionId();

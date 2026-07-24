@@ -242,6 +242,7 @@ export default function FormEntregaConcluida({
       setDraftReady(false);
       return;
     }
+    // Só inicializa ao abrir — não resetar se destinatario/id mudarem no meio do confirm.
     setTipoRecebedor("Comprador");
     setNomeRecebedor(destinatarioPreenchido?.trim() ?? "");
     setTipoDocumento("RG");
@@ -260,7 +261,8 @@ export default function FormEntregaConcluida({
     return () => {
       cancelled = true;
     };
-  }, [visible, destinatarioPreenchido, idSaida]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset só quando abre (visible) ou troca o pedido (idSaida)
+  }, [visible, idSaida]);
 
   useEffect(() => {
     if (!visible || !draftReady) return;
@@ -377,8 +379,14 @@ export default function FormEntregaConcluida({
         marcacao = (await onConfirm(body)) ?? undefined;
       }
       await clearDeliveryPhotoDraft("entregue", idSaida);
-      // onSuccess fecha o modal no pai; não desmontar Modal aqui antes (quebra sheet da próxima parada no Android).
-      await onSuccess({ marcacao, queued: result.queued });
+      // Fecha o formulário antes do pós-sucesso (UI). Se o sheet da próxima falhar,
+      // o pedido já está marcado localmente — não pode aparecer como erro de marcação.
+      onClose();
+      try {
+        await onSuccess({ marcacao, queued: result.queued });
+      } catch (uiErr) {
+        console.warn("[FormEntregaConcluida] pós-sucesso falhou após marcar local", uiErr);
+      }
     } catch (e: unknown) {
       const detail =
         e && typeof e === "object" && "response" in e
@@ -406,8 +414,10 @@ export default function FormEntregaConcluida({
         }
       } else if (typeof detail === "string") {
         setError(detail);
+      } else if (e instanceof Error && e.message.trim()) {
+        setError(e.message);
       } else {
-        setError("Erro ao marcar como entregue.");
+        setError("Erro ao marcar como entregue. Verifique a conexão e tente novamente.");
       }
     } finally {
       setSaving(false);

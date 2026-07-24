@@ -539,40 +539,48 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
 
   const handleEntregueSuccess = useCallback(
     async (result?: { marcacao?: MarcacaoEntregaResponse; queued?: boolean }) => {
-      const marcacao = result?.marcacao;
       const codigoFeedback = selectedDelivery?.codigo ?? null;
+      const marcacao = result?.marcacao;
       const entregaAtrasada = marcacao?.entrega_atrasada ?? false;
       const extra = marcacao as MarcacaoEntregaResponse & {
         routeJustCompleted?: boolean;
         rotaIdForResumo?: string | null;
       };
-      const routeJustCompleted = extra.routeJustCompleted ?? false;
-      const rotaIdForResumo = extra.rotaIdForResumo ?? null;
+      const routeJustCompleted = extra?.routeJustCompleted ?? false;
+      const rotaIdForResumo = extra?.rotaIdForResumo ?? null;
 
-      // Fecha formulário/card antes do sheet da próxima parada (evita Modal empilhado).
+      // Sempre libera a UI, mesmo se o pós-sucesso falhar.
       setPendingEntregueIds(null);
       setSelectedDelivery(null);
 
-      if (isRouteActive && activeRouteId && !routeJustCompleted) {
-        recalcPolyline();
-        useDeliveryStore.getState().syncActiveStopIndex();
-        const nextIdx = useDeliveryStore.getState().activeStopIndex;
-        const order = useDeliveryStore.getState().routeOrder;
-        if (nextIdx < order.length) {
-          setCenterOnStopId(order[nextIdx]);
-          scheduleOpenNextStopNavigation();
+      try {
+        if (isRouteActive && activeRouteId && !routeJustCompleted) {
+          try {
+            recalcPolyline();
+          } catch {
+            /* polyline não pode bloquear a próxima parada */
+          }
+          useDeliveryStore.getState().syncActiveStopIndex();
+          const nextIdx = useDeliveryStore.getState().activeStopIndex;
+          const order = useDeliveryStore.getState().routeOrder;
+          if (nextIdx < order.length) {
+            setCenterOnStopId(order[nextIdx]);
+            scheduleOpenNextStopNavigation();
+          }
         }
-      }
 
-      runPostFinalizeFeedback({
-        tipo: "entregue",
-        codigo: codigoFeedback,
-        entregaAtrasada,
-        routeJustCompleted,
-        rotaIdForResumo,
-        isRouteFlow: isRouteActive,
-        queued: result?.queued,
-      });
+        runPostFinalizeFeedback({
+          tipo: "entregue",
+          codigo: codigoFeedback,
+          entregaAtrasada,
+          routeJustCompleted,
+          rotaIdForResumo,
+          isRouteFlow: isRouteActive,
+          queued: result?.queued,
+        });
+      } catch (e) {
+        console.warn("[RouteBuilder] handleEntregueSuccess pós-UI falhou", e);
+      }
     },
     [isRouteActive, activeRouteId, selectedDelivery, recalcPolyline, scheduleOpenNextStopNavigation]
   );
@@ -608,30 +616,37 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     const codigoFeedback = deliveryForAusente.codigo;
     const activeRotaId = useDeliveryStore.getState().activeRouteId;
 
-    // Fecha formulário/card antes do sheet da próxima parada.
     closeAusenteModal();
     setSelectedDelivery(null);
 
-    if (activeRotaId) {
-      recalcPolyline();
-      useDeliveryStore.getState().syncActiveStopIndex();
-      const nextIdx = useDeliveryStore.getState().activeStopIndex;
-      const order = useDeliveryStore.getState().routeOrder;
-      if (nextIdx < order.length) {
-        setCenterOnStopId(order[nextIdx]);
-        scheduleOpenNextStopNavigation();
+    try {
+      if (activeRotaId) {
+        try {
+          recalcPolyline();
+        } catch {
+          /* ignore */
+        }
+        useDeliveryStore.getState().syncActiveStopIndex();
+        const nextIdx = useDeliveryStore.getState().activeStopIndex;
+        const order = useDeliveryStore.getState().routeOrder;
+        if (nextIdx < order.length) {
+          setCenterOnStopId(order[nextIdx]);
+          scheduleOpenNextStopNavigation();
+        }
       }
-    }
 
-    runPostFinalizeFeedback({
-      tipo: "ausente",
-      codigo: codigoFeedback,
-      entregaAtrasada: false,
-      routeJustCompleted: false,
-      rotaIdForResumo: null,
-      isRouteFlow: activeRotaId != null,
-      queued: result?.queued,
-    });
+      runPostFinalizeFeedback({
+        tipo: "ausente",
+        codigo: codigoFeedback,
+        entregaAtrasada: false,
+        routeJustCompleted: false,
+        rotaIdForResumo: null,
+        isRouteFlow: activeRotaId != null,
+        queued: result?.queued,
+      });
+    } catch (e) {
+      console.warn("[RouteBuilder] handleAusenteSuccess pós-UI falhou", e);
+    }
   }, [deliveryForAusente, closeAusenteModal, recalcPolyline, scheduleOpenNextStopNavigation]);
 
   const openAusenteModal = useCallback(() => {
