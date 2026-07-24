@@ -42,11 +42,14 @@ export default function VoiceAddressModal({
         {
           text: "Tentar novamente",
           onPress: () => {
-            if (onRetry) {
-              onRetry();
-            } else {
+            // Avisa o pai (UI "ouvindo…") e reinicia a escuta aqui.
+            // Não remountar o modal: abort no unmount cancela o novo start e o alerta volta.
+            onRetry?.();
+            setPhase("listening");
+            // Android: o Alert precisa fechar antes do SpeechRecognition.start.
+            setTimeout(() => {
               void startRecognitionRef.current();
-            }
+            }, 350);
           },
         },
         {
@@ -85,7 +88,13 @@ export default function VoiceAddressModal({
 
   const startRecognition = async () => {
     setPhase("listening");
+    transcriptRef.current = "";
     try {
+      try {
+        SR.abort();
+      } catch {
+        /* sessão anterior pode já ter encerrado */
+      }
       const result = await SR.requestPermissionsAsync();
       if (!result.granted) {
         onCancel();

@@ -152,7 +152,6 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     remaining: number;
   } | null>(null);
   const [quickFormInlineFeedback, setQuickFormInlineFeedback] = useState<InlineFeedback>(null);
-  const [voiceSessionKey, setVoiceSessionKey] = useState(0);
   const quickFormRef = useRef<AddressQuickFormHandle>(null);
 
   const [showGeocodeFailure, setShowGeocodeFailure] = useState(false);
@@ -829,7 +828,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   }, []);
 
   const handleVoiceRetry = useCallback(() => {
-    setVoiceSessionKey((k) => k + 1);
+    // Só atualiza o estado visual; a escuta reinicia dentro do VoiceAddressModal.
+    // Remount via voiceSessionKey abortava o novo start e reabria o mesmo alerta.
     setFlowState("listening");
   }, []);
 
@@ -1401,7 +1401,6 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
 
       {showVoiceModal && speechModule && (
         <VoiceAddressModal
-          key={voiceSessionKey}
           speechModule={speechModule}
           modalStyles={{
             modalOverlay: styles.voiceModalOverlay,
