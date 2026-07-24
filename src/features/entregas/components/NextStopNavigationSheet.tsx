@@ -119,19 +119,20 @@ export default function NextStopNavigationSheet({
 
   const navigationEnabled = navTarget ? canNavigate(navTarget) : false;
 
-  if (!group) return null;
-
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible && !!group} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
         <View style={styles.sheet} onStartShouldSetResponder={() => true}>
           <Text style={styles.title}>Próxima parada</Text>
           <Text style={styles.subtitle}>
             Parada {stopNumber} de {totalStops}
           </Text>
-          <Text style={styles.address}>{getStopAddressLineFromGroup(group)}</Text>
+          <Text style={styles.address}>
+            {group ? getStopAddressLineFromGroup(group) : ""}
+          </Text>
           <Text style={styles.pedidos}>
-            📦 {group.deliveries.length} pedido{group.deliveries.length !== 1 ? "s" : ""}
+            📦 {group?.deliveries.length ?? 0} pedido
+            {(group?.deliveries.length ?? 0) !== 1 ? "s" : ""}
           </Text>
 
           {destinationLabel && (

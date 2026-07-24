@@ -377,7 +377,7 @@ export default function FormEntregaConcluida({
         marcacao = (await onConfirm(body)) ?? undefined;
       }
       await clearDeliveryPhotoDraft("entregue", idSaida);
-      onClose();
+      // onSuccess fecha o modal no pai; não desmontar Modal aqui antes (quebra sheet da próxima parada no Android).
       await onSuccess({ marcacao, queued: result.queued });
     } catch (e: unknown) {
       const detail =
@@ -416,10 +416,8 @@ export default function FormEntregaConcluida({
 
   const canAddPhoto = photos.length < MAX_PHOTOS;
 
-  if (!visible) return null;
-
   return (
-    <Modal visible transparent animationType="slide">
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={styles.overlay}
         behavior={Platform.OS === "ios" ? "padding" : undefined}

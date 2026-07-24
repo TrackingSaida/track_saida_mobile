@@ -401,6 +401,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
 
   const openNextStopNavigation = useCallback(() => {
     const st = useDeliveryStore.getState();
+    if (st.routeOrder.length === 0) return;
     if (st.activeStopIndex >= st.routeOrder.length) return;
     const ord = getOrderedRouteDeliveries(st.routeDeliveries, st.routeOrder);
     const grps = groupOrderedByAddress(ord);
@@ -410,6 +411,14 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     if (nextG < 0) return;
     setNavSheetTarget({ group: grps[nextG], stopNumber: nextG + 1 });
   }, []);
+
+  /** Aguarda o Modal nativo do formulário fechar antes de abrir o sheet (Android). */
+  const scheduleOpenNextStopNavigation = useCallback(() => {
+    const delayMs = Platform.OS === "android" ? 350 : 120;
+    setTimeout(() => {
+      openNextStopNavigation();
+    }, delayMs);
+  }, [openNextStopNavigation]);
 
   const promptMarkStopBatch = useCallback(
     (
@@ -530,7 +539,6 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
 
   const handleEntregueSuccess = useCallback(
     async (result?: { marcacao?: MarcacaoEntregaResponse; queued?: boolean }) => {
-      if (!pendingEntregueIds || pendingEntregueIds.length === 0) return;
       const marcacao = result?.marcacao;
       const codigoFeedback = selectedDelivery?.codigo ?? null;
       const entregaAtrasada = marcacao?.entrega_atrasada ?? false;
@@ -541,19 +549,21 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       const routeJustCompleted = extra.routeJustCompleted ?? false;
       const rotaIdForResumo = extra.rotaIdForResumo ?? null;
 
+      // Fecha formulário/card antes do sheet da próxima parada (evita Modal empilhado).
+      setPendingEntregueIds(null);
+      setSelectedDelivery(null);
+
       if (isRouteActive && activeRouteId && !routeJustCompleted) {
         recalcPolyline();
+        useDeliveryStore.getState().syncActiveStopIndex();
         const nextIdx = useDeliveryStore.getState().activeStopIndex;
         const order = useDeliveryStore.getState().routeOrder;
         if (nextIdx < order.length) {
           setCenterOnStopId(order[nextIdx]);
-          openNextStopNavigation();
+          scheduleOpenNextStopNavigation();
         }
-      } else if (routeJustCompleted || (pendingEntregueIds.length > 0 && !isRouteActive)) {
-        playSound("success");
       }
-      setPendingEntregueIds(null);
-      setSelectedDelivery(null);
+
       runPostFinalizeFeedback({
         tipo: "entregue",
         codigo: codigoFeedback,
@@ -564,7 +574,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         queued: result?.queued,
       });
     },
-    [pendingEntregueIds, isRouteActive, activeRouteId, selectedDelivery, recalcPolyline, openNextStopNavigation]
+    [isRouteActive, activeRouteId, selectedDelivery, recalcPolyline, scheduleOpenNextStopNavigation]
   );
 
   const resolveAusenteBatchTargets = useCallback(async (): Promise<number[]> => {
@@ -595,19 +605,24 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
 
   const handleAusenteSuccess = useCallback(async (result?: { queued?: boolean }) => {
     if (!deliveryForAusente) return;
+    const codigoFeedback = deliveryForAusente.codigo;
     const activeRotaId = useDeliveryStore.getState().activeRouteId;
+
+    // Fecha formulário/card antes do sheet da próxima parada.
+    closeAusenteModal();
+    setSelectedDelivery(null);
+
     if (activeRotaId) {
       recalcPolyline();
+      useDeliveryStore.getState().syncActiveStopIndex();
       const nextIdx = useDeliveryStore.getState().activeStopIndex;
       const order = useDeliveryStore.getState().routeOrder;
       if (nextIdx < order.length) {
         setCenterOnStopId(order[nextIdx]);
-        openNextStopNavigation();
+        scheduleOpenNextStopNavigation();
       }
     }
-    const codigoFeedback = deliveryForAusente.codigo;
-    closeAusenteModal();
-    setSelectedDelivery(null);
+
     runPostFinalizeFeedback({
       tipo: "ausente",
       codigo: codigoFeedback,
@@ -617,7 +632,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       isRouteFlow: activeRotaId != null,
       queued: result?.queued,
     });
-  }, [deliveryForAusente, closeAusenteModal, recalcPolyline, openNextStopNavigation]);
+  }, [deliveryForAusente, closeAusenteModal, recalcPolyline, scheduleOpenNextStopNavigation]);
 
   const openAusenteModal = useCallback(() => {
     if (!selectedDelivery) return;
