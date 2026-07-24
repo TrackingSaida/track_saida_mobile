@@ -162,8 +162,14 @@ export function formatSuggestionLines(
   const badge = suggestionBadgeLabel(s, opts);
 
   if (s.mainText || s.secondaryText) {
+    let line1 = (s.mainText ?? "").trim();
+    const num = (v.numero ?? "").trim();
+    // Provedor (Google) costuma omitir o número no mainText — reanexa se soubermos.
+    if (num && line1 && !new RegExp(`(^|\\D)${num.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\D|$)`).test(line1)) {
+      line1 = `${line1}, ${num}`;
+    }
     return {
-      line1: (s.mainText ?? "").trim(),
+      line1,
       line2: (s.secondaryText ?? "").trim(),
       line3: line3FromValues,
       line4: cepDigits.length === 8 ? `CEP ${cepDigits}` : "",
@@ -420,7 +426,7 @@ export function sanitizeAddressFormValues(values: AddressFormValues): AddressFor
   };
 }
 
-/** Mescla número/rua digitados pelo usuário quando o Nominatim retorna só o logradouro. */
+/** Mescla número/rua/CEP/bairro/cidade/UF do OCR/voz quando a sugestão vem incompleta. */
 export function mergeAddressHints(
   values: AddressFormValues,
   hints?: Partial<AddressFormValues>
@@ -431,12 +437,19 @@ export function mergeAddressHints(
   if (hintRua.includes(",")) {
     hintRua = hintRua.split(",")[0].trim();
   }
+  const valueCep = normalizeCep(values.cep ?? "");
+  const hintCep = normalizeCep(hints.cep ?? "");
   return sanitizeAddressFormValues({
     ...values,
     rua: values.rua.trim() || hintRua,
     numero: values.numero.trim() || hintNumero,
     complemento: values.complemento.trim() || (hints.complemento ?? "").trim(),
     destinatario: values.destinatario.trim() || (hints.destinatario ?? "").trim(),
+    bairro: values.bairro.trim() || (hints.bairro ?? "").trim(),
+    cidade: values.cidade.trim() || (hints.cidade ?? "").trim(),
+    estado: values.estado.trim() || (hints.estado ?? "").trim(),
+    // Preferência: CEP da sugestão; senão preserva o do OCR/hints (nunca descartar).
+    cep: valueCep.length === 8 ? valueCep : hintCep,
   });
 }
 

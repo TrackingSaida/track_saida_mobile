@@ -464,13 +464,16 @@ export default function DeliveryMap({
               tracksViewChanges={tracksMarkerChanges || clusterSelected}
               onPress={() => onMarkerPress?.(first.firstDelivery, first.paradaIndex - 1)}
               >
-                <RouteStopMarker
+              <RouteStopMarker
                   stopNumber={first.paradaIndex}
                   status={first.status}
                   isCurrent={clusterOpState.isCurrent}
                   isNext={clusterOpState.isNext}
                   isCompleted={clusterOpState.isCompleted}
                   isSelected={clusterSelected}
+                  isStreetLevel={
+                    (first.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
+                  }
                 />
               </Marker>
             );
@@ -508,6 +511,9 @@ export default function DeliveryMap({
                 isNext={opState.isNext}
                 isCompleted={opState.isCompleted}
                 isSelected={isSelected}
+                isStreetLevel={
+                  (point.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
+                }
               />
             </Marker>
           );
