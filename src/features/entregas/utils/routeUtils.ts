@@ -538,7 +538,7 @@ export function isApproximateLocation(d: EntregaListItem): boolean {
 
 export function getApproximateLocationLabel(d: EntregaListItem): string | null {
   if (d.coord_precision === "approx") return "Localização aproximada";
-  if (d.coord_precision === "street") return "Precisão ao nível da rua";
+  if (d.coord_precision === "street") return "Aproximado — nível da rua";
   if (isApproximateLocation(d)) return "Localização aproximada";
   return null;
 }

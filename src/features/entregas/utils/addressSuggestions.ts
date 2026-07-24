@@ -426,7 +426,7 @@ export function sanitizeAddressFormValues(values: AddressFormValues): AddressFor
   };
 }
 
-/** Mescla número/rua digitados pelo usuário quando o Nominatim retorna só o logradouro. */
+/** Mescla número/rua/CEP/bairro/cidade/UF do OCR/voz quando a sugestão vem incompleta. */
 export function mergeAddressHints(
   values: AddressFormValues,
   hints?: Partial<AddressFormValues>
@@ -437,12 +437,19 @@ export function mergeAddressHints(
   if (hintRua.includes(",")) {
     hintRua = hintRua.split(",")[0].trim();
   }
+  const valueCep = normalizeCep(values.cep ?? "");
+  const hintCep = normalizeCep(hints.cep ?? "");
   return sanitizeAddressFormValues({
     ...values,
     rua: values.rua.trim() || hintRua,
     numero: values.numero.trim() || hintNumero,
     complemento: values.complemento.trim() || (hints.complemento ?? "").trim(),
     destinatario: values.destinatario.trim() || (hints.destinatario ?? "").trim(),
+    bairro: values.bairro.trim() || (hints.bairro ?? "").trim(),
+    cidade: values.cidade.trim() || (hints.cidade ?? "").trim(),
+    estado: values.estado.trim() || (hints.estado ?? "").trim(),
+    // Preferência: CEP da sugestão; senão preserva o do OCR/hints (nunca descartar).
+    cep: valueCep.length === 8 ? valueCep : hintCep,
   });
 }
 

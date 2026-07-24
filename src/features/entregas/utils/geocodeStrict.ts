@@ -215,3 +215,30 @@ export async function reverseGeocodeValidate(
     }
   });
 }
+
+/** Reverse leve só para obter CEP (postcode) quando a sugestão veio sem. */
+export async function reverseGeocodePostcode(
+  latitude: number,
+  longitude: number
+): Promise<string | null> {
+  return scheduleNominatimRequest(async () => {
+    try {
+      const params = new URLSearchParams({
+        lat: String(latitude),
+        lon: String(longitude),
+        format: "json",
+        addressdetails: "1",
+      });
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?${params}`,
+        { headers: NOMINATIM_HEADERS }
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as NominatimCandidate;
+      const digits = normalizeCepDigits(data?.address?.postcode);
+      return digits.length === 8 ? digits : null;
+    } catch {
+      return null;
+    }
+  });
+}

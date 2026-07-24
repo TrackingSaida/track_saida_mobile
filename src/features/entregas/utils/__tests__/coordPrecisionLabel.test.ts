@@ -25,6 +25,6 @@ test("badge aproximada só para approx; street tem rótulo próprio", () => {
   assert.equal(isApproximateLocation(rooftop), false);
 
   assert.equal(getApproximateLocationLabel(approx), "Localização aproximada");
-  assert.equal(getApproximateLocationLabel(street), "Precisão ao nível da rua");
+  assert.equal(getApproximateLocationLabel(street), "Aproximado — nível da rua");
   assert.equal(getApproximateLocationLabel(rooftop), null);
 });

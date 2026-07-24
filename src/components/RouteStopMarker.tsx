@@ -17,6 +17,8 @@ export interface RouteStopMarkerProps {
   isCompleted?: boolean;
   isNext?: boolean;
   isSelected?: boolean;
+  /** Precisão ao nível da rua — pin continua, com aviso visual. */
+  isStreetLevel?: boolean;
 }
 
 function resolveMarkerStyle(props: RouteStopMarkerProps): {
@@ -43,6 +45,7 @@ export default function RouteStopMarker({
   isCompleted = false,
   isNext = false,
   isSelected = false,
+  isStreetLevel = false,
 }: RouteStopMarkerProps) {
   const { backgroundColor, textColor } = resolveMarkerStyle({
     stopNumber,
@@ -60,6 +63,7 @@ export default function RouteStopMarker({
           styles.wrap,
           { backgroundColor },
           isFinalized && styles.wrapFinalized,
+          isStreetLevel && !isFinalized && styles.wrapStreetLevel,
         ]}
       >
         <Text style={[styles.stopNumber, { color: textColor }]}>{stopNumber}</Text>
@@ -74,6 +78,11 @@ export default function RouteStopMarker({
         )}
         {isSelected && <View style={styles.selectedRing} pointerEvents="none" />}
       </View>
+      {isStreetLevel && !isFinalized ? (
+        <View style={styles.streetBadge} pointerEvents="none">
+          <Text style={styles.streetBadgeText}>≈</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -81,9 +90,10 @@ export default function RouteStopMarker({
 const styles = StyleSheet.create({
   snapshotBox: {
     minWidth: 30,
-    height: MARKER_HEIGHT,
+    height: MARKER_HEIGHT + 10,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    paddingTop: 0,
   },
   wrap: {
     flexDirection: "row",
@@ -106,6 +116,27 @@ const styles = StyleSheet.create({
     borderColor: "rgba(0,0,0,0.08)",
     borderWidth: 1,
     shadowOpacity: 0.15,
+  },
+  wrapStreetLevel: {
+    borderColor: "#F59E0B",
+    borderStyle: "dashed",
+  },
+  streetBadge: {
+    marginTop: 1,
+    minWidth: 16,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#F59E0B",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  streetBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#fff",
+    lineHeight: 12,
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
   },
   selectedRing: {
     ...StyleSheet.absoluteFillObject,
