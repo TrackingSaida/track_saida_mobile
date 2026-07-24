@@ -294,18 +294,22 @@ export default function FormAusenteModal({
         fotoObrigatoria,
       });
       await clearDeliveryPhotoDraft("ausente", primaryIdSaida);
-      if (onSuccess) {
-        await onSuccess({ queued: result.queued });
-      } else if (onConfirm && !result.queued) {
-        await onConfirm({
-          motivoId,
-          observacao: observacao.trim() || undefined,
-          photoUris,
-        });
+      try {
+        if (onSuccess) {
+          await onSuccess({ queued: result.queued });
+        } else if (onConfirm && !result.queued) {
+          await onConfirm({
+            motivoId,
+            observacao: observacao.trim() || undefined,
+            photoUris,
+          });
+        }
+      } catch (uiErr) {
+        console.warn("[FormAusenteModal] pós-sucesso falhou após marcar local", uiErr);
+        onClose();
       }
     } catch (e) {
       Alert.alert("Erro", (e as Error)?.message || "Não foi possível concluir a ausência.");
-      throw e;
     } finally {
       setSaving(false);
     }
@@ -320,6 +324,8 @@ export default function FormAusenteModal({
     resolveBatchTargets,
     onSuccess,
     onConfirm,
+    onClose,
+    primaryIdSaida,
   ]);
 
   const motivoOutro =
