@@ -82,10 +82,13 @@ function pruneExpiredLocallyFinalized(
   current: Record<number, number>
 ): Record<number, number> {
   const now = Date.now();
+  const activeOutboxIds = getActiveOutboxSaidaIds();
   const next: Record<number, number> = {};
   for (const [idStr, ts] of Object.entries(current)) {
     const id = Number(idStr);
-    if (id > 0 && now - Number(ts) <= LOCAL_FINALIZED_TTL_MS) {
+    if (id <= 0) continue;
+    // Mantém marcação local enquanto outbox ainda tenta enviar (evita "ressuscitar" pendente).
+    if (activeOutboxIds.has(id) || now - Number(ts) <= LOCAL_FINALIZED_TTL_MS) {
       next[id] = Number(ts);
     }
   }
