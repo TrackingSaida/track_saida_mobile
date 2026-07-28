@@ -219,15 +219,20 @@ export async function patchFotoSaida(
   status: DeliveryPhotoTipo,
   validarCamposObrigatorios = true,
   alterarStatus = true,
-  photoId?: string
+  photoId?: string,
+  headers?: Record<string, string>
 ): Promise<void> {
-  await client.patch(`/saidas/${idSaida}/foto`, {
-    foto_url: fotoUrl,
-    status,
-    photo_id: photoId || undefined,
-    validar_campos_obrigatorios: !!validarCamposObrigatorios,
-    alterar_status: !!alterarStatus,
-  });
+  await client.patch(
+    `/saidas/${idSaida}/foto`,
+    {
+      foto_url: fotoUrl,
+      status,
+      photo_id: photoId || undefined,
+      validar_campos_obrigatorios: !!validarCamposObrigatorios,
+      alterar_status: !!alterarStatus,
+    },
+    headers ? { headers } : undefined
+  );
 }
 
 export async function getMotivosAusencia(): Promise<MotivoAusencia[]> {

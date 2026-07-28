@@ -29,6 +29,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function auditSync(event: string, action: OutboxDeliveryAction, extra?: string): void {
+  const base = `[audit_entrega] ${event} kind=${action.kind} actionId=${action.actionId} clientActionId=${action.clientActionId} ids=${action.idSaidas.join(",")} attempts=${action.attempts}`;
+  if (extra) console.info(`${base} ${extra}`);
+  else console.info(base);
+}
+
 function isAlreadyFinalizedError(e: unknown): boolean {
   const ax = e as AxiosError<{ detail?: string | { code?: string } }>;
   const detail = ax.response?.data?.detail;
@@ -49,12 +55,13 @@ async function uploadActionPhotos(action: OutboxDeliveryAction): Promise<OutboxD
 
   const photoIds = pending.map(({ photo }) => photo.photoId || createPhotoId());
   const uris = pending.map(({ photo }) => photo.localUri);
+  const headers = { "X-Client-Action-Id": action.clientActionId };
   const keys =
     action.kind === "entregue"
-      ? await uploadEntreguePhotosForDeliveryIds(uris, action.idSaidas, photoIds)
+      ? await uploadEntreguePhotosForDeliveryIds(uris, action.idSaidas, photoIds, headers)
       : action.kind === "devolucao"
-        ? await uploadDevolucaoPhotosForDeliveryIds(uris, action.idSaidas, photoIds)
-        : await uploadAusentePhotosForDeliveryIds(uris, action.idSaidas, photoIds);
+        ? await uploadDevolucaoPhotosForDeliveryIds(uris, action.idSaidas, photoIds, headers)
+        : await uploadAusentePhotosForDeliveryIds(uris, action.idSaidas, photoIds, headers);
 
   const updatedPhotos = [...action.photos];
   pending.forEach(({ photo, index }, i) => {
@@ -67,6 +74,7 @@ async function uploadActionPhotos(action: OutboxDeliveryAction): Promise<OutboxD
   });
   const current = { ...action, photos: updatedPhotos };
   await persistAction(current);
+  auditSync("sync_photos_ok", current, `uploaded=${pending.length}`);
   return current;
 }
 
@@ -96,7 +104,10 @@ async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
         );
       }
     } catch (e) {
-      if (isAlreadyFinalizedError(e)) continue;
+      if (isAlreadyFinalizedError(e)) {
+        auditSync("sync_mark_already_finalized", action, `id_saida=${idSaida}`);
+        continue;
+      }
       throw e;
     }
   }
@@ -115,6 +126,7 @@ async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
 async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
   let current: OutboxDeliveryAction = { ...action, state: "syncing" };
   await persistAction(current);
+  auditSync("sync_start", current);
 
   if (current.photos.length > 0) {
     current = await uploadActionPhotos(current);
@@ -122,6 +134,7 @@ async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
 
   await markActionOnServer(current);
   await removeAction(action.actionId);
+  auditSync("sync_ok", current);
 }
 
 export async function processOutboxQueue(): Promise<void> {
@@ -153,6 +166,12 @@ export async function processOutboxQueue(): Promise<void> {
           lastError: msg,
         };
         await persistAction(failed);
+        useOutboxStore.getState().setLastSyncError(msg);
+        auditSync(
+          attempts >= MAX_ATTEMPTS ? "sync_failed_final" : "sync_fail",
+          failed,
+          `error=${msg.replace(/\s+/g, "_").slice(0, 160)}`
+        );
 
         if (isNetworkOrTimeoutError(e)) break;
         if (attempts < MAX_ATTEMPTS) {
@@ -193,5 +212,6 @@ export async function retryFailedOutboxAction(actionId: string): Promise<void> {
   const action = manifest.actions.find((a) => a.actionId === actionId);
   if (!action) return;
   await persistAction({ ...action, state: "pending", attempts: 0, lastError: undefined });
+  console.info(`[audit_entrega] sync_retry_manual actionId=${actionId}`);
   await processOutboxQueue();
 }

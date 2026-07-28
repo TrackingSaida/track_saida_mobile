@@ -34,7 +34,8 @@ async function mapPool<T, R>(
 async function uploadPhotosForDeliveryIds(
   photos: PhotoUploadInput[],
   idSaidas: number[],
-  tipo: "entregue" | "ausente" | "devolucao"
+  tipo: "entregue" | "ausente" | "devolucao",
+  clientActionId?: string
 ): Promise<string[]> {
   const targets = idSaidas.filter((id) => id > 0);
   if (targets.length === 0 || photos.length === 0) return [];
@@ -53,6 +54,7 @@ async function uploadPhotosForDeliveryIds(
       existingObjectKey: photo.objectKey,
       validarCamposObrigatorios: false,
       alterarStatus: false,
+      clientActionId,
     });
 
     if (targets.length > 1) {
@@ -67,6 +69,7 @@ async function uploadPhotosForDeliveryIds(
           existingObjectKey: objectKey,
           validarCamposObrigatorios: false,
           alterarStatus: false,
+          clientActionId,
         });
       });
     }
@@ -80,35 +83,41 @@ async function uploadPhotosForDeliveryIds(
 export async function uploadEntreguePhotosForDeliveryIds(
   photoUris: string[],
   idSaidas: number[],
-  photoIds?: string[]
+  photoIds?: string[],
+  headers?: Record<string, string>
 ): Promise<string[]> {
   return uploadPhotosForDeliveryIds(
     photoUris.map((uri, index) => ({ uri, photoId: photoIds?.[index] })),
     idSaidas,
-    "entregue"
+    "entregue",
+    headers?.["X-Client-Action-Id"]
   );
 }
 
 export async function uploadAusentePhotosForDeliveryIds(
   photoUris: string[],
   idSaidas: number[],
-  photoIds?: string[]
+  photoIds?: string[],
+  headers?: Record<string, string>
 ): Promise<string[]> {
   return uploadPhotosForDeliveryIds(
     photoUris.map((uri, index) => ({ uri, photoId: photoIds?.[index] })),
     idSaidas,
-    "ausente"
+    "ausente",
+    headers?.["X-Client-Action-Id"]
   );
 }
 
 export async function uploadDevolucaoPhotosForDeliveryIds(
   photoUris: string[],
   idSaidas: number[],
-  photoIds?: string[]
+  photoIds?: string[],
+  headers?: Record<string, string>
 ): Promise<string[]> {
   return uploadPhotosForDeliveryIds(
     photoUris.map((uri, index) => ({ uri, photoId: photoIds?.[index] })),
     idSaidas,
-    "devolucao"
+    "devolucao",
+    headers?.["X-Client-Action-Id"]
   );
 }
