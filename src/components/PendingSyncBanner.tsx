@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "rea
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../theme/colors";
 import { useOutboxStore } from "../store/outboxStore";
-import { processOutboxQueue, retryFailedOutboxAction } from "../services/outbox/syncEngine";
+import { processOutboxQueue, retryAllFailedOutboxActions } from "../services/outbox/syncEngine";
 
 export default function PendingSyncBanner() {
   const insets = useSafeAreaInsets();
@@ -22,6 +22,7 @@ export default function PendingSyncBanner() {
 
   const failed = actions.filter((a) => a.state === "failed");
   const hasFailed = failed.length > 0;
+  const errorText = lastSyncError || failed[0]?.lastError || null;
   const label = hasFailed
     ? `${failed.length} envio(s) com erro — toque em Tentar de novo`
     : isSyncing
@@ -50,18 +51,19 @@ export default function PendingSyncBanner() {
         <Text style={[styles.text, { color: colors.text }]} numberOfLines={2}>
           {label}
         </Text>
-        {hasFailed && lastSyncError ? (
-          <Text style={[styles.errorHint, { color: colors.textSecondary }]} numberOfLines={1}>
-            {lastSyncError}
+        {hasFailed && errorText ? (
+          <Text style={[styles.errorHint, { color: colors.textSecondary }]} numberOfLines={2}>
+            {errorText}
           </Text>
         ) : null}
       </View>
       <TouchableOpacity
         onPress={() => {
-          if (failed[0]) void retryFailedOutboxAction(failed[0].actionId);
+          if (hasFailed) void retryAllFailedOutboxActions();
           else void processOutboxQueue();
         }}
-        style={[styles.btn, { backgroundColor: btnBg }]}
+        disabled={isSyncing}
+        style={[styles.btn, { backgroundColor: btnBg, opacity: isSyncing ? 0.7 : 1 }]}
       >
         <Text style={[styles.btnText, { color: colors.primaryContrast }]}>
           {isSyncing ? "Enviando…" : hasFailed ? "Tentar de novo" : "Sincronizar"}
