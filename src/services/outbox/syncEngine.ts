@@ -201,13 +201,26 @@ export async function processOutboxQueue(): Promise<void> {
       useOutboxStore.getState().setLastSyncError(null);
     }
 
-    const queue = manifest.actions.filter((a) => a.state === "pending");
+    const queue = (await loadManifest()).actions.filter((a) => a.state === "pending");
 
     for (const action of queue) {
       if (!(await isOnline())) break;
 
       try {
-        await processOneAction(action);
+        await Promise.race([
+          processOneAction(action),
+          new Promise<never>((_, reject) => {
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "Tempo esgotado ao enviar a entrega. Verifique a internet e toque em Tentar de novo."
+                  )
+                ),
+              120_000
+            );
+          }),
+        ]);
       } catch (e) {
         const msg = errorMessage(e);
         // Preserva progresso de fotos já persistido (não sobrescreve com snapshot velho).
