@@ -29,6 +29,7 @@ import {
 } from "../features/entregas/api";
 import { inferCoordPrecision, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
 import { geocodeAddressStrict } from "../features/entregas/utils/geocodeStrict";
+import { mergeEntregaPreservingCampos } from "../features/entregas/utils/camposObrigatoriosUtils";
 import {
   clusterRouteOrderByAddress,
   findInRouteByQuery as findInRouteByQueryUtil,
@@ -516,18 +517,28 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     }
     try {
       const updated = await putEndereco(idSaida, finalBody);
+      const prev =
+        get().pendingDeliveries.find((d) => d.id_saida === idSaida) ||
+        get().routeDeliveries.find((d) => d.id_saida === idSaida);
+      const merged = mergeEntregaPreservingCampos(prev, updated);
       set((state) => {
-        const list = state.pendingDeliveries.map((d) => (d.id_saida === idSaida ? updated : d));
+        const list = state.pendingDeliveries.map((d) => (d.id_saida === idSaida ? merged : d));
         const withAddr = list.filter(withAddress);
         const withoutAddr = list.filter((d) => !withAddress(d));
         return {
           pendingDeliveries: list,
           deliveriesWithAddress: withAddr,
           deliveriesWithoutAddress: withoutAddr,
-          selectedDelivery: state.selectedDelivery?.id_saida === idSaida ? updated : state.selectedDelivery,
+          routeDeliveries: state.routeDeliveries.map((d) =>
+            d.id_saida === idSaida ? mergeEntregaPreservingCampos(d, updated) : d
+          ),
+          selectedDelivery:
+            state.selectedDelivery?.id_saida === idSaida
+              ? mergeEntregaPreservingCampos(state.selectedDelivery, updated)
+              : state.selectedDelivery,
         };
       });
-      return updated;
+      return merged;
     } catch (err: unknown) {
       throw new Error(formatApiError(err, "Não foi possível salvar o endereço."));
     }
@@ -1233,7 +1244,9 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   updateRouteDelivery: (idSaida, partial) => {
     set((state) => ({
       routeDeliveries: state.routeDeliveries.map((d) =>
-        d.id_saida === idSaida ? { ...d, ...partial } : d
+        d.id_saida === idSaida
+          ? mergeEntregaPreservingCampos(d, { ...d, ...partial })
+          : d
       ),
     }));
   },
