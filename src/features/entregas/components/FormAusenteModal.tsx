@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
-import { getMotivosAusencia } from "../api";
+import { getEntrega, getMotivosAusencia } from "../api";
 import type { MotivoAusencia } from "../types";
 import { enqueueAusenteCompletion } from "../../../services/outbox/deliveryOutboxService";
 import {
@@ -30,6 +30,7 @@ import {
   saveDeliveryPhotoDraft,
 } from "../../../services/deliveryPhotoDraft";
 import { canConfirmWithPhotos } from "../utils/photoValidationUtils";
+import { unionCamposObrigatorios } from "../utils/camposObrigatoriosUtils";
 
 const CAMPO_LABEL: Record<string, string> = {
   foto: "Foto",
@@ -78,10 +79,51 @@ export default function FormAusenteModal({
   const [saving, setSaving] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const primaryIdSaida = idSaidas.find((id) => id > 0) ?? 0;
+  const [resolvedRequiredFields, setResolvedRequiredFields] = useState<string[]>(
+    () => unionCamposObrigatorios(requiredFields)
+  );
+  const [requiredFieldsReady, setRequiredFieldsReady] = useState(false);
+
+  const uploadTargets = useMemo(() => {
+    const ids = (idSaidas || []).filter((id) => id > 0);
+    return [...new Set(ids)];
+  }, [idSaidas]);
+  const uploadTargetsKey = uploadTargets.join(",");
+  const requiredFieldsKey = unionCamposObrigatorios(requiredFields).join("|");
+
+  useEffect(() => {
+    if (!visible) {
+      setRequiredFieldsReady(false);
+      return;
+    }
+    const fromProp = unionCamposObrigatorios(requiredFields);
+    setResolvedRequiredFields(fromProp);
+    setRequiredFieldsReady(fromProp.length > 0 || uploadTargets.length === 0);
+    let cancelled = false;
+    void (async () => {
+      if (uploadTargets.length === 0) {
+        if (!cancelled) setRequiredFieldsReady(true);
+        return;
+      }
+      const fetched = await Promise.all(
+        uploadTargets.map((id) => getEntrega(id).catch(() => null))
+      );
+      if (cancelled) return;
+      const fromApi = unionCamposObrigatorios(
+        ...fetched.map((d) => d?.campos_obrigatorios_ausente)
+      );
+      setResolvedRequiredFields(unionCamposObrigatorios(fromProp, fromApi));
+      setRequiredFieldsReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keys estáveis
+  }, [visible, requiredFieldsKey, uploadTargetsKey]);
 
   const required = useMemo(
-    () => new Set(requiredFields.map((f) => String(f || "").trim().toLowerCase())),
-    [requiredFields]
+    () => new Set(resolvedRequiredFields.map((f) => String(f || "").trim().toLowerCase())),
+    [resolvedRequiredFields]
   );
   const fotoObrigatoria = required.has("foto");
 
@@ -253,6 +295,10 @@ export default function FormAusenteModal({
   }, []);
 
   const handleConfirmar = useCallback(async () => {
+    if (!requiredFieldsReady) {
+      Alert.alert("Atenção", "Carregando regras do pedido. Aguarde um instante.");
+      return;
+    }
     if (motivoId == null) {
       Alert.alert("Atenção", "Selecione um motivo.");
       return;
@@ -314,6 +360,7 @@ export default function FormAusenteModal({
       setSaving(false);
     }
   }, [
+    requiredFieldsReady,
     motivoId,
     motivos,
     observacao,
@@ -326,6 +373,7 @@ export default function FormAusenteModal({
     onConfirm,
     onClose,
     primaryIdSaida,
+    required,
   ]);
 
   const motivoOutro =
@@ -436,8 +484,12 @@ export default function FormAusenteModal({
               <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={saving}>
                 <Text style={styles.btnCancelText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.btnOk} onPress={handleConfirmar} disabled={saving}>
-                {saving ? (
+              <TouchableOpacity
+                style={styles.btnOk}
+                onPress={handleConfirmar}
+                disabled={saving || !requiredFieldsReady}
+              >
+                {saving || !requiredFieldsReady ? (
                   <ActivityIndicator size="small" color={colors.primaryContrast} />
                 ) : (
                   <Text style={styles.btnOkText}>Confirmar</Text>
