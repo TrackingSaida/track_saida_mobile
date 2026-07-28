@@ -28,6 +28,10 @@ import type { MarcacaoEntregaResponse } from "../features/entregas/types";
 import { getEntrega } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
 import {
+  camposAusenteFromDeliveries,
+  camposEntregueFromDeliveries,
+} from "../features/entregas/utils/camposObrigatoriosUtils";
+import {
   getOrderedRouteDeliveries,
   computeRouteStats,
   groupOrderedByAddress,
@@ -1462,6 +1466,28 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     ? (routeDeliveryStatus[selectedDelivery.id_saida] ?? "pendente")
     : "pendente";
 
+  const entregueRequiredFields = useMemo(() => {
+    const ids = pendingEntregueIds ?? [];
+    if (ids.length === 0) return selectedDelivery?.campos_obrigatorios_entregue || [];
+    const deliveries = ids.map(
+      (id) =>
+        routeDeliveries.find((d) => d.id_saida === id) ||
+        (selectedDelivery?.id_saida === id ? selectedDelivery : null)
+    );
+    return camposEntregueFromDeliveries(deliveries);
+  }, [pendingEntregueIds, routeDeliveries, selectedDelivery]);
+
+  const ausenteRequiredFields = useMemo(() => {
+    const ids = pendingAusenteIds.length > 0 ? pendingAusenteIds : deliveryForAusente ? [deliveryForAusente.id_saida] : [];
+    if (ids.length === 0) return deliveryForAusente?.campos_obrigatorios_ausente || [];
+    const deliveries = ids.map(
+      (id) =>
+        routeDeliveries.find((d) => d.id_saida === id) ||
+        (deliveryForAusente?.id_saida === id ? deliveryForAusente : null)
+    );
+    return camposAusenteFromDeliveries(deliveries);
+  }, [pendingAusenteIds, routeDeliveries, deliveryForAusente]);
+
   const headerCompact = selectedDelivery != null;
   const listModeOpen = !isRouteActive && !routeListCollapsed;
   const showPlanningDetails = !isRouteActive && routeListCollapsed && !headerCompact;
@@ -1901,7 +1927,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       <FormAusenteModal
         visible={showAusenteModal}
         idSaidas={pendingAusenteIds}
-        requiredFields={deliveryForAusente?.campos_obrigatorios_ausente || []}
+        requiredFields={ausenteRequiredFields}
         codigo={deliveryForAusente?.codigo ?? undefined}
         batchCount={ausenteBatchCount}
         stopLabel={
@@ -1937,7 +1963,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         idSaida={pendingEntregueIds?.[0] ?? 0}
         extraIdSaidas={(pendingEntregueIds ?? []).slice(1)}
         destinatarioPreenchido={selectedDelivery?.cliente ?? undefined}
-        requiredFields={selectedDelivery?.campos_obrigatorios_entregue || []}
+        requiredFields={entregueRequiredFields}
         codigo={selectedDelivery?.codigo ?? undefined}
         batchCount={pendingEntregueIds?.length ?? 1}
         stopLabel={

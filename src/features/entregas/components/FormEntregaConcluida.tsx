@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
-import type { EntregueBody } from "../api";
+import { getEntrega, type EntregueBody } from "../api";
 import type { MarcacaoEntregaResponse } from "../types";
 import { formatCPF, formatRG, unmaskCPF, unmaskRG } from "../utils/formatDocument";
 import { enqueueEntregueCompletion } from "../../../services/outbox/deliveryOutboxService";
@@ -33,6 +33,7 @@ import {
 import {
   canConfirmWithPhotos,
 } from "../utils/photoValidationUtils";
+import { unionCamposObrigatorios } from "../utils/camposObrigatoriosUtils";
 
 const TIPOS_RECEBEDOR = ["Comprador", "Familiar", "Vizinho", "Porteiro", "Outro"] as const;
 const TIPOS_DOCUMENTO = ["RG", "CPF"] as const;
@@ -211,16 +212,59 @@ export default function FormEntregaConcluida({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [missingKeys, setMissingKeys] = useState<Set<CampoKey>>(new Set());
+  const [resolvedRequiredFields, setResolvedRequiredFields] = useState<string[]>(
+    () => unionCamposObrigatorios(requiredFields)
+  );
+  const [requiredFieldsReady, setRequiredFieldsReady] = useState(false);
+
+  const uploadTargets = useMemo(() => {
+    const ids = [idSaida, ...(extraIdSaidas || [])].filter((id) => id > 0);
+    return [...new Set(ids)];
+  }, [idSaida, extraIdSaidas]);
+  const uploadTargetsKey = uploadTargets.join(",");
+  const requiredFieldsKey = unionCamposObrigatorios(requiredFields).join("|");
+
+  useEffect(() => {
+    if (!visible) {
+      setRequiredFieldsReady(false);
+      return;
+    }
+    const fromProp = unionCamposObrigatorios(requiredFields);
+    setResolvedRequiredFields(fromProp);
+    setRequiredFieldsReady(fromProp.length > 0 || uploadTargets.length === 0);
+    let cancelled = false;
+    void (async () => {
+      if (uploadTargets.length === 0) {
+        if (!cancelled) setRequiredFieldsReady(true);
+        return;
+      }
+      const fetched = await Promise.all(
+        uploadTargets.map((id) => getEntrega(id).catch(() => null))
+      );
+      if (cancelled) return;
+      const fromApi = unionCamposObrigatorios(
+        ...fetched.map((d) => d?.campos_obrigatorios_entregue)
+      );
+      setResolvedRequiredFields(unionCamposObrigatorios(fromProp, fromApi));
+      setRequiredFieldsReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // requiredFields/uploadTargets via keys estáveis (evita loop com `|| []`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keys acima
+  }, [visible, idSaida, requiredFieldsKey, uploadTargetsKey]);
+
   const required = useMemo(
-    () => new Set((requiredFields || []).map((f) => String(f || "").trim().toLowerCase())),
-    [requiredFields]
+    () => new Set(resolvedRequiredFields.map((f) => String(f || "").trim().toLowerCase())),
+    [resolvedRequiredFields]
   );
   const requiredLabels = useMemo(
     () =>
-      (requiredFields || [])
+      resolvedRequiredFields
         .map((f) => labelCampo(String(f || "").trim().toLowerCase() as CampoKey))
         .filter(Boolean),
-    [requiredFields]
+    [resolvedRequiredFields]
   );
   const hasRequiredRules = required.size > 0;
 
@@ -331,13 +375,12 @@ export default function FormEntregaConcluida({
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const uploadTargets = useMemo(() => {
-    const ids = [idSaida, ...extraIdSaidas].filter((id) => id > 0);
-    return [...new Set(ids)];
-  }, [idSaida, extraIdSaidas]);
-
   const handleConfirmar = async () => {
     setError(null);
+    if (!requiredFieldsReady) {
+      setError("Carregando regras do pedido. Aguarde um instante.");
+      return;
+    }
     const missingSet = new Set<CampoKey>();
     if (required.has("recebedor") && !nomeRecebedor.trim()) missingSet.add("recebedor");
     if (required.has("tipo_recebedor") && !tipoRecebedor.trim()) missingSet.add("tipo_recebedor");
@@ -352,7 +395,6 @@ export default function FormEntregaConcluida({
     }
     if (missingSet.size) {
       setMissingKeys(missingSet);
-      const labels = Array.from(missingSet).map((k) => labelCampo(k));
       setError("Preencha os campos obrigatórios destacados abaixo.");
       return;
     }
@@ -609,11 +651,11 @@ export default function FormEntregaConcluida({
                 <Text style={styles.btnCancelText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.btnOk, saving && styles.btnDisabled]}
+                style={[styles.btnOk, (saving || !requiredFieldsReady) && styles.btnDisabled]}
                 onPress={handleConfirmar}
-                disabled={saving}
+                disabled={saving || !requiredFieldsReady}
               >
-                {saving ? (
+                {saving || !requiredFieldsReady ? (
                   <ActivityIndicator color={colors.primaryContrast} size="small" />
                 ) : (
                   <Text style={styles.btnOkText}>Confirmar</Text>
