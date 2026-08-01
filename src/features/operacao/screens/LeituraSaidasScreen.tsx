@@ -27,7 +27,12 @@ import { useAuthStore } from "../../../store/authStore";
 import { playSound } from "../../../utils/sound";
 import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
-import { effectivePodeDigitarCodigoManual, effectivePodeLerSaida, isStaffOperacaoRole } from "../../../utils/role";
+import {
+  effectivePodeDigitarCodigoManual,
+  effectivePodeLancarAvulso,
+  effectivePodeLerSaida,
+  isStaffOperacaoRole,
+} from "../../../utils/role";
 import {
   lerSaidaAdmin,
   lancarAvulso,
@@ -678,6 +683,7 @@ export default function LeituraSaidasScreen() {
 
   const podeLerSaida = effectivePodeLerSaida(currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
+  const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
   const username = currentUser?.username ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
@@ -983,7 +989,11 @@ export default function LeituraSaidasScreen() {
           return;
         }
 
-        if (status === 422 && code === "NAO_COLETADO") {
+        if (status === 422 && code === "ENTRADA_OBRIGATORIA") {
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("erro", "Este pacote ainda não teve entrada na base.", c);
+        } else if (status === 422 && code === "NAO_COLETADO") {
           const srvNc = inferServicoSaida(c);
           setLeituras((prev) => [
             ...prev,
@@ -1471,13 +1481,15 @@ export default function LeituraSaidasScreen() {
                 <Text style={styles.btnTextPrimary}>Confirmar</Text>
               )}
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
-              onPress={() => setAvulsoModalVisible(true)}
-              disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-            >
-              <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-            </TouchableOpacity>
+            {podeLancarAvulso ? (
+              <TouchableOpacity
+                style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
+                onPress={() => setAvulsoModalVisible(true)}
+                disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+              >
+                <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={styles.linkManual}
               onPress={() => setModoManual(false)}
@@ -1521,13 +1533,15 @@ export default function LeituraSaidasScreen() {
                 <TouchableOpacity style={styles.btnPrimary} onPress={() => void requestPermission()}>
                   <Text style={styles.btnTextPrimary}>Permitir câmera</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }, loading && styles.btnDisabled]}
-                  onPress={() => setAvulsoModalVisible(true)}
-                  disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                >
-                  <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                </TouchableOpacity>
+                {podeLancarAvulso ? (
+                  <TouchableOpacity
+                    style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }, loading && styles.btnDisabled]}
+                    onPress={() => setAvulsoModalVisible(true)}
+                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                  >
+                    <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {podeDigitarManual ? (
                   <TouchableOpacity
                     style={styles.linkManualWhite}
@@ -1578,14 +1592,16 @@ export default function LeituraSaidasScreen() {
                       <Text style={styles.cameraFooterStatus}>Aguardando primeiro código…</Text>
                     )}
                   </View>
-                  <TouchableOpacity
-                    style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-                    onPress={() => setAvulsoModalVisible(true)}
-                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                    accessibilityLabel="Lançar Avulso"
-                  >
-                    <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                  </TouchableOpacity>
+                  {podeLancarAvulso ? (
+                    <TouchableOpacity
+                      style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+                      onPress={() => setAvulsoModalVisible(true)}
+                      disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                      accessibilityLabel="Lançar Avulso"
+                    >
+                      <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   {podeDigitarManual ? (
                     <TouchableOpacity
                       style={styles.linkManualWhite}

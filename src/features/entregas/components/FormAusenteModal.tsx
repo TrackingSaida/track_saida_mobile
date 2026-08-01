@@ -98,22 +98,27 @@ export default function FormAusenteModal({
     }
     const fromProp = unionCamposObrigatorios(requiredFields);
     setResolvedRequiredFields(fromProp);
-    setRequiredFieldsReady(fromProp.length > 0 || uploadTargets.length === 0);
+    // Não bloquear confirmação aguardando getEntrega (sem regra = lista vazia válida).
+    setRequiredFieldsReady(true);
     let cancelled = false;
     void (async () => {
-      if (uploadTargets.length === 0) {
-        if (!cancelled) setRequiredFieldsReady(true);
-        return;
-      }
+      if (uploadTargets.length === 0) return;
+      const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T | null> =>
+        Promise.race([
+          p,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+        ]);
       const fetched = await Promise.all(
-        uploadTargets.map((id) => getEntrega(id).catch(() => null))
+        uploadTargets.map((id) =>
+          withTimeout(getEntrega(id).catch(() => null), 8000)
+        )
       );
       if (cancelled) return;
       const fromApi = unionCamposObrigatorios(
         ...fetched.map((d) => d?.campos_obrigatorios_ausente)
       );
+      if (fromApi.length === 0) return;
       setResolvedRequiredFields(unionCamposObrigatorios(fromProp, fromApi));
-      setRequiredFieldsReady(true);
     })();
     return () => {
       cancelled = true;

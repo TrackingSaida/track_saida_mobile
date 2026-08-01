@@ -9,6 +9,7 @@ import {
   Modal,
   Pressable,
   RefreshControl,
+  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
@@ -70,6 +71,7 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [draftDate, setDraftDate] = useState(today);
+  const [filtroNome, setFiltroNome] = useState("");
 
   const styles = useMemo(
     () =>
@@ -77,6 +79,16 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 16, paddingBottom: 32 },
         sectionTitle: { fontSize: 16, fontWeight: "800", color: colors.text, marginBottom: 10 },
+        search: {
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.backgroundCard,
+          borderRadius: 12,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          color: colors.text,
+          marginBottom: 12,
+        },
         kpiCard: {
           backgroundColor: colors.backgroundCard,
           borderRadius: 14,
@@ -210,10 +222,14 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
     }, [load])
   );
 
-  const filteredItems = useMemo(
-    () => applyQuickFilter(items, quickFilter),
-    [items, quickFilter]
-  );
+  const filteredItems = useMemo(() => {
+    const byStatus = applyQuickFilter(items, quickFilter);
+    const q = filtroNome.trim().toLocaleLowerCase("pt-BR");
+    if (!q) return byStatus;
+    return byStatus.filter((row) =>
+      (row.motoboy_nome || "").toLocaleLowerCase("pt-BR").includes(q)
+    );
+  }, [filtroNome, items, quickFilter]);
 
   const progressPct = useMemo(() => {
     if (!totais.pedidos) return 0;
@@ -303,11 +319,25 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
                 </TouchableOpacity>
               ))}
             </View>
+            <TextInput
+              style={styles.search}
+              value={filtroNome}
+              onChangeText={setFiltroNome}
+              placeholder="Filtrar por motoboy"
+              placeholderTextColor={colors.textSecondary}
+              autoCapitalize="words"
+            />
 
             {items.length === 0 ? (
               <OperacaoEmptyState message="Sem dados para a data selecionada." />
             ) : filteredItems.length === 0 ? (
-              <OperacaoEmptyState message={emptyMessageForFilter(quickFilter)} />
+              <OperacaoEmptyState
+                message={
+                  filtroNome.trim()
+                    ? "Nenhum motoboy encontrado com este nome."
+                    : emptyMessageForFilter(quickFilter)
+                }
+              />
             ) : (
               filteredItems.map((row) => {
                 const status = deriveStatus(row);

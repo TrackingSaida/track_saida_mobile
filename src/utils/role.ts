@@ -68,6 +68,29 @@ export function effectivePodeDigitarCodigoManual(claims: JwtClaims | null | unde
   return false;
 }
 
+/**
+ * Lançar avulso: staff (0–3) sempre pode; motoboy liberado por padrão (opt-out).
+ */
+export function effectivePodeLancarAvulso(claims: JwtClaims | null | undefined): boolean {
+  if (!claims) return false;
+  const r = asRole(claims.role);
+  if (isStaffOperacaoRole(r)) return true;
+  if (isMotoboyRole(r)) return asDefaultTrue(claims.pode_lancar_avulso);
+  return false;
+}
+
+/** Owner exige entrada na base antes da saída. */
+export function effectiveEntradaObrigatoria(claims: JwtClaims | null | undefined): boolean {
+  if (!claims) return false;
+  return asExplicitTrue(claims.entrada_obrigatoria_habilitada);
+}
+
+/** Owner habilitou Conferência de Saída. */
+export function effectiveConferenciaSaida(claims: JwtClaims | null | undefined): boolean {
+  if (!claims) return false;
+  return asExplicitTrue(claims.conferencia_saida_habilitada);
+}
+
 /** Rótulo curto para exibição (opcional). */
 export function staffRoleLabel(role: number | undefined): string {
   switch (asRole(role)) {

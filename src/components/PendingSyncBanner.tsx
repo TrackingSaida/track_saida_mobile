@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "rea
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../theme/colors";
 import { useOutboxStore } from "../store/outboxStore";
-import { processOutboxQueue, retryFailedOutboxAction } from "../services/outbox/syncEngine";
+import { processOutboxQueue, retryAllFailedOutboxActions } from "../services/outbox/syncEngine";
 
 export default function PendingSyncBanner() {
   const insets = useSafeAreaInsets();
@@ -11,6 +11,7 @@ export default function PendingSyncBanner() {
   const pendingCount = useOutboxStore((s) => s.pendingCount);
   const isSyncing = useOutboxStore((s) => s.isSyncing);
   const actions = useOutboxStore((s) => s.actions);
+  const lastSyncError = useOutboxStore((s) => s.lastSyncError);
   const refresh = useOutboxStore((s) => s.refresh);
 
   useEffect(() => {
@@ -20,10 +21,17 @@ export default function PendingSyncBanner() {
   if (pendingCount <= 0) return null;
 
   const failed = actions.filter((a) => a.state === "failed");
-  const label =
-    failed.length > 0
-      ? `${pendingCount} envio(s) pendente(s) — ${failed.length} com erro`
-      : `${pendingCount} entrega(s) aguardando envio`;
+  const hasFailed = failed.length > 0;
+  const errorText = lastSyncError || failed[0]?.lastError || null;
+  const label = hasFailed
+    ? `${failed.length} envio(s) com erro — toque em Tentar de novo`
+    : isSyncing
+      ? `Enviando ${pendingCount} entrega(s) ao servidor…`
+      : `${pendingCount} entrega(s) aguardando confirmação no servidor`;
+
+  const bg = hasFailed ? colors.danger + "22" : colors.warning + "22";
+  const border = hasFailed ? colors.danger + "66" : colors.warning + "66";
+  const btnBg = hasFailed ? colors.danger : colors.primary;
 
   return (
     <View
@@ -31,26 +39,34 @@ export default function PendingSyncBanner() {
         styles.wrap,
         {
           paddingTop: Math.max(insets.top, 8),
-          backgroundColor: colors.primary + "22",
-          borderBottomColor: colors.primary + "55",
+          backgroundColor: bg,
+          borderBottomColor: border,
         },
       ]}
     >
       {isSyncing ? (
         <ActivityIndicator size="small" color={colors.primary} style={styles.spinner} />
       ) : null}
-      <Text style={[styles.text, { color: colors.text }]} numberOfLines={2}>
-        {label}
-      </Text>
+      <View style={styles.textCol}>
+        <Text style={[styles.text, { color: colors.text }]} numberOfLines={2}>
+          {label}
+        </Text>
+        {hasFailed && errorText ? (
+          <Text style={[styles.errorHint, { color: colors.textSecondary }]} numberOfLines={2}>
+            {errorText}
+          </Text>
+        ) : null}
+      </View>
       <TouchableOpacity
         onPress={() => {
-          if (failed[0]) void retryFailedOutboxAction(failed[0].actionId);
+          if (hasFailed) void retryAllFailedOutboxActions();
           else void processOutboxQueue();
         }}
-        style={[styles.btn, { backgroundColor: colors.primary }]}
+        disabled={isSyncing}
+        style={[styles.btn, { backgroundColor: btnBg, opacity: isSyncing ? 0.7 : 1 }]}
       >
         <Text style={[styles.btnText, { color: colors.primaryContrast }]}>
-          {isSyncing ? "Enviando…" : "Sincronizar"}
+          {isSyncing ? "Enviando…" : hasFailed ? "Tentar de novo" : "Sincronizar"}
         </Text>
       </TouchableOpacity>
     </View>
@@ -67,7 +83,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   spinner: { marginRight: 4 },
-  text: { flex: 1, fontSize: 13, fontWeight: "600" },
+  textCol: { flex: 1, gap: 2 },
+  text: { fontSize: 13, fontWeight: "700" },
+  errorHint: { fontSize: 11 },
   btn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   btnText: { fontSize: 12, fontWeight: "700" },
 });

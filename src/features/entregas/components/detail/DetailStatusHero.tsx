@@ -13,6 +13,8 @@ import {
 type Props = {
   entrega: EntregaListItem;
   subtitle?: string | null;
+  /** Outbox ainda enviando foto/status ao servidor. */
+  awaitingSync?: boolean;
 };
 
 function statusColor(kind: DetailStatusKind, colors: ReturnType<typeof useThemeColors>): string {
@@ -28,16 +30,18 @@ function statusColor(kind: DetailStatusKind, colors: ReturnType<typeof useThemeC
   }
 }
 
-export default function DetailStatusHero({ entrega, subtitle }: Props) {
+export default function DetailStatusHero({ entrega, subtitle, awaitingSync }: Props) {
   const colors = useThemeColors();
   const kind = resolveDetailStatusKind(entrega);
-  const accent = statusColor(kind, colors);
+  const accent = awaitingSync ? colors.warning : statusColor(kind, colors);
 
   const autoSubtitle =
     subtitle ??
-    (kind === "entregue"
-      ? formatDetailDateTimeLabel("Finalizada às", entrega.data_hora_entrega)
-      : null);
+    (awaitingSync
+      ? "Enviando comprovante ao servidor… não marque de novo."
+      : kind === "entregue"
+        ? formatDetailDateTimeLabel("Finalizada às", entrega.data_hora_entrega)
+        : null);
 
   const styles = useMemo(
     () =>
@@ -51,6 +55,15 @@ export default function DetailStatusHero({ entrega, subtitle }: Props) {
           marginBottom: 12,
         },
         subtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 6 },
+        syncBadge: {
+          marginTop: 8,
+          alignSelf: "flex-start",
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 8,
+          backgroundColor: colors.warning + "22",
+        },
+        syncBadgeText: { fontSize: 12, fontWeight: "700", color: colors.warning },
       }),
     [colors, accent]
   );
@@ -60,11 +73,16 @@ export default function DetailStatusHero({ entrega, subtitle }: Props) {
       <EntregaCodigoHeader
         codigo={entrega.codigo ?? `Pedido ${entrega.id_saida}`}
         servico={entrega.servico}
-        exibicao={entrega.exibicao ?? statusLabelUpper(kind)}
+        exibicao={awaitingSync ? "Enviando…" : entrega.exibicao ?? statusLabelUpper(kind)}
         data={entrega.data}
         tentativa={entrega.tentativa}
       />
       {autoSubtitle ? <Text style={styles.subtitle}>{autoSubtitle}</Text> : null}
+      {awaitingSync ? (
+        <View style={styles.syncBadge}>
+          <Text style={styles.syncBadgeText}>Aguardando confirmação</Text>
+        </View>
+      ) : null}
     </View>
   );
 }

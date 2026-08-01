@@ -27,7 +27,7 @@ import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeDigitarCodigoManual } from "../../../utils/role";
+import { effectivePodeDigitarCodigoManual, effectivePodeLancarAvulso } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import type { EntregaListItem } from "../types";
@@ -411,6 +411,7 @@ export default function ScanScreen({ navigation }: Props) {
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
+  const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
   const [permission, requestPermission] = useCameraPermissions();
   const isFocused = useIsFocused();
   const torch = useScannerTorch(isFocused && !!permission?.granted && !modoManual);
@@ -654,6 +655,18 @@ export default function ScanScreen({ navigation }: Props) {
             "Limite de tentativas",
             "Limite de tentativas atingido. Solicite liberação à operação."
           );
+          setTimeout(() => (scanLocked.current = false), 500);
+          return;
+        }
+        const dataCode =
+          typeof ax?.response?.data === "object" && ax?.response?.data
+            ? String((ax.response.data as { code?: string }).code || "")
+            : "";
+        if (apiErro.code === "ENTRADA_OBRIGATORIA" || dataCode === "ENTRADA_OBRIGATORIA") {
+          const msgEntrada = "Este pacote ainda não teve entrada na base.";
+          playSound("error");
+          pushFeedback("erro", msgEntrada, c);
+          Alert.alert("Entrada necessária", msgEntrada);
           setTimeout(() => (scanLocked.current = false), 500);
           return;
         }
@@ -1004,13 +1017,15 @@ export default function ScanScreen({ navigation }: Props) {
         <TouchableOpacity style={styles.btnScan} onPress={requestPermission}>
           <Text style={styles.btnScanText}>Permitir câmera</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
-          onPress={() => setShowAvulsoModal(true)}
-          disabled={loading}
-        >
-          <Text style={styles.btnScanText}>Lançar Avulso</Text>
-        </TouchableOpacity>
+        {podeLancarAvulso ? (
+          <TouchableOpacity
+            style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
+            onPress={() => setShowAvulsoModal(true)}
+            disabled={loading}
+          >
+            <Text style={styles.btnScanText}>Lançar Avulso</Text>
+          </TouchableOpacity>
+        ) : null}
         {podeDigitarManual ? (
           <TouchableOpacity style={styles.linkManual} onPress={() => setModoManual(true)}>
             <Text style={styles.linkManualText}>Digitar código manualmente</Text>
@@ -1138,14 +1153,16 @@ export default function ScanScreen({ navigation }: Props) {
         )}
 
         <View style={styles.secondaryActionsRow}>
-          <TouchableOpacity
-            style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
-            onPress={() => setShowAvulsoModal(true)}
-            disabled={cameraBusy || loading}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.secondaryActionBtnText}>Lançar Avulso</Text>
-          </TouchableOpacity>
+          {podeLancarAvulso ? (
+            <TouchableOpacity
+              style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+              onPress={() => setShowAvulsoModal(true)}
+              disabled={cameraBusy || loading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.secondaryActionBtnText}>Lançar Avulso</Text>
+            </TouchableOpacity>
+          ) : null}
           {podeDigitarManual ? (
             <TouchableOpacity
               style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}

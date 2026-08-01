@@ -6,7 +6,12 @@ import { useAuthStore } from "../store/authStore";
 import GradientScreenHeader from "../components/ui/GradientScreenHeader";
 import { useThemeColors } from "../theme/colors";
 import { space } from "../theme/spacing";
-import { effectivePodeLerColeta, staffRoleLabel } from "../utils/role";
+import {
+  effectiveConferenciaSaida,
+  effectiveEntradaObrigatoria,
+  effectivePodeLerColeta,
+  staffRoleLabel,
+} from "../utils/role";
 import type { StaffStackParamList } from "../navigation/staffStackTypes";
 import OperacaoActionCard from "../features/operacao/components/OperacaoActionCard";
 
@@ -20,6 +25,8 @@ export default function StaffHomeScreen({ navigation }: Props) {
   const role = currentUser?.role as number | undefined;
   const labelPerfil = staffRoleLabel(role);
   const mostrarColeta = effectivePodeLerColeta(currentUser);
+  const mostrarEntrada = effectiveEntradaObrigatoria(currentUser);
+  const mostrarConferencia = effectiveConferenciaSaida(currentUser);
 
   const styles = useMemo(
     () =>
@@ -32,7 +39,12 @@ export default function StaffHomeScreen({ navigation }: Props) {
           color: colors.textSecondary,
           marginTop: 4,
         },
-        coletaWrap: { marginTop: space.xs },
+        grid: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+          marginTop: space.xs,
+        },
       }),
     [colors]
   );
@@ -72,34 +84,57 @@ export default function StaffHomeScreen({ navigation }: Props) {
           icon="scan-outline"
           onPress={() => go("LeituraSaidas")}
         />
-        <OperacaoActionCard
-          title="Consultar pacote"
-          subtitle="Buscar código, status e histórico"
-          icon="search-outline"
-          onPress={() => go("ConsultaCodigos")}
-        />
-        <OperacaoActionCard
-          title="Saídas por motoboy"
-          subtitle="Quantidades por serviço (Shopee, ML e Avulso)"
-          icon="cube-outline"
-          onPress={() => go("SaidasPorMotoboy")}
-        />
-        <OperacaoActionCard
-          title="Acompanhamento do dia"
-          subtitle="Progresso dos motoboys e detalhes por entregador"
-          icon="stats-chart-outline"
-          onPress={() => go("AcompanharOperacao")}
-        />
-        {mostrarColeta ? (
-          <View style={styles.coletaWrap}>
+
+        <View style={styles.grid}>
+          {mostrarEntrada ? (
             <OperacaoActionCard
+              variant="compact"
+              title="Registrar entrada"
+              subtitle="Entrada na base"
+              icon="enter-outline"
+              onPress={() => go("LeituraEntradas")}
+            />
+          ) : null}
+          {mostrarConferencia ? (
+            <OperacaoActionCard
+              variant="compact"
+              title="Conferência"
+              subtitle="Pendentes e concluídas"
+              icon="checkmark-done-outline"
+              onPress={() => go("ConferenciaSaida")}
+            />
+          ) : null}
+          <OperacaoActionCard
+            variant="compact"
+            title="Consultar pacote"
+            subtitle="Código e histórico"
+            icon="search-outline"
+            onPress={() => go("ConsultaCodigos")}
+          />
+          <OperacaoActionCard
+            variant="compact"
+            title="Saídas por motoboy"
+            subtitle="Shopee, ML e Avulso"
+            icon="cube-outline"
+            onPress={() => go("SaidasPorMotoboy")}
+          />
+          <OperacaoActionCard
+            variant="compact"
+            title="Acompanhamento"
+            subtitle="Progresso do dia"
+            icon="stats-chart-outline"
+            onPress={() => go("AcompanharOperacao")}
+          />
+          {mostrarColeta ? (
+            <OperacaoActionCard
+              variant="compact"
               title="Coleta"
               subtitle="Shopee, ML e avulsas"
               icon="layers-outline"
               onPress={() => go("LeituraColetas")}
             />
-          </View>
-        ) : null}
+          ) : null}
+        </View>
       </View>
     </ScrollView>
   );

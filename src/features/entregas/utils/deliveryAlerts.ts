@@ -1,14 +1,18 @@
 import { useToastStore } from "../../../store/toastStore";
 
 const SYNC_PENDING_SUFFIX =
-  " Salva no aparelho. Será enviada quando a internet voltar.";
+  " Ainda enviando ao servidor. Acompanhe o aviso no topo — não marque de novo.";
 
 function showToast(
   title: string,
   message: string,
   tone: "success" | "warn" = "success"
 ): void {
-  useToastStore.getState().show({ title, message, tone, durationMs: 1600 });
+  useToastStore.getState().show({ title, message, tone, durationMs: pendingToneDuration(tone) });
+}
+
+function pendingToneDuration(tone: "success" | "warn"): number {
+  return tone === "warn" ? 2800 : 1600;
 }
 
 export function alertEntregaFinalizada(
@@ -17,8 +21,11 @@ export function alertEntregaFinalizada(
   pendingSync?: boolean
 ): void {
   const cod = (codigo || "Pedido").trim() || "Pedido";
-  const suffix = pendingSync ? SYNC_PENDING_SUFFIX : ".";
-  showToast("Entrega finalizada", `${cod} marcada como entregue${suffix}`, "success");
+  if (pendingSync) {
+    showToast("Enviando entrega", `${cod}.${SYNC_PENDING_SUFFIX}`, "warn");
+  } else {
+    showToast("Entrega finalizada", `${cod} marcada como entregue.`, "success");
+  }
   onOk?.();
 }
 
@@ -28,8 +35,11 @@ export function alertAusenciaRegistrada(
   pendingSync?: boolean
 ): void {
   const cod = (codigo || "Pedido").trim() || "Pedido";
-  const suffix = pendingSync ? SYNC_PENDING_SUFFIX : ".";
-  showToast("Ausência registrada", `${cod} marcado como ausente${suffix}`, "warn");
+  if (pendingSync) {
+    showToast("Enviando ausência", `${cod}.${SYNC_PENDING_SUFFIX}`, "warn");
+  } else {
+    showToast("Ausência registrada", `${cod} marcado como ausente.`, "warn");
+  }
   onOk?.();
 }
 
@@ -40,13 +50,17 @@ export function alertEntregaAtrasadaConcluida(
   pendingSync?: boolean
 ): void {
   const cod = (codigo || "Pedido").trim() || "Pedido";
-  const titulo = tipo === "entregue" ? "Entrega atrasada concluída" : "Ausência atrasada registrada";
-  const baseMsg =
-    tipo === "entregue"
-      ? `${cod} foi finalizado com sucesso.`
-      : `${cod} foi marcado como ausente.`;
-  const msg = pendingSync ? `${baseMsg}${SYNC_PENDING_SUFFIX}` : baseMsg;
-  showToast(titulo, msg, tipo === "entregue" ? "success" : "warn");
+  if (pendingSync) {
+    const titulo = tipo === "entregue" ? "Enviando entrega" : "Enviando ausência";
+    showToast(titulo, `${cod}.${SYNC_PENDING_SUFFIX}`, "warn");
+  } else {
+    const titulo = tipo === "entregue" ? "Entrega atrasada concluída" : "Ausência atrasada registrada";
+    const baseMsg =
+      tipo === "entregue"
+        ? `${cod} foi finalizado com sucesso.`
+        : `${cod} foi marcado como ausente.`;
+    showToast(titulo, baseMsg, tipo === "entregue" ? "success" : "warn");
+  }
   onOk?.();
 }
 
@@ -58,7 +72,10 @@ export function alertDevolucaoFeita(
 ): void {
   const cod = (codigo || "Pedido").trim() || "Pedido";
   const base = (nomeSubBase || "base").trim() || "base";
-  const suffix = pendingSync ? SYNC_PENDING_SUFFIX : ".";
-  showToast("Devolução feita", `${cod} devolvido à ${base}${suffix}`, "success");
+  if (pendingSync) {
+    showToast("Enviando devolução", `${cod}.${SYNC_PENDING_SUFFIX}`, "warn");
+  } else {
+    showToast("Devolução feita", `${cod} devolvido à ${base}.`, "success");
+  }
   onOk?.();
 }

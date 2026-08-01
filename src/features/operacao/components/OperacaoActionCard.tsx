@@ -14,7 +14,7 @@ type Props = {
   subtitle: string;
   icon: IoniconName;
   onPress: () => void;
-  variant?: "primary" | "secondary";
+  variant?: "primary" | "secondary" | "compact";
 };
 
 export default function OperacaoActionCard({
@@ -39,6 +39,18 @@ export default function OperacaoActionCard({
           shadowRadius: variant === "primary" ? 14 : 8,
           elevation: variant === "primary" ? 6 : 2,
         },
+        gridShadow: {
+          flex: 1,
+          minWidth: "47%",
+          maxWidth: "48.5%",
+          borderRadius: radius.lg,
+          marginBottom: space.sm,
+          shadowColor: colors.shadowColor,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.06,
+          shadowRadius: 6,
+          elevation: 2,
+        },
         primaryBtn: {
           flexDirection: "row",
           alignItems: "center",
@@ -61,6 +73,16 @@ export default function OperacaoActionCard({
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
         },
+        compactCard: {
+          paddingVertical: space.md,
+          paddingHorizontal: space.sm,
+          minHeight: 108,
+          borderRadius: radius.lg,
+          backgroundColor: colors.backgroundCard,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          alignItems: "flex-start",
+        },
         iconWrap: {
           width: 48,
           height: 48,
@@ -69,17 +91,26 @@ export default function OperacaoActionCard({
           alignItems: "center",
           justifyContent: "center",
         },
+        compactIconWrap: {
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          backgroundColor: colors.primarySoft,
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 8,
+        },
         textWrap: { flex: 1 },
         title: {
-          fontSize: variant === "primary" ? 18 : 16,
+          fontSize: variant === "primary" ? 18 : variant === "compact" ? 14 : 16,
           fontWeight: "800",
           color: variant === "primary" ? colors.primaryContrast : colors.text,
         },
         subtitle: {
-          fontSize: 13,
+          fontSize: variant === "compact" ? 11 : 13,
           color: variant === "primary" ? "rgba(255,255,255,0.9)" : colors.textSecondary,
           marginTop: 4,
-          lineHeight: 18,
+          lineHeight: variant === "compact" ? 15 : 18,
         },
       }),
     [colors, variant]
@@ -104,6 +135,24 @@ export default function OperacaoActionCard({
             </View>
             <Ionicons name="chevron-forward" size={22} color={colors.primaryContrast} />
           </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (variant === "compact") {
+    return (
+      <View style={styles.gridShadow}>
+        <TouchableOpacity style={styles.compactCard} onPress={onPress} activeOpacity={0.88}>
+          <View style={styles.compactIconWrap}>
+            <Ionicons name={icon} size={20} color={colors.primary} />
+          </View>
+          <Text style={styles.title} numberOfLines={2}>
+            {title}
+          </Text>
+          <Text style={styles.subtitle} numberOfLines={2}>
+            {subtitle}
+          </Text>
         </TouchableOpacity>
       </View>
     );

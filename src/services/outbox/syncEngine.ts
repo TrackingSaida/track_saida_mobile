@@ -1,4 +1,4 @@
-import type { AxiosError } from "axios";
+import axios, { type AxiosError } from "axios";
 import { marcarEntregue, marcarAusente, marcarDevolver } from "../../features/entregas/api";
 import { isNetworkOrTimeoutError } from "../apiClient";
 import {
@@ -29,6 +29,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function auditSync(event: string, action: OutboxDeliveryAction, extra?: string): void {
+  const base = `[audit_entrega] ${event} kind=${action.kind} actionId=${action.actionId} clientActionId=${action.clientActionId} ids=${action.idSaidas.join(",")} attempts=${action.attempts}`;
+  if (extra) console.info(`${base} ${extra}`);
+  else console.info(base);
+}
+
 function isAlreadyFinalizedError(e: unknown): boolean {
   const ax = e as AxiosError<{ detail?: string | { code?: string } }>;
   const detail = ax.response?.data?.detail;
@@ -36,6 +42,51 @@ function isAlreadyFinalizedError(e: unknown): boolean {
     return true;
   }
   return false;
+}
+
+/** 4xx de regra/negócio: não adianta retentar em loop. */
+function isPermanentSyncError(e: unknown): boolean {
+  if (axios.isAxiosError(e)) {
+    const status = e.response?.status;
+    if (status == null) return false;
+    if (status === 401 || status === 408 || status === 429) return false;
+    return status >= 400 && status < 500;
+  }
+  const msg = e instanceof Error ? e.message : String(e);
+  return /CAMPOS_OBRIGATORIOS|STATUS_INVALIDO|STATUS_FINALIZADO|FOTO_OBRIGATORIA|MAX_FOTOS|REQUER_NOVA_TENTATIVA|\b422\b|\b403\b|\b404\b/i.test(
+    msg
+  );
+}
+
+function errorMessage(e: unknown): string {
+  if (axios.isAxiosError(e)) {
+    const detail = e.response?.data?.detail;
+    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (detail && typeof detail === "object") {
+      const obj = detail as { message?: string; code?: string };
+      if (typeof obj.message === "string" && obj.message.trim()) return obj.message.trim();
+      if (typeof obj.code === "string" && obj.code.trim()) return obj.code.trim();
+    }
+    if (e.message) return e.message;
+  }
+  if (e instanceof Error && e.message.trim()) return e.message.trim();
+  return String(e);
+}
+
+async function loadActionSnapshot(actionId: string): Promise<OutboxDeliveryAction | null> {
+  const manifest = await loadManifest();
+  return manifest.actions.find((a) => a.actionId === actionId) ?? null;
+}
+
+/** Após crash, ação pode ficar em "syncing" e nunca mais entrar na fila. */
+async function recoverStuckSyncingActions(): Promise<void> {
+  const manifest = await loadManifest();
+  for (const action of manifest.actions) {
+    if (action.state === "syncing") {
+      await persistAction({ ...action, state: "pending" });
+      console.warn(`[audit_entrega] sync_recover_stuck actionId=${action.actionId}`);
+    }
+  }
 }
 
 async function uploadActionPhotos(action: OutboxDeliveryAction): Promise<OutboxDeliveryAction> {
@@ -49,12 +100,13 @@ async function uploadActionPhotos(action: OutboxDeliveryAction): Promise<OutboxD
 
   const photoIds = pending.map(({ photo }) => photo.photoId || createPhotoId());
   const uris = pending.map(({ photo }) => photo.localUri);
+  const headers = { "X-Client-Action-Id": action.clientActionId };
   const keys =
     action.kind === "entregue"
-      ? await uploadEntreguePhotosForDeliveryIds(uris, action.idSaidas, photoIds)
+      ? await uploadEntreguePhotosForDeliveryIds(uris, action.idSaidas, photoIds, headers)
       : action.kind === "devolucao"
-        ? await uploadDevolucaoPhotosForDeliveryIds(uris, action.idSaidas, photoIds)
-        : await uploadAusentePhotosForDeliveryIds(uris, action.idSaidas, photoIds);
+        ? await uploadDevolucaoPhotosForDeliveryIds(uris, action.idSaidas, photoIds, headers)
+        : await uploadAusentePhotosForDeliveryIds(uris, action.idSaidas, photoIds, headers);
 
   const updatedPhotos = [...action.photos];
   pending.forEach(({ photo, index }, i) => {
@@ -67,6 +119,7 @@ async function uploadActionPhotos(action: OutboxDeliveryAction): Promise<OutboxD
   });
   const current = { ...action, photos: updatedPhotos };
   await persistAction(current);
+  auditSync("sync_photos_ok", current, `uploaded=${pending.length}`);
   return current;
 }
 
@@ -96,7 +149,10 @@ async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
         );
       }
     } catch (e) {
-      if (isAlreadyFinalizedError(e)) continue;
+      if (isAlreadyFinalizedError(e)) {
+        auditSync("sync_mark_already_finalized", action, `id_saida=${idSaida}`);
+        continue;
+      }
       throw e;
     }
   }
@@ -115,6 +171,7 @@ async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
 async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
   let current: OutboxDeliveryAction = { ...action, state: "syncing" };
   await persistAction(current);
+  auditSync("sync_start", current);
 
   if (current.photos.length > 0) {
     current = await uploadActionPhotos(current);
@@ -122,40 +179,70 @@ async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
 
   await markActionOnServer(current);
   await removeAction(action.actionId);
+  auditSync("sync_ok", current);
 }
 
+/**
+ * Processa só ações `pending`.
+ * `failed` só volta com retry manual (evita loop infinito a cada 30s).
+ */
 export async function processOutboxQueue(): Promise<void> {
   if (processing) return;
   if (!(await isOnline())) return;
 
   processing = true;
   useOutboxStore.getState().setSyncing(true);
-  useOutboxStore.getState().setLastSyncError(null);
 
   try {
+    await recoverStuckSyncingActions();
     const manifest = await loadManifest();
-    const queue = manifest.actions.filter(
-      (a) => a.state === "pending" || a.state === "failed"
-    );
+    const hasFailedAlready = manifest.actions.some((a) => a.state === "failed");
+    if (!hasFailedAlready) {
+      useOutboxStore.getState().setLastSyncError(null);
+    }
+
+    const queue = (await loadManifest()).actions.filter((a) => a.state === "pending");
 
     for (const action of queue) {
       if (!(await isOnline())) break;
 
       try {
-        await processOneAction(action);
+        await Promise.race([
+          processOneAction(action),
+          new Promise<never>((_, reject) => {
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "Tempo esgotado ao enviar a entrega. Verifique a internet e toque em Tentar de novo."
+                  )
+                ),
+              120_000
+            );
+          }),
+        ]);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        const attempts = action.attempts + 1;
+        const msg = errorMessage(e);
+        // Preserva progresso de fotos já persistido (não sobrescreve com snapshot velho).
+        const latest = (await loadActionSnapshot(action.actionId)) ?? action;
+        const permanent = isPermanentSyncError(e);
+        const attempts = permanent ? MAX_ATTEMPTS : latest.attempts + 1;
         const failed: OutboxDeliveryAction = {
-          ...action,
+          ...latest,
           attempts,
-          state: attempts >= MAX_ATTEMPTS ? "failed" : "pending",
+          state: attempts >= MAX_ATTEMPTS || permanent ? "failed" : "pending",
           lastError: msg,
         };
         await persistAction(failed);
+        useOutboxStore.getState().setLastSyncError(msg);
+        auditSync(
+          failed.state === "failed" ? "sync_failed_final" : "sync_fail",
+          failed,
+          `permanent=${permanent} error=${msg.replace(/\s+/g, "_").slice(0, 160)}`
+        );
 
         if (isNetworkOrTimeoutError(e)) break;
-        if (attempts < MAX_ATTEMPTS) {
+        if (failed.state === "pending") {
           await sleep(Math.min(2000 * attempts + Math.floor(Math.random() * 400), 8000));
         }
       }
@@ -193,5 +280,25 @@ export async function retryFailedOutboxAction(actionId: string): Promise<void> {
   const action = manifest.actions.find((a) => a.actionId === actionId);
   if (!action) return;
   await persistAction({ ...action, state: "pending", attempts: 0, lastError: undefined });
+  useOutboxStore.getState().setLastSyncError(null);
+  console.info(`[audit_entrega] sync_retry_manual actionId=${actionId}`);
+  await useOutboxStore.getState().refresh();
+  await processOutboxQueue();
+}
+
+/** Retry manual de todos os failed (banner). */
+export async function retryAllFailedOutboxActions(): Promise<void> {
+  const manifest = await loadManifest();
+  const failed = manifest.actions.filter((a) => a.state === "failed");
+  for (const action of failed) {
+    await persistAction({ ...action, state: "pending", attempts: 0, lastError: undefined });
+  }
+  if (failed.length === 0) {
+    await processOutboxQueue();
+    return;
+  }
+  useOutboxStore.getState().setLastSyncError(null);
+  console.info(`[audit_entrega] sync_retry_manual_all count=${failed.length}`);
+  await useOutboxStore.getState().refresh();
   await processOutboxQueue();
 }

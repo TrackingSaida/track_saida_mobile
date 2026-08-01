@@ -500,7 +500,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         paddingTop={Math.max(12, insets.top)}
       />
       <ScrollView contentContainerStyle={styles.content}>
-        <DetailStatusHero entrega={entrega} />
+        <DetailStatusHero entrega={entrega} awaitingSync={awaitingSync} />
         <DetailOperacaoResumoBlock
           entrega={entrega}
           historico={historico}

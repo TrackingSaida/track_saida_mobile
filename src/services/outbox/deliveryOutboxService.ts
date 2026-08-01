@@ -101,12 +101,19 @@ export async function enqueueEntregueCompletion(params: {
       );
     }
     applyLocalEntregue(idSaidas);
+    console.info(
+      `[audit_entrega] outbox_reuse kind=entregue actionId=${existing.actionId} clientActionId=${existing.clientActionId} ids=${idSaidas.join(",")}`
+    );
+    void processOutboxQueue();
     return { queued: true, actionId: existing.actionId, marcacao: buildLocalRouteMarcacao() };
   }
 
-  // Já marcado localmente (retry após UI falhar): não cria outbox duplicada.
+  // Se já está "entregue" local mas SEM outbox, recria a fila (evita sucesso fantasma).
+  // Server trata ENTREGUE+body como complemento / STATUS_FINALIZADO com segurança.
   if (allLocallyEntregue(idSaidas)) {
-    return { queued: true, marcacao: buildLocalRouteMarcacao() };
+    console.warn(
+      `[audit_entrega] outbox_recreate kind=entregue reason=local_without_outbox ids=${idSaidas.join(",")}`
+    );
   }
 
   const actionId = createActionId();
@@ -130,6 +137,9 @@ export async function enqueueEntregueCompletion(params: {
   await persistAction(action);
   applyLocalEntregue(idSaidas);
   await useOutboxStore.getState().refresh();
+  console.info(
+    `[audit_entrega] outbox_enqueued kind=entregue actionId=${actionId} clientActionId=${clientActionId} ids=${idSaidas.join(",")} photos=${photoEntries.length}`
+  );
   void processOutboxQueue();
   return { queued: true, actionId, marcacao: buildLocalRouteMarcacao() };
 }
@@ -155,6 +165,10 @@ export async function enqueueAusenteCompletion(params: {
       );
     }
     applyLocalAusente(idSaidas);
+    console.info(
+      `[audit_entrega] outbox_reuse kind=ausente actionId=${existing.actionId} clientActionId=${existing.clientActionId} ids=${idSaidas.join(",")}`
+    );
+    void processOutboxQueue();
     return { queued: true, actionId: existing.actionId, marcacao: buildLocalRouteMarcacao() };
   }
 
@@ -180,6 +194,9 @@ export async function enqueueAusenteCompletion(params: {
   await persistAction(action);
   applyLocalAusente(idSaidas);
   await useOutboxStore.getState().refresh();
+  console.info(
+    `[audit_entrega] outbox_enqueued kind=ausente actionId=${actionId} clientActionId=${clientActionId} ids=${idSaidas.join(",")} photos=${photoEntries.length}`
+  );
   void processOutboxQueue();
   return { queued: true, actionId, marcacao: buildLocalRouteMarcacao() };
 }

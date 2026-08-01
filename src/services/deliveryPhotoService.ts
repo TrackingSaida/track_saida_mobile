@@ -146,6 +146,8 @@ export interface UploadDeliveryPhotoParams {
   existingObjectKey?: string;
   validarCamposObrigatorios?: boolean;
   alterarStatus?: boolean;
+  /** Correlação com outbox / logs de audit no backend. */
+  clientActionId?: string;
 }
 
 function getErrorMessage(e: unknown): string {
@@ -174,6 +176,7 @@ export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Pr
     existingObjectKey,
     validarCamposObrigatorios = false,
     alterarStatus = true,
+    clientActionId,
   } = params;
 
   let objectKey = (existingObjectKey || "").trim();
@@ -242,13 +245,17 @@ export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Pr
   }
 
   try {
+    const headers = clientActionId
+      ? { "X-Client-Action-Id": clientActionId }
+      : undefined;
     await patchFotoSaida(
       id_saida,
       objectKey,
       tipo,
       validarCamposObrigatorios,
       alterarStatus,
-      photoId
+      photoId,
+      headers
     );
   } catch (e) {
     throw new Error(getErrorMessage(e) || "Foto enviada, mas falha ao registrar. Tente novamente.");

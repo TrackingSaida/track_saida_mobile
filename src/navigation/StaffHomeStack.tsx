@@ -3,6 +3,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import StaffHomeScreen from "../screens/StaffHomeScreen";
 import LeituraSaidasScreen from "../features/operacao/screens/LeituraSaidasScreen";
 import LeituraColetasScreen from "../features/operacao/screens/LeituraColetasScreen";
+import LeituraEntradasScreen from "../features/operacao/screens/LeituraEntradasScreen";
+import ConferenciaSaidaScreen from "../features/operacao/screens/ConferenciaSaidaScreen";
 import ConsultaCodigosScreen from "../features/operacao/screens/ConsultaCodigosScreen";
 import SaidasPorMotoboyScreen from "../features/operacao/screens/SaidasPorMotoboyScreen";
 import AcompanharOperacaoScreen from "../features/operacao/screens/AcompanharOperacaoScreen";
@@ -35,6 +37,16 @@ export default function StaffHomeStack() {
       <Stack.Screen
         name="LeituraColetas"
         component={LeituraColetasScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="LeituraEntradas"
+        component={LeituraEntradasScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ConferenciaSaida"
+        component={ConferenciaSaidaScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen
