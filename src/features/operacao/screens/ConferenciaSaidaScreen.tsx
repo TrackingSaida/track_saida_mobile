@@ -68,6 +68,18 @@ function statusLabelUi(status: string): string {
   return "Pendente";
 }
 
+/** Cores por status da conferência (badge e chip ativo). */
+function statusTone(status: string): { bg: string; fg: string; border: string } {
+  if (status === "conferida") {
+    return { bg: "rgba(25,135,84,0.16)", fg: "#198754", border: "rgba(25,135,84,0.45)" };
+  }
+  if (status === "reconferir") {
+    return { bg: "rgba(194,65,12,0.14)", fg: "#c2410c", border: "rgba(194,65,12,0.4)" };
+  }
+  // pendente
+  return { bg: "rgba(202,138,4,0.16)", fg: "#a16207", border: "rgba(202,138,4,0.45)" };
+}
+
 function labelNovosPacotes(qtd: number): string {
   if (qtd <= 0) return "Sem pacotes novos";
   return qtd === 1 ? "+1 pacote novo" : `+${qtd} novos pacotes`;
@@ -166,9 +178,9 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
           paddingHorizontal: 8,
           paddingVertical: 3,
           borderRadius: 999,
-          backgroundColor: colors.primarySoft,
+          borderWidth: 1,
         },
-        badgeText: { fontSize: 11, fontWeight: "700", color: colors.primary },
+        badgeText: { fontSize: 11, fontWeight: "700" },
         modalOverlay: {
           flex: 1,
           backgroundColor: "rgba(0,0,0,0.45)",
@@ -335,7 +347,11 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
       const d = await conferirSaidaMotoboy(detail.motoboy_id, detail.data_ref);
       setDetail(d);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setSucessoMsg("Saída conferida com sucesso.");
+      setSucessoMsg(
+        detail.status === "reconferir"
+          ? "Saída reconferida com sucesso."
+          : "Saída conferida com sucesso."
+      );
       void load();
       if (sucessoTimerRef.current) clearTimeout(sucessoTimerRef.current);
       sucessoTimerRef.current = setTimeout(() => {
@@ -396,17 +412,27 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
 
         <Text style={styles.fieldLabel}>Status</Text>
         <View style={styles.chipsRow}>
-          {ABAS.map((a) => (
-            <TouchableOpacity
-              key={a.key}
-              style={[styles.chip, aba === a.key && styles.chipActive]}
-              onPress={() => setAba(a.key)}
-            >
-              <Text style={[styles.chipText, aba === a.key && styles.chipTextActive]}>
-                {`${a.label} (${tabCounts[a.key] ?? 0})`}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {ABAS.map((a) => {
+            const tone = statusTone(a.key);
+            const active = aba === a.key;
+            return (
+              <TouchableOpacity
+                key={a.key}
+                style={[
+                  styles.chip,
+                  active && {
+                    backgroundColor: tone.bg,
+                    borderColor: tone.border,
+                  },
+                ]}
+                onPress={() => setAba(a.key)}
+              >
+                <Text style={[styles.chipText, active && { color: tone.fg }]}>
+                  {`${a.label} (${tabCounts[a.key] ?? 0})`}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         <TextInput
@@ -425,21 +451,35 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
         ) : filtered.length === 0 ? (
           <OperacaoEmptyState message="Não há registros nesta aba para o período." />
         ) : (
-          filtered.map((it) => (
-            <TouchableOpacity key={`${it.id}-${it.data_ref}`} style={styles.card} onPress={() => void openDetail(it)}>
-              <Text style={styles.cardTitle}>{it.motoboy_nome}</Text>
-              <Text style={styles.cardMeta}>
-                {formatDateLabel(it.data_ref)}
-                {it.qtd_no_momento != null ? ` · ${it.qtd_no_momento} pacotes` : ""}
-              </Text>
-              {it.status === "reconferir" && typeof it.novos_qtd === "number" ? (
-                <Text style={styles.cardNovos}>{labelNovosPacotes(it.novos_qtd)}</Text>
-              ) : null}
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{statusLabelUi(it.status)}</Text>
-              </View>
-            </TouchableOpacity>
-          ))
+          filtered.map((it) => {
+            const tone = statusTone(it.status);
+            return (
+              <TouchableOpacity
+                key={`${it.id}-${it.data_ref}`}
+                style={styles.card}
+                onPress={() => void openDetail(it)}
+              >
+                <Text style={styles.cardTitle}>{it.motoboy_nome}</Text>
+                <Text style={styles.cardMeta}>
+                  {formatDateLabel(it.data_ref)}
+                  {it.qtd_no_momento != null ? ` · ${it.qtd_no_momento} pacotes` : ""}
+                </Text>
+                {it.status === "reconferir" && typeof it.novos_qtd === "number" ? (
+                  <Text style={styles.cardNovos}>{labelNovosPacotes(it.novos_qtd)}</Text>
+                ) : null}
+                <View
+                  style={[
+                    styles.badge,
+                    { backgroundColor: tone.bg, borderColor: tone.border },
+                  ]}
+                >
+                  <Text style={[styles.badgeText, { color: tone.fg }]}>
+                    {statusLabelUi(it.status)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })
         )}
       </ScrollView>
 
@@ -465,9 +505,27 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
                 showsVerticalScrollIndicator
               >
                 <Text style={styles.modalTitle}>{detail.motoboy_nome}</Text>
-                <Text style={styles.modalSub}>
-                  {formatDateLabel(detail.data_ref)} · {statusLabelUi(detail.status)}
-                </Text>
+                <Text style={styles.modalSub}>{formatDateLabel(detail.data_ref)}</Text>
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor: statusTone(detail.status).bg,
+                      borderColor: statusTone(detail.status).border,
+                      marginTop: 0,
+                      marginBottom: 14,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.badgeText,
+                      { color: statusTone(detail.status).fg },
+                    ]}
+                  >
+                    {statusLabelUi(detail.status)}
+                  </Text>
+                </View>
                 {sucessoMsg ? (
                   <View style={styles.sucessoBanner}>
                     <Text style={styles.sucessoBannerText}>{sucessoMsg}</Text>
