@@ -410,24 +410,30 @@ export default function LeituraEntradasScreen() {
 
   const processar = useCallback(
     async (raw: string, origem: "camera" | "manual") => {
-      const classified = classifyCodigoParaOperacao(raw);
+      const rawStr = String(raw || "").trim();
+      if (!rawStr || scanLocked.current) return;
+
+      const classified = classifyCodigoParaOperacao(rawStr);
       if (!classified.ok || !classified.codigo) {
         playSound("error");
         pushFeedback("erro", classified.motivo || "Código inválido");
         appendLeitura({
-          codigo: String(raw || "").trim().slice(0, 40) || "—",
+          codigo: rawStr.slice(0, 40) || "—",
           servico: "Avulso",
           status: "erro",
         });
         return;
       }
       const c = classified.codigo.trim().toUpperCase();
-      if (isRecentlyScanned(c)) {
-        playSound("warn");
-        pushFeedback("duplicado", "Aguarde um momento", c);
+      if (isRecentlyScanned(rawStr) || isRecentlyScanned(c)) {
+        // Mesmo QR ainda no frame: não trava o scanner sequencial.
         return;
       }
+
+      markScanned(rawStr);
       markScanned(c);
+      scanLocked.current = true;
+      if (origem === "manual") setCodigoManual("");
       setLoading(true);
       try {
         const res = await lerEntrada({
@@ -440,7 +446,6 @@ export default function LeituraEntradasScreen() {
         playSound("success");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         pushFeedback("sucesso", "Entrada registrada", c);
-        setCodigoManual("");
         void loadResumoDia();
       } catch (err) {
         const ax = err as { response?: { status?: number; data?: { code?: string } } };
@@ -473,10 +478,11 @@ export default function LeituraEntradasScreen() {
 
   const onBarcode = useCallback(
     (result: BarcodeScanningResult) => {
-      if (scanLocked.current || loading) return;
+      if (loading || scanLocked.current) return;
+      const type = String(result?.type || "").toLowerCase();
+      if (type && type !== "qr") return;
       const raw = String(result.data || "").trim();
       if (!raw) return;
-      scanLocked.current = true;
       void processar(raw, "camera");
     },
     [loading, processar]
