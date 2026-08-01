@@ -18,6 +18,14 @@ export interface EntradaLancarAvulsoResult {
   mensagem: string;
 }
 
+export interface EntradaResumoDia {
+  data_ref: string;
+  total: number;
+  sum_shopee: number;
+  sum_mercado: number;
+  sum_avulso: number;
+}
+
 export async function lerEntrada(params: {
   codigo: string;
   origem?: "camera" | "manual";
@@ -39,6 +47,14 @@ export async function lancarAvulsoEntrada(params: {
   const { data } = await client.post<EntradaLancarAvulsoResult>("/entradas/lancar-avulso", {
     quantidade: params.quantidade,
     ...(params.identificacao ? { identificacao: params.identificacao } : {}),
+  });
+  return data;
+}
+
+/** Totais do dia na base (todos os operadores da sub_base). */
+export async function getEntradaResumoDia(dataRef?: string): Promise<EntradaResumoDia> {
+  const { data } = await client.get<EntradaResumoDia>("/entradas/resumo-dia", {
+    params: dataRef ? { data_ref: dataRef } : undefined,
   });
   return data;
 }

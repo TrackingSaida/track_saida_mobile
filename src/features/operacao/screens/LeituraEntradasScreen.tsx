@@ -10,10 +10,11 @@ import {
   Modal,
   Alert,
   Pressable,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import * as Haptics from "expo-haptics";
@@ -23,15 +24,22 @@ import { useAuthStore } from "../../../store/authStore";
 import { effectiveEntradaObrigatoria, effectivePodeDigitarCodigoManual } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
-import OperacaoEmptyState from "../components/OperacaoEmptyState";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
-import { lancarAvulsoEntrada, lerEntrada, mensagemErroEntrada } from "../entradasApi";
+import {
+  getEntradaResumoDia,
+  lancarAvulsoEntrada,
+  lerEntrada,
+  mensagemErroEntrada,
+  type EntradaResumoDia,
+} from "../entradasApi";
 import {
   AVULSO_IDENT_AJUDA,
   AVULSO_IDENT_MAX,
   AVULSO_QTD_MAX,
   validarLancamentoAvulso,
 } from "../utils/avulsoLancamento";
+import { useScannerTorch } from "../../entregas/hooks/useScannerTorch";
+import ScannerTorchButton from "../../entregas/components/ScannerTorchButton";
 
 type StatusLeitura = "sucesso" | "duplicado" | "erro";
 type FeedbackTipo = StatusLeitura | "info";
@@ -43,8 +51,14 @@ interface LeituraEntradaItem {
 }
 
 const SCAN_DEBOUNCE_MS = 1500;
-const LISTA_RECENTES_MAX = 30;
 const recentCodes = new Map<string, number>();
+const RESUMO_DIA_VAZIO: EntradaResumoDia = {
+  data_ref: "",
+  total: 0,
+  sum_shopee: 0,
+  sum_mercado: 0,
+  sum_avulso: 0,
+};
 
 function isRecentlyScanned(data: string): boolean {
   const key = String(data || "").trim();
@@ -68,16 +82,6 @@ function labelServicoUi(servico?: string | null, codigo?: string): string {
     return inferido;
   }
   return "Avulso";
-}
-
-function coresBadgeServicoLabel(servico: string): { bg: string; fg: string } {
-  const s = servico.trim().toLowerCase();
-  if (s.includes("shopee")) return { bg: "rgba(238,77,45,0.15)", fg: "#ee4d2d" };
-  if (s === "ml" || s.includes("mercado") || s.includes("livre")) {
-    return { bg: "rgba(255,230,0,0.35)", fg: "#2d3277" };
-  }
-  if (s.includes("avulso")) return { bg: "rgba(108,117,125,0.18)", fg: "#4b5563" };
-  return { bg: "rgba(13,110,253,0.12)", fg: "#0d6efd" };
 }
 
 function labelStatusUi(status: StatusLeitura): string {
@@ -119,8 +123,11 @@ export default function LeituraEntradasScreen() {
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
   const [avulsoIdentificacao, setAvulsoIdentificacao] = useState("");
   const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
+  const [resumoDia, setResumoDia] = useState<EntradaResumoDia>(RESUMO_DIA_VAZIO);
+  const [resumoLoading, setResumoLoading] = useState(false);
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const torch = useScannerTorch(cameraOpen && !modoManual && !!permission?.granted);
 
   const styles = useMemo(
     () =>
@@ -168,19 +175,28 @@ export default function LeituraEntradasScreen() {
           textAlign: "center",
           marginBottom: 16,
         },
-        servicoBadgesRow: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 8,
-          marginBottom: 12,
+        totRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
+        totBox: {
+          flex: 1,
+          borderRadius: 12,
+          paddingVertical: 12,
+          alignItems: "center",
+          minHeight: 72,
           justifyContent: "center",
         },
-        servicoBadge: {
-          paddingHorizontal: 10,
-          paddingVertical: 5,
-          borderRadius: 999,
+        totNum: { fontSize: 24, fontWeight: "900" },
+        totLbl: {
+          fontSize: 11,
+          fontWeight: "800",
+          marginTop: 2,
+          textTransform: "uppercase",
         },
-        servicoBadgeText: { fontSize: 12, fontWeight: "700" },
+        sessaoMeta: {
+          fontSize: 13,
+          color: colors.textSecondary,
+          textAlign: "center",
+          marginBottom: 12,
+        },
         ultimaCard: {
           marginTop: 4,
           padding: 14,
@@ -193,32 +209,6 @@ export default function LeituraEntradasScreen() {
         ultimaCodigo: { fontSize: 17, fontWeight: "700", color: colors.text },
         ultimaStatus: { fontSize: 14, color: colors.textSecondary, marginTop: 6 },
         vazioText: { fontSize: 14, color: colors.textSecondary, textAlign: "center", paddingVertical: 8 },
-        listaContainer: { marginBottom: 8 },
-        listaHeader: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-          marginBottom: 8,
-        },
-        listaHeaderText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
-        listaItem: {
-          backgroundColor: colors.backgroundCard,
-          borderRadius: 12,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          padding: 12,
-          marginBottom: 8,
-          flexDirection: "row",
-          alignItems: "center",
-        },
-        listaCodigo: { fontSize: 15, fontWeight: "700", color: colors.text },
-        listaSubtitle: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-        listaBadge: {
-          paddingHorizontal: 8,
-          paddingVertical: 4,
-          borderRadius: 999,
-          marginLeft: 8,
-        },
-        listaBadgeText: { fontSize: 11, fontWeight: "700" },
         feedbackStrip: {
           marginBottom: 12,
           borderRadius: 10,
@@ -288,7 +278,7 @@ export default function LeituraEntradasScreen() {
           position: "absolute",
           top: insets.top + 72,
           left: 14,
-          right: 14,
+          right: 70,
           zIndex: 11,
         },
         cameraSending: {
@@ -375,31 +365,25 @@ export default function LeituraEntradasScreen() {
     [leituras]
   );
 
-  const contagensPorServico = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const l of leituras) {
-      if (l.status !== "sucesso") continue;
-      map.set(l.servico, (map.get(l.servico) || 0) + 1);
-    }
-    const order = ["Shopee", "ML", "Avulso"];
-    return Array.from(map.entries()).sort((a, b) => {
-      const ia = order.indexOf(a[0]);
-      const ib = order.indexOf(b[0]);
-      if (ia === -1 && ib === -1) return a[0].localeCompare(b[0], "pt-BR");
-      if (ia === -1) return 1;
-      if (ib === -1) return -1;
-      return ia - ib;
-    });
-  }, [leituras]);
-
   const ultimaLeitura = leituras.length ? leituras[leituras.length - 1] : null;
-  const listaRecentes = useMemo(
-    () =>
-      [...leituras]
-        .reverse()
-        .slice(0, LISTA_RECENTES_MAX)
-        .map((item, idx) => ({ item, key: `${item.codigo}-${item.status}-${idx}` })),
-    [leituras]
+
+  const loadResumoDia = useCallback(async () => {
+    if (!habilitada) return;
+    setResumoLoading(true);
+    try {
+      const data = await getEntradaResumoDia();
+      setResumoDia(data);
+    } catch {
+      // Mantém último resumo conhecido.
+    } finally {
+      setResumoLoading(false);
+    }
+  }, [habilitada]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadResumoDia();
+    }, [loadResumoDia])
   );
 
   const pushFeedback = useCallback((tipo: FeedbackTipo, msg: string, codigo?: string) => {
@@ -457,6 +441,7 @@ export default function LeituraEntradasScreen() {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         pushFeedback("sucesso", "Entrada registrada", c);
         setCodigoManual("");
+        void loadResumoDia();
       } catch (err) {
         const ax = err as { response?: { status?: number; data?: { code?: string } } };
         if (ax.response?.status === 409 || ax.response?.data?.code === "JA_NA_BASE") {
@@ -483,7 +468,7 @@ export default function LeituraEntradasScreen() {
         }, 400);
       }
     },
-    [appendLeitura, pushFeedback]
+    [appendLeitura, loadResumoDia, pushFeedback]
   );
 
   const onBarcode = useCallback(
@@ -520,6 +505,7 @@ export default function LeituraEntradasScreen() {
       setAvulsoIdentificacao("");
       setAvulsoQuantidade("1");
       setModoManual(false);
+      void loadResumoDia();
       if (!cameraOpen) void abrirCamera();
     } catch (err) {
       pushFeedback("erro", mensagemErroEntrada(err));
@@ -531,6 +517,7 @@ export default function LeituraEntradasScreen() {
     avulsoIdentificacao,
     avulsoQuantidade,
     cameraOpen,
+    loadResumoDia,
     pushFeedback,
   ]);
 
@@ -571,7 +558,13 @@ export default function LeituraEntradasScreen() {
   return (
     <View style={styles.container}>
       <ScreenHeaderBar title="Registrar entrada" onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl refreshing={resumoLoading} onRefresh={() => void loadResumoDia()} />
+        }
+      >
         <Text style={styles.hint}>
           Bipe o pacote para registrar a entrada na base. Não é necessário informar seller.
         </Text>
@@ -583,25 +576,28 @@ export default function LeituraEntradasScreen() {
         </TouchableOpacity>
 
         <View style={styles.resumoCard}>
-          <Text style={styles.sessaoTitulo}>Sessão atual</Text>
-          <Text style={styles.totalGigante}>{totalOk}</Text>
-          <Text style={styles.totalLegenda}>Entradas nesta sessão</Text>
-          {contagensPorServico.length > 0 ? (
-            <View style={styles.servicoBadgesRow}>
-              {contagensPorServico.map(([nome, qtd]) => {
-                const cv = coresBadgeServicoLabel(nome);
-                return (
-                  <View key={nome} style={[styles.servicoBadge, { backgroundColor: cv.bg }]}>
-                    <Text style={[styles.servicoBadgeText, { color: cv.fg }]}>
-                      {nome}: {qtd}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          ) : null}
+          <Text style={styles.sessaoTitulo}>Hoje na base</Text>
+          <Text style={styles.totalGigante}>{resumoDia.total}</Text>
+          <Text style={styles.totalLegenda}>Entradas de todos os operadores</Text>
+          <View style={styles.totRow}>
+            {(
+              [
+                { label: "Shopee", value: resumoDia.sum_shopee, bg: "#dc2626", fg: "#fff" },
+                { label: "ML", value: resumoDia.sum_mercado, bg: "#eab308", fg: "#1f2937" },
+                { label: "Avulso", value: resumoDia.sum_avulso, bg: "#6b7280", fg: "#fff" },
+              ] as const
+            ).map((s) => (
+              <View key={s.label} style={[styles.totBox, { backgroundColor: s.bg }]}>
+                <Text style={[styles.totNum, { color: s.fg }]}>{s.value}</Text>
+                <Text style={[styles.totLbl, { color: s.fg }]}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+          <Text style={styles.sessaoMeta}>
+            Nesta sessão: {totalOk} {totalOk === 1 ? "entrada" : "entradas"}
+          </Text>
           <View style={styles.ultimaCard}>
-            <Text style={styles.ultimaTitulo}>Última leitura</Text>
+            <Text style={styles.ultimaTitulo}>Última leitura (sua sessão)</Text>
             {ultimaLeitura ? (
               <>
                 <Text style={styles.ultimaCodigo}>{ultimaLeitura.codigo}</Text>
@@ -614,35 +610,6 @@ export default function LeituraEntradasScreen() {
               <Text style={styles.vazioText}>Aguardando primeira leitura</Text>
             )}
           </View>
-        </View>
-
-        <View style={styles.listaContainer}>
-          <View style={styles.listaHeader}>
-            <Text style={styles.listaHeaderText}>Leituras recentes</Text>
-            <Text style={styles.listaHeaderText}>até {LISTA_RECENTES_MAX}</Text>
-          </View>
-          {listaRecentes.length === 0 ? (
-            <OperacaoEmptyState message="Nenhuma leitura recente nesta sessão." icon="scan-outline" />
-          ) : (
-            listaRecentes.map(({ item: l, key }) => {
-              const tone = coresFeedback(l.status);
-              return (
-                <View key={key} style={styles.listaItem}>
-                  <View style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
-                    <Text style={styles.listaCodigo} numberOfLines={2}>
-                      {l.codigo}
-                    </Text>
-                    <Text style={styles.listaSubtitle}>{l.servico}</Text>
-                  </View>
-                  <View style={[styles.listaBadge, { backgroundColor: tone.bg }]}>
-                    <Text style={[styles.listaBadgeText, { color: tone.fg }]}>
-                      {labelStatusUi(l.status)}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })
-          )}
         </View>
       </ScrollView>
 
@@ -737,7 +704,14 @@ export default function LeituraEntradasScreen() {
                   style={StyleSheet.absoluteFill}
                   facing="back"
                   barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                  enableTorch={torch.enableTorch}
+                  onCameraReady={torch.onCameraReady}
                   onBarcodeScanned={loading ? undefined : onBarcode}
+                />
+                <ScannerTorchButton
+                  mode={torch.mode}
+                  onPress={torch.cycleMode}
+                  style={{ top: insets.top + 72, right: 16 }}
                 />
                 <View
                   style={{

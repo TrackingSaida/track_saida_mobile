@@ -68,6 +68,17 @@ export function effectivePodeDigitarCodigoManual(claims: JwtClaims | null | unde
   return false;
 }
 
+/**
+ * Lançar avulso: staff (0–3) sempre pode; motoboy liberado por padrão (opt-out).
+ */
+export function effectivePodeLancarAvulso(claims: JwtClaims | null | undefined): boolean {
+  if (!claims) return false;
+  const r = asRole(claims.role);
+  if (isStaffOperacaoRole(r)) return true;
+  if (isMotoboyRole(r)) return asDefaultTrue(claims.pode_lancar_avulso);
+  return false;
+}
+
 /** Owner exige entrada na base antes da saída. */
 export function effectiveEntradaObrigatoria(claims: JwtClaims | null | undefined): boolean {
   if (!claims) return false;
