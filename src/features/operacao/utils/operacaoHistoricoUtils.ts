@@ -30,6 +30,8 @@ export type EventoHistoricoKey =
   | "rota_recalculada"
   | "encerrado_sistema"
   | "rota_cancelada"
+  | "entrada_base"
+  | "saida_conferida"
   | "unknown";
 
 const LABELS: Partial<Record<EventoHistoricoKey, string>> = {
@@ -49,6 +51,8 @@ const LABELS: Partial<Record<EventoHistoricoKey, string>> = {
   liberacao_ausencias: "Nova tentativa liberada pela operação",
   coleta: "Pacote coletado",
   criado_coleta: "Pacote coletado",
+  entrada_base: "Entrada na base",
+  saida_conferida: "Saída conferida",
   reatribuido: "Entregador reatribuído",
   reatribuicao: "Entregador reatribuído",
   assumir: "Entregador reatribuído",
@@ -69,6 +73,8 @@ const GREEN_KEYS = new Set<EventoHistoricoKey>([
   "entregue_lote",
   "coleta",
   "criado_coleta",
+  "entrada_base",
+  "saida_conferida",
 ]);
 
 const BLUE_KEYS = new Set<EventoHistoricoKey>([
@@ -109,6 +115,8 @@ export function normalizeEventoKey(evento?: string | null): EventoHistoricoKey {
   if (raw.includes("scan") || raw.includes("escane")) return "scan";
   if (raw.includes("lido") || raw.includes("leitura")) return "lido";
   if (raw.includes("coleta")) return "coleta";
+  if (raw.includes("entrada")) return "entrada_base";
+  if (raw.includes("conferid")) return "saida_conferida";
   if (raw.includes("reatrib")) return "reatribuido";
   return "unknown";
 }
@@ -168,6 +176,10 @@ export function iconEventoHistorico(evento?: string | null): keyof typeof Ionico
     case "coleta":
     case "criado_coleta":
       return "cube-outline";
+    case "entrada_base":
+      return "enter-outline";
+    case "saida_conferida":
+      return "checkmark-done-outline";
     case "scan":
       return "scan-outline";
     case "lido":

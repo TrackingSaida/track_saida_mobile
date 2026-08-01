@@ -2,6 +2,8 @@ export type StaffStackParamList = {
   StaffHome: undefined;
   LeituraSaidas: undefined;
   LeituraColetas: undefined;
+  LeituraEntradas: undefined;
+  ConferenciaSaida: undefined;
   ConsultaCodigos: undefined;
   /** Quantidades por serviço (Shopee/ML/Avulso) — conceito distinto do acompanhamento de baixas. */
   SaidasPorMotoboy: undefined;

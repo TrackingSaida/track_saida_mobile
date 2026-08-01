@@ -657,6 +657,18 @@ export default function ScanScreen({ navigation }: Props) {
           setTimeout(() => (scanLocked.current = false), 500);
           return;
         }
+        const dataCode =
+          typeof ax?.response?.data === "object" && ax?.response?.data
+            ? String((ax.response.data as { code?: string }).code || "")
+            : "";
+        if (apiErro.code === "ENTRADA_OBRIGATORIA" || dataCode === "ENTRADA_OBRIGATORIA") {
+          const msgEntrada = "Este pacote ainda não teve entrada na base.";
+          playSound("error");
+          pushFeedback("erro", msgEntrada, c);
+          Alert.alert("Entrada necessária", msgEntrada);
+          setTimeout(() => (scanLocked.current = false), 500);
+          return;
+        }
         const msg =
           ax?.response?.data?.detail ?? apiErro.message ?? "Código não encontrado ou erro ao processar.";
         playSound("error");

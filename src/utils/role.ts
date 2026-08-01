@@ -68,6 +68,18 @@ export function effectivePodeDigitarCodigoManual(claims: JwtClaims | null | unde
   return false;
 }
 
+/** Owner exige entrada na base antes da saída. */
+export function effectiveEntradaObrigatoria(claims: JwtClaims | null | undefined): boolean {
+  if (!claims) return false;
+  return asExplicitTrue(claims.entrada_obrigatoria_habilitada);
+}
+
+/** Owner habilitou Conferência de Saída. */
+export function effectiveConferenciaSaida(claims: JwtClaims | null | undefined): boolean {
+  if (!claims) return false;
+  return asExplicitTrue(claims.conferencia_saida_habilitada);
+}
+
 /** Rótulo curto para exibição (opcional). */
 export function staffRoleLabel(role: number | undefined): string {
   switch (asRole(role)) {

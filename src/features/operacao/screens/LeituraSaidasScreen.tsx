@@ -983,7 +983,11 @@ export default function LeituraSaidasScreen() {
           return;
         }
 
-        if (status === 422 && code === "NAO_COLETADO") {
+        if (status === 422 && code === "ENTRADA_OBRIGATORIA") {
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback("erro", "Este pacote ainda não teve entrada na base.", c);
+        } else if (status === 422 && code === "NAO_COLETADO") {
           const srvNc = inferServicoSaida(c);
           setLeituras((prev) => [
             ...prev,
