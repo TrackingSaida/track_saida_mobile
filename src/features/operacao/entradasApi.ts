@@ -11,6 +11,13 @@ export interface EntradaLerResult {
   status?: string;
 }
 
+export interface EntradaLancarAvulsoResult {
+  quantidade_criada: number;
+  codigos: string[];
+  saidas: Array<{ id_saida: number; codigo: string; servico: string; status: string }>;
+  mensagem: string;
+}
+
 export async function lerEntrada(params: {
   codigo: string;
   origem?: "camera" | "manual";
@@ -20,6 +27,18 @@ export async function lerEntrada(params: {
     codigo: params.codigo,
     origem: params.origem || "camera",
     ...(params.qr_payload_raw ? { qr_payload_raw: params.qr_payload_raw } : {}),
+  });
+  return data;
+}
+
+/** Avulso já em NA_BASE (fluxo Registrar entrada — sem motoboy). */
+export async function lancarAvulsoEntrada(params: {
+  identificacao?: string | null;
+  quantidade: number;
+}): Promise<EntradaLancarAvulsoResult> {
+  const { data } = await client.post<EntradaLancarAvulsoResult>("/entradas/lancar-avulso", {
+    quantidade: params.quantidade,
+    ...(params.identificacao ? { identificacao: params.identificacao } : {}),
   });
   return data;
 }
