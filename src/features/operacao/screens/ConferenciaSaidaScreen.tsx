@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   RefreshControl,
   Platform,
 } from "react-native";
+import * as Haptics from "expo-haptics";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
@@ -31,10 +32,12 @@ import {
 import {
   conferirSaidaMotoboy,
   getConferenciaDetalhe,
+  getConferenciaTotaisAbas,
   listarConferencias,
   type ConferenciaAba,
   type ConferenciaDetalhe,
   type ConferenciaItem,
+  type ConferenciaTotaisAbas,
 } from "../conferenciaApi";
 import { formatApiError } from "../../../utils/formatApiError";
 
@@ -53,10 +56,32 @@ const ABAS: { key: ConferenciaAba; label: string }[] = [
   { key: "conferida", label: "Concluídas" },
 ];
 
+const TAB_COUNTS_DEFAULT: ConferenciaTotaisAbas = {
+  pendente: 0,
+  reconferir: 0,
+  conferida: 0,
+};
+
 function statusLabelUi(status: string): string {
   if (status === "reconferir") return "Reconferir";
   if (status === "conferida") return "Concluída";
   return "Pendente";
+}
+
+function labelNovosPacotes(qtd: number): string {
+  if (qtd <= 0) return "Sem pacotes novos";
+  return qtd === 1 ? "+1 pacote novo" : `+${qtd} novos pacotes`;
+}
+
+function labelNovosPorServico(d: ConferenciaDetalhe): string {
+  const parts: string[] = [];
+  const sh = d.novos_shopee ?? 0;
+  const ml = d.novos_mercado ?? 0;
+  const av = d.novos_avulso ?? 0;
+  if (sh > 0) parts.push(`+${sh} Shopee`);
+  if (ml > 0) parts.push(`+${ml} ML`);
+  if (av > 0) parts.push(`+${av} Avulso${av === 1 ? "" : "s"}`);
+  return parts.length ? `Entrou ${parts.join(" · ")}` : "Sem pacotes novos após a última conferência";
 }
 
 export default function ConferenciaSaidaScreen({ navigation }: Props) {
@@ -67,12 +92,21 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
   const [aba, setAba] = useState<ConferenciaAba>("pendente");
   const [filtroNome, setFiltroNome] = useState("");
   const [items, setItems] = useState<ConferenciaItem[]>([]);
+  const [tabCounts, setTabCounts] = useState<ConferenciaTotaisAbas>(TAB_COUNTS_DEFAULT);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [detail, setDetail] = useState<ConferenciaDetalhe | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [conferindo, setConferindo] = useState(false);
+  const [sucessoMsg, setSucessoMsg] = useState<string | null>(null);
+  const sucessoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (sucessoTimerRef.current) clearTimeout(sucessoTimerRef.current);
+    };
+  }, []);
 
   const styles = useMemo(
     () =>
@@ -120,6 +154,12 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
         },
         cardTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
         cardMeta: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
+        cardNovos: {
+          marginTop: 8,
+          fontSize: 13,
+          fontWeight: "800",
+          color: "#c2410c",
+        },
         badge: {
           alignSelf: "flex-start",
           marginTop: 8,
@@ -140,21 +180,62 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
           borderTopRightRadius: 16,
           padding: 16,
           paddingBottom: Math.max(20, insets.bottom + 12),
+          maxHeight: "88%",
         },
+        modalScroll: { flexGrow: 0 },
         modalTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
         modalSub: { fontSize: 13, color: colors.textSecondary, marginTop: 4, marginBottom: 14 },
-        totRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+        novosBox: {
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: "rgba(194,65,12,0.35)",
+          backgroundColor: "rgba(254,215,170,0.35)",
+          padding: 12,
+          marginBottom: 14,
+        },
+        novosTitle: { fontSize: 14, fontWeight: "800", color: "#9a3412", marginBottom: 4 },
+        novosSub: { fontSize: 13, fontWeight: "600", color: "#9a3412", marginBottom: 10 },
+        novosListTitle: {
+          fontSize: 12,
+          fontWeight: "700",
+          color: colors.textSecondary,
+          marginBottom: 6,
+          textTransform: "uppercase",
+          letterSpacing: 0.3,
+        },
+        pacoteRow: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          paddingVertical: 7,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: "rgba(154,52,18,0.2)",
+        },
+        pacoteCodigo: { fontSize: 14, fontWeight: "700", color: colors.text, flex: 1, marginRight: 8 },
+        pacoteServico: { fontSize: 12, fontWeight: "700", color: "#9a3412" },
+        totRow: { flexDirection: "row", gap: 8, marginBottom: 18 },
         totBox: {
           flex: 1,
-          backgroundColor: colors.backgroundCard,
-          borderRadius: 10,
-          padding: 10,
+          borderRadius: 12,
+          paddingVertical: 14,
+          paddingHorizontal: 6,
           alignItems: "center",
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
+          justifyContent: "center",
+          minHeight: 78,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.22,
+          shadowRadius: 4,
+          elevation: 3,
         },
-        totNum: { fontSize: 20, fontWeight: "800", color: colors.primary },
-        totLbl: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+        totNum: { fontSize: 28, fontWeight: "900", letterSpacing: 0.2 },
+        totLbl: {
+          fontSize: 11,
+          fontWeight: "800",
+          marginTop: 4,
+          textTransform: "uppercase",
+          letterSpacing: 0.3,
+        },
         btnConferir: {
           backgroundColor: colors.primary,
           borderRadius: 12,
@@ -164,11 +245,38 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
         btnConferirText: { color: colors.primaryContrast, fontWeight: "800", fontSize: 16 },
         btnClose: { alignItems: "center", marginTop: 12, padding: 8 },
         btnCloseText: { color: colors.textSecondary, fontWeight: "600" },
+        sucessoBanner: {
+          marginBottom: 14,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: "rgba(25,135,84,0.45)",
+          backgroundColor: "rgba(25,135,84,0.16)",
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+        },
+        sucessoBannerText: {
+          color: "#198754",
+          fontSize: 15,
+          fontWeight: "800",
+          textAlign: "center",
+        },
       }),
     [colors, insets.bottom]
   );
 
-  const load = useCallback(async () => {
+  const loadTabCounts = useCallback(async () => {
+    try {
+      const totais = await getConferenciaTotaisAbas({
+        dataInicio: periodo.dataInicio,
+        dataFim: periodo.dataFim,
+      });
+      setTabCounts(totais);
+    } catch {
+      // Mantém contagens anteriores; a lista da aba ativa já tem tratamento de erro.
+    }
+  }, [periodo.dataFim, periodo.dataInicio]);
+
+  const loadList = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -186,10 +294,20 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
     }
   }, [aba, periodo.dataFim, periodo.dataInicio]);
 
+  const load = useCallback(async () => {
+    await Promise.all([loadList(), loadTabCounts()]);
+  }, [loadList, loadTabCounts]);
+
   useFocusEffect(
     useCallback(() => {
-      void load();
-    }, [load])
+      void loadList();
+    }, [loadList])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadTabCounts();
+    }, [loadTabCounts])
   );
 
   const filtered = useMemo(() => {
@@ -216,8 +334,14 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
     try {
       const d = await conferirSaidaMotoboy(detail.motoboy_id, detail.data_ref);
       setDetail(d);
-      Alert.alert("Conferência", "Saída conferida com sucesso.");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSucessoMsg("Saída conferida com sucesso.");
       void load();
+      if (sucessoTimerRef.current) clearTimeout(sucessoTimerRef.current);
+      sucessoTimerRef.current = setTimeout(() => {
+        setSucessoMsg(null);
+        setDetail(null);
+      }, 1400);
     } catch (e) {
       Alert.alert("Erro", formatApiError(e, "Não foi possível conferir."));
     } finally {
@@ -278,7 +402,9 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
               style={[styles.chip, aba === a.key && styles.chipActive]}
               onPress={() => setAba(a.key)}
             >
-              <Text style={[styles.chipText, aba === a.key && styles.chipTextActive]}>{a.label}</Text>
+              <Text style={[styles.chipText, aba === a.key && styles.chipTextActive]}>
+                {`${a.label} (${tabCounts[a.key] ?? 0})`}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -306,6 +432,9 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
                 {formatDateLabel(it.data_ref)}
                 {it.qtd_no_momento != null ? ` · ${it.qtd_no_momento} pacotes` : ""}
               </Text>
+              {it.status === "reconferir" && typeof it.novos_qtd === "number" ? (
+                <Text style={styles.cardNovos}>{labelNovosPacotes(it.novos_qtd)}</Text>
+              ) : null}
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{statusLabelUi(it.status)}</Text>
               </View>
@@ -329,29 +458,57 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
             {detailLoading || !detail ? (
               <ActivityIndicator color={colors.primary} />
             ) : (
-              <>
+              <ScrollView
+                style={styles.modalScroll}
+                contentContainerStyle={{ paddingBottom: 4 }}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+              >
                 <Text style={styles.modalTitle}>{detail.motoboy_nome}</Text>
                 <Text style={styles.modalSub}>
                   {formatDateLabel(detail.data_ref)} · {statusLabelUi(detail.status)}
                 </Text>
+                {sucessoMsg ? (
+                  <View style={styles.sucessoBanner}>
+                    <Text style={styles.sucessoBannerText}>{sucessoMsg}</Text>
+                  </View>
+                ) : null}
                 <View style={styles.totRow}>
-                  <View style={styles.totBox}>
-                    <Text style={styles.totNum}>{detail.total}</Text>
-                    <Text style={styles.totLbl}>Total</Text>
-                  </View>
-                  <View style={styles.totBox}>
-                    <Text style={styles.totNum}>{detail.sum_shopee}</Text>
-                    <Text style={styles.totLbl}>Shopee</Text>
-                  </View>
-                  <View style={styles.totBox}>
-                    <Text style={styles.totNum}>{detail.sum_mercado}</Text>
-                    <Text style={styles.totLbl}>ML</Text>
-                  </View>
-                  <View style={styles.totBox}>
-                    <Text style={styles.totNum}>{detail.sum_avulso}</Text>
-                    <Text style={styles.totLbl}>Avulso</Text>
-                  </View>
+                  {(
+                    [
+                      { label: "Total", value: detail.total, bg: colors.primary, fg: colors.primaryContrast },
+                      { label: "Shopee", value: detail.sum_shopee, bg: "#dc2626", fg: "#fff" },
+                      { label: "ML", value: detail.sum_mercado, bg: "#eab308", fg: "#1f2937" },
+                      { label: "Avulso", value: detail.sum_avulso, bg: "#6b7280", fg: "#fff" },
+                    ] as const
+                  ).map((s) => (
+                    <View key={s.label} style={[styles.totBox, { backgroundColor: s.bg }]}>
+                      <Text style={[styles.totNum, { color: s.fg }]}>{s.value}</Text>
+                      <Text style={[styles.totLbl, { color: s.fg }]}>{s.label}</Text>
+                    </View>
+                  ))}
                 </View>
+                {detail.status === "reconferir" ? (
+                  <View style={styles.novosBox}>
+                    <Text style={styles.novosTitle}>
+                      {labelNovosPacotes(detail.novos_qtd ?? 0)}
+                    </Text>
+                    <Text style={styles.novosSub}>{labelNovosPorServico(detail)}</Text>
+                    {(detail.novos_pacotes?.length ?? 0) > 0 ? (
+                      <>
+                        <Text style={styles.novosListTitle}>Códigos novos</Text>
+                        {detail.novos_pacotes!.map((p) => (
+                          <View key={`${p.codigo}-${p.servico}`} style={styles.pacoteRow}>
+                            <Text style={styles.pacoteCodigo} numberOfLines={1}>
+                              {p.codigo}
+                            </Text>
+                            <Text style={styles.pacoteServico}>{p.servico}</Text>
+                          </View>
+                        ))}
+                      </>
+                    ) : null}
+                  </View>
+                ) : null}
                 {detail.status !== "conferida" ? (
                   <TouchableOpacity
                     style={styles.btnConferir}
@@ -370,7 +527,7 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
                 <TouchableOpacity style={styles.btnClose} onPress={() => setDetail(null)}>
                   <Text style={styles.btnCloseText}>Fechar</Text>
                 </TouchableOpacity>
-              </>
+              </ScrollView>
             )}
           </View>
         </View>
