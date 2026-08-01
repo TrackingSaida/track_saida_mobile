@@ -21,13 +21,14 @@ import ScreenHeaderBar from "../components/ScreenHeaderBar";
 import { getBiometricEnabled } from "../services/settingsService";
 import SettingsSection from "../components/settings/SettingsSection";
 import SettingsToggleRow from "../components/settings/SettingsToggleRow";
-import { isMotoboyRole } from "../utils/role";
+import { isMotoboyRole, isStaffOperacaoRole } from "../utils/role";
 import type { MaisStackParamList } from "./MaisScreen";
 import {
   clearSearchCityCaches,
   resolveCityFromGps,
   resolveSearchCityDefaults,
 } from "../features/entregas/utils/resolveSearchCityDefaults";
+import { getNotifPrefs, patchNotifPrefs, type NotifPrefs } from "../services/push/pushApi";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "Configuracoes">;
 
@@ -51,14 +52,22 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
   const setCidadePadrao = useMotoboyPrefsStore((s) => s.setCidadePadrao);
   const colors = useThemeColors();
   const showOperacao = isMotoboyRole(role);
+  const showStaffNotif = isStaffOperacaoRole(role);
   const [biometricEnabled, setBiometricEnabledLocal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [notifPrefs, setNotifPrefs] = useState<NotifPrefs | null>(null);
   const [cidadeDraft, setCidadeDraft] = useState(cidadePadrao);
   const [estadoDraft, setEstadoDraft] = useState(estadoPadrao || "SP");
   const [gpsCityLabel, setGpsCityLabel] = useState<string>("Detectando…");
 
   useEffect(() => {
     getBiometricEnabled().then((enabled) => setBiometricEnabledLocal(enabled));
+  }, []);
+
+  useEffect(() => {
+    void getNotifPrefs()
+      .then(setNotifPrefs)
+      .catch(() => setNotifPrefs(null));
   }, []);
 
   useEffect(() => {
@@ -315,6 +324,74 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
             isLast
           />
         </SettingsSection>
+
+        {notifPrefs && (showOperacao || showStaffNotif) ? (
+          <SettingsSection title="Notificações">
+            {showOperacao ? (
+              <>
+                <SettingsToggleRow
+                  label="Fechamento"
+                  description="Avisar quando o fechamento estiver pronto."
+                  value={notifPrefs.fechamento}
+                  onValueChange={(value) =>
+                    void runWithSave(async () => {
+                      setNotifPrefs(await patchNotifPrefs({ fechamento: value }));
+                    })
+                  }
+                  disabled={saving}
+                />
+                <SettingsToggleRow
+                  label="Novos pacotes"
+                  description="Quando a base atribuir pacotes a você."
+                  value={notifPrefs.pacotes_atribuidos}
+                  onValueChange={(value) =>
+                    void runWithSave(async () => {
+                      setNotifPrefs(await patchNotifPrefs({ pacotes_atribuidos: value }));
+                    })
+                  }
+                  disabled={saving}
+                />
+                <SettingsToggleRow
+                  label="Pacotes em atraso"
+                  description="Lembrete diário de pendências antigas."
+                  value={notifPrefs.atraso_d1}
+                  onValueChange={(value) =>
+                    void runWithSave(async () => {
+                      setNotifPrefs(await patchNotifPrefs({ atraso_d1: value }));
+                    })
+                  }
+                  disabled={saving}
+                />
+                <SettingsToggleRow
+                  label="Avisos da base"
+                  description="Comunicados normais da operação (urgentes sempre chegam)."
+                  value={notifPrefs.avisos_base}
+                  onValueChange={(value) =>
+                    void runWithSave(async () => {
+                      setNotifPrefs(await patchNotifPrefs({ avisos_base: value }));
+                    })
+                  }
+                  disabled={saving}
+                  isLast={!showStaffNotif}
+                />
+              </>
+            ) : null}
+            {showStaffNotif ? (
+              <SettingsToggleRow
+                label="Reconferência de saídas"
+                description="Avisar quando um motoboy precisar de reconferência."
+                value={notifPrefs.reconferir_saida}
+                onValueChange={(value) =>
+                  void runWithSave(async () => {
+                    setNotifPrefs(await patchNotifPrefs({ reconferir_saida: value }));
+                  })
+                }
+                disabled={saving}
+                isLast
+              />
+            ) : null}
+          </SettingsSection>
+        ) : null}
 
         {showOperacao ? (
           <>

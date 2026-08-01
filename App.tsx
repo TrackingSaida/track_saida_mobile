@@ -1,5 +1,5 @@
 import "./src/services/location/backgroundLocationTask";
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
@@ -31,6 +31,8 @@ import HomeScreen from "./src/screens/HomeScreen";
 import MaisScreen, { type MaisStackParamList } from "./src/screens/MaisScreen";
 import MeusDadosScreen from "./src/screens/MeusDadosScreen";
 import ConfiguracoesScreen from "./src/screens/ConfiguracoesScreen";
+import PrivacidadeScreen from "./src/screens/PrivacidadeScreen";
+import BackgroundLocationDisclosureModal from "./src/components/BackgroundLocationDisclosureModal";
 import EntregasListScreen from "./src/features/entregas/screens/EntregasListScreen";
 import EntregaDetailScreen from "./src/features/entregas/screens/EntregaDetailScreen";
 import ScanScreen from "./src/features/entregas/screens/ScanScreen";
@@ -48,6 +50,17 @@ import {
   navigateToMinhasEntregas,
 } from "./src/features/entregas/utils/navigationHelpers";
 import { isMotoboyRole } from "./src/utils/role";
+import MeusFechamentosScreen from "./src/features/fechamentos/screens/MeusFechamentosScreen";
+import FechamentoDetailScreen from "./src/features/fechamentos/screens/FechamentoDetailScreen";
+import AvisosScreen from "./src/features/avisos/screens/AvisosScreen";
+import AvisoDetailScreen from "./src/features/avisos/screens/AvisoDetailScreen";
+import UrgentAvisoGate from "./src/features/avisos/components/UrgentAvisoGate";
+import {
+  attachPushListeners,
+  getLastNotificationData,
+  syncPushRegistration,
+} from "./src/services/push/pushService";
+import { navigateFromPushData } from "./src/services/push/navigationFromPush";
 
 import type { EntregasListInitialTab } from "./src/features/entregas/types";
 
@@ -150,9 +163,14 @@ function MaisStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       </MaisStack.Screen>
       <MaisStack.Screen name="MeusDados" component={MeusDadosScreen} />
       <MaisStack.Screen name="Configuracoes" component={ConfiguracoesScreen} />
+      <MaisStack.Screen name="Privacidade" component={PrivacidadeScreen} />
       <MaisStack.Screen name="MinhasEntregas" component={MinhasEntregasScreen} />
       <MaisStack.Screen name="MinhasEntregasDia" component={MinhasEntregasDiaScreen} />
       <MaisStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
+      <MaisStack.Screen name="MeusFechamentos" component={MeusFechamentosScreen} />
+      <MaisStack.Screen name="FechamentoDetail" component={FechamentoDetailScreen} />
+      <MaisStack.Screen name="Avisos" component={AvisosScreen} />
+      <MaisStack.Screen name="AvisoDetail" component={AvisoDetailScreen} />
     </MaisStack.Navigator>
   );
 }
@@ -223,6 +241,7 @@ export default function App() {
   const theme = useThemeStore((s) => s.theme);
   const loadTheme = useThemeStore((s) => s.loadTheme);
   const [pendingChangePassword, setPendingChangePassword] = useState(false);
+  const navigationRef = useRef<any>(null);
 
   const logout = useCallback(async () => {
     useMotoboyPrefsStore.getState().resetToDefaults();
@@ -280,6 +299,18 @@ export default function App() {
     return () => stopSync();
   }, [token, currentUser, requiresBiometricUnlock]);
 
+  useEffect(() => {
+    if (!token || requiresBiometricUnlock || !currentUser) return;
+    void syncPushRegistration();
+    const detach = attachPushListeners((data) => {
+      navigateFromPushData(navigationRef.current, data);
+    });
+    void getLastNotificationData().then((data) => {
+      if (data) navigateFromPushData(navigationRef.current, data);
+    });
+    return detach;
+  }, [token, currentUser, requiresBiometricUnlock]);
+
   if (isLoading) {
     const loadingColors = getColors(theme);
     return (
@@ -306,7 +337,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer theme={navTheme}>
+        <NavigationContainer ref={navigationRef} theme={navTheme}>
         <StatusBar style={theme === "dark" ? "light" : "dark"} />
         {pendingChangePassword ? (
           <ChangePasswordRequiredScreen onDone={() => setPendingChangePassword(false)} />
@@ -316,8 +347,10 @@ export default function App() {
             <View style={{ flex: 1 }}>
               <MainTabs onLogout={logout} />
             </View>
+            <UrgentAvisoGate />
             <OperationalToast />
             <DiaRotaConcluidaModal />
+            <BackgroundLocationDisclosureModal />
             <SessionExpiredModal onRelogin={() => {}} />
           </View>
         ) : (

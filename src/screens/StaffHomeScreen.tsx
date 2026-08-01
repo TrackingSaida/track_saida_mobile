@@ -10,6 +10,7 @@ import {
   effectiveConferenciaSaida,
   effectiveEntradaObrigatoria,
   effectivePodeLerColeta,
+  isAdminRole,
   staffRoleLabel,
 } from "../utils/role";
 import type { StaffStackParamList } from "../navigation/staffStackTypes";
@@ -27,6 +28,7 @@ export default function StaffHomeScreen({ navigation }: Props) {
   const mostrarColeta = effectivePodeLerColeta(currentUser);
   const mostrarEntrada = effectiveEntradaObrigatoria(currentUser);
   const mostrarConferencia = effectiveConferenciaSaida(currentUser);
+  const mostrarEnviarAviso = isAdminRole(role);
 
   const styles = useMemo(
     () =>
@@ -51,7 +53,8 @@ export default function StaffHomeScreen({ navigation }: Props) {
 
   const go = (route: keyof StaffStackParamList) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.navigate(route);
+    // rotas sem params (EnviarAviso, ConferenciaSaida opcional, etc.)
+    (navigation as any).navigate(route);
   };
 
   const headerGradient: readonly [string, string] = [
@@ -118,6 +121,15 @@ export default function StaffHomeScreen({ navigation }: Props) {
             icon="cube-outline"
             onPress={() => go("SaidasPorMotoboy")}
           />
+          {mostrarEnviarAviso ? (
+            <OperacaoActionCard
+              variant="compact"
+              title="Enviar aviso"
+              subtitle="Avisar motoboys da base"
+              icon="notifications-outline"
+              onPress={() => go("EnviarAviso")}
+            />
+          ) : null}
           <OperacaoActionCard
             variant="compact"
             title="Acompanhamento"

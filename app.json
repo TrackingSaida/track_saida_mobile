@@ -1,13 +1,21 @@
 {
   "expo": {
-    "name": "TrackingSaídas",
+    "name": "Tracking Saídas",
     "slug": "track_saida_mobile",
     "version": "1.7.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "scheme": "trackingsaida",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "plugins": [
+      [
+        "expo-notifications",
+        {
+          "sounds": [],
+          "mode": "production"
+        }
+      ],
       [
         "expo-camera",
         {
@@ -15,14 +23,28 @@
         }
       ],
       "expo-speech-recognition",
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "enableBackgroundRecording": false
+        }
+      ],
       [
         "expo-local-authentication",
         {
           "faceIDPermission": "Usar Face ID para entrar no app"
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Usamos sua localização para navegação durante as entregas.",
+          "locationAlwaysAndWhenInUsePermission": "Usamos sua localização mesmo em segundo plano para acompanhar a rota ativa.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -59,14 +81,15 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION"
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE"
       ],
-      "package": "com.anonymous.track_saida_mobile",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyCaystfN4NGv6HyVEiFMVJt80MrmGsNb_E"
-        }
-      }
+      "blockedPermissions": [
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.ACTIVITY_RECOGNITION"
+      ],
+      "package": "br.com.trackingsaidas.mobile"
     },
     "web": {
       "favicon": "./assets/favicon.png"

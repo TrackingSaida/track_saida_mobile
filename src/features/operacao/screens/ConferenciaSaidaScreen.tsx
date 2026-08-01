@@ -96,12 +96,18 @@ function labelNovosPorServico(d: ConferenciaDetalhe): string {
   return parts.length ? `Entrou ${parts.join(" · ")}` : "Sem pacotes novos após a última conferência";
 }
 
-export default function ConferenciaSaidaScreen({ navigation }: Props) {
+export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
 
   const [periodo, setPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
-  const [aba, setAba] = useState<ConferenciaAba>("pendente");
+  const initialAba = route.params?.initialAba;
+  const highlightMotoboyId = route.params?.motoboyId;
+  const [aba, setAba] = useState<ConferenciaAba>(
+    initialAba === "reconferir" || initialAba === "conferida" || initialAba === "pendente"
+      ? initialAba
+      : "pendente"
+  );
   const [filtroNome, setFiltroNome] = useState("");
   const [items, setItems] = useState<ConferenciaItem[]>([]);
   const [tabCounts, setTabCounts] = useState<ConferenciaTotaisAbas>(TAB_COUNTS_DEFAULT);
@@ -323,10 +329,15 @@ export default function ConferenciaSaidaScreen({ navigation }: Props) {
   );
 
   const filtered = useMemo(() => {
+    let list = items;
+    if (highlightMotoboyId != null) {
+      const highlighted = list.filter((it) => it.motoboy_id === highlightMotoboyId);
+      if (highlighted.length) list = highlighted;
+    }
     const q = filtroNome.trim().toLocaleLowerCase("pt-BR");
-    if (!q) return items;
-    return items.filter((it) => (it.motoboy_nome || "").toLocaleLowerCase("pt-BR").includes(q));
-  }, [filtroNome, items]);
+    if (!q) return list;
+    return list.filter((it) => (it.motoboy_nome || "").toLocaleLowerCase("pt-BR").includes(q));
+  }, [filtroNome, items, highlightMotoboyId]);
 
   const openDetail = async (it: ConferenciaItem) => {
     setDetailLoading(true);
