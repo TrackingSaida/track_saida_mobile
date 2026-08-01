@@ -63,6 +63,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
     const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
     await useMotoboyPrefsStore.getState().loadForCurrentUser();
+    try {
+      const { syncPushRegistration } = await import("../services/push/pushService");
+      await syncPushRegistration();
+    } catch {
+      /* push opcional */
+    }
   },
 
   loadToken: async () => {
@@ -113,6 +119,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async (opts) => {
+    try {
+      const { unregisterPush } = await import("../services/push/pushService");
+      await unregisterPush();
+    } catch {
+      /* ignore */
+    }
     const refreshToken = get().refreshToken || (await SecureStore.getItemAsync(REFRESH_TOKEN_KEY));
     if (opts?.revokeRemote !== false && refreshToken) {
       try {
@@ -172,6 +184,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ token, refreshToken, currentUser: claims, requiresBiometricUnlock: false });
       const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
       await useMotoboyPrefsStore.getState().loadForCurrentUser();
+      try {
+        const { syncPushRegistration } = await import("../services/push/pushService");
+        await syncPushRegistration();
+      } catch {
+        /* push opcional */
+      }
       const { recoverRouteState } = await import("../features/entregas/services/routeRecovery");
       await recoverRouteState({ force: true });
       return true;

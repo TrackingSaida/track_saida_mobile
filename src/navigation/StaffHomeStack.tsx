@@ -9,6 +9,7 @@ import ConsultaCodigosScreen from "../features/operacao/screens/ConsultaCodigosS
 import SaidasPorMotoboyScreen from "../features/operacao/screens/SaidasPorMotoboyScreen";
 import AcompanharOperacaoScreen from "../features/operacao/screens/AcompanharOperacaoScreen";
 import AcompanharMotoboyDiaScreen from "../features/operacao/screens/AcompanharMotoboyDiaScreen";
+import EnviarAvisoScreen from "../features/avisos/screens/EnviarAvisoScreen";
 import type { StaffStackParamList } from "./staffStackTypes";
 import { useThemeColors } from "../theme/colors";
 
@@ -47,6 +48,11 @@ export default function StaffHomeStack() {
       <Stack.Screen
         name="ConferenciaSaida"
         component={ConferenciaSaidaScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="EnviarAviso"
+        component={EnviarAvisoScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen

@@ -17,9 +17,14 @@ export type MaisStackParamList = {
   MaisInicio: undefined;
   MeusDados: undefined;
   Configuracoes: undefined;
+  Privacidade: undefined;
   MinhasEntregas: { presetPeriodoHoje?: true } | undefined;
   MinhasEntregasDia: { data: string };
   EntregaDetail: { idSaida: number };
+  MeusFechamentos: undefined;
+  FechamentoDetail: { idFechamento: number };
+  Avisos: undefined;
+  AvisoDetail: { avisoId: number };
 };
 
 type Props = NativeStackScreenProps<MaisStackParamList, "MaisInicio"> & {
@@ -112,6 +117,14 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
             onPress={() => navigation.navigate("Configuracoes")}
             iconColor={profile.accent}
             iconSoftBg={profile.accentSoft}
+          />
+          <PressableMenuRow
+            icon="shield-checkmark-outline"
+            title="Privacidade"
+            subtitle="Política de Privacidade"
+            onPress={() => navigation.navigate("Privacidade")}
+            iconColor={profile.accent}
+            iconSoftBg={profile.accentSoft}
             isLast
           />
         </MenuSection>
@@ -122,6 +135,20 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
               icon="list-outline"
               title="Minhas entregas"
               onPress={() => navigation.navigate("MinhasEntregas")}
+              iconColor={profile.accent}
+              iconSoftBg={profile.accentSoft}
+            />
+            <PressableMenuRow
+              icon="document-text-outline"
+              title="Meus fechamentos"
+              onPress={() => navigation.navigate("MeusFechamentos")}
+              iconColor={profile.accent}
+              iconSoftBg={profile.accentSoft}
+            />
+            <PressableMenuRow
+              icon="notifications-outline"
+              title="Avisos"
+              onPress={() => navigation.navigate("Avisos")}
               iconColor={profile.accent}
               iconSoftBg={profile.accentSoft}
               isLast

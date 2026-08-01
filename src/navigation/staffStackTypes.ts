@@ -3,7 +3,14 @@ export type StaffStackParamList = {
   LeituraSaidas: undefined;
   LeituraColetas: undefined;
   LeituraEntradas: undefined;
-  ConferenciaSaida: undefined;
+  ConferenciaSaida:
+    | {
+        initialAba?: "pendente" | "reconferir" | "conferida";
+        motoboyId?: number;
+        dataRef?: string;
+      }
+    | undefined;
+  EnviarAviso: undefined;
   ConsultaCodigos: undefined;
   /** Quantidades por serviço (Shopee/ML/Avulso) — conceito distinto do acompanhamento de baixas. */
   SaidasPorMotoboy: undefined;
