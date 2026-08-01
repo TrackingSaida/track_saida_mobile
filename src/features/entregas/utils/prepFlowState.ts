@@ -101,7 +101,8 @@ function buildSecondaries(
   ) {
     items.push({
       action: "generate_partial_route",
-      label: `Gerar rota parcial (${input.withCoordsCount} pacotes)`,
+      label: "Gerar rota parcial",
+      subtitle: `${input.withCoordsCount} pacote${input.withCoordsCount !== 1 ? "s" : ""} prontos`,
       iconKey: "prepGenerateRoute",
     });
   }
@@ -226,7 +227,7 @@ export function derivePrepFlowView(input: PrepFlowInput): PrepFlowView {
     primaryIconKey = "prepStartRoute";
   } else if (canGenerateRoute) {
     primaryAction = "generate_route";
-    primaryLabel = "Gerar rota otimizada";
+    primaryLabel = "Gerar rota";
     primaryIconKey = "prepGenerateRoute";
   } else {
     primaryAction = "scan";

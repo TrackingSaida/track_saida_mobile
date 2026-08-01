@@ -56,9 +56,14 @@ import {
   isValidGeocodeCoords,
   type GeocodeResult,
 } from "../utils/geocode";
-import type { EnderecoBody } from "../api";
-import { getCidadesOperacao } from "../api";
+import type { EnderecoBody, MotoboyHomeAddress } from "../api";
+import {
+  fetchMotoboyHomeAddress,
+  formatMotoboyHomeAddress,
+  getCidadesOperacao,
+} from "../api";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
+import { useRouteDestinationStore } from "../../../store/routeDestinationStore";
 import { formatApiError } from "../../../utils/formatApiError";
 import { operationalIcons } from "../../../theme/operationalIcons";
 import {
@@ -73,6 +78,7 @@ import {
   resolveSearchCityDefaults,
   setCidadesOperacaoFetcher,
 } from "../utils/resolveSearchCityDefaults";
+import ConfirmRouteDestinationModal from "../components/ConfirmRouteDestinationModal";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
@@ -165,6 +171,11 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const [optimizing, setOptimizing] = useState(false);
   const [optimizingLabel, setOptimizingLabel] = useState("Criando rota...");
   const [showSeparationSheet, setShowSeparationSheet] = useState(false);
+  const [showDestinationModal, setShowDestinationModal] = useState(false);
+  const [homeAddressDraft, setHomeAddressDraft] = useState<MotoboyHomeAddress | null>(null);
+  const [confirmingDestination, setConfirmingDestination] = useState(false);
+  const setRouteDestination = useRouteDestinationStore((s) => s.setDestination);
+  const disableDestinationMode = useRouteDestinationStore((s) => s.disableDestinationMode);
 
   const voiceResolveRef = useRef<(v: AddressCandidate[] | AddressCandidate | null) => void>(
     () => {}
@@ -252,8 +263,17 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           alignItems: "center",
           marginBottom: 10,
         },
+        btnRoute: {
+          marginHorizontal: 20,
+          backgroundColor: colors.success,
+          paddingVertical: 16,
+          borderRadius: 12,
+          alignItems: "center",
+          marginBottom: 10,
+        },
         btnDisabled: { opacity: 0.5 },
         btnText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnRouteText: { color: "#fff", fontSize: 17, fontWeight: "700" },
         btnOutline: {
           marginHorizontal: 20,
           paddingVertical: 14,
@@ -263,7 +283,17 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           borderColor: colors.primary,
           marginBottom: 10,
         },
+        btnOutlineRoute: {
+          marginHorizontal: 20,
+          paddingVertical: 14,
+          borderRadius: 12,
+          alignItems: "center",
+          borderWidth: 1.5,
+          borderColor: colors.success,
+          marginBottom: 10,
+        },
         btnOutlineText: { color: colors.primary, fontSize: 15, fontWeight: "600" },
+        btnOutlineRouteText: { color: colors.success, fontSize: 15, fontWeight: "700" },
         btnGhost: {
           marginHorizontal: 20,
           paddingVertical: 10,
@@ -893,6 +923,96 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     setFlowState("idle");
   }, [showAdvancedForm]);
 
+  const runOptimizeAfterPrep = useCallback(async () => {
+    setOptimizingLabel("Criando rota...");
+    setOptimizing(true);
+    try {
+      clearActiveRouteState();
+      setRouteDeliveries(withCoords);
+      const result = await runOptimizeRouteWithFeedback(optimizeRoute);
+      if (!result?.ok) return;
+      navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
+    } catch (e) {
+      Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
+    } finally {
+      setOptimizing(false);
+    }
+  }, [
+    withCoords,
+    clearActiveRouteState,
+    setRouteDeliveries,
+    optimizeRoute,
+    navigation,
+  ]);
+
+  const askDestinationAndGenerate = useCallback(() => {
+    Alert.alert(
+      "Origem e destino",
+      "Quer montar a rota saindo do seu local atual e terminando na sua casa?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Não",
+          onPress: () => {
+            disableDestinationMode();
+            void runOptimizeAfterPrep();
+          },
+        },
+        {
+          text: "Sim",
+          onPress: () => {
+            void (async () => {
+              try {
+                const home = await fetchMotoboyHomeAddress();
+                setHomeAddressDraft(home);
+              } catch {
+                setHomeAddressDraft(null);
+              }
+              setShowDestinationModal(true);
+            })();
+          },
+        },
+      ]
+    );
+  }, [disableDestinationMode, runOptimizeAfterPrep]);
+
+  const handleConfirmDestination = useCallback(
+    async (address: MotoboyHomeAddress) => {
+      setConfirmingDestination(true);
+      try {
+        const geo = await geocodeAddressFromValues({
+          rua: address.rua,
+          numero: address.numero,
+          complemento: address.complemento,
+          bairro: address.bairro,
+          cidade: address.cidade,
+          estado: address.estado,
+          cep: address.cep,
+          destinatario: "",
+        });
+        if (!geo || !isValidGeocodeCoords(geo.latitude, geo.longitude)) {
+          Alert.alert(
+            "Endereço não localizado",
+            "Não foi possível localizar esse destino no mapa. Revise o endereço e tente novamente."
+          );
+          return;
+        }
+        setRouteDestination({
+          end: { latitude: geo.latitude, longitude: geo.longitude },
+          address,
+          addressLabel: formatMotoboyHomeAddress(address),
+        });
+        setShowDestinationModal(false);
+        await runOptimizeAfterPrep();
+      } catch (e) {
+        Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao confirmar destino.");
+      } finally {
+        setConfirmingDestination(false);
+      }
+    },
+    [runOptimizeAfterPrep, setRouteDestination]
+  );
+
   const handleGerarRotaOtimizada = useCallback(
     async (opts?: { partial?: boolean }) => {
       if (useDeliveryStore.getState().activeRouteId != null) {
@@ -910,45 +1030,21 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         return;
       }
 
-      const runOptimize = async () => {
-        setOptimizingLabel("Criando rota...");
-        setOptimizing(true);
-        try {
-          clearActiveRouteState();
-          setRouteDeliveries(withCoords);
-          const result = await runOptimizeRouteWithFeedback(optimizeRoute);
-          if (!result?.ok) return;
-          navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
-        } catch (e) {
-          Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
-        } finally {
-          setOptimizing(false);
-        }
-      };
-
       if (opts?.partial && semEndereco > 0) {
         Alert.alert(
           "Gerar rota parcial",
           `${semEndereco} pacote${semEndereco !== 1 ? "s" : ""} sem endereço ficará${semEndereco !== 1 ? "ão" : ""} de fora desta rota. Deseja continuar com ${withCoords.length} pacote${withCoords.length !== 1 ? "s" : ""} prontos?`,
           [
             { text: "Cancelar", style: "cancel" },
-            { text: "Continuar", onPress: () => void runOptimize() },
+            { text: "Continuar", onPress: () => askDestinationAndGenerate() },
           ]
         );
         return;
       }
 
-      await runOptimize();
+      askDestinationAndGenerate();
     },
-    [
-      withCoords,
-      semEndereco,
-      clearActiveRouteState,
-      setRouteDeliveries,
-      optimizeRoute,
-      navigation,
-      reconcileActiveRoute,
-    ]
+    [withCoords, semEndereco, navigation, reconcileActiveRoute, askDestinationAndGenerate]
   );
 
   const handleIniciarRota = useCallback(async () => {
@@ -1147,49 +1243,73 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       ) : null}
 
       <View style={styles.actionsBlock}>
-        <TouchableOpacity
-          style={[styles.btn, primaryDisabled && styles.btnDisabled]}
-          onPress={handlePrimaryAction}
-          disabled={primaryDisabled}
-          activeOpacity={0.92}
-        >
-          {optimizing ? (
-            <ActivityIndicator color={colors.primaryContrast} />
-          ) : (
-            <View style={styles.btnInner}>
-              <Ionicons
-                name={operationalIcons[prepFlow.primaryIconKey] as IoniconName}
-                size={20}
-                color={colors.primaryContrast}
-              />
-              <Text style={styles.btnText}>{prepFlow.primaryLabel}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        {(() => {
+          const isRoutePrimary =
+            prepFlow.primaryAction === "generate_route" ||
+            prepFlow.primaryAction === "start_route" ||
+            prepFlow.primaryAction === "separate_packages";
+          return (
+            <TouchableOpacity
+              style={[
+                isRoutePrimary ? styles.btnRoute : styles.btn,
+                primaryDisabled && styles.btnDisabled,
+              ]}
+              onPress={handlePrimaryAction}
+              disabled={primaryDisabled}
+              activeOpacity={0.92}
+            >
+              {optimizing ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <View style={styles.btnInner}>
+                  <Ionicons
+                    name={operationalIcons[prepFlow.primaryIconKey] as IoniconName}
+                    size={isRoutePrimary ? 22 : 20}
+                    color="#fff"
+                  />
+                  <Text style={isRoutePrimary ? styles.btnRouteText : styles.btnText}>
+                    {prepFlow.primaryLabel}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })()}
 
-        {prepFlow.secondaryActions.map((sec) => (
-          <TouchableOpacity
-            key={sec.action}
-            style={[styles.btnOutline, optimizing && styles.btnDisabled]}
-            onPress={() => handleSecondaryAction(sec.action)}
-            disabled={optimizing}
-            activeOpacity={0.85}
-          >
-            <View style={styles.btnOutlineInner}>
-              <Ionicons
-                name={operationalIcons[sec.iconKey] as IoniconName}
-                size={18}
-                color={colors.primary}
-              />
-              <View style={sec.subtitle ? styles.btnOutlineTextWrap : undefined}>
-                <Text style={styles.btnOutlineText}>{sec.label}</Text>
-                {sec.subtitle ? (
-                  <Text style={styles.btnOutlineSubtext}>{sec.subtitle}</Text>
-                ) : null}
+        {prepFlow.secondaryActions.map((sec) => {
+          const isRouteSecondary =
+            sec.action === "generate_partial_route" || sec.action === "rebuild_route";
+          return (
+            <TouchableOpacity
+              key={sec.action}
+              style={[
+                isRouteSecondary ? styles.btnOutlineRoute : styles.btnOutline,
+                optimizing && styles.btnDisabled,
+              ]}
+              onPress={() => handleSecondaryAction(sec.action)}
+              disabled={optimizing}
+              activeOpacity={0.85}
+            >
+              <View style={styles.btnOutlineInner}>
+                <Ionicons
+                  name={operationalIcons[sec.iconKey] as IoniconName}
+                  size={18}
+                  color={isRouteSecondary ? colors.success : colors.primary}
+                />
+                <View style={sec.subtitle ? styles.btnOutlineTextWrap : undefined}>
+                  <Text
+                    style={isRouteSecondary ? styles.btnOutlineRouteText : styles.btnOutlineText}
+                  >
+                    {sec.label}
+                  </Text>
+                  {sec.subtitle ? (
+                    <Text style={styles.btnOutlineSubtext}>{sec.subtitle}</Text>
+                  ) : null}
+                </View>
               </View>
-            </View>
-          </TouchableOpacity>
-        ))}
+            </TouchableOpacity>
+          );
+        })}
 
         <TouchableOpacity style={styles.linkBtn} onPress={handleOpenAdvancedForm} activeOpacity={0.85}>
           <Text style={styles.linkBtnText}>Opções de preenchimento</Text>
@@ -1416,6 +1536,14 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           onFocusManual={handleVoiceFocusManual}
         />
       )}
+
+      <ConfirmRouteDestinationModal
+        visible={showDestinationModal}
+        initialAddress={homeAddressDraft}
+        confirming={confirmingDestination}
+        onConfirm={(addr) => void handleConfirmDestination(addr)}
+        onCancel={() => setShowDestinationModal(false)}
+      />
     </View>
   );
 }

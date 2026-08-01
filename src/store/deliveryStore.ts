@@ -122,6 +122,7 @@ function outboxKindForSaida(idSaida: number): RouteDeliveryStatus | null {
 }
 import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
+import { useRouteDestinationStore } from "./routeDestinationStore";
 import {
   toApiPriorityPayload,
   optimizeStopsSoftPriority,
@@ -158,6 +159,8 @@ export type OptimizeRouteResult = {
 export type OptimizeRouteOptions = {
   fromLat?: number;
   fromLon?: number;
+  toLat?: number;
+  toLon?: number;
   fromDeliveryIndex?: number;
   persistActive?: boolean;
 };
@@ -1039,9 +1042,32 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       });
 
       get().setRouteDeliveries(withCoords);
+      const destState = useRouteDestinationStore.getState();
+      const endOpts =
+        destState.useDestination && destState.end
+          ? { toLat: destState.end.latitude, toLon: destState.end.longitude }
+          : {};
+      let gpsOpts: { fromLat?: number; fromLon?: number } = {};
+      try {
+        const Location = await import("expo-location");
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted") {
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          gpsOpts = {
+            fromLat: pos.coords.latitude,
+            fromLon: pos.coords.longitude,
+          };
+        }
+      } catch {
+        // segue sem GPS
+      }
       const optimizeResult = await get().optimizeRoute({
         fromDeliveryIndex: 0,
         persistActive: false,
+        ...gpsOpts,
+        ...endOpts,
       });
       if (!optimizeResult.ok) {
         get().clearRoute();
@@ -1117,6 +1143,22 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         ? { latitude: fromLat, longitude: fromLon }
         : undefined;
 
+    const destState = useRouteDestinationStore.getState();
+    let toLat = opts?.toLat;
+    let toLon = opts?.toLon;
+    if (
+      (toLat == null || toLon == null) &&
+      destState.useDestination &&
+      destState.end
+    ) {
+      toLat = destState.end.latitude;
+      toLon = destState.end.longitude;
+    }
+    const end =
+      toLat != null && toLon != null
+        ? { latitude: toLat, longitude: toLon }
+        : undefined;
+
     const applyOrder = async (
       newSuffix: number[],
       mode: RouteOptimizationMode,
@@ -1147,7 +1189,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     const apiPriority = toApiPriorityPayload(routePriority);
 
     try {
-      const res = await postRotasOtimizar(idsForApi, start, apiPriority);
+      const res = await postRotasOtimizar(idsForApi, start, apiPriority, end);
       const semCoordenadas = res.sem_coordenadas ?? [];
       const message: OptimizeRouteResult["message"] =
         semCoordenadas.length > 0 ? "partial" : "success";
@@ -1161,13 +1203,14 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         suffix
       );
       const orderedIds =
-        routePriority.type !== "none"
+        routePriority.type !== "none" || end
           ? optimizeStopsSoftPriority(
               suffixDeliveries,
               suffix,
               routePriority,
               fromLat,
-              fromLon
+              fromLon,
+              end
             )
           : optimizeRouteLocal(suffixDeliveries, suffix, fromLat, fromLon);
       const semCoordenadas = suffixDeliveries

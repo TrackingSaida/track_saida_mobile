@@ -1,6 +1,7 @@
 import { Alert } from "react-native";
 import * as Location from "expo-location";
 import type { OptimizeRouteOptions, OptimizeRouteResult } from "../../../store/deliveryStore";
+import { useRouteDestinationStore } from "../../../store/routeDestinationStore";
 import { formatApiError } from "../../../utils/formatApiError";
 
 type OptimizeFn = (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
@@ -27,12 +28,23 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+function resolveEndOpts(opts?: OptimizeRouteFeedbackOptions): OptimizeRouteOptions {
+  if (opts?.toLat != null && opts?.toLon != null) {
+    return { toLat: opts.toLat, toLon: opts.toLon };
+  }
+  const dest = useRouteDestinationStore.getState();
+  if (dest.useDestination && dest.end) {
+    return { toLat: dest.end.latitude, toLon: dest.end.longitude };
+  }
+  return {};
+}
+
 function showOptimizeAlert(result: OptimizeRouteResult): void {
   if (!result.ok || result.message === "noop") return;
   if (result.mode === "priority_soft") {
     Alert.alert(
       "Rota otimizada",
-      "Ordem atualizada com prioridade suave por proximidade."
+      "Ordem atualizada com prioridade por proximidade."
     );
     return;
   }
@@ -56,11 +68,12 @@ export async function runOptimizeRouteWithFeedback(
   opts?: OptimizeRouteFeedbackOptions
 ): Promise<OptimizeRouteResult | null> {
   const silent = opts?.silent === true;
+  const endOpts = resolveEndOpts(opts);
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     let result: OptimizeRouteResult;
     if (status !== "granted") {
-      result = await optimizeRoute(opts);
+      result = await optimizeRoute({ ...opts, ...endOpts });
     } else {
       try {
         const pos = await withTimeout(
@@ -70,11 +83,12 @@ export async function runOptimizeRouteWithFeedback(
         );
         result = await optimizeRoute({
           ...opts,
+          ...endOpts,
           fromLat: pos.coords.latitude,
           fromLon: pos.coords.longitude,
         });
       } catch {
-        result = await optimizeRoute(opts);
+        result = await optimizeRoute({ ...opts, ...endOpts });
       }
     }
     if (!result || result.message === "noop") return result;
