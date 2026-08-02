@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Tracking Sa\u00eddas",
+    "name": "Tracking Saídas",
     "slug": "track_saida_mobile",
     "version": "1.8.0",
     "orientation": "portrait",
@@ -19,7 +19,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Permitir acesso \u00e0 c\u00e2mera para escanear c\u00f3digos de entrega"
+          "cameraPermission": "Permitir acesso à câmera para escanear códigos de entrega"
         }
       ],
       "expo-speech-recognition",
@@ -39,8 +39,8 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Usamos sua localiza\u00e7\u00e3o para navega\u00e7\u00e3o durante as entregas.",
-          "locationAlwaysAndWhenInUsePermission": "Usamos sua localiza\u00e7\u00e3o mesmo em segundo plano para acompanhar a rota ativa.",
+          "locationWhenInUsePermission": "Usamos sua localização para navegação durante as entregas.",
+          "locationAlwaysAndWhenInUsePermission": "Usamos sua localização mesmo em segundo plano para acompanhar a rota ativa.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
@@ -57,8 +57,8 @@
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition.",
         "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use the microphone.",
-        "NSLocationWhenInUseUsageDescription": "Usamos sua localiza\u00e7\u00e3o para navega\u00e7\u00e3o durante as entregas.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Usamos sua localiza\u00e7\u00e3o mesmo em segundo plano para acompanhar a rota ativa."
+        "NSLocationWhenInUseUsageDescription": "Usamos sua localização para navegação durante as entregas.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Usamos sua localização mesmo em segundo plano para acompanhar a rota ativa."
       },
       "backgroundModes": [
         "location"
