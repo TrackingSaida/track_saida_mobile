@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../theme/colors";
 
@@ -49,8 +50,10 @@ type Props = {
   paddingTop?: number;
 };
 
-export default function ScreenHeaderBar({ title, titleNode, onBack, rightElement, paddingTop = 12 }: Props) {
+export default function ScreenHeaderBar({ title, titleNode, onBack, rightElement, paddingTop }: Props) {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
+  const resolvedPaddingTop = paddingTop ?? Math.max(12, insets.top);
 
   const styles = useMemo(
     () =>
@@ -92,7 +95,7 @@ export default function ScreenHeaderBar({ title, titleNode, onBack, rightElement
   );
 
   return (
-    <View style={[styles.wrap, { paddingTop }]}>
+    <View style={[styles.wrap, { paddingTop: resolvedPaddingTop }]}>
       <View style={styles.bar}>
         <View style={styles.sideSlot}>
           <HeaderBackButton onPress={onBack} />

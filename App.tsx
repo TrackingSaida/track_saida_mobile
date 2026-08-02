@@ -1,5 +1,5 @@
 import "./src/services/location/backgroundLocationTask";
-import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
@@ -10,6 +10,7 @@ import {
   DefaultTheme,
   type NavigatorScreenParams,
 } from "@react-navigation/native";
+import { rootNavigationRef } from "./src/navigation/rootNavigation";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -135,6 +136,13 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
             onNavigateRotasHistorico={() => navigation.navigate("RotasHistorico")}
             onNavigateMinhasEntregas={() => navigateToMinhasEntregas(navigation)}
             onNavigatePreferencias={() => navigateToConfiguracoes(navigation)}
+            onNavigateAvisos={() => {
+              if (rootNavigationRef.isReady()) {
+                (rootNavigationRef as { navigate: (...args: any[]) => void }).navigate("Mais", {
+                  screen: "Avisos",
+                });
+              }
+            }}
             onNavigateDevolverPacotes={() => navigation.navigate("DevolverPacotes")}
           />
         )}
@@ -241,7 +249,6 @@ export default function App() {
   const theme = useThemeStore((s) => s.theme);
   const loadTheme = useThemeStore((s) => s.loadTheme);
   const [pendingChangePassword, setPendingChangePassword] = useState(false);
-  const navigationRef = useRef<any>(null);
 
   const logout = useCallback(async () => {
     useMotoboyPrefsStore.getState().resetToDefaults();
@@ -303,10 +310,12 @@ export default function App() {
     if (!token || requiresBiometricUnlock || !currentUser) return;
     void syncPushRegistration();
     const detach = attachPushListeners((data) => {
-      navigateFromPushData(navigationRef.current, data);
+      navigateFromPushData(rootNavigationRef.isReady() ? rootNavigationRef : null, data);
     });
     void getLastNotificationData().then((data) => {
-      if (data) navigateFromPushData(navigationRef.current, data);
+      if (data && rootNavigationRef.isReady()) {
+        navigateFromPushData(rootNavigationRef, data);
+      }
     });
     return detach;
   }, [token, currentUser, requiresBiometricUnlock]);
@@ -337,7 +346,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer ref={navigationRef} theme={navTheme}>
+        <NavigationContainer ref={rootNavigationRef} theme={navTheme}>
         <StatusBar style={theme === "dark" ? "light" : "dark"} />
         {pendingChangePassword ? (
           <ChangePasswordRequiredScreen onDone={() => setPendingChangePassword(false)} />

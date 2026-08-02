@@ -1,9 +1,11 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuthStore } from "../store/authStore";
+import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
 import MenuSection from "../components/ui/MenuSection";
 import PressableMenuRow from "../components/ui/PressableMenuRow";
 import { useThemeColors } from "../theme/colors";
@@ -66,6 +68,14 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
   const nome = claims.username || "Usuário";
   const role = claims.role as number | undefined;
   const showMotoboyMenu = isMotoboyRole(role);
+  const unreadAvisos = useAvisosUnreadStore((s) => s.unreadCount);
+  const refreshUnreadAvisos = useAvisosUnreadStore((s) => s.refresh);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (showMotoboyMenu) void refreshUnreadAvisos();
+    }, [showMotoboyMenu, refreshUnreadAvisos])
+  );
 
   const handleSair = () => {
     Alert.alert("Sair", "Deseja sair da sua conta?", [
@@ -151,6 +161,7 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
               onPress={() => navigation.navigate("Avisos")}
               iconColor={profile.accent}
               iconSoftBg={profile.accentSoft}
+              badgeCount={unreadAvisos}
               isLast
             />
           </MenuSection>

@@ -56,6 +56,7 @@ import {
   isValidGeocodeCoords,
   type GeocodeResult,
 } from "../utils/geocode";
+import { resolveRouteDestinationCoords } from "../utils/resolveRouteDestination";
 import type { EnderecoBody, MotoboyHomeAddress } from "../api";
 import {
   fetchMotoboyHomeAddress,
@@ -980,25 +981,18 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     async (address: MotoboyHomeAddress) => {
       setConfirmingDestination(true);
       try {
-        const geo = await geocodeAddressFromValues({
-          rua: address.rua,
-          numero: address.numero,
-          complemento: address.complemento,
-          bairro: address.bairro,
-          cidade: address.cidade,
-          estado: address.estado,
-          cep: address.cep,
-          destinatario: "",
-        });
-        if (!geo || !isValidGeocodeCoords(geo.latitude, geo.longitude)) {
+        const resolved = await resolveRouteDestinationCoords(address);
+        if (!resolved.ok) {
           Alert.alert(
-            "Endereço não localizado",
-            "Não foi possível localizar esse destino no mapa. Revise o endereço e tente novamente."
+            resolved.reason === "unavailable" ? "Mapa indisponível" : "Endereço não localizado",
+            resolved.reason === "unavailable"
+              ? "O serviço de mapa está temporariamente indisponível. Tente novamente em instantes."
+              : "Não foi possível localizar esse destino no mapa. Revise o endereço e tente novamente."
           );
           return;
         }
         setRouteDestination({
-          end: { latitude: geo.latitude, longitude: geo.longitude },
+          end: { latitude: resolved.latitude, longitude: resolved.longitude },
           address,
           addressLabel: formatMotoboyHomeAddress(address),
         });
