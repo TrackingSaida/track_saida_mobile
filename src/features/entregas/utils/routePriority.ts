@@ -7,8 +7,10 @@ export type RoutePriority =
   | { type: "service"; value: ServicoTipo }
   | { type: "delivery"; idSaida: number };
 
+/** Espelha backend: threshold 1500m, penalty 200m, nearby 400m. */
 export const SOFT_PRIORITY_THRESHOLD_KM = 1.5;
-export const SOFT_PRIORITY_PENALTY_KM = 0.5;
+export const SOFT_PRIORITY_PENALTY_KM = 0.2;
+export const SOFT_PRIORITY_NEARBY_KM = 0.4;
 
 export const ROUTE_PRIORITY_NONE: RoutePriority = { type: "none" };
 
@@ -73,14 +75,18 @@ function buildStopPoints(
   return points;
 }
 
-function effectiveCostKm(
+export function effectiveCostKm(
   distKm: number,
   penaltyKm: number,
-  thresholdKm: number = SOFT_PRIORITY_THRESHOLD_KM
+  thresholdKm: number = SOFT_PRIORITY_THRESHOLD_KM,
+  nearbyKm: number = SOFT_PRIORITY_NEARBY_KM
 ): number {
+  if (distKm <= nearbyKm) return distKm;
   if (distKm >= thresholdKm) return distKm;
   return distKm + penaltyKm;
 }
+
+export type SoftPriorityEndPoint = { latitude: number; longitude: number };
 
 /** Nearest neighbor em paradas com prioridade suave (espelha backend). */
 export function optimizeStopsSoftPriority(
@@ -88,7 +94,8 @@ export function optimizeStopsSoftPriority(
   routeOrder: number[],
   priority: RoutePriority,
   fromLat?: number,
-  fromLon?: number
+  fromLon?: number,
+  end?: SoftPriorityEndPoint | null
 ): number[] {
   const groups = groupOrderedByAddress(getOrderedRouteDeliveries(routeDeliveries, routeOrder));
   const stopMeta = groups.map((g) => {
@@ -105,14 +112,35 @@ export function optimizeStopsSoftPriority(
 
   if (withCoords.length === 0) return routeOrder;
 
+  let forcedLast: (typeof withCoords)[number] | null = null;
+  let remaining = [...withCoords];
+  if (end && remaining.length >= 2) {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const s = remaining[i];
+      const d = haversineDistanceKm(s.lat!, s.lon!, end.latitude, end.longitude);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    forcedLast = remaining[bestIdx];
+    remaining = remaining.filter((_, i) => i !== bestIdx);
+  }
+
   let curLat = fromLat;
   let curLon = fromLon;
   if (curLat == null || curLon == null) {
-    curLat = withCoords[0].lat!;
-    curLon = withCoords[0].lon!;
+    if (remaining.length === 0 && forcedLast) {
+      curLat = forcedLast.lat!;
+      curLon = forcedLast.lon!;
+    } else {
+      curLat = remaining[0].lat!;
+      curLon = remaining[0].lon!;
+    }
   }
 
-  const remaining = [...withCoords];
   const orderedStops: typeof withCoords = [];
 
   while (remaining.length > 0) {
@@ -133,6 +161,8 @@ export function optimizeStopsSoftPriority(
     curLat = next.lat!;
     curLon = next.lon!;
   }
+
+  if (forcedLast) orderedStops.push(forcedLast);
 
   const orderedIds: number[] = [];
   for (const stop of orderedStops) {

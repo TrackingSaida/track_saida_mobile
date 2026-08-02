@@ -46,7 +46,8 @@ test("com endereços pendentes exibe scan_more e rota parcial quando há coords 
   );
   const partial = view.secondaryActions.find((s) => s.action === "generate_partial_route");
   assert.ok(partial);
-  assert.equal(partial.label, "Gerar rota parcial (12 pacotes)");
+  assert.equal(partial.label, "Gerar rota parcial");
+  assert.equal(partial.subtitle, "12 pacotes prontos");
 });
 
 test("com endereços pendentes e menos de 2 coords não oferece rota parcial", () => {

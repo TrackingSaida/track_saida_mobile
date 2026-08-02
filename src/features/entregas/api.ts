@@ -539,21 +539,85 @@ export type RotasOtimizarPriority =
 export async function postRotasOtimizar(
   deliveryIds: number[],
   start?: { latitude: number; longitude: number },
-  priority?: RotasOtimizarPriority
+  priority?: RotasOtimizarPriority,
+  end?: { latitude: number; longitude: number }
 ): Promise<RotasOtimizarResponse> {
   const body: {
     delivery_ids: number[];
     start?: { latitude: number; longitude: number };
+    end?: { latitude: number; longitude: number };
     priority?: RotasOtimizarPriority;
   } = {
     delivery_ids: deliveryIds,
   };
   if (start) body.start = start;
+  if (end) body.end = end;
   if (priority) body.priority = priority;
   const { data } = await client.post<RotasOtimizarResponse>("/mobile/rotas/otimizar", body, {
     timeout: ROUTE_OPTIMIZE_TIMEOUT_MS,
   });
   return data;
+}
+
+export type MotoboyHomeAddress = {
+  rua: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  cep: string;
+};
+
+export function formatMotoboyHomeAddress(addr: MotoboyHomeAddress): string {
+  const line1 = [addr.rua, addr.numero].filter(Boolean).join(", ");
+  const line2 = [addr.bairro, [addr.cidade, addr.estado].filter(Boolean).join("/")].filter(Boolean).join(" — ");
+  const cep = addr.cep ? `CEP ${addr.cep}` : "";
+  return [line1, line2, cep].filter(Boolean).join("\n");
+}
+
+export function isMotoboyHomeAddressComplete(addr: Partial<MotoboyHomeAddress> | null | undefined): boolean {
+  if (!addr) return false;
+  const rua = (addr.rua ?? "").trim();
+  const numero = (addr.numero ?? "").trim();
+  const bairro = (addr.bairro ?? "").trim();
+  const cidade = (addr.cidade ?? "").trim();
+  const estado = (addr.estado ?? "").trim();
+  const cep = (addr.cep ?? "").replace(/\D/g, "");
+  return (
+    rua.length > 0 &&
+    numero.length > 0 &&
+    bairro.length > 0 &&
+    cidade.length > 0 &&
+    estado.length > 0 &&
+    cep.length === 8
+  );
+}
+
+/** Endereço residencial do motoboy logado (cadastro). */
+export async function fetchMotoboyHomeAddress(): Promise<MotoboyHomeAddress | null> {
+  const { data } = await client.get<{
+    motoboy?: Partial<MotoboyHomeAddress> | null;
+    rua?: string | null;
+    numero?: string | null;
+    complemento?: string | null;
+    bairro?: string | null;
+    cidade?: string | null;
+    estado?: string | null;
+    cep?: string | null;
+  }>("/users/me");
+  const src = data.motoboy ?? data;
+  const addr: MotoboyHomeAddress = {
+    rua: (src.rua ?? "").trim(),
+    numero: (src.numero ?? "").trim(),
+    complemento: (src.complemento ?? "").trim(),
+    bairro: (src.bairro ?? "").trim(),
+    cidade: (src.cidade ?? "").trim(),
+    estado: (src.estado ?? "").trim(),
+    cep: (src.cep ?? "").replace(/\D/g, ""),
+  };
+  if (!isMotoboyHomeAddressComplete(addr)) return null;
+  return addr;
 }
 
 export interface RotasAtivaResponse {
