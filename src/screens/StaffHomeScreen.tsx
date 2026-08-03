@@ -82,13 +82,20 @@ export default function StaffHomeScreen({ navigation }: Props) {
       <View style={styles.body}>
         <OperacaoActionCard
           variant="primary"
-          title="Registrar saídas"
-          subtitle="Ler pacotes para um motoboy"
-          icon="scan-outline"
-          onPress={() => go("LeituraSaidas")}
+          title="Consultar pacote"
+          subtitle="Código e histórico"
+          icon="search-outline"
+          onPress={() => go("ConsultaCodigos")}
         />
 
         <View style={styles.grid}>
+          <OperacaoActionCard
+            variant="compact"
+            title="Registrar saídas"
+            subtitle="Ler pacotes para um motoboy"
+            icon="scan-outline"
+            onPress={() => go("LeituraSaidas")}
+          />
           {mostrarEntrada ? (
             <OperacaoActionCard
               variant="compact"
@@ -109,17 +116,17 @@ export default function StaffHomeScreen({ navigation }: Props) {
           ) : null}
           <OperacaoActionCard
             variant="compact"
-            title="Consultar pacote"
-            subtitle="Código e histórico"
-            icon="search-outline"
-            onPress={() => go("ConsultaCodigos")}
-          />
-          <OperacaoActionCard
-            variant="compact"
             title="Saídas por motoboy"
             subtitle="Shopee, ML e Avulso"
             icon="cube-outline"
             onPress={() => go("SaidasPorMotoboy")}
+          />
+          <OperacaoActionCard
+            variant="compact"
+            title="Acompanhamento"
+            subtitle="Progresso do dia"
+            icon="stats-chart-outline"
+            onPress={() => go("AcompanharOperacao")}
           />
           {mostrarEnviarAviso ? (
             <OperacaoActionCard
@@ -130,13 +137,6 @@ export default function StaffHomeScreen({ navigation }: Props) {
               onPress={() => go("EnviarAviso")}
             />
           ) : null}
-          <OperacaoActionCard
-            variant="compact"
-            title="Acompanhamento"
-            subtitle="Progresso do dia"
-            icon="stats-chart-outline"
-            onPress={() => go("AcompanharOperacao")}
-          />
           {mostrarColeta ? (
             <OperacaoActionCard
               variant="compact"

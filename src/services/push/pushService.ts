@@ -1,41 +1,66 @@
 import { Platform } from "react-native";
-import * as Notifications from "expo-notifications";
+import { isRunningInExpoGo } from "expo";
 import Constants from "expo-constants";
 import { playSound } from "../../utils/sound";
 import { registerPushToken, unregisterPushToken } from "./pushApi";
 
-const CHANNEL_DEFAULT = "default";
-const CHANNEL_URGENT = "urgent";
+/** IDs alinhados ao backend — canais novos garantem importância HIGH + som no Android. */
+const CHANNEL_DEFAULT = "avisos_geral";
+const CHANNEL_URGENT = "avisos_urgente";
+
+/**
+ * Push remoto Android foi removido do Expo Go no SDK 53+.
+ * Em Expo Go Android, não importamos/chamamos APIs de token para evitar o console.error do LogBox.
+ */
+const REMOTE_PUSH_UNSUPPORTED = isRunningInExpoGo() && Platform.OS === "android";
 
 let lastToken: string | null = null;
 let listenersAttached = false;
+let notificationsModule: typeof import("expo-notifications") | null = null;
+let handlerConfigured = false;
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+async function getNotifications(): Promise<typeof import("expo-notifications") | null> {
+  if (REMOTE_PUSH_UNSUPPORTED) return null;
+  if (!notificationsModule) {
+    notificationsModule = await import("expo-notifications");
+    if (!handlerConfigured) {
+      handlerConfigured = true;
+      notificationsModule.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowBanner: true,
+          shouldShowList: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+        }),
+      });
+    }
+  }
+  return notificationsModule;
+}
 
-async function ensureChannels(): Promise<void> {
+async function ensureChannels(
+  Notifications: typeof import("expo-notifications")
+): Promise<void> {
   if (Platform.OS !== "android") return;
   await Notifications.setNotificationChannelAsync(CHANNEL_DEFAULT, {
-    name: "Geral",
-    importance: Notifications.AndroidImportance.DEFAULT,
+    name: "Avisos e alertas",
+    importance: Notifications.AndroidImportance.HIGH,
     sound: "default",
     vibrationPattern: [0, 250, 120, 250],
+    enableVibrate: true,
   });
   await Notifications.setNotificationChannelAsync(CHANNEL_URGENT, {
     name: "Avisos urgentes",
-    importance: Notifications.AndroidImportance.HIGH,
+    importance: Notifications.AndroidImportance.MAX,
     sound: "default",
     vibrationPattern: [0, 400, 200, 400],
+    enableVibrate: true,
   });
 }
 
 export async function requestPushPermissions(): Promise<boolean> {
+  const Notifications = await getNotifications();
+  if (!Notifications) return false;
   const current = await Notifications.getPermissionsAsync();
   if (current.granted) return true;
   const asked = await Notifications.requestPermissionsAsync();
@@ -44,7 +69,9 @@ export async function requestPushPermissions(): Promise<boolean> {
 
 export async function getExpoPushTokenSafe(): Promise<string | null> {
   try {
-    await ensureChannels();
+    const Notifications = await getNotifications();
+    if (!Notifications) return null;
+    await ensureChannels(Notifications);
     const ok = await requestPushPermissions();
     if (!ok) return null;
     const projectId =
@@ -60,6 +87,7 @@ export async function getExpoPushTokenSafe(): Promise<string | null> {
 }
 
 export async function syncPushRegistration(): Promise<void> {
+  if (REMOTE_PUSH_UNSUPPORTED) return;
   const token = await getExpoPushTokenSafe();
   if (!token) return;
   lastToken = token;
@@ -71,6 +99,10 @@ export async function syncPushRegistration(): Promise<void> {
 }
 
 export async function unregisterPush(): Promise<void> {
+  if (REMOTE_PUSH_UNSUPPORTED) {
+    lastToken = null;
+    return;
+  }
   const token = lastToken || (await getExpoPushTokenSafe());
   if (!token) return;
   try {
@@ -84,28 +116,54 @@ export async function unregisterPush(): Promise<void> {
 export type PushNavHandler = (data: Record<string, unknown>) => void;
 
 export function attachPushListeners(onNavigate: PushNavHandler): () => void {
-  if (listenersAttached) {
+  if (REMOTE_PUSH_UNSUPPORTED || listenersAttached) {
     return () => undefined;
   }
   listenersAttached = true;
+  let detach: (() => void) | null = null;
+  let cancelled = false;
 
-  const received = Notifications.addNotificationReceivedListener(() => {
-    void playSound("warn");
-  });
+  void getNotifications().then((Notifications) => {
+    if (!Notifications || cancelled) {
+      listenersAttached = false;
+      return;
+    }
 
-  const response = Notifications.addNotificationResponseReceivedListener((resp) => {
-    const data = (resp.notification.request.content.data || {}) as Record<string, unknown>;
-    onNavigate(data);
+    const received = Notifications.addNotificationReceivedListener((notification) => {
+      const data = (notification.request.content.data || {}) as Record<string, unknown>;
+      const tipo = String(data.type || "");
+      // Sempre toca no foreground; avisos usam beep operacional
+      void playSound(tipo === "aviso_urgente" ? "error" : "warn");
+      if (tipo === "aviso_base" || tipo === "aviso_urgente") {
+        void import("../../store/avisosUnreadStore").then(({ useAvisosUnreadStore }) => {
+          void useAvisosUnreadStore.getState().refresh({ playOnIncrease: false });
+        });
+      }
+    });
+
+    const response = Notifications.addNotificationResponseReceivedListener((resp) => {
+      const data = (resp.notification.request.content.data || {}) as Record<string, unknown>;
+      onNavigate(data);
+    });
+
+    detach = () => {
+      received.remove();
+      response.remove();
+      listenersAttached = false;
+    };
   });
 
   return () => {
-    received.remove();
-    response.remove();
-    listenersAttached = false;
+    cancelled = true;
+    if (detach) detach();
+    else listenersAttached = false;
   };
 }
 
 export async function getLastNotificationData(): Promise<Record<string, unknown> | null> {
+  if (REMOTE_PUSH_UNSUPPORTED) return null;
+  const Notifications = await getNotifications();
+  if (!Notifications) return null;
   const last = await Notifications.getLastNotificationResponseAsync();
   if (!last) return null;
   return (last.notification.request.content.data || {}) as Record<string, unknown>;

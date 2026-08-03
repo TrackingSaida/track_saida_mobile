@@ -24,7 +24,7 @@ export default function EnviarAvisoScreen({ navigation }: Props) {
   const colors = useThemeColors();
   const [motoboys, setMotoboys] = useState<MotoboyItem[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [todos, setTodos] = useState(false);
+  const [todos, setTodos] = useState(true);
   const [urgente, setUrgente] = useState(false);
   const [titulo, setTitulo] = useState("");
   const [mensagem, setMensagem] = useState("");
@@ -34,7 +34,14 @@ export default function EnviarAvisoScreen({ navigation }: Props) {
   useEffect(() => {
     void (async () => {
       try {
-        setMotoboys(await listMotoboysOperacao());
+        const rows = await listMotoboysOperacao();
+        setMotoboys(
+          [...rows].sort((a, b) =>
+            String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR", {
+              sensitivity: "base",
+            })
+          )
+        );
       } catch {
         setMotoboys([]);
       } finally {
@@ -43,11 +50,17 @@ export default function EnviarAvisoScreen({ navigation }: Props) {
     })();
   }, []);
 
-  const toggle = useCallback((id: number) => {
+  const onTodosChange = useCallback((value: boolean) => {
+    setTodos(value);
+    // Ao desmarcar "todos", lista começa com toggles desligados (habilitar manualmente)
+    if (!value) setSelected(new Set());
+  }, []);
+
+  const toggle = useCallback((id: number, enabled: boolean) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (enabled) next.add(id);
+      else next.delete(id);
       return next;
     });
   }, []);
@@ -57,7 +70,18 @@ export default function EnviarAvisoScreen({ navigation }: Props) {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         body: { padding: space.md, paddingBottom: 40 },
-        label: { fontSize: 13, fontWeight: "700", color: colors.textSecondary, marginTop: 14, marginBottom: 6 },
+        label: {
+          fontSize: 13,
+          fontWeight: "700",
+          color: colors.textSecondary,
+          marginTop: 14,
+          marginBottom: 6,
+        },
+        hint: {
+          fontSize: 12,
+          color: colors.textSecondary,
+          marginBottom: 8,
+        },
         input: {
           borderWidth: 1,
           borderColor: colors.border,
@@ -75,19 +99,30 @@ export default function EnviarAvisoScreen({ navigation }: Props) {
           marginTop: 14,
           paddingVertical: 8,
         },
-        chip: {
-          paddingVertical: 8,
-          paddingHorizontal: 12,
-          borderRadius: 10,
+        list: {
           borderWidth: 1,
           borderColor: colors.border,
-          marginRight: 8,
-          marginBottom: 8,
+          borderRadius: 10,
           backgroundColor: colors.backgroundCard,
+          overflow: "hidden",
         },
-        chipOn: { borderColor: colors.primary, backgroundColor: colors.primary + "22" },
-        chipText: { color: colors.text, fontWeight: "600" },
-        chips: { flexDirection: "row", flexWrap: "wrap" },
+        motoboyRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 12,
+          paddingHorizontal: 12,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
+        },
+        motoboyRowFirst: { borderTopWidth: 0 },
+        motoboyName: { flex: 1, paddingRight: 12, color: colors.text, fontWeight: "600" },
+        empty: {
+          paddingVertical: 16,
+          textAlign: "center",
+          color: colors.textSecondary,
+          fontSize: 13,
+        },
         warn: { marginTop: 8, color: "#B91C1C", fontSize: 13, fontWeight: "600" },
         btn: {
           marginTop: 24,
@@ -170,26 +205,38 @@ export default function EnviarAvisoScreen({ navigation }: Props) {
           ) : null}
 
           <View style={styles.row}>
-            <Text style={{ color: colors.text, fontWeight: "700" }}>Todos os motoboys ativos</Text>
-            <Switch value={todos} onValueChange={setTodos} />
+            <Text style={{ color: colors.text, fontWeight: "700", flex: 1, paddingRight: 12 }}>
+              Todos os motoboys ativos
+            </Text>
+            <Switch value={todos} onValueChange={onTodosChange} />
           </View>
 
           {!todos ? (
             <>
               <Text style={styles.label}>Motoboys</Text>
-              <View style={styles.chips}>
-                {motoboys.map((m) => {
-                  const on = selected.has(m.id_motoboy);
-                  return (
-                    <TouchableOpacity
-                      key={m.id_motoboy}
-                      style={[styles.chip, on && styles.chipOn]}
-                      onPress={() => toggle(m.id_motoboy)}
-                    >
-                      <Text style={styles.chipText}>{m.nome || `Motoboy ${m.id_motoboy}`}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+              <Text style={styles.hint}>Ative o interruptor de cada motoboy que deve receber o aviso.</Text>
+              <View style={styles.list}>
+                {motoboys.length === 0 ? (
+                  <Text style={styles.empty}>Nenhum motoboy ativo encontrado.</Text>
+                ) : (
+                  motoboys.map((m, idx) => {
+                    const on = selected.has(m.id_motoboy);
+                    return (
+                      <View
+                        key={m.id_motoboy}
+                        style={[styles.motoboyRow, idx === 0 && styles.motoboyRowFirst]}
+                      >
+                        <Text style={styles.motoboyName} numberOfLines={2}>
+                          {m.nome || `Motoboy ${m.id_motoboy}`}
+                        </Text>
+                        <Switch
+                          value={on}
+                          onValueChange={(enabled) => toggle(m.id_motoboy, enabled)}
+                        />
+                      </View>
+                    );
+                  })
+                )}
               </View>
             </>
           ) : null}

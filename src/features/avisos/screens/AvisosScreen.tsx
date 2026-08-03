@@ -15,6 +15,7 @@ import { useThemeColors } from "../../../theme/colors";
 import { space } from "../../../theme/spacing";
 import type { MaisStackParamList } from "../../../screens/MaisScreen";
 import { listAvisos, type AvisoItem } from "../api";
+import { useAvisosUnreadStore } from "../../../store/avisosUnreadStore";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "Avisos">;
 
@@ -23,19 +24,22 @@ export default function AvisosScreen({ navigation }: Props) {
   const [items, setItems] = useState<AvisoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshUnread = useAvisosUnreadStore((s) => s.refresh);
 
   const load = useCallback(async (soft = false) => {
     if (soft) setRefreshing(true);
     else setLoading(true);
     try {
-      setItems(await listAvisos());
+      const rows = await listAvisos();
+      setItems(rows);
+      void refreshUnread();
     } catch {
       setItems([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [refreshUnread]);
 
   useFocusEffect(
     useCallback(() => {

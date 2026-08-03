@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Modal, View, Text, StyleSheet, TouchableOpacity, AppState } from "react-native";
-import { useNavigation, useNavigationState } from "@react-navigation/native";
 import { useAuthStore } from "../../../store/authStore";
 import { isMotoboyRole } from "../../../utils/role";
 import { listUrgentesPendentes, type AvisoItem } from "../api";
 import { playSound } from "../../../utils/sound";
+import {
+  getCurrentRouteName,
+  rootNavigationRef,
+} from "../../../navigation/rootNavigation";
 
 /** Rotas onde não devemos interromper o scanner. */
 const SCAN_ROUTE_NAMES = new Set(["Scan", "DeliverScan", "LeituraSaidas", "LeituraColetas", "LeituraEntradas"]);
@@ -12,19 +15,16 @@ const SCAN_ROUTE_NAMES = new Set(["Scan", "DeliverScan", "LeituraSaidas", "Leitu
 export default function UrgentAvisoGate() {
   const role = useAuthStore((s) => s.currentUser?.role);
   const token = useAuthStore((s) => s.token);
-  const navigation = useNavigation<any>();
   const [queue, setQueue] = useState<AvisoItem[]>([]);
   const [visible, setVisible] = useState(false);
+  const [routeName, setRouteName] = useState("");
 
-  const routeName = useNavigationState((state) => {
-    if (!state) return "";
-    let route: any = state.routes[state.index];
-    while (route?.state) {
-      const nested = route.state;
-      route = nested.routes[nested.index];
-    }
-    return String(route?.name || "");
-  });
+  useEffect(() => {
+    const syncRoute = () => setRouteName(getCurrentRouteName());
+    syncRoute();
+    const unsub = rootNavigationRef.addListener("state", syncRoute);
+    return unsub;
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!token || !isMotoboyRole(role)) {
@@ -62,7 +62,7 @@ export default function UrgentAvisoGate() {
       return;
     }
     setVisible(true);
-    void playSound("warn");
+    void playSound("error");
   }, [queue, routeName]);
 
   const current = queue[0];
@@ -70,10 +70,13 @@ export default function UrgentAvisoGate() {
   const onVerAgora = () => {
     if (!current) return;
     setVisible(false);
-    navigation.navigate("Mais", {
-      screen: "AvisoDetail",
-      params: { avisoId: current.id },
-    });
+    if (rootNavigationRef.isReady()) {
+      // ParamList raiz não tipado no ref — navegação aninhada via tabs.
+      (rootNavigationRef as { navigate: (...args: any[]) => void }).navigate("Mais", {
+        screen: "AvisoDetail",
+        params: { avisoId: current.id },
+      });
+    }
     // remove da fila local; ao voltar o refresh confirma lido
     setQueue((q) => q.slice(1));
   };
