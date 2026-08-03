@@ -8,24 +8,31 @@
  *
  * Política de Privacidade (opcional):
  * - EXPO_PUBLIC_PRIVACY_POLICY_URL=https://...
+ *
+ * O parâmetro `config` já traz os valores do app.json — não duplicar via require.
  */
-const appJson = require("./app.json");
+module.exports = ({ config }) => {
+  const next = {
+    ...config,
+    android: { ...(config.android || {}) },
+    extra: { ...(config.extra || {}) },
+  };
 
-module.exports = () => {
-  const config = { ...appJson.expo };
   const apiKey = (
     process.env.GOOGLE_MAPS_ANDROID_API_KEY ||
-    config.android?.config?.googleMaps?.apiKey ||
+    next.android?.config?.googleMaps?.apiKey ||
     ""
   ).trim();
 
-  if (!config.android) config.android = {};
-  if (!config.android.config) config.android.config = {};
-  if (!config.android.config.googleMaps) config.android.config.googleMaps = {};
-  config.android.config.googleMaps.apiKey = apiKey;
+  next.android.config = {
+    ...(next.android.config || {}),
+    googleMaps: {
+      ...((next.android.config && next.android.config.googleMaps) || {}),
+      apiKey,
+    },
+  };
 
-  if (!config.extra) config.extra = {};
-  config.extra.privacyPolicyUrl = (
+  next.extra.privacyPolicyUrl = (
     process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || ""
   ).trim();
 
@@ -37,5 +44,5 @@ module.exports = () => {
     );
   }
 
-  return config;
+  return next;
 };

@@ -9,6 +9,8 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "plugins": [
+      "expo-font",
+      "expo-asset",
       [
         "expo-notifications",
         {
@@ -58,11 +60,11 @@
         "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition.",
         "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use the microphone.",
         "NSLocationWhenInUseUsageDescription": "Usamos sua localização para navegação durante as entregas.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Usamos sua localização mesmo em segundo plano para acompanhar a rota ativa."
-      },
-      "backgroundModes": [
-        "location"
-      ]
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Usamos sua localização mesmo em segundo plano para acompanhar a rota ativa.",
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
