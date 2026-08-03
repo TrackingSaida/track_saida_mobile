@@ -58,6 +58,7 @@ import AvisoDetailScreen from "./src/features/avisos/screens/AvisoDetailScreen";
 import UrgentAvisoGate from "./src/features/avisos/components/UrgentAvisoGate";
 import {
   attachPushListeners,
+  ensurePushAppStateSync,
   getLastNotificationData,
   syncPushRegistration,
 } from "./src/services/push/pushService";
@@ -308,16 +309,20 @@ export default function App() {
 
   useEffect(() => {
     if (!token || requiresBiometricUnlock || !currentUser) return;
-    void syncPushRegistration();
-    const detach = attachPushListeners((data) => {
+    void syncPushRegistration({ attempts: 3 });
+    const detachListeners = attachPushListeners((data) => {
       navigateFromPushData(rootNavigationRef.isReady() ? rootNavigationRef : null, data);
     });
+    const detachAppState = ensurePushAppStateSync();
     void getLastNotificationData().then((data) => {
       if (data && rootNavigationRef.isReady()) {
         navigateFromPushData(rootNavigationRef, data);
       }
     });
-    return detach;
+    return () => {
+      detachListeners();
+      detachAppState();
+    };
   }, [token, currentUser, requiresBiometricUnlock]);
 
   if (isLoading) {

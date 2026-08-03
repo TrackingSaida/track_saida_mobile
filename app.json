@@ -89,7 +89,8 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.ACTIVITY_RECOGNITION"
       ],
-      "package": "br.com.trackingsaidas.mobile"
+      "package": "br.com.trackingsaidas.mobile",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"
