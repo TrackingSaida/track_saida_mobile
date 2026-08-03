@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "470736779522",
+    "project_id": "project-0a942e95-1162-4cef-a94",
+    "storage_bucket": "project-0a942e95-1162-4cef-a94.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:470736779522:android:baf2613d4d7bd62934aa1b",
+        "android_client_info": {
+          "package_name": "br.com.trackingsaidas.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBrjZAq6myPa-hQG-8godMpZaAgQP64J4w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

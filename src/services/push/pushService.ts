@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { isRunningInExpoGo } from "expo";
 import Constants from "expo-constants";
 import { playSound } from "../../utils/sound";
@@ -18,6 +18,8 @@ let lastToken: string | null = null;
 let listenersAttached = false;
 let notificationsModule: typeof import("expo-notifications") | null = null;
 let handlerConfigured = false;
+let syncInFlight: Promise<boolean> | null = null;
+let appStateAttached = false;
 
 async function getNotifications(): Promise<typeof import("expo-notifications") | null> {
   if (REMOTE_PUSH_UNSUPPORTED) return null;
@@ -70,32 +72,95 @@ export async function requestPushPermissions(): Promise<boolean> {
 export async function getExpoPushTokenSafe(): Promise<string | null> {
   try {
     const Notifications = await getNotifications();
-    if (!Notifications) return null;
+    if (!Notifications) {
+      console.warn("[push] modulo indisponivel (Expo Go Android?)");
+      return null;
+    }
     await ensureChannels(Notifications);
     const ok = await requestPushPermissions();
-    if (!ok) return null;
+    if (!ok) {
+      console.warn("[push] permissao negada");
+      return null;
+    }
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ??
       (Constants as { easConfig?: { projectId?: string } }).easConfig?.projectId;
+    if (!projectId) {
+      console.warn("[push] projectId EAS ausente — token Expo pode falhar");
+    }
     const tokenResp = await Notifications.getExpoPushTokenAsync(
       projectId ? { projectId } : undefined
     );
-    return tokenResp.data || null;
-  } catch {
+    const token = tokenResp.data || null;
+    if (!token) console.warn("[push] getExpoPushTokenAsync retornou vazio");
+    return token;
+  } catch (e) {
+    console.warn("[push] falha ao obter ExpoPushToken", e);
     return null;
   }
 }
 
-export async function syncPushRegistration(): Promise<void> {
-  if (REMOTE_PUSH_UNSUPPORTED) return;
-  const token = await getExpoPushTokenSafe();
-  if (!token) return;
-  lastToken = token;
-  try {
-    await registerPushToken(token, Platform.OS);
-  } catch {
-    // silencioso — não bloqueia login
+/**
+ * Registra token no backend. Retorna true se registrou.
+ * Faz retries — no Android o FCM/token pode demorar após conceder permissão.
+ */
+export async function syncPushRegistration(opts?: { attempts?: number }): Promise<boolean> {
+  if (REMOTE_PUSH_UNSUPPORTED) {
+    console.warn("[push] remoto nao suportado neste runtime");
+    return false;
   }
+  if (syncInFlight) return syncInFlight;
+
+  const attempts = Math.max(1, opts?.attempts ?? 3);
+  syncInFlight = (async () => {
+    let lastErr: unknown = null;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const token = await getExpoPushTokenSafe();
+        if (!token) {
+          if (i < attempts - 1) {
+            await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+            continue;
+          }
+          console.warn("[push] sync abortado: sem token apos retries");
+          return false;
+        }
+        lastToken = token;
+        await registerPushToken(token, Platform.OS);
+        console.warn("[push] register ok");
+        return true;
+      } catch (e) {
+        lastErr = e;
+        console.warn("[push] register falhou tentativa", i + 1, e);
+        if (i < attempts - 1) {
+          await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+        }
+      }
+    }
+    if (lastErr) console.warn("[push] sync falhou definitivamente", lastErr);
+    return false;
+  })().finally(() => {
+    syncInFlight = null;
+  });
+
+  return syncInFlight;
+}
+
+/** Re-sincroniza ao voltar ao foreground (permissão concedida depois, FCM atrasado). */
+export function ensurePushAppStateSync(): () => void {
+  if (REMOTE_PUSH_UNSUPPORTED || appStateAttached) {
+    return () => undefined;
+  }
+  appStateAttached = true;
+  const sub = AppState.addEventListener("change", (state) => {
+    if (state === "active") {
+      void syncPushRegistration({ attempts: 2 });
+    }
+  });
+  return () => {
+    sub.remove();
+    appStateAttached = false;
+  };
 }
 
 export async function unregisterPush(): Promise<void> {
