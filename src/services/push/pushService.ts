@@ -4,8 +4,9 @@ import Constants from "expo-constants";
 import { playSound } from "../../utils/sound";
 import { registerPushToken, unregisterPushToken } from "./pushApi";
 
-const CHANNEL_DEFAULT = "default";
-const CHANNEL_URGENT = "urgent";
+/** IDs alinhados ao backend — canais novos garantem importância HIGH + som no Android. */
+const CHANNEL_DEFAULT = "avisos_geral";
+const CHANNEL_URGENT = "avisos_urgente";
 
 /**
  * Push remoto Android foi removido do Expo Go no SDK 53+.
@@ -42,16 +43,18 @@ async function ensureChannels(
 ): Promise<void> {
   if (Platform.OS !== "android") return;
   await Notifications.setNotificationChannelAsync(CHANNEL_DEFAULT, {
-    name: "Geral",
-    importance: Notifications.AndroidImportance.DEFAULT,
+    name: "Avisos e alertas",
+    importance: Notifications.AndroidImportance.HIGH,
     sound: "default",
     vibrationPattern: [0, 250, 120, 250],
+    enableVibrate: true,
   });
   await Notifications.setNotificationChannelAsync(CHANNEL_URGENT, {
     name: "Avisos urgentes",
-    importance: Notifications.AndroidImportance.HIGH,
+    importance: Notifications.AndroidImportance.MAX,
     sound: "default",
     vibrationPattern: [0, 400, 200, 400],
+    enableVibrate: true,
   });
 }
 
@@ -126,8 +129,16 @@ export function attachPushListeners(onNavigate: PushNavHandler): () => void {
       return;
     }
 
-    const received = Notifications.addNotificationReceivedListener(() => {
-      void playSound("warn");
+    const received = Notifications.addNotificationReceivedListener((notification) => {
+      const data = (notification.request.content.data || {}) as Record<string, unknown>;
+      const tipo = String(data.type || "");
+      // Sempre toca no foreground; avisos usam beep operacional
+      void playSound(tipo === "aviso_urgente" ? "error" : "warn");
+      if (tipo === "aviso_base" || tipo === "aviso_urgente") {
+        void import("../../store/avisosUnreadStore").then(({ useAvisosUnreadStore }) => {
+          void useAvisosUnreadStore.getState().refresh({ playOnIncrease: false });
+        });
+      }
     });
 
     const response = Notifications.addNotificationResponseReceivedListener((resp) => {

@@ -62,7 +62,7 @@ export default function UrgentAvisoGate() {
       return;
     }
     setVisible(true);
-    void playSound("warn");
+    void playSound("error");
   }, [queue, routeName]);
 
   const current = queue[0];
