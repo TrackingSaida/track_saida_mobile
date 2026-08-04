@@ -150,6 +150,13 @@ export interface UploadDeliveryPhotoParams {
   clientActionId?: string;
 }
 
+export interface UploadAvulsoFotoPendingParams {
+  uri: string;
+  mimeType: string;
+  filename: string;
+  photoId?: string;
+}
+
 function getErrorMessage(e: unknown): string {
   if (e && typeof e === "object" && "response" in e) {
     const ax = e as AxiosError<{ detail?: string }>;
@@ -195,52 +202,7 @@ export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Pr
       throw new Error(getErrorMessage(e) || "Não foi possível obter permissão para envio. Verifique o servidor.");
     }
 
-    const contentType = presign.headers["Content-Type"] ?? mimeType;
-
-    const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const bodyBytes = base64ToUint8Array(base64);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), B2_UPLOAD_TIMEOUT_MS);
-    let uploadResponse: Response;
-    try {
-      uploadResponse = await fetch(presign.upload_url, {
-        method: "PUT",
-        headers: { "Content-Type": contentType },
-        body: bodyBytes.buffer.slice(bodyBytes.byteOffset, bodyBytes.byteOffset + bodyBytes.byteLength) as ArrayBuffer,
-        signal: controller.signal,
-      });
-    } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") {
-        throw new Error("Tempo esgotado ao enviar a foto. Verifique a conexão e tente novamente.");
-      }
-      throw e;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!uploadResponse.ok) {
-      const text = await uploadResponse.text().catch(() => "");
-      if (uploadResponse.status === 0 || !uploadResponse.status) {
-        throw new Error(
-          "Falha de rede ao enviar a foto. Verifique a internet e se o bucket está com CORS configurado para o app."
-        );
-      }
-      if (uploadResponse.status === 403) {
-        const hint =
-          "Acesso negado pelo B2 (403). Verifique a Application Key: deve ser Read and Write, bucket correto e prefixo saida/.";
-        throw new Error(
-          text && text.length < 300 ? `Upload recusado (403): ${text.slice(0, 200)}. ${hint}` : `Upload recusado (403). ${hint}`
-        );
-      }
-      throw new Error(
-        text && text.length < 200
-          ? `Upload recusado (${uploadResponse.status}): ${text}`
-          : `Upload recusado (${uploadResponse.status}). Verifique CORS no bucket B2.`
-      );
-    }
+    await putPhotoToPresignedUrl(presign, uri, mimeType);
     objectKey = presign.object_key;
   }
 
@@ -261,6 +223,93 @@ export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Pr
     throw new Error(getErrorMessage(e) || "Foto enviada, mas falha ao registrar. Tente novamente.");
   }
   return objectKey;
+}
+
+async function putPhotoToPresignedUrl(
+  presign: Awaited<ReturnType<typeof getPresignUpload>>,
+  uri: string,
+  mimeType: string
+): Promise<void> {
+  const contentType = presign.headers["Content-Type"] ?? mimeType;
+
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const bodyBytes = base64ToUint8Array(base64);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), B2_UPLOAD_TIMEOUT_MS);
+  let uploadResponse: Response;
+  try {
+    uploadResponse = await fetch(presign.upload_url, {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: bodyBytes.buffer.slice(bodyBytes.byteOffset, bodyBytes.byteOffset + bodyBytes.byteLength) as ArrayBuffer,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error("Tempo esgotado ao enviar a foto. Verifique a conexão e tente novamente.");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!uploadResponse.ok) {
+    const text = await uploadResponse.text().catch(() => "");
+    if (uploadResponse.status === 0 || !uploadResponse.status) {
+      throw new Error(
+        "Falha de rede ao enviar a foto. Verifique a internet e se o bucket está com CORS configurado para o app."
+      );
+    }
+    if (uploadResponse.status === 403) {
+      const hint =
+        "Acesso negado pelo B2 (403). Verifique a Application Key: deve ser Read and Write, bucket correto e prefixo saida/.";
+      throw new Error(
+        text && text.length < 300 ? `Upload recusado (403): ${text.slice(0, 200)}. ${hint}` : `Upload recusado (403). ${hint}`
+      );
+    }
+    throw new Error(
+      text && text.length < 200
+        ? `Upload recusado (${uploadResponse.status}): ${text}`
+        : `Upload recusado (${uploadResponse.status}). Verifique CORS no bucket B2.`
+    );
+  }
+}
+
+/**
+ * Presign sem id_saida, envia ao B2 e retorna object_key (sem PATCH /saidas).
+ * Usado antes de POST /pedidos/lancar-avulso quando avulso_exige_foto.
+ */
+export async function uploadAvulsoFotoPending(params: UploadAvulsoFotoPendingParams): Promise<string> {
+  const { uri, mimeType, filename, photoId } = params;
+
+  let presign: Awaited<ReturnType<typeof getPresignUpload>>;
+  try {
+    presign = await getPresignUpload({
+      filename,
+      tipo: "lancar_avulso",
+      content_type: mimeType,
+      photo_id: photoId,
+    });
+  } catch (e) {
+    throw new Error(getErrorMessage(e) || "Não foi possível obter permissão para envio. Verifique o servidor.");
+  }
+
+  await putPhotoToPresignedUrl(presign, uri, mimeType);
+  return presign.object_key;
+}
+
+/** Atalho: preparePhoto + uploadAvulsoFotoPending. Exportado para fluxos staff (LeituraSaidas). */
+export async function uploadPendingAvulsoPhoto(uri: string, photoId?: string): Promise<string> {
+  const prepared = await preparePhoto(uri);
+  return uploadAvulsoFotoPending({
+    uri: prepared.uri,
+    mimeType: prepared.mimeType,
+    filename: prepared.filename,
+    photoId,
+  });
 }
 
 export { MAX_PHOTOS };

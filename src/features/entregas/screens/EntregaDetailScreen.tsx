@@ -184,7 +184,10 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
 
       const statusKind = resolveDetailStatusKind(e);
       const shouldLoadComprovante =
-        statusKind === "entregue" || statusKind === "cancelado" || statusKind === "ausente";
+        statusKind === "entregue" ||
+        statusKind === "cancelado" ||
+        statusKind === "ausente" ||
+        !!e.tem_comprovante;
       if (!shouldLoadComprovante) {
         setComprovanteUris([]);
         setLoadingComprovante(false);

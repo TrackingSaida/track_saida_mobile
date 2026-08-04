@@ -139,6 +139,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+    try {
+      const { useStaffScanSessionStore } = await import("./staffScanSessionStore");
+      useStaffScanSessionStore.getState().clearSession();
+    } catch {
+      /* ignore */
+    }
     set({
       token: null,
       refreshToken: null,

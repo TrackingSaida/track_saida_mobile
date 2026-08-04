@@ -28,11 +28,17 @@ import { playSound } from "../../../utils/sound";
 import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
 import {
+  effectiveConferenciaSaida,
   effectivePodeDigitarCodigoManual,
   effectivePodeLancarAvulso,
   effectivePodeLerSaida,
+  effectiveAvulsoExigeFoto,
   isStaffOperacaoRole,
 } from "../../../utils/role";
+import {
+  takeDeliveryPhoto,
+  uploadPendingAvulsoPhoto,
+} from "../../../services/deliveryPhotoService";
 import {
   lerSaidaAdmin,
   lancarAvulso,
@@ -41,6 +47,7 @@ import {
   confirmarNovaSaidaMesmoEntregadorAdmin,
   type MotoboyItem,
 } from "../saidasApi";
+import { confirmarLeituraStaff } from "../conferenciaApi";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
 import {
   AVULSO_IDENT_AJUDA,
@@ -48,6 +55,10 @@ import {
   AVULSO_QTD_MAX,
   validarLancamentoAvulso,
 } from "../utils/avulsoLancamento";
+import {
+  staffSessionTemPendenciaConfirmacao,
+  useStaffScanSessionStore,
+} from "../../../store/staffScanSessionStore";
 
 const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
 const CORNER_LENGTH = 40;
@@ -215,9 +226,27 @@ function coresFeedback(tipo: FeedbackTipo): { bg: string; border: string; fg: st
 function coresBadgeServicoLabel(servico: string): { bg: string; fg: string } {
   const s = servico.trim().toLowerCase();
   if (s.includes("shopee")) return { bg: "rgba(238,77,45,0.15)", fg: "#ee4d2d" };
-  if (s.includes("mercado") || s.includes("livre")) return { bg: "rgba(255,230,0,0.35)", fg: "#2d3277" };
+  if (s.includes("mercado") || s.includes("livre") || s === "ml" || s.includes("flex")) {
+    return { bg: "rgba(255,230,0,0.35)", fg: "#2d3277" };
+  }
   if (!s || s === "—") return { bg: "rgba(108,117,125,0.15)", fg: "#6c757d" };
   return { bg: "rgba(13,110,253,0.12)", fg: "#0d6efd" };
+}
+
+/** Buckets alinhados ao scan do motoboy / conferência (Shopee | ML | Avulso). */
+function classifyServicoBucket(serv?: string | null): "Shopee" | "ML" | "Avulso" {
+  const s = (serv || "").trim().toLowerCase();
+  if (s.includes("shopee")) return "Shopee";
+  if (s.includes("mercado") || s.includes("livre") || s === "ml" || s.includes("flex")) return "ML";
+  return "Avulso";
+}
+
+function dataRefHojeLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function coresFeedbackMain(tipo: FeedbackTipo, colors: ReturnType<typeof useThemeColors>) {
@@ -568,6 +597,45 @@ export default function LeituraSaidasScreen() {
         cameraMeta: { flex: 1, alignItems: "flex-end" },
         cameraMetaLine: { fontSize: 13, color: "rgba(255,255,255,0.92)", fontWeight: "600", textAlign: "right" },
         cameraMetaMuted: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 2, textAlign: "right" },
+        cameraContadorRow: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 10,
+        },
+        cameraContadorBadge: {
+          flex: 1,
+          borderRadius: 12,
+          paddingVertical: 8,
+          alignItems: "center",
+        },
+        cameraContadorNum: { fontSize: 18, fontWeight: "800", color: "#fff" },
+        cameraContadorLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.9)", marginTop: 2 },
+        badgeShopeeCam: { backgroundColor: "rgba(238,77,45,0.85)" },
+        badgeMlCam: { backgroundColor: "rgba(255,230,0,0.9)" },
+        badgeAvulsoCam: { backgroundColor: "rgba(13,110,253,0.85)" },
+        badgeMlCamText: { color: "#1a1a2e" },
+        btnConfirmarLeitura: {
+          marginTop: 14,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          borderRadius: 12,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        btnConfirmarLeituraText: {
+          color: colors.primaryContrast,
+          fontSize: 16,
+          fontWeight: "800",
+        },
+        btnConfirmarLeituraSub: {
+          color: colors.primaryContrast,
+          fontSize: 12,
+          fontWeight: "600",
+          marginTop: 4,
+          opacity: 0.9,
+        },
         cameraFooter: {
           position: "absolute",
           bottom: 0,
@@ -684,6 +752,11 @@ export default function LeituraSaidasScreen() {
   const podeLerSaida = effectivePodeLerSaida(currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
+  const motoboySelecionado = useMemo(
+    () => motoboys.find((m) => m.id_motoboy === motoboyId) ?? null,
+    [motoboys, motoboyId]
+  );
+  const avulsoExigeFoto = effectiveAvulsoExigeFoto(currentUser, motoboySelecionado);
   const username = currentUser?.username ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
@@ -712,15 +785,24 @@ export default function LeituraSaidasScreen() {
     () => totalSucesso + totalAlterado + totalNaoColetado,
     [totalSucesso, totalAlterado, totalNaoColetado]
   );
-  const contagensPorServico = useMemo(() => {
-    const map = new Map<string, number>();
+  const contagensServico = useMemo(() => {
+    let Shopee = 0;
+    let ML = 0;
+    let Avulso = 0;
     for (const l of leiturasDoMotoboy) {
       if (l.status === "erro") continue;
-      const label = String(l.servico ?? "").trim() || "Sem serviço";
-      map.set(label, (map.get(label) ?? 0) + 1);
+      const b = classifyServicoBucket(l.servico);
+      if (b === "Shopee") Shopee += 1;
+      else if (b === "ML") ML += 1;
+      else Avulso += 1;
     }
-    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+    return { Shopee, ML, Avulso };
   }, [leiturasDoMotoboy]);
+
+  const conferenciaHabilitada = effectiveConferenciaSaida(currentUser);
+  const sessaoConfirmada = useStaffScanSessionStore((s) => s.confirmada);
+  const pendenciaConfirmacao =
+    conferenciaHabilitada && !sessaoConfirmada && totalValidas > 0;
 
   const ultimaLeitura = useMemo(
     () => (leiturasDoMotoboy.length ? leiturasDoMotoboy[leiturasDoMotoboy.length - 1] : undefined),
@@ -752,6 +834,29 @@ export default function LeituraSaidasScreen() {
   useEffect(() => {
     void fetchMotoboys();
   }, [fetchMotoboys]);
+
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    const s = useStaffScanSessionStore.getState();
+    if (s.motoboyId != null) {
+      setMotoboyId(s.motoboyId);
+      setMotoboyNome(s.motoboyNome);
+      if (s.leituras.length > 0) {
+        setLeituras(s.leituras as LeituraSaidaItem[]);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    useStaffScanSessionStore.getState().syncSession({
+      motoboyId,
+      motoboyNome,
+      leituras,
+    });
+  }, [motoboyId, motoboyNome, leituras]);
 
   useEffect(() => {
     return () => {
@@ -789,16 +894,97 @@ export default function LeituraSaidasScreen() {
 
   const aplicarMotoboySelecionado = useCallback(
     (item: MotoboyItem) => {
+      const store = useStaffScanSessionStore.getState();
+      if (
+        conferenciaHabilitada &&
+        store.motoboyId != null &&
+        store.motoboyId !== item.id_motoboy &&
+        !store.podeTrocarMotoboy()
+      ) {
+        Alert.alert(
+          "Confirme a leitura",
+          "Há leituras nesta sessão. Confirme a leitura antes de trocar de motoboy."
+        );
+        return;
+      }
       setMotoboyId(item.id_motoboy);
       setMotoboyNome(item.nome);
+      if (store.motoboyId !== item.id_motoboy) {
+        setLeituras([]);
+      }
       setModalSelecaoMotoboyVisible(false);
       suppressAutoCameraRef.current = false;
       setTimeout(() => {
         void ensurePermissionAndOpenCamera();
       }, 0);
     },
-    [ensurePermissionAndOpenCamera]
+    [ensurePermissionAndOpenCamera, conferenciaHabilitada]
   );
+
+  const handleConfirmarLeitura = useCallback(async () => {
+    if (!motoboyId || !motoboyNome) {
+      pushFeedback("info", "Selecione um motoboy.");
+      return;
+    }
+    if (totalValidas <= 0) {
+      pushFeedback("info", "Nenhuma leitura válida para confirmar.");
+      return;
+    }
+    if (!conferenciaHabilitada) {
+      Alert.alert(
+        "Conferência desabilitada",
+        "A conferência de saída não está habilitada para esta base."
+      );
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await confirmarLeituraStaff({
+        motoboyId,
+        dataRef: dataRefHojeLocal(),
+        qtd: totalValidas,
+      });
+      useStaffScanSessionStore.getState().archivarAposConfirmar();
+      setLeituras([]);
+      pushFeedback(
+        "sucesso",
+        `Leitura confirmada · ${res.total} pacote(s) · Shopee ${res.sum_shopee} · ML ${res.sum_mercado} · Avulso ${res.sum_avulso}`
+      );
+      Alert.alert(
+        "Leitura confirmada",
+        `${res.motoboy_nome}\nTotal: ${res.total}\nShopee: ${res.sum_shopee} · ML: ${res.sum_mercado} · Avulso: ${res.sum_avulso}`
+      );
+    } catch (err) {
+      pushFeedback("erro", formatApiError(err, "Erro ao confirmar leitura."));
+    } finally {
+      setLoading(false);
+    }
+  }, [motoboyId, motoboyNome, totalValidas, conferenciaHabilitada, pushFeedback]);
+
+  const handleVoltarComPendencia = useCallback(() => {
+    if (!conferenciaHabilitada || !staffSessionTemPendenciaConfirmacao()) {
+      navigation.goBack();
+      return;
+    }
+    Alert.alert(
+      "Sair da leitura?",
+      "Há leituras ainda não confirmadas. O que deseja fazer?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Sair sem confirmar",
+          style: "destructive",
+          onPress: () => navigation.goBack(),
+        },
+        {
+          text: "Confirmar agora",
+          onPress: () => {
+            void handleConfirmarLeitura();
+          },
+        },
+      ]
+    );
+  }, [navigation, handleConfirmarLeitura, conferenciaHabilitada]);
   const codigosLidosSessaoMotoboy = useMemo(() => {
     const set = new Set<string>();
     if (!motoboyId) return set;
@@ -1053,10 +1239,24 @@ export default function LeituraSaidasScreen() {
     }
     setLoading(true);
     try {
+      let fotoObjectKey: string | undefined;
+      let photoId: string | undefined;
+
+      if (avulsoExigeFoto) {
+        const picked = await takeDeliveryPhoto();
+        if (!picked) {
+          setLoading(false);
+          return;
+        }
+        photoId = `avulso-staff-${Date.now()}`;
+        fotoObjectKey = await uploadPendingAvulsoPhoto(picked.uri, photoId);
+      }
+
       const res = await lancarAvulso({
         identificacao: validacao.identificacao,
         quantidade: validacao.quantidade,
         motoboy_id: motoboyId,
+        ...(fotoObjectKey ? { foto_object_key: fotoObjectKey, photo_id: photoId } : {}),
       });
       const novos = (res.saidas ?? []).map((s) => ({
         codigo: String(s.codigo ?? ""),
@@ -1086,6 +1286,7 @@ export default function LeituraSaidasScreen() {
     motoboyNome,
     avulsoQuantidade,
     avulsoIdentificacao,
+    avulsoExigeFoto,
     pushFeedback,
     abrirCameraExplicito,
     cameraAtiva,
@@ -1262,7 +1463,7 @@ export default function LeituraSaidasScreen() {
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <ScreenHeaderBar
           title="Leitura de saídas"
-          onBack={() => navigation.goBack()}
+          onBack={handleVoltarComPendencia}
           paddingTop={Math.max(12, insets.top)}
         />
       <ScrollView
@@ -1301,8 +1502,17 @@ export default function LeituraSaidasScreen() {
             <Text style={styles.bloqueioText}>Selecione um motoboy para iniciar as leituras.</Text>
           )}
           <TouchableOpacity
-            style={styles.motoboyCta}
-            onPress={() => setModalSelecaoMotoboyVisible(true)}
+            style={[styles.motoboyCta, pendenciaConfirmacao && { opacity: 0.55 }]}
+            onPress={() => {
+              if (pendenciaConfirmacao) {
+                Alert.alert(
+                  "Confirme a leitura",
+                  "Há leituras nesta sessão. Confirme a leitura antes de trocar de motoboy."
+                );
+                return;
+              }
+              setModalSelecaoMotoboyVisible(true);
+            }}
             accessibilityLabel={motoboySelecionadoOk ? "Trocar motoboy" : "Selecionar motoboy"}
             accessibilityRole="button"
           >
@@ -1357,9 +1567,15 @@ export default function LeituraSaidasScreen() {
               </View>
             ) : null}
           </View>
-          {motoboySelecionadoOk && contagensPorServico.length > 0 ? (
+          {motoboySelecionadoOk && totalValidas > 0 ? (
             <View style={styles.servicoBadgesRow}>
-              {contagensPorServico.map(([nome, qtd]) => {
+              {(
+                [
+                  ["Shopee", contagensServico.Shopee],
+                  ["ML", contagensServico.ML],
+                  ["Avulso", contagensServico.Avulso],
+                ] as const
+              ).map(([nome, qtd]) => {
                 const cv = coresBadgeServicoLabel(nome);
                 return (
                   <View key={nome} style={[styles.servicoBadge, { backgroundColor: cv.bg }]}>
@@ -1370,6 +1586,26 @@ export default function LeituraSaidasScreen() {
                 );
               })}
             </View>
+          ) : null}
+          {motoboySelecionadoOk && pendenciaConfirmacao && conferenciaHabilitada ? (
+            <TouchableOpacity
+              style={[styles.btnConfirmarLeitura, loading && styles.btnDisabled]}
+              onPress={() => void handleConfirmarLeitura()}
+              disabled={loading}
+              accessibilityLabel="Confirmar Leitura"
+            >
+              {loading ? (
+                <ActivityIndicator color={colors.primaryContrast} />
+              ) : (
+                <>
+                  <Text style={styles.btnConfirmarLeituraText}>Confirmar Leitura</Text>
+                  <Text style={styles.btnConfirmarLeituraSub}>
+                    {totalValidas} · Shopee {contagensServico.Shopee} · ML {contagensServico.ML} ·
+                    Avulso {contagensServico.Avulso}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
           ) : null}
           <View
             style={[
@@ -1579,6 +1815,22 @@ export default function LeituraSaidasScreen() {
                   </View>
                 ) : null}
                 <View style={styles.cameraFooter}>
+                  <View style={styles.cameraContadorRow} pointerEvents="none">
+                    <View style={[styles.cameraContadorBadge, styles.badgeShopeeCam]}>
+                      <Text style={styles.cameraContadorNum}>{contagensServico.Shopee}</Text>
+                      <Text style={styles.cameraContadorLabel}>Shopee</Text>
+                    </View>
+                    <View style={[styles.cameraContadorBadge, styles.badgeMlCam]}>
+                      <Text style={[styles.cameraContadorNum, styles.badgeMlCamText]}>
+                        {contagensServico.ML}
+                      </Text>
+                      <Text style={[styles.cameraContadorLabel, styles.badgeMlCamText]}>ML</Text>
+                    </View>
+                    <View style={[styles.cameraContadorBadge, styles.badgeAvulsoCam]}>
+                      <Text style={styles.cameraContadorNum}>{contagensServico.Avulso}</Text>
+                      <Text style={styles.cameraContadorLabel}>Avulso</Text>
+                    </View>
+                  </View>
                   <View style={styles.cameraFooterBox} pointerEvents="none">
                     <Text style={styles.cameraFooterLabel}>Última leitura</Text>
                     {ultimaLeitura ? (

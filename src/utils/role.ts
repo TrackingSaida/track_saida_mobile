@@ -79,6 +79,22 @@ export function effectivePodeLancarAvulso(claims: JwtClaims | null | undefined):
   return false;
 }
 
+export type AvulsoExigeFotoMotoboy = { avulso_exige_foto?: boolean } | null | undefined;
+
+/**
+ * Foto obrigatória no avulso: motoboy segue JWT; staff segue flag do motoboy selecionado (se disponível).
+ */
+export function effectiveAvulsoExigeFoto(
+  claims: JwtClaims | null | undefined,
+  selectedMotoboy?: AvulsoExigeFotoMotoboy
+): boolean {
+  if (!claims) return false;
+  const r = asRole(claims.role);
+  if (isStaffOperacaoRole(r)) return asExplicitTrue(selectedMotoboy?.avulso_exige_foto);
+  if (isMotoboyRole(r)) return asExplicitTrue(claims.avulso_exige_foto);
+  return false;
+}
+
 /** Owner exige entrada na base antes da saída. */
 export function effectiveEntradaObrigatoria(claims: JwtClaims | null | undefined): boolean {
   if (!claims) return false;
