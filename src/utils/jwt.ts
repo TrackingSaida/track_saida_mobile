@@ -42,3 +42,12 @@ export function decodeJwtPayload(token: string): JwtClaims {
     return {};
   }
 }
+
+/** True se o JWT não tem exp ou se já passou (com leve margem). */
+export function isJwtExpired(token: string | null | undefined, skewSeconds = 30): boolean {
+  if (!token) return true;
+  const claims = decodeJwtPayload(token);
+  const exp = claims.exp;
+  if (typeof exp !== "number" || !Number.isFinite(exp)) return false;
+  return Date.now() >= (exp - skewSeconds) * 1000;
+}

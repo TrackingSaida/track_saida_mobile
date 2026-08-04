@@ -125,13 +125,19 @@ export async function changePassword(
 
 export async function userLogin(
   identifier: string,
-  password: string
+  password: string,
+  remember = true
 ): Promise<UserTokenResponse> {
   // Sempre enviar strings: undefined em JSON.stringify omite a chave e o backend responde "Field required".
+  // remember=true no mobile: access longo (evita “sessão expirada” logo após biometria).
   try {
     const { data } = await axios.post<UserTokenResponse>(
       `${API_BASE_URL}/auth/token`,
-      { identifier: identifier ?? "", password: password ?? "" },
+      {
+        identifier: identifier ?? "",
+        password: password ?? "",
+        remember: !!remember,
+      },
       { timeout: AUTH_TIMEOUT_MS, headers: { "Content-Type": "application/json" } }
     );
     return data;
