@@ -86,7 +86,11 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
     const url = String(config.url || "");
-    if (url.includes("/auth/motoboy-refresh") || url.includes("/auth/motoboy-login")) {
+    if (
+      url.includes("/auth/motoboy-refresh") ||
+      url.includes("/auth/motoboy-login") ||
+      url.includes("/auth/token")
+    ) {
       return Promise.reject(error);
     }
     config._retry = true;

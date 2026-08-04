@@ -17,15 +17,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as SecureStore from "expo-secure-store";
 import { motoboyLogin, normalizeAuthError, userLogin } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
+import { getSavedCredentials, saveOrClearCredentials } from "../services/savedCredentials";
 import { useThemeColors } from "../theme/colors";
 import { offerBiometricAfterLogin } from "../utils/biometricOffer";
-
-const SAVED_IDENTIFIER_KEY = "saved_login_identifier";
-const SAVED_PASSWORD_KEY = "saved_login_password";
-const REMEMBER_CREDENTIALS_KEY = "remember_credentials";
 
 type Props = {
   onLoginSuccess: () => void;
@@ -56,16 +52,10 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
     let cancelled = false;
     (async () => {
       try {
-        const shouldRemember = (await SecureStore.getItemAsync(REMEMBER_CREDENTIALS_KEY)) === "true";
-        if (!shouldRemember) {
-          if (!cancelled) setRestored(true);
-          return;
-        }
-        const savedId = await SecureStore.getItemAsync(SAVED_IDENTIFIER_KEY);
-        const savedPwd = await SecureStore.getItemAsync(SAVED_PASSWORD_KEY);
-        if (!cancelled && savedId != null) {
-          setIdentifier(savedId);
-          setPassword(savedPwd ?? "");
+        const saved = await getSavedCredentials();
+        if (!cancelled && saved) {
+          setIdentifier(saved.identifier);
+          setPassword(saved.password);
           setRememberMe(true);
         }
       } catch {
@@ -78,22 +68,6 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
       cancelled = true;
     };
   }, []);
-
-  const saveOrClearCredentials = async (id: string, pwd: string, remember: boolean) => {
-    try {
-      if (remember) {
-        await SecureStore.setItemAsync(REMEMBER_CREDENTIALS_KEY, "true");
-        await SecureStore.setItemAsync(SAVED_IDENTIFIER_KEY, id);
-        await SecureStore.setItemAsync(SAVED_PASSWORD_KEY, pwd);
-      } else {
-        await SecureStore.deleteItemAsync(REMEMBER_CREDENTIALS_KEY);
-        await SecureStore.deleteItemAsync(SAVED_IDENTIFIER_KEY);
-        await SecureStore.deleteItemAsync(SAVED_PASSWORD_KEY);
-      }
-    } catch {
-      // ignore
-    }
-  };
 
   const handleLogin = async () => {
     const id = identifier.trim();
@@ -147,16 +121,24 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
 
         if (shouldTryStaffFallback) {
           try {
-            const userRes = await userLogin(id, pwd);
+            // remember=true: access longo no backend (mobile + biometria).
+            const userRes = await userLogin(id, pwd, true);
             if (userRes.access_token) {
               if (userRes.must_change_password && onMustChangePassword) {
-                await setTokens(userRes.access_token);
+                await setTokens(userRes.access_token, null);
                 onMustChangePassword();
                 return;
               }
-              await saveOrClearCredentials(id, pwd, rememberMe);
-              await setTokens(userRes.access_token);
-              await offerBiometricAfterLogin(setBiometricEnabled, onLoginSuccess);
+              // Com biometria, sempre persiste credenciais para reauth silenciosa se o JWT expirar.
+              const persistCreds = rememberMe;
+              await saveOrClearCredentials(id, pwd, persistCreds);
+              await setTokens(userRes.access_token, null);
+              await offerBiometricAfterLogin(async (enabled) => {
+                await setBiometricEnabled(enabled);
+                if (enabled) {
+                  await saveOrClearCredentials(id, pwd, true);
+                }
+              }, onLoginSuccess);
               return;
             }
             Alert.alert("Erro", "Resposta inesperada do servidor.");
@@ -185,7 +167,10 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
     try {
       const success = await unlockWithBiometric();
       if (!success) {
-        Alert.alert("Biometria", "Biometria negada ou cancelada. Tente novamente ou entre com usuário e senha.");
+        Alert.alert(
+          "Biometria",
+          "Não foi possível restaurar a sessão. Entre com usuário e senha (marque “Lembrar” para a biometria renovar automaticamente)."
+        );
       }
     } finally {
       setBiometricLoading(false);

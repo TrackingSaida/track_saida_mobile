@@ -2,8 +2,9 @@ import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
 import axios from "axios";
-import { decodeJwtPayload, type JwtClaims } from "../utils/jwt";
+import { decodeJwtPayload, isJwtExpired, type JwtClaims } from "../utils/jwt";
 import { getBiometricEnabled, setBiometricEnabled as persistBiometricEnabled } from "../services/settingsService";
+import { getSavedCredentials } from "../services/savedCredentials";
 import { API_BASE_URL } from "../config/api";
 
 const TOKEN_KEY = "access_token";
@@ -51,13 +52,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setTokens: async (accessToken: string, refreshToken?: string | null) => {
     await SecureStore.setItemAsync(TOKEN_KEY, accessToken);
-    if (refreshToken) {
+    let nextRefresh = get().refreshToken;
+    if (refreshToken === null) {
+      // Staff login: limpa refresh de motoboy residual no mesmo aparelho.
+      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+      nextRefresh = null;
+    } else if (refreshToken) {
       await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+      nextRefresh = refreshToken;
     }
     const claims = decodeJwtPayload(accessToken);
     set({
       token: accessToken,
-      refreshToken: refreshToken ?? get().refreshToken,
+      refreshToken: nextRefresh,
       currentUser: claims,
       sessionExpiredVisible: false,
     });
@@ -183,11 +190,73 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         cancelLabel: "Cancelar",
       });
       if (!success) return false;
-      const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      if (!token) return false;
-      const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+
+      let token = await SecureStore.getItemAsync(TOKEN_KEY);
+      let refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+
+      // Access expirado: tenta refresh (motoboy) ou re-login silencioso com credenciais salvas (staff).
+      // Não usa refreshOnce/apiClient aqui — evita disparar “Sessão expirada” no meio do unlock.
+      if (!token || isJwtExpired(token)) {
+        let renewed = false;
+        if (refreshToken) {
+          try {
+            const { motoboyRefresh } = await import("../api/auth");
+            const data = await motoboyRefresh(refreshToken);
+            if (data.access_token) {
+              await get().setTokens(data.access_token, data.refresh_token ?? refreshToken);
+              renewed = true;
+              token = get().token;
+              refreshToken = get().refreshToken;
+            }
+          } catch {
+            // Refresh residual inválido (ex.: staff após login motoboy no mesmo aparelho).
+            await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+            refreshToken = null;
+          }
+        }
+        if (!renewed) {
+          const saved = await getSavedCredentials();
+          if (saved) {
+            try {
+              const { motoboyLogin, userLogin } = await import("../api/auth");
+              try {
+                const res = await motoboyLogin(saved.identifier, saved.password);
+                if (res.access_token && !res.multiple_sub_base) {
+                  await get().setTokens(res.access_token, res.refresh_token ?? null);
+                  renewed = true;
+                }
+              } catch {
+                const userRes = await userLogin(saved.identifier, saved.password, true);
+                if (userRes.access_token) {
+                  await get().setTokens(userRes.access_token, null);
+                  renewed = true;
+                }
+              }
+              if (renewed) {
+                token = get().token;
+                refreshToken = get().refreshToken;
+              }
+            } catch {
+              renewed = false;
+            }
+          }
+        }
+        if (!renewed || !token) {
+          // Não entra no app com token morto (evita modal “Sessão expirada” logo após biometria).
+          await get().logout({ revokeRemote: false });
+          set({ requiresBiometricUnlock: false });
+          return false;
+        }
+      }
+
       const claims = decodeJwtPayload(token);
-      set({ token, refreshToken, currentUser: claims, requiresBiometricUnlock: false });
+      set({
+        token,
+        refreshToken,
+        currentUser: claims,
+        requiresBiometricUnlock: false,
+        sessionExpiredVisible: false,
+      });
       const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
       await useMotoboyPrefsStore.getState().loadForCurrentUser();
       try {
