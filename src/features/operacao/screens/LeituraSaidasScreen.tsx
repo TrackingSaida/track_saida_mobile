@@ -22,7 +22,6 @@ import type { AxiosError } from "axios";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../../theme/colors";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
-import OperacaoEmptyState from "../components/OperacaoEmptyState";
 import { useAuthStore } from "../../../store/authStore";
 import { playSound } from "../../../utils/sound";
 import * as Haptics from "expo-haptics";
@@ -43,7 +42,11 @@ import {
   confirmarNovaSaidaMesmoEntregadorAdmin,
   type MotoboyItem,
 } from "../saidasApi";
-import { confirmarLeituraStaff } from "../conferenciaApi";
+import {
+  confirmarLeituraStaff,
+  getConferenciaDetalhe,
+  type ConfirmarLeituraResult,
+} from "../conferenciaApi";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
 import AvulsoLancamentoModal from "../components/AvulsoLancamentoModal";
 import {
@@ -56,7 +59,23 @@ const CORNER_LENGTH = 40;
 const CORNER_THICKNESS = 5;
 const CORNER_COLOR = "#00bfff";
 const FEEDBACK_MS = 1100;
-const LISTA_RECENTES_MAX = 12;
+
+type ConfirmadoMotoboyResumo = {
+  qtdConfirmada: number;
+  totalDia: number;
+  shopee: number;
+  ml: number;
+  avulso: number;
+};
+
+/** Resumo da última sessão finalizada (mantém Sucesso/Troca/Última visíveis após Finalizar). */
+type SessaoResumoSnapshot = {
+  sucesso: number;
+  troca: number;
+  naoColetado: number;
+  erros: number;
+  ultima: LeituraSaidaItem | null;
+};
 
 type StatusLeituraSaida = "sucesso" | "nao_coletado" | "erro" | "alterado";
 
@@ -183,21 +202,6 @@ function labelResumoStatus(status: StatusLeituraSaida): string {
   }
 }
 
-function labelBadgeLista(status: StatusLeituraSaida): string {
-  switch (status) {
-    case "sucesso":
-      return "Sucesso";
-    case "nao_coletado":
-      return "Não coletado";
-    case "alterado":
-      return "Alterado";
-    case "erro":
-      return "Erro";
-    default:
-      return "—";
-  }
-}
-
 function coresFeedback(tipo: FeedbackTipo): { bg: string; border: string; fg: string } {
   switch (tipo) {
     case "sucesso":
@@ -268,6 +272,7 @@ export default function LeituraSaidasScreen() {
   const [codigoInput, setCodigoInput] = useState("");
   const [leituras, setLeituras] = useState<LeituraSaidaItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [confirmandoLeitura, setConfirmandoLeitura] = useState(false);
   const [cameraAtiva, setCameraAtiva] = useState(false);
   const [carregandoMotoboys, setCarregandoMotoboys] = useState(false);
   const [conflito, setConflito] = useState<ConflitoTrocaEntregador | null>(null);
@@ -278,6 +283,15 @@ export default function LeituraSaidasScreen() {
   const [modoManual, setModoManual] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
+  /** Resumo confirmado do dia por motoboy (persiste ao trocar e voltar). */
+  const [confirmadoPorMotoboy, setConfirmadoPorMotoboy] = useState<
+    Record<number, ConfirmadoMotoboyResumo>
+  >({});
+  const [carregandoConfirmado, setCarregandoConfirmado] = useState(false);
+  /** Após Finalizar: mantém Sucesso/Troca/Última até a próxima leitura. */
+  const [sessaoFinalizadaSnap, setSessaoFinalizadaSnap] = useState<SessaoResumoSnapshot | null>(
+    null
+  );
 
   const scanLocked = useRef(false);
   const suppressAutoCameraRef = useRef(false);
@@ -618,13 +632,6 @@ export default function LeituraSaidasScreen() {
           fontSize: 16,
           fontWeight: "800",
         },
-        btnConfirmarLeituraSub: {
-          color: colors.primaryContrast,
-          fontSize: 12,
-          fontWeight: "600",
-          marginTop: 4,
-          opacity: 0.9,
-        },
         cameraFooter: {
           position: "absolute",
           bottom: 0,
@@ -663,12 +670,6 @@ export default function LeituraSaidasScreen() {
           color: "#fff",
           fontSize: 16,
           fontWeight: "800",
-        },
-        btnConfirmarCameraSub: {
-          color: "rgba(255,255,255,0.92)",
-          fontSize: 12,
-          fontWeight: "600",
-          marginTop: 4,
         },
         btnDisabled: { opacity: 0.7 },
         linkManualWhite: { paddingVertical: 10, alignItems: "center" },
@@ -812,20 +813,87 @@ export default function LeituraSaidasScreen() {
   const pendenciaConfirmacao =
     conferenciaHabilitada && !sessaoConfirmada && totalValidas > 0;
 
-  const ultimaLeitura = useMemo(
+  const ultimaLeituraLive = useMemo(
     () => (leiturasDoMotoboy.length ? leiturasDoMotoboy[leiturasDoMotoboy.length - 1] : undefined),
     [leiturasDoMotoboy]
   );
-  const listaRecentes = useMemo(() => {
-    const slice = leiturasDoMotoboy.slice(-LISTA_RECENTES_MAX);
-    const start = Math.max(0, leiturasDoMotoboy.length - slice.length);
-    return slice
-      .map((item, i) => ({
-        item,
-        key: `${start + i}-${item.codigo}-${item.status}-${item.motoboyId}`,
-      }))
-      .reverse();
-  }, [leiturasDoMotoboy]);
+
+  /** Contadores exibidos: sessão ao vivo; se vazia, última sessão finalizada. */
+  const exibirSucesso =
+    totalValidas > 0 || totalErros > 0 ? totalSucesso : sessaoFinalizadaSnap?.sucesso ?? 0;
+  const exibirTroca =
+    totalValidas > 0 || totalErros > 0 ? totalAlterado : sessaoFinalizadaSnap?.troca ?? 0;
+  const exibirNaoColetado =
+    totalValidas > 0 || totalErros > 0
+      ? totalNaoColetado
+      : sessaoFinalizadaSnap?.naoColetado ?? 0;
+  const exibirErros =
+    totalValidas > 0 || totalErros > 0 ? totalErros : sessaoFinalizadaSnap?.erros ?? 0;
+  const ultimaLeitura =
+    totalValidas > 0 || totalErros > 0
+      ? ultimaLeituraLive
+      : sessaoFinalizadaSnap?.ultima ?? undefined;
+  const temSessaoVisivel =
+    totalValidas > 0 ||
+    totalErros > 0 ||
+    (sessaoFinalizadaSnap != null &&
+      (sessaoFinalizadaSnap.sucesso > 0 ||
+        sessaoFinalizadaSnap.troca > 0 ||
+        sessaoFinalizadaSnap.naoColetado > 0 ||
+        !!sessaoFinalizadaSnap.ultima));
+
+  const confirmadoAtual: ConfirmadoMotoboyResumo | null =
+    motoboyId != null ? confirmadoPorMotoboy[motoboyId] ?? null : null;
+
+  const aplicarResumoConfirmado = useCallback((motoboyKey: number, res: ConfirmarLeituraResult) => {
+    setConfirmadoPorMotoboy((prev) => ({
+      ...prev,
+      [motoboyKey]: {
+        qtdConfirmada: Number(res.qtd_no_momento ?? res.total) || 0,
+        totalDia: Number(res.total) || 0,
+        shopee: Number(res.sum_shopee) || 0,
+        ml: Number(res.sum_mercado) || 0,
+        avulso: Number(res.sum_avulso) || 0,
+      },
+    }));
+  }, []);
+
+  const carregarConfirmadoMotoboy = useCallback(
+    async (id: number) => {
+      if (!conferenciaHabilitada) return;
+      setCarregandoConfirmado(true);
+      try {
+        const det = await getConferenciaDetalhe(id, dataRefHojeLocal());
+        setConfirmadoPorMotoboy((prev) => ({
+          ...prev,
+          [id]: {
+            qtdConfirmada: Number(det.qtd_no_momento ?? det.total) || 0,
+            totalDia: Number(det.total) || 0,
+            shopee: Number(det.sum_shopee) || 0,
+            ml: Number(det.sum_mercado) || 0,
+            avulso: Number(det.sum_avulso) || 0,
+          },
+        }));
+      } catch {
+        // Sem conferência no dia → mantém cache anterior ou zera.
+        setConfirmadoPorMotoboy((prev) => {
+          if (prev[id]) return prev;
+          return {
+            ...prev,
+            [id]: { qtdConfirmada: 0, totalDia: 0, shopee: 0, ml: 0, avulso: 0 },
+          };
+        });
+      } finally {
+        setCarregandoConfirmado(false);
+      }
+    },
+    [conferenciaHabilitada]
+  );
+
+  useEffect(() => {
+    if (motoboyId == null || !conferenciaHabilitada) return;
+    void carregarConfirmadoMotoboy(motoboyId);
+  }, [motoboyId, conferenciaHabilitada, carregarConfirmadoMotoboy]);
 
   const fetchMotoboys = useCallback(async () => {
     setCarregandoMotoboys(true);
@@ -844,11 +912,13 @@ export default function LeituraSaidasScreen() {
   }, [fetchMotoboys]);
 
   const hydratedRef = useRef(false);
+  const skipNextSyncRef = useRef(false);
   useEffect(() => {
     if (hydratedRef.current) return;
     hydratedRef.current = true;
     const s = useStaffScanSessionStore.getState();
     if (s.motoboyId != null) {
+      skipNextSyncRef.current = true;
       setMotoboyId(s.motoboyId);
       setMotoboyNome(s.motoboyNome);
       if (s.leituras.length > 0) {
@@ -859,6 +929,11 @@ export default function LeituraSaidasScreen() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
+    if (skipNextSyncRef.current) {
+      // Evita sync com estado local ainda vazio logo após hidratar do store.
+      skipNextSyncRef.current = false;
+      return;
+    }
     useStaffScanSessionStore.getState().syncSession({
       motoboyId,
       motoboyNome,
@@ -874,6 +949,12 @@ export default function LeituraSaidasScreen() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (leituras.length > 0 && sessaoFinalizadaSnap != null) {
+      setSessaoFinalizadaSnap(null);
+    }
+  }, [leituras.length, sessaoFinalizadaSnap]);
 
   const ensurePermissionAndOpenCamera = useCallback(async () => {
     if (!permission) {
@@ -910,8 +991,8 @@ export default function LeituraSaidasScreen() {
         !store.podeTrocarMotoboy()
       ) {
         Alert.alert(
-          "Confirme a leitura",
-          "Há leituras nesta sessão. Confirme a leitura antes de trocar de motoboy."
+          "Finalize a leitura",
+          "Há leituras nesta sessão. Finalize a leitura antes de trocar de motoboy."
         );
         return;
       }
@@ -919,6 +1000,7 @@ export default function LeituraSaidasScreen() {
       setMotoboyNome(item.nome);
       if (store.motoboyId !== item.id_motoboy) {
         setLeituras([]);
+        setSessaoFinalizadaSnap(null);
       }
       setModalSelecaoMotoboyVisible(false);
       suppressAutoCameraRef.current = false;
@@ -945,7 +1027,7 @@ export default function LeituraSaidasScreen() {
       );
       return;
     }
-    setLoading(true);
+    setConfirmandoLeitura(true);
     try {
       const res = await confirmarLeituraStaff({
         motoboyId,
@@ -953,21 +1035,49 @@ export default function LeituraSaidasScreen() {
         qtd: totalValidas,
       });
       useStaffScanSessionStore.getState().archivarAposConfirmar();
+      setSessaoFinalizadaSnap({
+        sucesso: totalSucesso,
+        troca: totalAlterado,
+        naoColetado: totalNaoColetado,
+        erros: totalErros,
+        ultima: ultimaLeituraLive
+          ? { ...ultimaLeituraLive }
+          : leiturasDoMotoboy.length
+            ? { ...leiturasDoMotoboy[leiturasDoMotoboy.length - 1] }
+            : null,
+      });
       setLeituras([]);
+      aplicarResumoConfirmado(motoboyId, res);
+      // Volta à tela principal de registrar saída (sem precisar Fechar o scan).
+      fecharCamera();
       pushFeedback(
         "sucesso",
-        `Leitura confirmada · ${res.total} pacote(s) · Shopee ${res.sum_shopee} · ML ${res.sum_mercado} · Avulso ${res.sum_avulso}`
+        `Leitura finalizada · ${res.qtd_no_momento ?? res.total} pacote(s)`
       );
       Alert.alert(
-        "Leitura confirmada",
-        `${res.motoboy_nome}\nTotal: ${res.total}\nShopee: ${res.sum_shopee} · ML: ${res.sum_mercado} · Avulso: ${res.sum_avulso}`
+        "Leitura finalizada",
+        `${res.motoboy_nome}\nConfirmado: ${res.qtd_no_momento ?? res.total}\nShopee: ${res.sum_shopee} · ML: ${res.sum_mercado} · Avulso: ${res.sum_avulso}`
       );
     } catch (err) {
-      pushFeedback("erro", formatApiError(err, "Erro ao confirmar leitura."));
+      pushFeedback("erro", formatApiError(err, "Erro ao finalizar leitura."));
     } finally {
-      setLoading(false);
+      setConfirmandoLeitura(false);
     }
-  }, [motoboyId, motoboyNome, totalValidas, conferenciaHabilitada, pushFeedback]);
+  }, [
+    motoboyId,
+    motoboyNome,
+    totalValidas,
+    totalSucesso,
+    totalAlterado,
+    totalNaoColetado,
+    totalErros,
+    ultimaLeituraLive,
+    leiturasDoMotoboy,
+    conferenciaHabilitada,
+    pushFeedback,
+    aplicarResumoConfirmado,
+    fecharCamera,
+  ]);
 
   const handleVoltarComPendencia = useCallback(() => {
     if (!conferenciaHabilitada || !staffSessionTemPendenciaConfirmacao()) {
@@ -985,7 +1095,7 @@ export default function LeituraSaidasScreen() {
           onPress: () => navigation.goBack(),
         },
         {
-          text: "Confirmar agora",
+          text: "Finalizar agora",
           onPress: () => {
             void handleConfirmarLeitura();
           },
@@ -1421,45 +1531,24 @@ export default function LeituraSaidasScreen() {
     );
   };
 
-  /** Botão de confirmar/finalizar leitura — usado na câmera e no modo digitar. */
+  /** Botão de finalizar leitura — usado na câmera e no modo digitar. */
   const renderBtnConfirmarLeituraCamera = (styleExtra?: object) => {
     if (!motoboySelecionadoOk || !pendenciaConfirmacao || !conferenciaHabilitada) return null;
     return (
       <TouchableOpacity
-        style={[styles.btnConfirmarCamera, styleExtra, loading && styles.btnDisabled]}
+        style={[styles.btnConfirmarCamera, styleExtra, confirmandoLeitura && styles.btnDisabled]}
         onPress={() => void handleConfirmarLeitura()}
-        disabled={loading}
-        accessibilityLabel="Confirmar Leitura"
+        disabled={confirmandoLeitura}
+        accessibilityLabel="Finalizar leitura"
         accessibilityRole="button"
       >
-        {loading ? (
+        {confirmandoLeitura ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <>
-            <Text style={styles.btnConfirmarCameraText}>Confirmar Leitura</Text>
-            <Text style={styles.btnConfirmarCameraSub}>
-              {totalValidas} · Shopee {contagensServico.Shopee} · ML {contagensServico.ML} · Avulso{" "}
-              {contagensServico.Avulso}
-            </Text>
-          </>
+          <Text style={styles.btnConfirmarCameraText}>Finalizar leitura</Text>
         )}
       </TouchableOpacity>
     );
-  };
-
-  const statusBadgeStyles = (status: StatusLeituraSaida) => {
-    switch (status) {
-      case "sucesso":
-        return { box: styles.statusSucesso, text: styles.statusSucessoText };
-      case "alterado":
-        return { box: styles.statusAlterado, text: styles.statusAlteradoText };
-      case "nao_coletado":
-        return { box: styles.statusNaoColetado, text: styles.statusNaoColetadoText };
-      case "erro":
-        return { box: styles.statusErro, text: styles.statusErroText };
-      default:
-        return { box: styles.statusSucesso, text: styles.statusSucessoText };
-    }
   };
 
   const ultimaLeituraCores = (status: StatusLeituraSaida) => {
@@ -1527,8 +1616,8 @@ export default function LeituraSaidasScreen() {
             onPress={() => {
               if (pendenciaConfirmacao) {
                 Alert.alert(
-                  "Confirme a leitura",
-                  "Há leituras nesta sessão. Confirme a leitura antes de trocar de motoboy."
+                  "Finalize a leitura",
+                  "Há leituras nesta sessão. Finalize a leitura antes de trocar de motoboy."
                 );
                 return;
               }
@@ -1565,26 +1654,62 @@ export default function LeituraSaidasScreen() {
         ) : null}
 
         <View style={styles.resumoCard}>
-          <Text style={styles.sessaoTitulo}>Sessão atual</Text>
-          <Text style={styles.totalGigante}>{motoboySelecionadoOk ? totalValidas : 0}</Text>
-          <Text style={styles.totalLegenda}>Lidos nesta sessão (válidos)</Text>
+          <Text style={styles.sessaoTitulo}>Confirmado hoje</Text>
+          {carregandoConfirmado && !confirmadoAtual ? (
+            <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />
+          ) : (
+            <Text style={styles.totalGigante}>
+              {motoboySelecionadoOk ? confirmadoAtual?.qtdConfirmada ?? 0 : 0}
+            </Text>
+          )}
+          <Text style={styles.totalLegenda}>
+            Quantidade já confirmada do motoboy selecionado
+          </Text>
+          {motoboySelecionadoOk && confirmadoAtual && (confirmadoAtual.shopee + confirmadoAtual.ml + confirmadoAtual.avulso > 0) ? (
+            <View style={styles.servicoBadgesRow}>
+              {(
+                [
+                  ["Shopee", confirmadoAtual.shopee],
+                  ["ML", confirmadoAtual.ml],
+                  ["Avulso", confirmadoAtual.avulso],
+                ] as const
+              ).map(([nome, qtd]) => {
+                const cv = coresBadgeServicoLabel(nome);
+                return (
+                  <View key={nome} style={[styles.servicoBadge, { backgroundColor: cv.bg }]}>
+                    <Text style={[styles.servicoBadgeText, { color: cv.fg }]}>
+                      {nome}: {qtd}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+
+          <Text style={[styles.sessaoTitulo, { marginTop: 18 }]}>Nesta sessão</Text>
           <View style={styles.contadoresRow}>
             <View style={styles.contadorItem}>
               <Ionicons name="checkmark-circle" size={18} color="#198754" />
-              <Text style={styles.contadorItemText}>Sucesso: {totalSucesso}</Text>
+              <Text style={styles.contadorItemText}>
+                Sucesso: {motoboySelecionadoOk ? exibirSucesso : 0}
+              </Text>
             </View>
             <View style={styles.contadorItem}>
               <Ionicons name="swap-horizontal" size={18} color="#0d6efd" />
-              <Text style={styles.contadorItemText}>Troca: {totalAlterado}</Text>
+              <Text style={styles.contadorItemText}>
+                Troca: {motoboySelecionadoOk ? exibirTroca : 0}
+              </Text>
             </View>
-            <View style={styles.contadorItem}>
-              <Ionicons name="alert-circle" size={18} color="#856404" />
-              <Text style={styles.contadorItemText}>Não coletado: {totalNaoColetado}</Text>
-            </View>
-            {totalErros > 0 ? (
+            {exibirNaoColetado > 0 ? (
+              <View style={styles.contadorItem}>
+                <Ionicons name="alert-circle" size={18} color="#856404" />
+                <Text style={styles.contadorItemText}>Não coletado: {exibirNaoColetado}</Text>
+              </View>
+            ) : null}
+            {exibirErros > 0 ? (
               <View style={styles.contadorItem}>
                 <Ionicons name="close-circle" size={18} color="#dc3545" />
-                <Text style={styles.contadorItemText}>Erro: {totalErros}</Text>
+                <Text style={styles.contadorItemText}>Erro: {exibirErros}</Text>
               </View>
             ) : null}
           </View>
@@ -1610,21 +1735,15 @@ export default function LeituraSaidasScreen() {
           ) : null}
           {motoboySelecionadoOk && pendenciaConfirmacao && conferenciaHabilitada ? (
             <TouchableOpacity
-              style={[styles.btnConfirmarLeitura, loading && styles.btnDisabled]}
+              style={[styles.btnConfirmarLeitura, confirmandoLeitura && styles.btnDisabled]}
               onPress={() => void handleConfirmarLeitura()}
-              disabled={loading}
-              accessibilityLabel="Confirmar Leitura"
+              disabled={confirmandoLeitura}
+              accessibilityLabel="Finalizar leitura"
             >
-              {loading ? (
+              {confirmandoLeitura ? (
                 <ActivityIndicator color={colors.primaryContrast} />
               ) : (
-                <>
-                  <Text style={styles.btnConfirmarLeituraText}>Confirmar Leitura</Text>
-                  <Text style={styles.btnConfirmarLeituraSub}>
-                    {totalValidas} · Shopee {contagensServico.Shopee} · ML {contagensServico.ML} ·
-                    Avulso {contagensServico.Avulso}
-                  </Text>
-                </>
+                <Text style={styles.btnConfirmarLeituraText}>Finalizar leitura</Text>
               )}
             </TouchableOpacity>
           ) : null}
@@ -1637,7 +1756,7 @@ export default function LeituraSaidasScreen() {
             ]}
           >
             <Text style={styles.ultimaTitulo}>Última leitura</Text>
-            {ultimaLeitura ? (
+            {motoboySelecionadoOk && ultimaLeitura ? (
               <>
                 <Text style={styles.ultimaCodigo}>{ultimaLeitura.codigo}</Text>
                 <Text
@@ -1650,45 +1769,15 @@ export default function LeituraSaidasScreen() {
                 </Text>
               </>
             ) : (
-              <Text style={styles.vazioText}>Aguardando primeira leitura</Text>
+              <Text style={styles.vazioText}>
+                {motoboySelecionadoOk
+                  ? temSessaoVisivel
+                    ? "—"
+                    : "Aguardando primeira leitura nesta sessão"
+                  : "Selecione um motoboy para iniciar"}
+              </Text>
             )}
           </View>
-        </View>
-
-        <View style={styles.listaContainer}>
-          <View style={styles.listaHeader}>
-            <Text style={styles.listaHeaderText}>Leituras recentes</Text>
-            <Text style={styles.listaHeaderText}>até {LISTA_RECENTES_MAX}</Text>
-          </View>
-          {listaRecentes.length === 0 ? (
-            motoboySelecionadoOk ? (
-              <OperacaoEmptyState message="Nenhuma leitura recente nesta sessão." icon="scan-outline" />
-            ) : (
-              <OperacaoEmptyState message="Selecione um motoboy para ver as leituras." icon="person-outline" />
-            )
-          ) : (
-            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
-              {listaRecentes.map(({ item: l, key }) => {
-                const sb = statusBadgeStyles(l.status);
-                return (
-                  <View key={key} style={styles.listaItem}>
-                    <View style={{ flex: 1, paddingRight: 6, minWidth: 0 }}>
-                      <Text style={styles.listaCodigo} numberOfLines={2} ellipsizeMode="tail">
-                        {l.codigo}
-                      </Text>
-                      <Text style={styles.listaSubtitle} numberOfLines={2}>
-                        {l.entregador}
-                        {l.servico ? ` · ${l.servico}` : ""}
-                      </Text>
-                    </View>
-                    <View style={[styles.statusBadge, sb.box]}>
-                      <Text style={[styles.statusText, sb.text]}>{labelBadgeLista(l.status)}</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </ScrollView>
-          )}
         </View>
 
         {loading && !cameraAtiva ? (
@@ -1767,7 +1856,9 @@ export default function LeituraSaidasScreen() {
                   <Text style={styles.cameraMetaLine} numberOfLines={1}>
                     {motoboyNome || "—"}
                   </Text>
-                  <Text style={styles.cameraMetaMuted}>Lidos: {totalValidas}</Text>
+                  <Text style={styles.cameraMetaMuted}>
+                    Lidos: {totalValidas} · Sucesso: {totalSucesso} · Troca: {totalAlterado}
+                  </Text>
                 </View>
               </View>
             </View>

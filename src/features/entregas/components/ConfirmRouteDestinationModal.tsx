@@ -26,12 +26,6 @@ type Props = {
   onCancel: () => void;
 };
 
-function motoboyHomeToFreeText(addr: MotoboyHomeAddress | null | undefined): string {
-  if (!addr) return "";
-  const parts = [addr.rua, addr.numero, addr.bairro, addr.cep].filter(Boolean);
-  return parts.join(", ");
-}
-
 function addressFormToMotoboyHome(values: AddressFormValues): MotoboyHomeAddress {
   return {
     rua: values.rua.trim(),
@@ -75,18 +69,14 @@ export default function ConfirmRouteDestinationModal({
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const [flowState, setFlowState] = useState<QuickFormFlowState>("idle");
-  const [deliveryStub, setDeliveryStub] = useState<EntregaListItem>(() =>
-    stubDeliveryFromHome(initialAddress)
-  );
-  const [initialFreeText, setInitialFreeText] = useState(() =>
-    motoboyHomeToFreeText(initialAddress)
-  );
+  /** Só abre o campo de busca quando o motoboy quer outro endereço. */
+  const [editingOtherAddress, setEditingOtherAddress] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
-    setDeliveryStub(stubDeliveryFromHome(initialAddress));
-    setInitialFreeText(motoboyHomeToFreeText(initialAddress));
     setFlowState("idle");
+    // Sem cadastro completo → precisa informar; com cadastro → confirma direto.
+    setEditingOtherAddress(!initialAddress);
   }, [visible, initialAddress]);
 
   const styles = useMemo(
@@ -103,8 +93,8 @@ export default function ConfirmRouteDestinationModal({
           borderTopRightRadius: 16,
           paddingTop: 18,
           maxHeight: "88%",
-          minHeight: 420,
-          height: "85%",
+          minHeight: editingOtherAddress ? 420 : 280,
+          height: editingOtherAddress ? "85%" : undefined,
         },
         header: {
           paddingHorizontal: 20,
@@ -124,7 +114,7 @@ export default function ConfirmRouteDestinationModal({
           padding: 14,
           borderWidth: 1,
           borderColor: colors.separator,
-          marginBottom: 8,
+          marginBottom: 12,
         },
         previewText: { fontSize: 15, color: colors.text, lineHeight: 22 },
         emptyHint: {
@@ -135,6 +125,25 @@ export default function ConfirmRouteDestinationModal({
           lineHeight: 20,
         },
         formWrap: { flex: 1, minHeight: 280 },
+        confirmBtn: {
+          marginHorizontal: 20,
+          backgroundColor: colors.primary,
+          borderRadius: 12,
+          paddingVertical: 16,
+          alignItems: "center",
+          marginTop: 4,
+        },
+        confirmBtnText: {
+          color: colors.primaryContrast,
+          fontSize: 16,
+          fontWeight: "700",
+        },
+        linkEdit: {
+          marginHorizontal: 20,
+          paddingVertical: 12,
+          alignItems: "center",
+        },
+        linkEditText: { color: colors.primary, fontSize: 14, fontWeight: "600" },
         confirmingOverlay: {
           ...StyleSheet.absoluteFillObject,
           backgroundColor: "rgba(0,0,0,0.35)",
@@ -152,11 +161,17 @@ export default function ConfirmRouteDestinationModal({
         btnGhostText: { color: colors.textSecondary, fontSize: 14, fontWeight: "600" },
         disabled: { opacity: 0.55 },
       }),
-    [colors]
+    [colors, editingOtherAddress]
   );
 
   const preview = initialAddress ? formatMotoboyHomeAddress(initialAddress) : "";
   const busy = confirming || flowState === "saving";
+  const deliveryStub = useMemo(() => stubDeliveryFromHome(initialAddress), [initialAddress]);
+
+  const handleConfirmRegistered = async () => {
+    if (busy || !initialAddress) return;
+    await onConfirm(initialAddress);
+  };
 
   const handleSaveDestination = async (values: AddressFormValues) => {
     if (busy) return;
@@ -186,34 +201,63 @@ export default function ConfirmRouteDestinationModal({
             </View>
           ) : null}
 
-          <View style={[styles.formWrap, busy && styles.disabled]}>
-            <AddressQuickForm
-              delivery={deliveryStub}
-              flowState={flowState}
-              cidadePadrao={cidadePadrao}
-              estadoPadrao={estadoPadrao}
-              initialFreeText={initialFreeText}
-              hidePackageCard
-              showInputActions={false}
-              submitLabel="Confirmar e gerar rota"
-              onFlowStateChange={setFlowState}
-              onSaveAndNext={(vals) => handleSaveDestination(vals)}
-              onDictate={() =>
-                Alert.alert("Indisponível", "Use o campo de texto para informar o endereço.")
-              }
-              onOcr={() =>
-                Alert.alert("Indisponível", "Use o campo de texto para informar o endereço.")
-              }
-              onCancel={onCancel}
-            />
-          </View>
+          {!editingOtherAddress && initialAddress ? (
+            <>
+              <TouchableOpacity
+                style={[styles.confirmBtn, busy && styles.disabled]}
+                disabled={busy}
+                onPress={() => void handleConfirmRegistered()}
+                accessibilityLabel="Confirmar e gerar rota"
+              >
+                {confirming ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.confirmBtnText}>Confirmar e gerar rota</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.linkEdit}
+                disabled={busy}
+                onPress={() => setEditingOtherAddress(true)}
+              >
+                <Text style={styles.linkEditText}>Usar outro endereço</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <View style={[styles.formWrap, busy && styles.disabled]}>
+              <AddressQuickForm
+                key={visible ? "dest-edit-open" : "dest-edit-closed"}
+                delivery={deliveryStub}
+                flowState={flowState}
+                cidadePadrao={cidadePadrao}
+                estadoPadrao={estadoPadrao}
+                initialFreeText=""
+                hidePackageCard
+                showInputActions={false}
+                submitLabel="Confirmar e gerar rota"
+                onFlowStateChange={setFlowState}
+                onSaveAndNext={(vals) => handleSaveDestination(vals)}
+                onDictate={() =>
+                  Alert.alert("Indisponível", "Use o campo de texto para informar o endereço.")
+                }
+                onOcr={() =>
+                  Alert.alert("Indisponível", "Use o campo de texto para informar o endereço.")
+                }
+                onCancel={
+                  initialAddress
+                    ? () => setEditingOtherAddress(false)
+                    : onCancel
+                }
+              />
+            </View>
+          )}
 
           <TouchableOpacity
             style={[styles.btnGhost, busy && styles.disabled]}
             disabled={busy}
             onPress={onCancel}
           >
-            <Text style={styles.btnGhostText}>Voltar</Text>
+            <Text style={styles.btnGhostText}>Cancelar</Text>
           </TouchableOpacity>
 
           {confirming ? (

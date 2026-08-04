@@ -58,6 +58,17 @@ export const useStaffScanSessionStore = create<StaffScanSessionState>((set, get)
   syncSession: ({ motoboyId, motoboyNome, leituras }) =>
     set((state) => {
       const sameMotoboy = state.motoboyId === motoboyId;
+      // Protege contra race de hidratação: não apagar sessão ativa com sync vazio.
+      if (
+        sameMotoboy &&
+        leituras.length === 0 &&
+        state.leituras.length > 0 &&
+        !state.confirmada
+      ) {
+        return {
+          motoboyNome: motoboyNome || state.motoboyNome,
+        };
+      }
       const grew =
         leituras.length > state.leituras.length ||
         (!sameMotoboy && leituras.length > 0);
