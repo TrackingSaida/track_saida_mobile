@@ -239,6 +239,8 @@ export interface LancarAvulsoBody {
   motoboy_id?: number;
   foto_object_key?: string;
   photo_id?: string;
+  foto_object_keys?: string[];
+  photo_ids?: string[];
 }
 
 export interface LancarAvulsoResult {
