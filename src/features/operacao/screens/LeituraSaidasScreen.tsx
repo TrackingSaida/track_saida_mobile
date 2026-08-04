@@ -651,6 +651,25 @@ export default function LeituraSaidasScreen() {
           alignItems: "center",
         },
         btnAvulsoFooterText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnConfirmarCamera: {
+          backgroundColor: "#198754",
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          borderRadius: 12,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        btnConfirmarCameraText: {
+          color: "#fff",
+          fontSize: 16,
+          fontWeight: "800",
+        },
+        btnConfirmarCameraSub: {
+          color: "rgba(255,255,255,0.92)",
+          fontSize: 12,
+          fontWeight: "600",
+          marginTop: 4,
+        },
         btnDisabled: { opacity: 0.7 },
         linkManualWhite: { paddingVertical: 10, alignItems: "center" },
         linkManualTextWhite: { fontSize: 15, color: "rgba(255,255,255,0.95)" },
@@ -1402,6 +1421,32 @@ export default function LeituraSaidasScreen() {
     );
   };
 
+  /** Botão de confirmar/finalizar leitura — usado na câmera e no modo digitar. */
+  const renderBtnConfirmarLeituraCamera = (styleExtra?: object) => {
+    if (!motoboySelecionadoOk || !pendenciaConfirmacao || !conferenciaHabilitada) return null;
+    return (
+      <TouchableOpacity
+        style={[styles.btnConfirmarCamera, styleExtra, loading && styles.btnDisabled]}
+        onPress={() => void handleConfirmarLeitura()}
+        disabled={loading}
+        accessibilityLabel="Confirmar Leitura"
+        accessibilityRole="button"
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <>
+            <Text style={styles.btnConfirmarCameraText}>Confirmar Leitura</Text>
+            <Text style={styles.btnConfirmarCameraSub}>
+              {totalValidas} · Shopee {contagensServico.Shopee} · ML {contagensServico.ML} · Avulso{" "}
+              {contagensServico.Avulso}
+            </Text>
+          </>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   const statusBadgeStyles = (status: StatusLeituraSaida) => {
     switch (status) {
       case "sucesso":
@@ -1693,6 +1738,7 @@ export default function LeituraSaidasScreen() {
                 <Text style={styles.btnTextPrimary}>Confirmar</Text>
               )}
             </TouchableOpacity>
+            {renderBtnConfirmarLeituraCamera({ marginTop: 12 })}
             {podeLancarAvulso ? (
               <TouchableOpacity
                 style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
@@ -1779,7 +1825,8 @@ export default function LeituraSaidasScreen() {
                     ...StyleSheet.absoluteFillObject,
                     justifyContent: "center",
                     alignItems: "center",
-                    paddingBottom: 160,
+                    paddingBottom:
+                      pendenciaConfirmacao && conferenciaHabilitada ? 240 : 160,
                   }}
                   pointerEvents="none"
                 >
@@ -1820,6 +1867,7 @@ export default function LeituraSaidasScreen() {
                       <Text style={styles.cameraFooterStatus}>Aguardando primeiro código…</Text>
                     )}
                   </View>
+                  {renderBtnConfirmarLeituraCamera()}
                   {podeLancarAvulso ? (
                     <TouchableOpacity
                       style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
