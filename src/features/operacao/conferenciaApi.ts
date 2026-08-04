@@ -118,3 +118,33 @@ export async function conferirSaidaMotoboy(
   );
   return data;
 }
+
+export interface ConfirmarLeituraResult {
+  motoboy_id: number;
+  motoboy_nome: string;
+  data_ref: string;
+  status: string;
+  qtd_no_momento: number;
+  sum_shopee: number;
+  sum_mercado: number;
+  sum_avulso: number;
+  total: number;
+  virou_reconferir: boolean;
+}
+
+/** Staff: confirma leitura do dia e upsert em conferencia_saida (sem iniciar rota). */
+export async function confirmarLeituraStaff(params: {
+  motoboyId: number;
+  dataRef: string;
+  qtd?: number;
+}): Promise<ConfirmarLeituraResult> {
+  const { data } = await client.post<ConfirmarLeituraResult>(
+    "/conferencias-saida/confirmar-leitura",
+    {
+      motoboy_id: params.motoboyId,
+      data_ref: params.dataRef,
+      ...(params.qtd != null ? { qtd: params.qtd } : {}),
+    }
+  );
+  return data;
+}

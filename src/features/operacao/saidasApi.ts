@@ -3,6 +3,8 @@ import { apiClient as client } from "../../services/apiClient";
 export interface MotoboyItem {
   id_motoboy: number;
   nome: string;
+  pode_lancar_avulso?: boolean;
+  avulso_exige_foto?: boolean;
 }
 
 export async function listMotoboysOperacao(): Promise<MotoboyItem[]> {
@@ -235,6 +237,8 @@ export interface LancarAvulsoBody {
   entregador_id?: number;
   entregador?: string;
   motoboy_id?: number;
+  foto_object_key?: string;
+  photo_id?: string;
 }
 
 export interface LancarAvulsoResult {

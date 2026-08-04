@@ -47,12 +47,22 @@ export default function EntregaHistoricoTimeline({
 }: Props) {
   const colors = useThemeColors();
 
+  const isEventoLancarAvulso = (evento?: string | null) =>
+    String(evento || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_") === "lancar_avulso";
+
   const lastEntregaIndex = useMemo(
     () => findLastHistoricoIndexByKeys(historico, isEventoEntrega),
     [historico]
   );
   const lastAusenciaIndex = useMemo(
     () => findLastHistoricoIndexByKeys(historico, isEventoAusencia),
+    [historico]
+  );
+  const lastAvulsoIndex = useMemo(
+    () => findLastHistoricoIndexByKeys(historico, isEventoLancarAvulso),
     [historico]
   );
 
@@ -121,7 +131,8 @@ export default function EntregaHistoricoTimeline({
           !comprovanteLoading &&
           onVerComprovante &&
           ((isEventoEntrega(item.evento) && index === lastEntregaIndex) ||
-            (isEventoAusencia(item.evento) && index === lastAusenciaIndex));
+            (isEventoAusencia(item.evento) && index === lastAusenciaIndex) ||
+            (isEventoLancarAvulso(item.evento) && index === lastAvulsoIndex));
 
         return (
           <View key={key} style={styles.step}>

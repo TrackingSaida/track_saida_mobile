@@ -1,3 +1,6 @@
+/** Reexport para fluxos staff que lançam avulso com foto pendente. */
+export { uploadPendingAvulsoPhoto } from "../../../services/deliveryPhotoService";
+
 export const AVULSO_IDENT_MAX = 32;
 export const AVULSO_QTD_MAX = 50;
 export const AVULSO_IDENT_AJUDA = "Use nome curto da loja/cliente; evite telefone completo.";

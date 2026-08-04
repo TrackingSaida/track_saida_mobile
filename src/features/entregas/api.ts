@@ -189,7 +189,7 @@ export async function marcarDevolver(
   return data;
 }
 
-export type DeliveryPhotoTipo = "entregue" | "ausente" | "devolucao";
+export type DeliveryPhotoTipo = "entregue" | "ausente" | "devolucao" | "lancar_avulso";
 
 export async function finalizarLote(body: FinalizarLoteBody): Promise<FinalizarLoteResponse> {
   const { data } = await client.post<FinalizarLoteResponse>("/mobile/entregas/finalizar-lote", body);
@@ -204,7 +204,8 @@ export interface PresignUploadResponse {
 
 export async function getPresignUpload(params: {
   filename: string;
-  id_saida: number;
+  /** Omitido para foto pendente de lançamento avulso (antes de criar a saída). */
+  id_saida?: number;
   tipo: DeliveryPhotoTipo;
   content_type: string;
   photo_id?: string;
@@ -395,6 +396,8 @@ export interface LancarAvulsoResult {
 export async function lancarAvulsoMobile(body: {
   identificacao?: string | null;
   quantidade: number;
+  foto_object_key?: string;
+  photo_id?: string;
 }): Promise<LancarAvulsoResult> {
   const { data } = await client.post<LancarAvulsoResult>("/pedidos/lancar-avulso", body);
   return data;

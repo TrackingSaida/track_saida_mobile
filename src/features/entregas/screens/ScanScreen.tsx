@@ -27,7 +27,12 @@ import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeDigitarCodigoManual, effectivePodeLancarAvulso } from "../../../utils/role";
+import { effectivePodeDigitarCodigoManual, effectivePodeLancarAvulso, effectiveAvulsoExigeFoto } from "../../../utils/role";
+import {
+  preparePhoto,
+  takeDeliveryPhoto,
+  uploadAvulsoFotoPending,
+} from "../../../services/deliveryPhotoService";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import type { EntregaListItem } from "../types";
@@ -412,6 +417,7 @@ export default function ScanScreen({ navigation }: Props) {
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
+  const avulsoExigeFoto = effectiveAvulsoExigeFoto(currentUser);
   const [permission, requestPermission] = useCameraPermissions();
   const isFocused = useIsFocused();
   const torch = useScannerTorch(isFocused && !!permission?.granted && !modoManual);
@@ -714,9 +720,29 @@ export default function ScanScreen({ navigation }: Props) {
     }
     setLoading(true);
     try {
+      let fotoObjectKey: string | undefined;
+      let photoId: string | undefined;
+
+      if (avulsoExigeFoto) {
+        const picked = await takeDeliveryPhoto();
+        if (!picked) {
+          setLoading(false);
+          return;
+        }
+        const prepared = await preparePhoto(picked.uri);
+        photoId = `avulso-${Date.now()}`;
+        fotoObjectKey = await uploadAvulsoFotoPending({
+          uri: prepared.uri,
+          mimeType: prepared.mimeType,
+          filename: prepared.filename,
+          photoId,
+        });
+      }
+
       const res = await lancarAvulsoMobile({
         identificacao: validacao.identificacao,
         quantidade: validacao.quantidade,
+        ...(fotoObjectKey ? { foto_object_key: fotoObjectKey, photo_id: photoId } : {}),
       });
       (res.saidas ?? []).forEach((s) => {
         addLeitura({ id_saida: s.id_saida, codigo: s.codigo, servico: "Avulso" });
@@ -729,13 +755,15 @@ export default function ScanScreen({ navigation }: Props) {
       setModoManual(false);
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } };
-      const msg = ax?.response?.data?.detail ?? "Erro ao lançar avulso.";
+      const msg =
+        ax?.response?.data?.detail ??
+        (e instanceof Error ? e.message : "Erro ao lançar avulso.");
       playSound("error");
       Alert.alert("Erro", String(msg));
     } finally {
       setLoading(false);
     }
-  }, [avulsoQuantidade, avulsoIdentificacao, addLeitura, pushFeedback]);
+  }, [avulsoQuantidade, avulsoIdentificacao, avulsoExigeFoto, addLeitura, pushFeedback]);
 
   const handleAssumir = async () => {
     if (!conflito) return;
