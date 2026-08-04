@@ -28,20 +28,10 @@ import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useAuthStore } from "../../../store/authStore";
 import { effectivePodeDigitarCodigoManual, effectivePodeLancarAvulso, effectiveAvulsoExigeFoto } from "../../../utils/role";
-import {
-  preparePhoto,
-  takeDeliveryPhoto,
-  uploadAvulsoFotoPending,
-} from "../../../services/deliveryPhotoService";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import type { EntregaListItem } from "../types";
-import {
-  AVULSO_IDENT_AJUDA,
-  AVULSO_IDENT_MAX,
-  AVULSO_QTD_MAX,
-  validarLancamentoAvulso,
-} from "../../operacao/utils/avulsoLancamento";
+import AvulsoLancamentoModal from "../../operacao/components/AvulsoLancamentoModal";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Scan">;
 
@@ -381,8 +371,6 @@ export default function ScanScreen({ navigation }: Props) {
 
   const [modoManual, setModoManual] = useState(false);
   const [codigo, setCodigo] = useState("");
-  const [avulsoIdentificacao, setAvulsoIdentificacao] = useState("");
-  const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
   const [showAvulsoModal, setShowAvulsoModal] = useState(false);
   const [loading, setLoading] = useState(false);
   /** Só para bip de câmera: chip leve, sem pausar o scanner nem overlay cheio. */
@@ -712,58 +700,48 @@ export default function ScanScreen({ navigation }: Props) {
     await processarCodigo(c, "manual");
   };
 
-  const handleLancarAvulso = useCallback(async () => {
-    const validacao = validarLancamentoAvulso(avulsoIdentificacao, avulsoQuantidade);
-    if (!validacao.ok) {
-      Alert.alert("Atenção", validacao.message);
-      return;
-    }
-    setLoading(true);
-    try {
-      let fotoObjectKey: string | undefined;
-      let photoId: string | undefined;
-
-      if (avulsoExigeFoto) {
-        const picked = await takeDeliveryPhoto();
-        if (!picked) {
-          setLoading(false);
-          return;
-        }
-        const prepared = await preparePhoto(picked.uri);
-        photoId = `avulso-${Date.now()}`;
-        fotoObjectKey = await uploadAvulsoFotoPending({
-          uri: prepared.uri,
-          mimeType: prepared.mimeType,
-          filename: prepared.filename,
-          photoId,
+  const handleLancarAvulso = useCallback(
+    async (payload: {
+      identificacao: string | null;
+      quantidade: number;
+      fotoObjectKeys: string[];
+      photoIds: string[];
+    }) => {
+      setLoading(true);
+      try {
+        const res = await lancarAvulsoMobile({
+          identificacao: payload.identificacao,
+          quantidade: payload.quantidade,
+          ...(payload.fotoObjectKeys.length
+            ? {
+                foto_object_keys: payload.fotoObjectKeys,
+                photo_ids: payload.photoIds,
+                foto_object_key: payload.fotoObjectKeys[0],
+                photo_id: payload.photoIds[0],
+              }
+            : {}),
         });
+        (res.saidas ?? []).forEach((s) => {
+          addLeitura({ id_saida: s.id_saida, codigo: s.codigo, servico: "Avulso" });
+        });
+        playSound("success");
+        pushFeedback("sucesso", res.mensagem || "Avulsos lançados com sucesso.");
+        setShowAvulsoModal(false);
+        setModoManual(false);
+      } catch (e: unknown) {
+        const ax = e as { response?: { data?: { detail?: string } } };
+        const msg =
+          ax?.response?.data?.detail ??
+          (e instanceof Error ? e.message : "Erro ao lançar avulso.");
+        playSound("error");
+        Alert.alert("Erro", String(msg));
+        throw e;
+      } finally {
+        setLoading(false);
       }
-
-      const res = await lancarAvulsoMobile({
-        identificacao: validacao.identificacao,
-        quantidade: validacao.quantidade,
-        ...(fotoObjectKey ? { foto_object_key: fotoObjectKey, photo_id: photoId } : {}),
-      });
-      (res.saidas ?? []).forEach((s) => {
-        addLeitura({ id_saida: s.id_saida, codigo: s.codigo, servico: "Avulso" });
-      });
-      playSound("success");
-      pushFeedback("sucesso", res.mensagem || "Avulsos lançados com sucesso.");
-      setShowAvulsoModal(false);
-      setAvulsoIdentificacao("");
-      setAvulsoQuantidade("1");
-      setModoManual(false);
-    } catch (e: unknown) {
-      const ax = e as { response?: { data?: { detail?: string } } };
-      const msg =
-        ax?.response?.data?.detail ??
-        (e instanceof Error ? e.message : "Erro ao lançar avulso.");
-      playSound("error");
-      Alert.alert("Erro", String(msg));
-    } finally {
-      setLoading(false);
-    }
-  }, [avulsoQuantidade, avulsoIdentificacao, avulsoExigeFoto, addLeitura, pushFeedback]);
+    },
+    [addLeitura, pushFeedback]
+  );
 
   const handleAssumir = async () => {
     if (!conflito) return;
@@ -898,47 +876,13 @@ export default function ScanScreen({ navigation }: Props) {
   };
 
   const avulsoModal = (
-    <Modal visible={showAvulsoModal} transparent animationType="fade" onRequestClose={() => setShowAvulsoModal(false)}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalBox}>
-          <Text style={styles.modalTitle}>Lançar Avulso</Text>
-          <Text style={styles.modalMessage}>Identificação (opcional)</Text>
-          <Text style={styles.modalHelp}>{AVULSO_IDENT_AJUDA}</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex.: Empresa ABC"
-            placeholderTextColor={colors.placeholder}
-            value={avulsoIdentificacao}
-            onChangeText={setAvulsoIdentificacao}
-            maxLength={AVULSO_IDENT_MAX}
-            editable={!loading}
-          />
-          <Text style={[styles.modalMessage, { marginTop: 8 }]}>Quantidade (máx. {AVULSO_QTD_MAX})</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="1"
-            placeholderTextColor={colors.placeholder}
-            value={avulsoQuantidade}
-            onChangeText={setAvulsoQuantidade}
-            keyboardType="number-pad"
-            maxLength={2}
-            editable={!loading}
-          />
-          <View style={styles.modalActions}>
-            <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAvulsoModal(false)} disabled={loading}>
-              <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalBtnOk, loading && styles.btnDisabled]}
-              onPress={() => void handleLancarAvulso()}
-              disabled={loading}
-            >
-              {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalBtnOkText}>Confirmar</Text>}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
+    <AvulsoLancamentoModal
+      visible={showAvulsoModal}
+      loading={loading}
+      exigeFoto={avulsoExigeFoto}
+      onClose={() => setShowAvulsoModal(false)}
+      onConfirm={handleLancarAvulso}
+    />
   );
 
   // Modo manual: digitação como opção secundária (somente com permissão)
