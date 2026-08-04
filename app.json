@@ -2,7 +2,7 @@
   "expo": {
     "name": "Tracking Saídas",
     "slug": "track_saida_mobile",
-    "version": "1.8.0",
+    "version": "1.8.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "trackingsaida",
