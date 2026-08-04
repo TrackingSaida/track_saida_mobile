@@ -30,10 +30,12 @@ import {
 } from "../utils/ocrAddress";
 import {
   buildSearchQuery,
+  compareBairro,
   filterSelectableSuggestions,
   findLocalAddressSuggestions,
   formatAddressSummary,
   formatSelectedAddress,
+  hasBairroConflict,
   isGooglePendingSuggestion,
   isSelectableAddressSuggestion,
   pickBestAddressSuggestion,
@@ -96,7 +98,11 @@ interface AddressQuickFormProps {
   onSaveAndNext: (
     values: AddressFormValues,
     coords?: GeocodeResult | null,
-    origem?: AddressOrigem
+    origem?: AddressOrigem,
+    meta?: {
+      bairroInformado?: string;
+      events?: string[];
+    }
   ) => Promise<void>;
   onDictate: () => void;
   onOcr: () => void;
@@ -142,7 +148,19 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
     const [didYouMean, setDidYouMean] = useState<AddressSuggestion | null>(null);
     const [selectedSuggestionId, setSelectedSuggestionId] = useState<string | null>(null);
     const [autoApplied, setAutoApplied] = useState(false);
+    const [recommendedOnly, setRecommendedOnly] = useState(false);
     const [selectedCoords, setSelectedCoords] = useState<GeocodeResult | null>(null);
+    /** Bairro digitado/ditado pelo usuário (antes de sugestão). */
+    const [userBairro, setUserBairro] = useState("");
+    const userBairroRef = useRef("");
+    const telemetryEventsRef = useRef<string[]>([]);
+    const appliedSuggestionIdRef = useRef<string | null>(null);
+
+    const setInformedBairro = useCallback((bairro: string) => {
+      const trimmed = bairro.trim();
+      userBairroRef.current = trimmed;
+      setUserBairro(trimmed);
+    }, []);
     const [searching, setSearching] = useState(false);
     const [resolvingPlace, setResolvingPlace] = useState(false);
     const [searchEmpty, setSearchEmpty] = useState(false);
@@ -198,18 +216,46 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       (vals: Partial<AddressFormValues>, options?: { autoApply?: boolean }) => Promise<void>
     >(async () => {});
 
+    const trackEvent = useCallback((event: string) => {
+      if (!telemetryEventsRef.current.includes(event)) {
+        telemetryEventsRef.current.push(event);
+      }
+    }, []);
+
     const applySuggestion = useCallback(
       async (s: AddressSuggestion, fromAuto = false) => {
         if (!isSelectableAddressSuggestion(s)) return;
+
+        // Google provisional sem bairro: não auto-aplicar até place-details.
+        if (fromAuto && isGooglePendingSuggestion(s) && !(s.values.bairro ?? "").trim()) {
+          return;
+        }
+
+        const userBairro = userBairroRef.current.trim();
+        if (fromAuto && userBairro && hasBairroConflict(userBairro, s.values.bairro)) {
+          trackEvent("bairro_mismatch");
+          setRecommendedOnly(true);
+          setAutoApplied(false);
+          return;
+        }
 
         let resolved = s;
         if (isGooglePendingSuggestion(s)) {
           setResolvingPlace(true);
           onFlowStateChange?.("searching");
-          const query = buildSearchQuery(parsedInternalRef.current, defaults);
+          const query = buildSearchQuery(
+            {
+              ...parsedInternalRef.current,
+              ...(userBairro ? { bairro: userBairro } : {}),
+            },
+            defaults
+          );
           const full = await resolveGooglePlaceSuggestion(s, {
             query,
-            hints: parsedInternalRef.current,
+            hints: {
+              ...parsedInternalRef.current,
+              ...(userBairro ? { bairro: userBairro } : {}),
+            },
             defaults,
           });
           setResolvingPlace(false);
@@ -223,6 +269,12 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           }
           resolved = full;
           resetAddressSessionToken();
+          if (fromAuto && userBairro && hasBairroConflict(userBairro, resolved.values.bairro)) {
+            trackEvent("bairro_mismatch");
+            setRecommendedOnly(true);
+            setAutoApplied(false);
+            return;
+          }
         }
 
         const hintNumero = (() => {
@@ -249,10 +301,18 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           if (fromFree.length === 8) return fromFree;
           return fromSuggestion || fromParsed || "";
         })();
+
+        const suggestionBairro = (resolved.values.bairro ?? "").trim();
+        const keepUserBairro =
+          Boolean(userBairro) &&
+          hasBairroConflict(userBairro, suggestionBairro) &&
+          fromAuto;
+
         const vals: AddressFormValues = sanitizeAddressFormValues({
           ...resolved.values,
           numero: hintNumero,
           cep: hintCep,
+          bairro: keepUserBairro ? userBairro : suggestionBairro || userBairro,
           destinatario: destinatario.trim() || delivery.cliente || "",
           complemento: complemento.trim(),
         });
@@ -268,16 +328,54 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           label: formatSelectedAddress({ ...resolved, values: vals }),
           displayName: formatSelectedAddress({ ...resolved, values: vals }),
         };
+
+        if (!fromAuto && appliedSuggestionIdRef.current && appliedSuggestionIdRef.current !== resolved.id) {
+          trackEvent("suggestion_changed_by_user");
+        }
+        if (!fromAuto && autoApplied) {
+          trackEvent("auto_apply_overridden");
+        }
+        if (userBairro && hasBairroConflict(userBairro, suggestionBairro)) {
+          trackEvent("bairro_mismatch");
+        }
+
         setParsedInternal(vals);
         setSelectedCoords({ latitude: resolved.latitude, longitude: resolved.longitude });
-        setFreeText(formatSelectedAddress(displaySuggestion));
+        // Não reescreve texto livre no auto-apply se o bairro do usuário diverge.
+        if (!(fromAuto && keepUserBairro)) {
+          setFreeText(formatSelectedAddress(displaySuggestion));
+        }
         setSelectedSuggestionId(resolved.id);
+        appliedSuggestionIdRef.current = resolved.id;
         setSelectedOrigem(origem);
         setAutoApplied(fromAuto);
-        setSuggestions([displaySuggestion]);
+        setRecommendedOnly(false);
+        // Mantém alternativas quando há conflito/ambiguidade de bairro.
+        setSuggestions((prev) => {
+          const ranked = rankAddressSuggestions(
+            filterSelectableSuggestions(
+              prev.some((p) => p.id === displaySuggestion.id)
+                ? prev.map((p) => (p.id === displaySuggestion.id ? displaySuggestion : p))
+                : [displaySuggestion, ...prev]
+            )
+          );
+          if (userBairro && ranked.some((p) => hasBairroConflict(userBairro, p.values.bairro))) {
+            return ranked.slice(0, 3);
+          }
+          return fromAuto || ranked.length <= 1 ? [displaySuggestion] : ranked.slice(0, 3);
+        });
         setSearchEmpty(false);
       },
-      [destinatario, complemento, delivery.cliente, defaults, freeText, onFlowStateChange]
+      [
+        autoApplied,
+        destinatario,
+        complemento,
+        delivery.cliente,
+        defaults,
+        freeText,
+        onFlowStateChange,
+        trackEvent,
+      ]
     );
     applySuggestionRef.current = (s, fromAuto) => {
       void applySuggestion(s, fromAuto);
@@ -295,6 +393,10 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
         setSearchErrorMessage(null);
 
         let enriched = vals;
+        const userBairroInformed = (vals.bairro ?? "").trim();
+        if (userBairroInformed) {
+          setInformedBairro(userBairroInformed);
+        }
         const cepDigits = (vals.cep ?? "").replace(/\D/g, "");
         const missingCityOrState =
           !(vals.cidade ?? "").trim() || !(vals.estado ?? "").trim();
@@ -414,18 +516,34 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           }
 
           const ranked = rankAddressSuggestions(merged);
-          const ordered = ranked.length > 0 ? ranked : merged;
+          const ordered = (ranked.length > 0 ? ranked : merged).slice(0, 3);
           setSuggestions(ordered);
           setDidYouMean(finalDym);
           setSearchEmpty(merged.length === 0 && !finalDym);
 
-          // Auto-aplica com 1 resultado ou vencedor claro (mesmo local / CEP / score).
-          const best = pickBestAddressSuggestion(ordered);
+          const informedBairro =
+            userBairroRef.current.trim() || (enriched.bairro ?? "").trim();
+          const allowAutoApply = options?.autoApply !== false;
+          const best = allowAutoApply
+            ? pickBestAddressSuggestion(ordered, { userBairro: informedBairro })
+            : null;
+
           if (best) {
+            setRecommendedOnly(false);
             applySuggestionRef.current(best, true);
           } else {
             setAutoApplied(false);
             setSelectedSuggestionId(null);
+            appliedSuggestionIdRef.current = null;
+            const hasConflict =
+              Boolean(informedBairro) &&
+              ordered.some((s) => hasBairroConflict(informedBairro, s.values.bairro));
+            if (hasConflict) {
+              trackEvent("bairro_mismatch");
+              setRecommendedOnly(true);
+            } else {
+              setRecommendedOnly(ordered.length > 1);
+            }
           }
         } catch (err) {
           if (requestId !== searchRequestIdRef.current) return;
@@ -444,7 +562,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           }
         }
       },
-      [defaults, knownDeliveries, onFlowStateChange]
+      [defaults, knownDeliveries, onFlowStateChange, trackEvent, setInformedBairro]
     );
     runSearchRef.current = runSearch;
 
@@ -467,6 +585,9 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
         onFlowStateChange?.("parsing");
         const parsed = parseFreeTextAddress(text, defaults);
         const vals = parsedToFormValues(parsed);
+        if ((vals.bairro ?? "").trim()) {
+          setInformedBairro((vals.bairro ?? "").trim());
+        }
         setParsedInternal(vals);
         onFlowStateChange?.("idle");
 
@@ -475,7 +596,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           void runSearchRef.current(vals, { autoApply: options?.autoApply });
         }, 500);
       },
-      [defaults, onFlowStateChange]
+      [defaults, onFlowStateChange, setInformedBairro]
     );
     runParseRef.current = runParse;
 
@@ -500,6 +621,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       setDidYouMean(null);
       setSelectedSuggestionId(null);
       setAutoApplied(false);
+      setRecommendedOnly(false);
       setSelectedCoords(null);
       setSearchEmpty(false);
       setSearchErrorMessage(null);
@@ -508,6 +630,10 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       resetAddressSessionToken();
       lastSearchQueryRef.current = "";
       searchRequestIdRef.current += 1;
+      userBairroRef.current = "";
+      setUserBairro("");
+      telemetryEventsRef.current = [];
+      appliedSuggestionIdRef.current = null;
 
       if (initialFreeText.trim()) {
         const parsed = parseFreeTextAddress(initialFreeText, defaults);
@@ -532,22 +658,33 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       if (text) setFreeText(text);
       if (vals.destinatario) setDestinatario(vals.destinatario);
       if (vals.complemento) setComplemento(vals.complemento);
+      if ((vals.bairro ?? "").trim()) setInformedBairro((vals.bairro ?? "").trim());
       setParsedInternal(vals);
       lastSearchQueryRef.current = "";
       void runSearchRef.current(vals, { autoApply: true });
-    }, [externalParsed]);
+    }, [externalParsed, setInformedBairro]);
 
     const handleFreeTextChange = (text: string) => {
       searchRequestIdRef.current += 1;
       lastSearchQueryRef.current = "";
       setFreeText(text);
       setSelectedSuggestionId(null);
+      appliedSuggestionIdRef.current = null;
       setAutoApplied(false);
+      setRecommendedOnly(false);
       setSelectedCoords(null);
       setSelectedOrigem("manual");
       setSearchEmpty(false);
       setSearchErrorMessage(null);
       resetAddressSessionToken();
+      // Reparse imediato do bairro para invalidar sugestão e forçar query com bairro.
+      const preview = parseFreeTextAddress(text, defaults);
+      const previewBairro = (preview.bairro ?? "").trim();
+      if (previewBairro) {
+        setInformedBairro(previewBairro);
+      } else if (!text.trim()) {
+        setInformedBairro("");
+      }
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => runParse(text), 500);
     };
@@ -619,10 +756,46 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           isValidGeocodeCoords(selectedCoords?.latitude, selectedCoords?.longitude)
             ? selectedOrigem
             : "manual";
-        await onSaveAndNext(vals, selectedCoords, origem);
+        await onSaveAndNext(vals, selectedCoords, origem, {
+          bairroInformado: userBairroRef.current.trim() || undefined,
+          events: [...telemetryEventsRef.current],
+        });
+        telemetryEventsRef.current = [];
       } finally {
         onFlowStateChange?.("idle");
       }
+    };
+
+    const confirmBairroThenSave = (vals: AddressFormValues) => {
+      const informed = userBairroRef.current.trim();
+      const chosen = (vals.bairro ?? "").trim();
+      if (!informed || !chosen || compareBairro(informed, chosen) !== "conflict") {
+        void executeSave(vals);
+        return;
+      }
+      trackEvent("bairro_mismatch");
+      Alert.alert(
+        "Confirmar bairro",
+        `Você informou "${informed}", mas a sugestão usa "${chosen}".\nQual bairro deseja usar?`,
+        [
+          {
+            text: `Usar ${informed}`,
+            onPress: () => {
+              const next = { ...vals, bairro: informed };
+              setParsedInternal(next);
+              void executeSave(next);
+            },
+          },
+          {
+            text: `Usar ${chosen}`,
+            onPress: () => {
+              trackEvent("suggestion_changed_by_user");
+              void executeSave(vals);
+            },
+          },
+          { text: "Corrigir", style: "cancel", onPress: () => freeTextRef.current?.focus() },
+        ]
+      );
     };
 
     const handleSave = async (skipNumeroWarn = false) => {
@@ -715,7 +888,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           return;
         }
       }
-      await executeSave(vals);
+      confirmBairroThenSave(vals);
     };
 
     const inputLocked =
@@ -953,6 +1126,8 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
             loading={searching || resolvingPlace}
             selectedId={selectedSuggestionId}
             autoApplied={autoApplied}
+            recommendedOnly={recommendedOnly}
+            userBairro={userBairro || parsedInternal.bairro || null}
             didYouMean={didYouMean}
             searchEmpty={searchEmpty}
             emptyMessage={searchErrorMessage}

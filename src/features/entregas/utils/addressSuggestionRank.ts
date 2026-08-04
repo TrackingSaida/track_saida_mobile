@@ -18,6 +18,13 @@ export type RankableAddressSuggestion = {
   requiresPlaceDetails?: boolean;
 };
 
+export type BairroMatchLevel = "equal" | "partial" | "conflict" | "unknown";
+
+export type PickBestAddressOptions = {
+  /** Bairro informado pelo usuário (digitado/ditado). */
+  userBairro?: string | null;
+};
+
 function normalizeCep(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   return digits.length >= 8 ? digits.slice(0, 8) : digits;
@@ -27,8 +34,51 @@ export function isGooglePendingRankable(s: RankableAddressSuggestion): boolean {
   return Boolean(s.requiresPlaceDetails && s.placeId && s.provider === "google_places");
 }
 
-/** Identidade física aproximada (rua + número + cidade + UF). */
+/** Compara bairro do usuário com o da sugestão (fuzzy simples). */
+export function compareBairro(
+  userBairro: string | null | undefined,
+  suggestionBairro: string | null | undefined
+): BairroMatchLevel {
+  const a = normalizeStreet(userBairro ?? "");
+  const b = normalizeStreet(suggestionBairro ?? "");
+  if (!a || !b) return "unknown";
+  if (a === b) return "equal";
+  if (a.includes(b) || b.includes(a)) return "partial";
+
+  const tokensA = a.split(" ").filter((t) => t.length > 2);
+  const tokensB = b.split(" ").filter((t) => t.length > 2);
+  if (tokensA.length === 0 || tokensB.length === 0) return "conflict";
+
+  const setB = new Set(tokensB);
+  const overlap = tokensA.filter((t) => setB.has(t)).length;
+  const ratio = overlap / Math.max(tokensA.length, tokensB.length);
+  if (ratio >= 0.6) return "partial";
+  return "conflict";
+}
+
+export function hasBairroConflict(
+  userBairro: string | null | undefined,
+  suggestionBairro: string | null | undefined
+): boolean {
+  return compareBairro(userBairro, suggestionBairro) === "conflict";
+}
+
+/** Identidade física aproximada (rua + número + bairro + cidade + UF). */
 export function addressIdentityKey(s: RankableAddressSuggestion): string {
+  const v = s.values;
+  const rua = normalizeStreet(v.rua ?? "");
+  const numero = normalizeNumero(v.numero ?? "");
+  const bairro = normalizeStreet(v.bairro ?? "");
+  const cidade = normalizeStreet(v.cidade ?? "");
+  const estado = (normalizeEstadoUf(v.estado) || "").toUpperCase();
+  if (!rua && !numero) return "";
+  return [rua, numero, bairro, cidade, estado].join("|");
+}
+
+/**
+ * Chave de rua+número+cidade (sem bairro) — útil para detectar ambiguidade de bairro.
+ */
+export function addressStreetNumberKey(s: RankableAddressSuggestion): string {
   const v = s.values;
   const rua = normalizeStreet(v.rua ?? "");
   const numero = normalizeNumero(v.numero ?? "");
@@ -83,30 +133,80 @@ export function rankAddressSuggestions<T extends RankableAddressSuggestion>(list
 
 /**
  * Escolhe a melhor sugestão quando há vencedor claro.
- * Retorna null se o empate for ambíguo (ruas/números diferentes sem gap forte).
+ * Retorna null se o empate for ambíguo (ruas/números diferentes sem gap forte)
+ * ou se o bairro do usuário divergir do da sugestão (não auto-aplicar).
  */
 export function pickBestAddressSuggestion<T extends RankableAddressSuggestion>(
-  list: T[]
+  list: T[],
+  opts?: PickBestAddressOptions
 ): T | null {
   const selectable = list.filter((s) => !isGooglePendingRankable(s));
   if (selectable.length === 0) return null;
-  if (selectable.length === 1) return selectable[0];
+  if (selectable.length === 1) {
+    const only = selectable[0];
+    if (opts?.userBairro && hasBairroConflict(opts.userBairro, only.values.bairro)) {
+      return null;
+    }
+    return only;
+  }
 
   const ranked = rankAddressSuggestions(selectable);
   const best = ranked[0];
   const second = ranked[1];
-  if (!best || !second) return best ?? null;
+  if (!best || !second) {
+    if (best && opts?.userBairro && hasBairroConflict(opts.userBairro, best.values.bairro)) {
+      return null;
+    }
+    return best ?? null;
+  }
 
   const gap = suggestionCompletenessScore(best) - suggestionCompletenessScore(second);
   const bestKey = addressIdentityKey(best);
   const sameIdentity = Boolean(bestKey) && bestKey === addressIdentityKey(second);
+  const sameStreetNumber =
+    Boolean(addressStreetNumberKey(best)) &&
+    addressStreetNumberKey(best) === addressStreetNumberKey(second);
   const sameCoords = suggestionsCoordsNearlySame(best, second);
 
-  if (sameIdentity || sameCoords) return best;
-  if (gap >= 15) return best;
-  if ((best.confidence ?? 0) >= 0.9 && (second.confidence ?? 0) <= 0.65) {
-    return best;
+  // Mesma rua/número com bairros diferentes = ambiguidade (não auto-aplicar).
+  if (sameStreetNumber && !sameIdentity) {
+    return null;
   }
 
-  return null;
+  let winner: T | null = null;
+  if (sameIdentity || sameCoords) winner = best;
+  else if (gap >= 15) winner = best;
+  else if ((best.confidence ?? 0) >= 0.9 && (second.confidence ?? 0) <= 0.65) {
+    winner = best;
+  }
+
+  if (
+    winner &&
+    opts?.userBairro &&
+    hasBairroConflict(opts.userBairro, winner.values.bairro)
+  ) {
+    return null;
+  }
+
+  return winner;
+}
+
+/** Melhor sugestão para destaque visual (mesmo com conflito de bairro). */
+export function pickRecommendedAddressSuggestion<T extends RankableAddressSuggestion>(
+  list: T[],
+  opts?: PickBestAddressOptions
+): T | null {
+  const auto = pickBestAddressSuggestion(list, opts);
+  if (auto) return auto;
+  const selectable = rankAddressSuggestions(list.filter((s) => !isGooglePendingRankable(s)));
+  if (selectable.length === 0) return null;
+
+  const userBairro = opts?.userBairro;
+  if (userBairro) {
+    const matching = selectable.find(
+      (s) => compareBairro(userBairro, s.values.bairro) !== "conflict"
+    );
+    if (matching) return matching;
+  }
+  return selectable[0] ?? null;
 }

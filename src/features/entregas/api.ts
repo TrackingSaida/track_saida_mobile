@@ -256,6 +256,9 @@ export interface EnderecoBody {
   coord_precision?: "rooftop" | "street" | "approx" | null;
   geocode_source?: string | null;
   geocode_score?: number | null;
+  /** Bairro informado pelo usuário antes da sugestão (telemetria). */
+  bairro_informado?: string | null;
+  address_events?: string[] | null;
 }
 
 export async function putEndereco(idSaida: number, body: EnderecoBody): Promise<EntregaListItem> {

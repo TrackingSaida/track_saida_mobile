@@ -3,7 +3,10 @@ import { test } from "node:test";
 import type { AddressFormValues } from "../../components/AddressForm";
 import type { RankableAddressSuggestion } from "../addressSuggestionRank";
 import {
+  addressIdentityKey,
+  compareBairro,
   pickBestAddressSuggestion,
+  pickRecommendedAddressSuggestion,
   suggestionCompletenessScore,
 } from "../addressSuggestionRank";
 
@@ -47,7 +50,7 @@ test("preferência pelo endereço com CEP quando o local é o mesmo", () => {
     provider: "nominatim",
   });
   const withoutCep = suggestion("sem", {
-    values: { cep: "", bairro: "Parque Santana" },
+    values: { cep: "", bairro: "Parque Santana Gleba 2" },
     distanceKm: 26,
     provider: "nominatim",
     latitude: -23.4501,
@@ -131,4 +134,57 @@ test("preferência por endereço já utilizado do motoboy", () => {
     longitude: -46.92005,
   });
   assert.equal(pickBestAddressSuggestion([other, local])?.id, "local");
+});
+
+test("mesmo rua/número com bairros diferentes não auto-aplica", () => {
+  const santana = suggestion("santana", {
+    values: {
+      bairro: "Parque Santana Gleba 2",
+      cep: "06515005",
+    },
+    provider: "nominatim",
+    confidence: 0.9,
+  });
+  const jandaia = suggestion("jandaia", {
+    values: {
+      bairro: "Parque Jandaia",
+      cep: "06515010",
+    },
+    provider: "nominatim",
+    latitude: -23.451,
+    longitude: -46.921,
+    confidence: 0.85,
+  });
+  assert.equal(pickBestAddressSuggestion([santana, jandaia]), null);
+  assert.notEqual(addressIdentityKey(santana), addressIdentityKey(jandaia));
+});
+
+test("bairro do usuário divergente impede auto-apply mesmo com único hit", () => {
+  const only = suggestion("y", {
+    values: { bairro: "Parque Santana Gleba 2", cep: "06515005" },
+  });
+  assert.equal(
+    pickBestAddressSuggestion([only], { userBairro: "Parque Jandaia" }),
+    null
+  );
+  assert.equal(
+    pickRecommendedAddressSuggestion([only], { userBairro: "Parque Jandaia" })?.id,
+    "y"
+  );
+});
+
+test("bairro do usuário igual permite auto-apply", () => {
+  const only = suggestion("ok", {
+    values: { bairro: "Parque Jandaia", cep: "06515005" },
+  });
+  assert.equal(
+    pickBestAddressSuggestion([only], { userBairro: "Parque Jandaia" })?.id,
+    "ok"
+  );
+});
+
+test("compareBairro reconhece parcial e conflito", () => {
+  assert.equal(compareBairro("Parque Santana", "Parque Santana Gleba 2"), "partial");
+  assert.equal(compareBairro("Parque Jandaia", "Parque Santana Gleba 2"), "conflict");
+  assert.equal(compareBairro("Parque Jandaia", "parque jandaia"), "equal");
 });

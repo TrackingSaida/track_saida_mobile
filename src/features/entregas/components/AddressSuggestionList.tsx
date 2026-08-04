@@ -12,8 +12,10 @@ import type { AddressSuggestion } from "../utils/addressSuggestions";
 import {
   filterSelectableSuggestions,
   formatSuggestionLines,
+  hasBairroConflict,
   isDisplayableDidYouMean,
   pickBestAddressSuggestion,
+  pickRecommendedAddressSuggestion,
   rankAddressSuggestions,
 } from "../utils/addressSuggestions";
 
@@ -22,6 +24,9 @@ interface AddressSuggestionListProps {
   loading?: boolean;
   selectedId?: string | null;
   autoApplied?: boolean;
+  /** Destaque sem aplicar (ex.: conflito de bairro). */
+  recommendedOnly?: boolean;
+  userBairro?: string | null;
   didYouMean?: AddressSuggestion | null;
   searchEmpty?: boolean;
   emptyMessage?: string | null;
@@ -37,6 +42,8 @@ export default function AddressSuggestionList({
   loading,
   selectedId,
   autoApplied,
+  recommendedOnly,
+  userBairro,
   didYouMean,
   searchEmpty,
   emptyMessage,
@@ -67,6 +74,18 @@ export default function AddressSuggestionList({
           alignSelf: "flex-start",
         },
         autoBadgeText: { fontSize: 12, fontWeight: "600", color: colors.success },
+        warnBadge: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+          backgroundColor: colors.warning + "22",
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+          borderRadius: 6,
+          marginBottom: 8,
+          alignSelf: "flex-start",
+        },
+        warnBadgeText: { fontSize: 12, fontWeight: "600", color: colors.warning },
         dymWrap: {
           borderWidth: 1,
           borderColor: colors.primary + "55",
@@ -103,7 +122,11 @@ export default function AddressSuggestionList({
           borderRadius: 6,
           backgroundColor: colors.primary + "18",
         },
+        cardBadgeWarn: {
+          backgroundColor: colors.warning + "22",
+        },
         cardBadgeText: { fontSize: 11, fontWeight: "600", color: colors.primary },
+        cardBadgeWarnText: { fontSize: 11, fontWeight: "600", color: colors.warning },
         loader: { paddingVertical: 12, alignItems: "center" },
         emptyText: {
           fontSize: 13,
@@ -116,15 +139,26 @@ export default function AddressSuggestionList({
   );
 
   const selectableSuggestions = useMemo(
-    () => rankAddressSuggestions(filterSelectableSuggestions(suggestions)),
+    () => rankAddressSuggestions(filterSelectableSuggestions(suggestions)).slice(0, 3),
     [suggestions]
   );
   const recommendedId = useMemo(() => {
-    if (selectableSuggestions.length <= 1) return null;
     if (autoApplied && selectedId) return selectedId;
-    const best = pickBestAddressSuggestion(selectableSuggestions);
-    return best?.id ?? selectableSuggestions[0]?.id ?? null;
-  }, [selectableSuggestions, autoApplied, selectedId]);
+    const best = pickBestAddressSuggestion(selectableSuggestions, { userBairro });
+    if (best) return best.id;
+    if (selectableSuggestions.length <= 1) {
+      return selectableSuggestions[0]?.id ?? null;
+    }
+    return (
+      pickRecommendedAddressSuggestion(selectableSuggestions, { userBairro })?.id ??
+      selectableSuggestions[0]?.id ??
+      null
+    );
+  }, [selectableSuggestions, autoApplied, selectedId, userBairro]);
+  const hasUserBairroConflict = Boolean(
+    userBairro &&
+      selectableSuggestions.some((s) => hasBairroConflict(userBairro, s.values.bairro))
+  );
 
   const showDidYouMean =
     didYouMean &&
@@ -159,7 +193,9 @@ export default function AddressSuggestionList({
       ? "Endereço encontrado"
       : autoApplied
         ? "Melhor endereço aplicado — toque para trocar"
-        : "Selecione o endereço";
+        : recommendedOnly || hasUserBairroConflict
+          ? "Sugestão recomendada — confira o bairro"
+          : "Selecione o endereço";
 
   return (
     <View style={styles.wrap}>
@@ -207,10 +243,19 @@ export default function AddressSuggestionList({
         </View>
       )}
 
+      {!autoApplied && (recommendedOnly || hasUserBairroConflict) && (
+        <View style={styles.warnBadge}>
+          <Ionicons name="alert-circle" size={14} color={colors.warning} />
+          <Text style={styles.warnBadgeText}>Confira o bairro</Text>
+        </View>
+      )}
+
       {selectableSuggestions.map((s) => {
         const selected = selectedId === s.id;
-        const lines = formatSuggestionLines(s, { recommendedId });
+        const lines = formatSuggestionLines(s, { recommendedId, userBairro });
         const isLocal = s.provider === "local";
+        const bairroWarn =
+          Boolean(userBairro) && hasBairroConflict(userBairro, s.values.bairro);
         return (
           <TouchableOpacity
             key={s.id}
@@ -224,8 +269,10 @@ export default function AddressSuggestionList({
             {lines.line4 ? <Text style={styles.cardLine4}>{lines.line4}</Text> : null}
             {lines.distance ? <Text style={styles.cardMeta}>{lines.distance}</Text> : null}
             {lines.badge ? (
-              <View style={styles.cardBadge}>
-                <Text style={styles.cardBadgeText}>{lines.badge}</Text>
+              <View style={[styles.cardBadge, bairroWarn && styles.cardBadgeWarn]}>
+                <Text style={bairroWarn ? styles.cardBadgeWarnText : styles.cardBadgeText}>
+                  {lines.badge}
+                </Text>
               </View>
             ) : null}
           </TouchableOpacity>
