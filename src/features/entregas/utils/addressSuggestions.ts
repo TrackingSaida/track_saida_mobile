@@ -16,12 +16,22 @@ import {
 } from "./routeUtils";
 import {
   addressIdentityKey,
+  compareBairro,
+  hasBairroConflict,
   pickBestAddressSuggestion as pickBestAddressSuggestionCore,
+  pickRecommendedAddressSuggestion as pickRecommendedAddressSuggestionCore,
+  type PickBestAddressOptions,
   rankAddressSuggestions as rankAddressSuggestionsCore,
   suggestionCompletenessScore,
 } from "./addressSuggestionRank";
 
-export { addressIdentityKey, suggestionCompletenessScore };
+export {
+  addressIdentityKey,
+  compareBairro,
+  hasBairroConflict,
+  suggestionCompletenessScore,
+};
+export type { BairroMatchLevel, PickBestAddressOptions } from "./addressSuggestionRank";
 
 export type AddressSuggestion = {
   id: string;
@@ -131,11 +141,19 @@ export function formatSuggestionDistanceMeters(meters: number | null | undefined
 
 export function suggestionBadgeLabel(
   s: AddressSuggestion,
-  opts?: { recommendedId?: string | null }
+  opts?: { recommendedId?: string | null; userBairro?: string | null }
 ): string | null {
+  if (opts?.userBairro && hasBairroConflict(opts.userBairro, s.values.bairro)) {
+    return "Bairro diferente do informado";
+  }
   if (s.alreadyUsed || s.badge === "used") return "Endereço já utilizado";
   if (s.badge === "frequente") return "Frequente";
-  if (opts?.recommendedId && s.id === opts.recommendedId) return "Melhor sugestão";
+  if (opts?.recommendedId && s.id === opts.recommendedId) {
+    if (opts?.userBairro && compareBairro(opts.userBairro, s.values.bairro) === "partial") {
+      return "Confira o bairro";
+    }
+    return "Sugestão recomendada";
+  }
   return null;
 }
 
@@ -145,7 +163,7 @@ export function isGooglePendingSuggestion(s: AddressSuggestion): boolean {
 
 export function formatSuggestionLines(
   s: AddressSuggestion,
-  opts?: { recommendedId?: string | null }
+  opts?: { recommendedId?: string | null; userBairro?: string | null }
 ): {
   line1: string;
   line2: string;
@@ -253,9 +271,17 @@ export function rankAddressSuggestions(list: AddressSuggestion[]): AddressSugges
 }
 
 export function pickBestAddressSuggestion(
-  list: AddressSuggestion[]
+  list: AddressSuggestion[],
+  opts?: PickBestAddressOptions
 ): AddressSuggestion | null {
-  return pickBestAddressSuggestionCore(filterSelectableSuggestions(list));
+  return pickBestAddressSuggestionCore(filterSelectableSuggestions(list), opts);
+}
+
+export function pickRecommendedAddressSuggestion(
+  list: AddressSuggestion[],
+  opts?: PickBestAddressOptions
+): AddressSuggestion | null {
+  return pickRecommendedAddressSuggestionCore(filterSelectableSuggestions(list), opts);
 }
 
 /** Critério mais permissivo para exibir bloco "Você quis dizer?" (não auto-aplica). */

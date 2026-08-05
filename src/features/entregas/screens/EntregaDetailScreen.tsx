@@ -419,13 +419,16 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const handleQuickFormSave = async (
     vals: AddressFormValues,
     coords?: GeocodeResult | null,
-    origem: AddressOrigem = "manual"
+    origem: AddressOrigem = "manual",
+    meta?: { bairroInformado?: string; events?: string[] }
   ) => {
     try {
       const body = {
         ...vals,
         origem,
         coord_precision: inferCoordPrecision(origem, coords?.confidence),
+        bairro_informado: meta?.bairroInformado || null,
+        address_events: meta?.events?.length ? meta.events : null,
         ...(isValidGeocodeCoords(coords?.latitude, coords?.longitude)
           ? {
               latitude: coords!.latitude,

@@ -472,6 +472,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   type CommitSaveOptions = {
     skipGeocodeCheck?: boolean;
     coords?: GeocodeResult | null;
+    bairroInformado?: string;
+    events?: string[];
   };
 
   const commitSave = useCallback(
@@ -519,13 +521,16 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
             cidade: finalVals.cidade,
             estado: finalVals.estado,
           };
+          // Preferir coords da sugestão escolhida — evita Nominatim "puxar" outro ponto.
           const hasClientCoords = isValidGeocodeCoords(opts.coords?.latitude, opts.coords?.longitude);
-          const geo =
-            hasClientCoords && (origem === "google_places" || origem === "suggestion")
+          const trustSuggestionCoords =
+            hasClientCoords &&
+            (origem === "google_places" || origem === "suggestion" || origem === "mapa");
+          const geo = trustSuggestionCoords
+            ? opts.coords!
+            : hasClientCoords
               ? opts.coords!
-              : hasClientCoords
-                ? opts.coords!
-                : await geocodeAddressFromValues(finalVals, geoDefaults);
+              : await geocodeAddressFromValues(finalVals, geoDefaults);
           if (!geo) {
             setPendingSaveValues(finalVals);
             setPendingSaveOrigem(origem);
@@ -544,12 +549,19 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
               origem === "google_places" || origem === "mapa"
                 ? origem
                 : geo.source ?? "nominatim_strict",
+            bairro_informado: opts.bairroInformado || null,
+            address_events: opts.events?.length ? opts.events : null,
           };
           setFlowState("saving");
           await saveAddress(activeDelivery.id_saida, body);
         } else {
           setFlowState("saving");
-          await saveAddress(activeDelivery.id_saida, { ...finalVals, origem });
+          await saveAddress(activeDelivery.id_saida, {
+            ...finalVals,
+            origem,
+            bairro_informado: opts.bairroInformado || null,
+            address_events: opts.events?.length ? opts.events : null,
+          });
         }
         setFeedbackMessage(
           formMode === "edit" ? "Endereço atualizado." : "Endereço salvo."
@@ -658,10 +670,15 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   const handleSaveAndNext = useCallback(
     async (
       vals: AddressFormValues,
+      coords?: GeocodeResult | null,
       origem: AddressOrigem = "manual",
-      coords?: GeocodeResult | null
+      meta?: { bairroInformado?: string; events?: string[] }
     ) => {
-      await commitSave(vals, origem, { coords });
+      await commitSave(vals, origem ?? "manual", {
+        coords,
+        bairroInformado: meta?.bairroInformado,
+        events: meta?.events,
+      });
     },
     [commitSave]
   );
@@ -1179,7 +1196,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
 
   const handleSalvarAdvanced = async (vals: AddressFormValues, origem?: AddressOrigem) => {
     setAfterSaveMode("queue");
-    await handleSaveAndNext(vals, origem ?? "manual");
+    await handleSaveAndNext(vals, null, origem ?? "manual");
   };
 
   const confirmOrdem = async () => {
@@ -1394,8 +1411,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
               inlineFeedback={quickFormInlineFeedback}
               externalParsed={externalParsed}
               onFlowStateChange={setFlowState}
-              onSaveAndNext={(vals, coords, origem) =>
-                handleSaveAndNext(vals, origem ?? "manual", coords)
+              onSaveAndNext={(vals, coords, origem, meta) =>
+                handleSaveAndNext(vals, coords, origem ?? "manual", meta)
               }
               onDictate={handleDictate}
               onOcr={handleOcr}
