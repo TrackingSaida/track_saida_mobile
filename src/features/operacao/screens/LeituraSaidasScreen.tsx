@@ -1388,7 +1388,7 @@ export default function LeituraSaidasScreen() {
           abrirCameraExplicito();
         }
       } catch (err) {
-        pushFeedback("erro", formatApiError(err, "Erro ao lançar avulso."));
+        // Modal exibe mensagem amigável + Tentar novamente; evita feedback duplicado.
         throw err;
       } finally {
         setLoading(false);

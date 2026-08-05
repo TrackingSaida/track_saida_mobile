@@ -729,12 +729,8 @@ export default function ScanScreen({ navigation }: Props) {
         setShowAvulsoModal(false);
         setModoManual(false);
       } catch (e: unknown) {
-        const ax = e as { response?: { data?: { detail?: string } } };
-        const msg =
-          ax?.response?.data?.detail ??
-          (e instanceof Error ? e.message : "Erro ao lançar avulso.");
+        // Modal exibe mensagem amigável + Tentar novamente; evita Alert duplicado.
         playSound("error");
-        Alert.alert("Erro", String(msg));
         throw e;
       } finally {
         setLoading(false);
