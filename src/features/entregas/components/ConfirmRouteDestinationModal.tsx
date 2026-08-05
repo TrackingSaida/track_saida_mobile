@@ -58,6 +58,11 @@ function stubDeliveryFromHome(addr: MotoboyHomeAddress | null): EntregaListItem 
   };
 }
 
+/**
+ * Confirma destino da rota.
+ * Com endereço cadastrado: confirma direto (sem campo de busca).
+ * Campo Endereço só aparece ao tocar em "Informar outro endereço".
+ */
 export default function ConfirmRouteDestinationModal({
   visible,
   initialAddress,
@@ -69,15 +74,22 @@ export default function ConfirmRouteDestinationModal({
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const [flowState, setFlowState] = useState<QuickFormFlowState>("idle");
-  /** Só abre o campo de busca quando o motoboy quer outro endereço. */
   const [editingOtherAddress, setEditingOtherAddress] = useState(false);
 
+  const hasRegisteredAddress = Boolean(initialAddress);
+
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      setFlowState("idle");
+      setEditingOtherAddress(false);
+      return;
+    }
     setFlowState("idle");
-    // Sem cadastro completo → precisa informar; com cadastro → confirma direto.
-    setEditingOtherAddress(!initialAddress);
-  }, [visible, initialAddress]);
+    // Cadastro completo → modo confirmação (sem busca). Sem cadastro → modo edição.
+    setEditingOtherAddress(!hasRegisteredAddress);
+  }, [visible, hasRegisteredAddress]);
+
+  const showSearchForm = editingOtherAddress || !hasRegisteredAddress;
 
   const styles = useMemo(
     () =>
@@ -93,8 +105,9 @@ export default function ConfirmRouteDestinationModal({
           borderTopRightRadius: 16,
           paddingTop: 18,
           maxHeight: "88%",
-          minHeight: editingOtherAddress ? 420 : 280,
-          height: editingOtherAddress ? "85%" : undefined,
+          minHeight: showSearchForm ? 420 : 300,
+          height: showSearchForm ? "85%" : undefined,
+          paddingBottom: 8,
         },
         header: {
           paddingHorizontal: 20,
@@ -107,6 +120,15 @@ export default function ConfirmRouteDestinationModal({
           marginBottom: 8,
           lineHeight: 20,
         },
+        previewLabel: {
+          marginHorizontal: 20,
+          marginBottom: 6,
+          fontSize: 12,
+          fontWeight: "700",
+          color: colors.primary,
+          letterSpacing: 0.4,
+          textTransform: "uppercase",
+        },
         previewBox: {
           marginHorizontal: 20,
           backgroundColor: colors.background,
@@ -114,7 +136,7 @@ export default function ConfirmRouteDestinationModal({
           padding: 14,
           borderWidth: 1,
           borderColor: colors.separator,
-          marginBottom: 12,
+          marginBottom: 16,
         },
         previewText: { fontSize: 15, color: colors.text, lineHeight: 22 },
         emptyHint: {
@@ -140,10 +162,10 @@ export default function ConfirmRouteDestinationModal({
         },
         linkEdit: {
           marginHorizontal: 20,
-          paddingVertical: 12,
+          paddingVertical: 14,
           alignItems: "center",
         },
-        linkEditText: { color: colors.primary, fontSize: 14, fontWeight: "600" },
+        linkEditText: { color: colors.primary, fontSize: 15, fontWeight: "600" },
         confirmingOverlay: {
           ...StyleSheet.absoluteFillObject,
           backgroundColor: "rgba(0,0,0,0.35)",
@@ -161,7 +183,7 @@ export default function ConfirmRouteDestinationModal({
         btnGhostText: { color: colors.textSecondary, fontSize: 14, fontWeight: "600" },
         disabled: { opacity: 0.55 },
       }),
-    [colors, editingOtherAddress]
+    [colors, showSearchForm]
   );
 
   const preview = initialAddress ? formatMotoboyHomeAddress(initialAddress) : "";
@@ -191,23 +213,27 @@ export default function ConfirmRouteDestinationModal({
             </Text>
           </View>
 
-          {!initialAddress ? (
+          {!hasRegisteredAddress ? (
             <Text style={styles.emptyHint}>
               Não encontramos um endereço completo no cadastro. Informe o destino da rota.
             </Text>
           ) : preview ? (
-            <View style={styles.previewBox}>
-              <Text style={styles.previewText}>{preview}</Text>
-            </View>
+            <>
+              <Text style={styles.previewLabel}>Endereço do cadastro</Text>
+              <View style={styles.previewBox}>
+                <Text style={styles.previewText}>{preview}</Text>
+              </View>
+            </>
           ) : null}
 
-          {!editingOtherAddress && initialAddress ? (
+          {!showSearchForm ? (
             <>
               <TouchableOpacity
                 style={[styles.confirmBtn, busy && styles.disabled]}
                 disabled={busy}
                 onPress={() => void handleConfirmRegistered()}
                 accessibilityLabel="Confirmar e gerar rota"
+                accessibilityRole="button"
               >
                 {confirming ? (
                   <ActivityIndicator color={colors.primaryContrast} />
@@ -219,14 +245,22 @@ export default function ConfirmRouteDestinationModal({
                 style={styles.linkEdit}
                 disabled={busy}
                 onPress={() => setEditingOtherAddress(true)}
+                accessibilityRole="button"
               >
-                <Text style={styles.linkEditText}>Usar outro endereço</Text>
+                <Text style={styles.linkEditText}>Informar outro endereço</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btnGhost, busy && styles.disabled]}
+                disabled={busy}
+                onPress={onCancel}
+              >
+                <Text style={styles.btnGhostText}>Cancelar</Text>
               </TouchableOpacity>
             </>
           ) : (
             <View style={[styles.formWrap, busy && styles.disabled]}>
               <AddressQuickForm
-                key={visible ? "dest-edit-open" : "dest-edit-closed"}
+                key={visible && showSearchForm ? "dest-edit-open" : "dest-edit-closed"}
                 delivery={deliveryStub}
                 flowState={flowState}
                 cidadePadrao={cidadePadrao}
@@ -244,21 +278,13 @@ export default function ConfirmRouteDestinationModal({
                   Alert.alert("Indisponível", "Use o campo de texto para informar o endereço.")
                 }
                 onCancel={
-                  initialAddress
+                  hasRegisteredAddress
                     ? () => setEditingOtherAddress(false)
                     : onCancel
                 }
               />
             </View>
           )}
-
-          <TouchableOpacity
-            style={[styles.btnGhost, busy && styles.disabled]}
-            disabled={busy}
-            onPress={onCancel}
-          >
-            <Text style={styles.btnGhostText}>Cancelar</Text>
-          </TouchableOpacity>
 
           {confirming ? (
             <View style={styles.confirmingOverlay} pointerEvents="auto">
