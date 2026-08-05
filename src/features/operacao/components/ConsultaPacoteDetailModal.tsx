@@ -8,11 +8,18 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Image,
+  Alert,
   useWindowDimensions,
 } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
-import { fetchComprovanteImagesDataUris } from "../../entregas/api";
+import {
+  arrayBufferToBase64,
+  exportComprovante,
+  fetchComprovanteImagesDataUris,
+} from "../../entregas/api";
 import type { SaidaDetail, SaidaHistoricoItem } from "../saidasApi";
 import { coresBadgeServico, statusVisualSaida } from "../utils/operacaoStatusUtils";
 import {
@@ -57,6 +64,7 @@ export default function ConsultaPacoteDetailModal({
   const [comprovanteLoading, setComprovanteLoading] = useState(false);
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
   const [comprovanteViewerIndex, setComprovanteViewerIndex] = useState(0);
+  const [sharingComprovante, setSharingComprovante] = useState(false);
   const comprovanteViewerRef = useRef<ScrollView>(null);
   const { width: windowWidth } = useWindowDimensions();
 
@@ -76,6 +84,8 @@ export default function ConsultaPacoteDetailModal({
       setComprovanteUris([]);
       setComprovanteLoading(false);
       setShowComprovanteViewer(false);
+      setComprovanteViewerIndex(0);
+      setSharingComprovante(false);
       return;
     }
     if (!precisaComprovante || idSaida == null) {
@@ -112,6 +122,37 @@ export default function ConsultaPacoteDetailModal({
       setShowComprovanteViewer(true);
     }
   }, [comprovanteUris.length]);
+
+  const handleCompartilharComprovante = useCallback(async () => {
+    if (sharingComprovante || idSaida == null || comprovanteUris.length === 0) return;
+    const available = await Sharing.isAvailableAsync();
+    if (!available) {
+      Alert.alert("Indisponível", "Compartilhamento não está disponível neste dispositivo.");
+      return;
+    }
+    setSharingComprovante(true);
+    try {
+      const exported = await exportComprovante(idSaida, comprovanteViewerIndex);
+      const base64 = arrayBufferToBase64(exported.buffer);
+      const path = `${FileSystem.cacheDirectory}comprovante-${idSaida}-${comprovanteViewerIndex}.jpg`;
+      await FileSystem.writeAsStringAsync(path, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      await Sharing.shareAsync(path, {
+        mimeType: "image/jpeg",
+        dialogTitle: exported.status ? `Comprovante — ${exported.status}` : "Comprovante",
+      });
+    } catch {
+      Alert.alert("Erro", "Não foi possível compartilhar o comprovante.");
+    } finally {
+      setSharingComprovante(false);
+    }
+  }, [
+    comprovanteUris.length,
+    comprovanteViewerIndex,
+    idSaida,
+    sharingComprovante,
+  ]);
 
   useEffect(() => {
     if (!showComprovanteViewer || comprovanteUris.length === 0) return;
@@ -170,12 +211,19 @@ export default function ConsultaPacoteDetailModal({
           justifyContent: "center",
         },
         actionPrimary: { backgroundColor: colors.primary, marginTop: 8 },
+        actionOutline: {
+          backgroundColor: "transparent",
+          borderWidth: 1.5,
+          borderColor: colors.primary,
+          marginTop: 8,
+        },
         actionDangerOutline: {
           backgroundColor: "transparent",
           borderWidth: 1.5,
           borderColor: "#dc3545",
         },
         actionText: { color: colors.primaryContrast, fontSize: 14, fontWeight: "700" },
+        actionOutlineText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
         closeBtn: { alignSelf: "flex-end", marginTop: 12, padding: 10 },
         closeText: { color: colors.primary, fontWeight: "700", fontSize: 16 },
         viewerHeader: {
@@ -184,7 +232,22 @@ export default function ConsultaPacoteDetailModal({
           paddingBottom: 12,
           backgroundColor: "rgba(0,0,0,0.3)",
         },
-        viewerClose: { color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 6 },
+        viewerHeaderRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 6,
+        },
+        viewerClose: { color: "#fff", fontSize: 16, fontWeight: "700" },
+        viewerShare: {
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+          borderRadius: 8,
+          backgroundColor: colors.primary,
+          minWidth: 110,
+          alignItems: "center",
+        },
+        viewerShareText: { color: "#fff", fontSize: 14, fontWeight: "700" },
         viewerTitle: { color: "#fff", fontSize: 14 },
       }),
     [colors, insets.top]
@@ -235,12 +298,26 @@ export default function ConsultaPacoteDetailModal({
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.actionPrimary]}
                     onPress={onGerarEtiqueta}
-                    disabled={gerandoEtiqueta || cancelandoSaida}
+                    disabled={gerandoEtiqueta || cancelandoSaida || sharingComprovante}
                   >
                     {gerandoEtiqueta ? (
                       <ActivityIndicator color={colors.primaryContrast} />
                     ) : (
                       <Text style={styles.actionText}>Gerar etiqueta</Text>
+                    )}
+                  </TouchableOpacity>
+                ) : null}
+
+                {comprovanteUris.length > 0 ? (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.actionOutline]}
+                    onPress={() => void handleCompartilharComprovante()}
+                    disabled={sharingComprovante || gerandoEtiqueta || cancelandoSaida}
+                  >
+                    {sharingComprovante ? (
+                      <ActivityIndicator color={colors.primary} />
+                    ) : (
+                      <Text style={styles.actionOutlineText}>Compartilhar comprovante</Text>
                     )}
                   </TouchableOpacity>
                 ) : null}
@@ -251,7 +328,7 @@ export default function ConsultaPacoteDetailModal({
                     <TouchableOpacity
                       style={[styles.actionBtn, styles.actionDangerOutline]}
                       onPress={onCancelarSaida}
-                      disabled={cancelandoSaida || gerandoEtiqueta}
+                      disabled={cancelandoSaida || gerandoEtiqueta || sharingComprovante}
                     >
                       {cancelandoSaida ? (
                         <ActivityIndicator color="#dc3545" />
@@ -278,9 +355,22 @@ export default function ConsultaPacoteDetailModal({
       >
         <View style={{ flex: 1, backgroundColor: "#000" }}>
           <View style={styles.viewerHeader}>
-            <TouchableOpacity onPress={() => setShowComprovanteViewer(false)}>
-              <Text style={styles.viewerClose}>Fechar</Text>
-            </TouchableOpacity>
+            <View style={styles.viewerHeaderRow}>
+              <TouchableOpacity onPress={() => setShowComprovanteViewer(false)}>
+                <Text style={styles.viewerClose}>Fechar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.viewerShare}
+                onPress={() => void handleCompartilharComprovante()}
+                disabled={sharingComprovante || comprovanteUris.length === 0}
+              >
+                {sharingComprovante ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.viewerShareText}>Compartilhar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
             <Text style={styles.viewerTitle}>
               Comprovante{detail?.codigo ? ` · ${detail.codigo}` : ""}
               {comprovanteUris.length > 1
