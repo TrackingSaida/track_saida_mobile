@@ -21,6 +21,15 @@ function fmtDate(ymd?: string): string {
   return d && m && y ? `${d}/${m}/${y}` : ymd;
 }
 
+function labelStatus(status?: string): string {
+  const st = String(status || "").toUpperCase();
+  if (st === "PAGO") return "Pago";
+  if (st === "GERADO" || st === "FECHADO") return "Gerado";
+  if (st === "REAJUSTADO") return "Reajustado";
+  if (st === "PENDENTE") return "Pendente";
+  return st || "—";
+}
+
 export default function FechamentoDetailScreen({ navigation, route }: Props) {
   const { idFechamento } = route.params;
   const colors = useThemeColors();
@@ -91,7 +100,7 @@ export default function FechamentoDetailScreen({ navigation, route }: Props) {
             {fmtDate(item.periodo_inicio)} a {fmtDate(item.periodo_fim)}
           </Text>
           <Text style={styles.label}>Status</Text>
-          <Text style={styles.value}>{(item.status || "").toUpperCase()}</Text>
+          <Text style={styles.value}>{labelStatus(item.status)}</Text>
           {item.chave_pix ? (
             <>
               <Text style={styles.label}>PIX</Text>
