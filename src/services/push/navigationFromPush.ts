@@ -9,7 +9,8 @@ export function navigateFromPushData(
   try {
     switch (type) {
       case "fechamento_pronto":
-      case "fechamento_reajustado": {
+      case "fechamento_reajustado":
+      case "fechamento_pago": {
         const id = Number(data.fechamento_id);
         if (Number.isFinite(id) && id > 0) {
           navigation.navigate("Mais", {
