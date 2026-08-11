@@ -51,6 +51,10 @@ interface LeituraEntradaItem {
 }
 
 const SCAN_DEBOUNCE_MS = 1500;
+/** Intervalo mínimo entre bips após confirmação da API (evita frame duplicado sem travar a câmera). */
+const SCAN_UNLOCK_MS = 180;
+/** Máximo de itens na lista da sessão (contadores do dia usam resumo, não este array). */
+const LEITURAS_SESSAO_MAX = 80;
 const recentCodes = new Map<string, number>();
 const RESUMO_DIA_VAZIO: EntradaResumoDia = {
   data_ref: "",
@@ -59,6 +63,13 @@ const RESUMO_DIA_VAZIO: EntradaResumoDia = {
   sum_mercado: 0,
   sum_avulso: 0,
 };
+
+function bucketResumoServico(servicoUi: string): "shopee" | "mercado" | "avulso" {
+  const s = String(servicoUi || "").trim().toLowerCase();
+  if (s.includes("shopee")) return "shopee";
+  if (s === "ml" || s.includes("mercado") || s.includes("livre")) return "mercado";
+  return "avulso";
+}
 
 function isRecentlyScanned(data: string): boolean {
   const key = String(data || "").trim();
@@ -116,6 +127,8 @@ export default function LeituraEntradasScreen() {
   const [modoManual, setModoManual] = useState(false);
   const [codigoManual, setCodigoManual] = useState("");
   const [loading, setLoading] = useState(false);
+  /** Só câmera: chip leve — não pausa onBarcodeScanned nem cobre a tela. */
+  const [cameraBusy, setCameraBusy] = useState(false);
   const [leituras, setLeituras] = useState<LeituraEntradaItem[]>([]);
   const [feedback, setFeedback] = useState<{ tipo: FeedbackTipo; msg: string; codigo?: string } | null>(
     null
@@ -393,7 +406,30 @@ export default function LeituraEntradasScreen() {
   }, []);
 
   const appendLeitura = useCallback((item: LeituraEntradaItem) => {
-    setLeituras((prev) => [...prev, item]);
+    setLeituras((prev) => {
+      const next = [...prev, item];
+      if (next.length <= LEITURAS_SESSAO_MAX) return next;
+      return next.slice(next.length - LEITURAS_SESSAO_MAX);
+    });
+  }, []);
+
+  /** Atualiza totais do dia sem GET — só após sucesso confirmado pela API. */
+  const aplicarResumoLocal = useCallback((servicoUi: string, quantidade = 1) => {
+    const n = Math.max(1, Math.floor(quantidade));
+    const bucket = bucketResumoServico(servicoUi);
+    setResumoDia((prev) => {
+      const base = prev.data_ref ? prev : { ...RESUMO_DIA_VAZIO, data_ref: prev.data_ref };
+      const sum_shopee = base.sum_shopee + (bucket === "shopee" ? n : 0);
+      const sum_mercado = base.sum_mercado + (bucket === "mercado" ? n : 0);
+      const sum_avulso = base.sum_avulso + (bucket === "avulso" ? n : 0);
+      return {
+        ...base,
+        sum_shopee,
+        sum_mercado,
+        sum_avulso,
+        total: sum_shopee + sum_mercado + sum_avulso,
+      };
+    });
   }, []);
 
   const abrirCamera = useCallback(async () => {
@@ -433,9 +469,14 @@ export default function LeituraEntradasScreen() {
       markScanned(rawStr);
       markScanned(c);
       scanLocked.current = true;
-      if (origem === "manual") setCodigoManual("");
-      setLoading(true);
+      if (origem === "manual") {
+        setCodigoManual("");
+        setLoading(true);
+      } else {
+        setCameraBusy(true);
+      }
       try {
+        // Persistência no servidor antes de contar sucesso / atualizar resumo.
         const res = await lerEntrada({
           codigo: classified.qr_payload_raw || classified.codigo,
           origem,
@@ -443,10 +484,10 @@ export default function LeituraEntradasScreen() {
         });
         const servico = labelServicoUi(res.servico, c);
         appendLeitura({ codigo: c, servico, status: "sucesso" });
+        aplicarResumoLocal(servico);
         playSound("success");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         pushFeedback("sucesso", "Entrada registrada", c);
-        void loadResumoDia();
       } catch (err) {
         const ax = err as { response?: { status?: number; data?: { code?: string } } };
         if (ax.response?.status === 409 || ax.response?.data?.code === "JA_NA_BASE") {
@@ -467,25 +508,26 @@ export default function LeituraEntradasScreen() {
           pushFeedback("erro", mensagemErroEntrada(err), c);
         }
       } finally {
-        setLoading(false);
+        if (origem === "manual") setLoading(false);
+        else setCameraBusy(false);
         setTimeout(() => {
           scanLocked.current = false;
-        }, 400);
+        }, SCAN_UNLOCK_MS);
       }
     },
-    [appendLeitura, loadResumoDia, pushFeedback]
+    [appendLeitura, aplicarResumoLocal, pushFeedback]
   );
 
   const onBarcode = useCallback(
     (result: BarcodeScanningResult) => {
-      if (loading || scanLocked.current) return;
+      if (scanLocked.current) return;
       const type = String(result?.type || "").toLowerCase();
       if (type && type !== "qr") return;
       const raw = String(result.data || "").trim();
       if (!raw) return;
       void processar(raw, "camera");
     },
-    [loading, processar]
+    [processar]
   );
 
   const handleLancarAvulso = useCallback(async () => {
@@ -505,13 +547,19 @@ export default function LeituraEntradasScreen() {
         servico: labelServicoUi(s.servico, s.codigo),
         status: "sucesso" as const,
       }));
-      if (novos.length) setLeituras((prev) => [...prev, ...novos]);
+      if (novos.length) {
+        setLeituras((prev) => {
+          const next = [...prev, ...novos];
+          if (next.length <= LEITURAS_SESSAO_MAX) return next;
+          return next.slice(next.length - LEITURAS_SESSAO_MAX);
+        });
+        aplicarResumoLocal("Avulso", novos.length);
+      }
       pushFeedback("sucesso", res.mensagem || "Avulsos registrados na entrada.");
       setAvulsoModalVisible(false);
       setAvulsoIdentificacao("");
       setAvulsoQuantidade("1");
       setModoManual(false);
-      void loadResumoDia();
       if (!cameraOpen) void abrirCamera();
     } catch (err) {
       pushFeedback("erro", mensagemErroEntrada(err));
@@ -520,10 +568,10 @@ export default function LeituraEntradasScreen() {
     }
   }, [
     abrirCamera,
+    aplicarResumoLocal,
     avulsoIdentificacao,
     avulsoQuantidade,
     cameraOpen,
-    loadResumoDia,
     pushFeedback,
   ]);
 
@@ -712,7 +760,7 @@ export default function LeituraEntradasScreen() {
                   barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
                   enableTorch={torch.enableTorch}
                   onCameraReady={torch.onCameraReady}
-                  onBarcodeScanned={loading ? undefined : onBarcode}
+                  onBarcodeScanned={onBarcode}
                 />
                 <ScannerTorchButton
                   mode={torch.mode}
@@ -730,7 +778,7 @@ export default function LeituraEntradasScreen() {
                 >
                   <ScanFrameOverlay wrapStyle={{}} />
                 </View>
-                {loading ? (
+                {cameraBusy ? (
                   <View style={styles.cameraSending} pointerEvents="none">
                     <ActivityIndicator color="#fff" size="small" />
                   </View>
@@ -751,9 +799,9 @@ export default function LeituraEntradasScreen() {
                     )}
                   </View>
                   <TouchableOpacity
-                    style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+                    style={[styles.btnAvulsoFooter, (loading || cameraBusy) && styles.btnDisabled]}
                     onPress={() => setAvulsoModalVisible(true)}
-                    disabled={loading}
+                    disabled={loading || cameraBusy}
                     accessibilityLabel="Lançar Avulso"
                   >
                     <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
@@ -762,7 +810,7 @@ export default function LeituraEntradasScreen() {
                     <TouchableOpacity
                       style={styles.linkManualWhite}
                       onPress={() => setModoManual(true)}
-                      disabled={loading}
+                      disabled={loading || cameraBusy}
                     >
                       <Text style={styles.linkManualTextWhite}>Digitar código manualmente</Text>
                     </TouchableOpacity>
