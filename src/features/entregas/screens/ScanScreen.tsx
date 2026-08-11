@@ -44,6 +44,10 @@ function classifyServico(serv?: string | null): "Shopee" | "Flex" | "Avulso" {
 
 // Debounce: evita processar o mesmo código várias vezes (performance igual/superior ao painel web)
 const SCAN_DEBOUNCE_MS = 1500;
+/** Liberação do lock após bip confirmado (evita frame duplicado sem “congelar” a câmera). */
+const SCAN_UNLOCK_MS = 180;
+const SCAN_UNLOCK_DUP_MS = 150;
+const SCAN_UNLOCK_ERR_MS = 250;
 const recentCodes = new Map<string, number>();
 const DUPLICATE_ALERT_THROTTLE_MS = 2800;
 const duplicateAlertAt = new Map<string, number>();
@@ -582,7 +586,7 @@ export default function ScanScreen({ navigation }: Props) {
           const statusAtual = String((result as { status_atual?: string }).status_atual ?? "FINALIZADO");
           playSound("warn");
           pushFeedback("erro", `Pedido bloqueado: status ${statusAtual}.`, c);
-          setTimeout(() => (scanLocked.current = false), 400);
+          setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_ERR_MS);
           return;
         }
         if ((result as { code?: string }).code === "LEITURA_DIA_ANTERIOR") {
@@ -627,7 +631,7 @@ export default function ScanScreen({ navigation }: Props) {
             playSound("warn");
             pushFeedback("duplicado", "Código já registrado anteriormente", c);
             setCodigo("");
-            setTimeout(() => (scanLocked.current = false), 250);
+            setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_DUP_MS);
             return;
           }
           addLeitura(sucessoResult.entrega);
@@ -635,7 +639,7 @@ export default function ScanScreen({ navigation }: Props) {
           playSound("success");
           pushFeedback("sucesso", "Leitura registrada", c);
           handlePostScanDelivery(sucessoResult.entrega.id_saida, sucessoResult.entrega);
-          setTimeout(() => (scanLocked.current = false), 400);
+          setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_MS);
         }
       } catch (e: unknown) {
         const ax = e as {
@@ -649,7 +653,7 @@ export default function ScanScreen({ navigation }: Props) {
             "Limite de tentativas",
             "Limite de tentativas atingido. Solicite liberação à operação."
           );
-          setTimeout(() => (scanLocked.current = false), 500);
+          setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_ERR_MS);
           return;
         }
         const dataCode =
@@ -661,7 +665,7 @@ export default function ScanScreen({ navigation }: Props) {
           playSound("error");
           pushFeedback("erro", msgEntrada, c);
           Alert.alert("Entrada necessária", msgEntrada);
-          setTimeout(() => (scanLocked.current = false), 500);
+          setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_ERR_MS);
           return;
         }
         const msg =
@@ -669,7 +673,7 @@ export default function ScanScreen({ navigation }: Props) {
         playSound("error");
         pushFeedback("erro", typeof msg === "string" ? msg : "Erro ao processar leitura", c);
         Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
-        setTimeout(() => (scanLocked.current = false), 500);
+        setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_ERR_MS);
       } finally {
         if (origem === "manual") setLoading(false);
         else setCameraBusy(false);
