@@ -29,6 +29,7 @@ import {
   motoboyStatusColors,
   type QuickFilterKey,
 } from "../utils/acompanhamentoOperational";
+import { formatPersonName } from "../../../utils/personName";
 
 type Props = NativeStackScreenProps<StaffStackParamList, "AcompanharOperacao">;
 
@@ -351,7 +352,7 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
                     onPress={() =>
                       navigation.navigate("AcompanharMotoboyDia", {
                         motoboyId: row.motoboy_id,
-                        motoboyNome: row.motoboy_nome,
+                        motoboyNome: formatPersonName(row.motoboy_nome || ""),
                         data: dataRef,
                         pedidos: row.pedidos,
                         entregues: row.entregues,
@@ -361,7 +362,7 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
                       })
                     }
                   >
-                    <Text style={styles.motoboyName}>{row.motoboy_nome}</Text>
+                    <Text style={styles.motoboyName}>{formatPersonName(row.motoboy_nome || "")}</Text>
                     <Text style={styles.motoboyMeta}>
                       {row.entregues}/{row.pedidos} entregues · {fmtSLA(row.sla)}
                     </Text>
