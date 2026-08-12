@@ -40,6 +40,7 @@ import {
   type ConferenciaTotaisAbas,
 } from "../conferenciaApi";
 import { formatApiError } from "../../../utils/formatApiError";
+import { formatPersonName } from "../../../utils/personName";
 
 type Props = NativeStackScreenProps<StaffStackParamList, "ConferenciaSaida">;
 
@@ -470,7 +471,7 @@ export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
                 style={styles.card}
                 onPress={() => void openDetail(it)}
               >
-                <Text style={styles.cardTitle}>{it.motoboy_nome}</Text>
+                <Text style={styles.cardTitle}>{formatPersonName(it.motoboy_nome || "")}</Text>
                 <Text style={styles.cardMeta}>
                   {formatDateLabel(it.data_ref)}
                   {it.qtd_no_momento != null ? ` · ${it.qtd_no_momento} pacotes` : ""}
@@ -515,7 +516,7 @@ export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator
               >
-                <Text style={styles.modalTitle}>{detail.motoboy_nome}</Text>
+                <Text style={styles.modalTitle}>{formatPersonName(detail.motoboy_nome || "")}</Text>
                 <Text style={styles.modalSub}>{formatDateLabel(detail.data_ref)}</Text>
                 <View
                   style={[
