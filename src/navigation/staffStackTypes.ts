@@ -14,6 +14,7 @@ export type StaffStackParamList = {
   ConsultaCodigos: undefined;
   /** Quantidades por serviço (Shopee/ML/Avulso) — conceito distinto do acompanhamento de baixas. */
   SaidasPorMotoboy: undefined;
+  IndicadoresOperacao: undefined;
   AcompanharOperacao: undefined;
   AcompanharMotoboyDia: {
     motoboyId: number;
