@@ -12,6 +12,9 @@ export interface AcompanhamentoMotoboyItem {
   distancia_tempo?: string | null;
   ultima_entrega?: string | null;
   sla?: number | null;
+  sum_shopee?: number;
+  sum_mercado?: number;
+  sum_avulso?: number;
 }
 
 export interface AcompanhamentoTotais {
@@ -20,6 +23,10 @@ export interface AcompanhamentoTotais {
   em_rota: number;
   ausente_ou_ocorrencias: number;
   sla?: number | null;
+  entrada_habilitada?: boolean;
+  entradas?: number | null;
+  saidas?: number | null;
+  pct_saida_sobre_entrada?: number | null;
 }
 
 export interface AcompanhamentoDiaResponse {
@@ -98,6 +105,10 @@ export async function getAcompanhamentoDia(
       em_rota: 0,
       ausente_ou_ocorrencias: 0,
       sla: null,
+      entrada_habilitada: false,
+      entradas: null,
+      saidas: null,
+      pct_saida_sobre_entrada: null,
     },
     data_inicio: res.data_inicio,
     data_fim: res.data_fim,

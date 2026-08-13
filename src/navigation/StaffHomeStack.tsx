@@ -7,6 +7,7 @@ import LeituraEntradasScreen from "../features/operacao/screens/LeituraEntradasS
 import ConferenciaSaidaScreen from "../features/operacao/screens/ConferenciaSaidaScreen";
 import ConsultaCodigosScreen from "../features/operacao/screens/ConsultaCodigosScreen";
 import SaidasPorMotoboyScreen from "../features/operacao/screens/SaidasPorMotoboyScreen";
+import IndicadoresOperacaoScreen from "../features/operacao/screens/IndicadoresOperacaoScreen";
 import AcompanharOperacaoScreen from "../features/operacao/screens/AcompanharOperacaoScreen";
 import AcompanharMotoboyDiaScreen from "../features/operacao/screens/AcompanharMotoboyDiaScreen";
 import EnviarAvisoScreen from "../features/avisos/screens/EnviarAvisoScreen";
@@ -63,6 +64,11 @@ export default function StaffHomeStack() {
       <Stack.Screen
         name="SaidasPorMotoboy"
         component={SaidasPorMotoboyScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="IndicadoresOperacao"
+        component={IndicadoresOperacaoScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen name="AcompanharOperacao" component={AcompanharOperacaoScreen} options={{ headerShown: false }} />
