@@ -1,10 +1,11 @@
 import React, { type ReactNode } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../theme/colors";
 import { space } from "../../theme/spacing";
-import { type as typo } from "../../theme/typography";
+import { textStyle } from "../../theme/typography";
+import AppText from "./AppText";
 
 type Props = {
   gradientColors: readonly [string, string];
@@ -34,12 +35,15 @@ export default function GradientScreenHeader({
       <View style={[styles.inner, { paddingTop: Math.max(space.md, insets.top), paddingHorizontal: space.lg }]}>
         <View style={styles.topRow}>
           <View style={styles.titleBlock}>
-            {titleNode ?? (title ? <Text style={[styles.title, { color: colors.text }]}>{title}</Text> : null)}
+            {titleNode ??
+              (title ? (
+                <AppText style={[styles.title, { color: colors.text }]}>{title}</AppText>
+              ) : null)}
             {subtitle ? (
-              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</Text>
+              <AppText style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</AppText>
             ) : null}
             {tertiary ? (
-              <Text style={[styles.tertiary, { color: colors.textSecondary }]}>{tertiary}</Text>
+              <AppText style={[styles.tertiary, { color: colors.textSecondary }]}>{tertiary}</AppText>
             ) : null}
           </View>
           {rightElement ? <View style={styles.rightSlot}>{rightElement}</View> : null}
@@ -55,7 +59,7 @@ const styles = StyleSheet.create({
   topRow: { flexDirection: "row", alignItems: "flex-start" },
   titleBlock: { flex: 1, minWidth: 0 },
   rightSlot: { marginLeft: space.sm, paddingTop: 2 },
-  title: { fontSize: typo.screenTitle, fontWeight: "800", letterSpacing: -0.5 },
-  subtitle: { fontSize: typo.subtitle, marginTop: space.xs, fontWeight: "500" },
-  tertiary: { fontSize: typo.bodySmall, marginTop: space.xs },
+  title: { ...textStyle("screenTitle"), fontWeight: "800", letterSpacing: -0.5 },
+  subtitle: { ...textStyle("subtitle"), marginTop: space.xs, fontWeight: "500" },
+  tertiary: { ...textStyle("bodySmall"), marginTop: space.xs },
 });

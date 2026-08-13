@@ -18,6 +18,7 @@ export async function startBackgroundTracking(): Promise<void> {
     return;
   }
 
+  // FGS type location (expo-location) — não usa dataSync/mediaProcessing do Android 15.
   await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
     accuracy: Location.Accuracy.High,
     timeInterval: 5000,

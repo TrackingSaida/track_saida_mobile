@@ -35,7 +35,9 @@ export default function PendingMapMarker({ packageCount, hasLate = false }: Pend
         )}
         <Ionicons name="cube" size={14} color={isLate ? LATE_ICON_COLOR : ICON_COLOR} />
         {showCount && (
-          <Text style={[styles.count, isLate && styles.countLate]}>{packageCount}</Text>
+          <Text allowFontScaling={false} style={[styles.count, isLate && styles.countLate]}>
+            {packageCount}
+          </Text>
         )}
       </View>
     </View>
@@ -46,7 +48,9 @@ export function PendingMapClusterMarker({ count }: { count: number }) {
   return (
     <View style={styles.snapshotBox} collapsable={false}>
       <View style={[styles.clusterWrap, { borderColor: DEFAULT_BORDER }]}>
-        <Text style={styles.clusterCount}>{count}</Text>
+        <Text allowFontScaling={false} style={styles.clusterCount}>
+          {count}
+        </Text>
       </View>
     </View>
   );

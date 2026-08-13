@@ -118,8 +118,15 @@ function GroupedStopRow({
           alignItems: "center",
           marginRight: 10,
         },
-        orderText: { fontSize: 15, fontWeight: "800", color: "#fff" },
-        orderPackage: { fontSize: 9, fontWeight: "600", color: "rgba(255,255,255,0.9)", marginTop: 1 },
+        orderText: { fontSize: 15, lineHeight: 18, fontWeight: "800", color: "#fff" },
+        orderPackage: {
+          fontSize: 9,
+          lineHeight: 12,
+          fontWeight: "600",
+          color: "rgba(255,255,255,0.9)",
+          marginTop: 1,
+          textAlign: "center",
+        },
         body: { flex: 1, minWidth: 0 },
         currentBadge: {
           alignSelf: "flex-start",

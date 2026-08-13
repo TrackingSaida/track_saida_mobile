@@ -1,8 +1,9 @@
 import React, { type ReactNode } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { useThemeColors } from "../../theme/colors";
 import { space } from "../../theme/spacing";
-import { type as typo } from "../../theme/typography";
+import { textStyle } from "../../theme/typography";
+import AppText from "./AppText";
 
 type Props = {
   label: string;
@@ -13,7 +14,7 @@ export default function MenuSection({ label, children }: Props) {
   const colors = useThemeColors();
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text>
+      <AppText style={[styles.label, { color: colors.textSecondary }]}>{label}</AppText>
       <View
         style={[
           styles.card,
@@ -33,7 +34,7 @@ export default function MenuSection({ label, children }: Props) {
 const styles = StyleSheet.create({
   wrap: { marginBottom: space.xl },
   label: {
-    fontSize: typo.sectionLabel,
+    ...textStyle("sectionLabel"),
     fontWeight: "700",
     letterSpacing: 0.6,
     textTransform: "uppercase",

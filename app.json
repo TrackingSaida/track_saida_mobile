@@ -3,12 +3,13 @@
     "name": "Tracking Saídas",
     "slug": "track_saida_mobile",
     "version": "1.8.1",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "trackingsaida",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "plugins": [
+      "./plugins/withPlayLargeScreenCompat.js",
       "expo-font",
       "expo-asset",
       [

@@ -1,11 +1,13 @@
 import React, { useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, TouchableOpacity, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
 import { useThemeColors } from "../../../theme/colors";
 import { useThemeStore } from "../../../store/themeStore";
 import { space, radius } from "../../../theme/spacing";
+import AppText from "../../../components/ui/AppText";
+import { useFontScale } from "../../../hooks/useFontScale";
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -26,6 +28,7 @@ export default function OperacaoActionCard({
 }: Props) {
   const colors = useThemeColors();
   const themeMode = useThemeStore((s) => s.theme);
+  const { ms } = useFontScale();
 
   const styles = useMemo(
     () =>
@@ -57,9 +60,8 @@ export default function OperacaoActionCard({
           gap: space.md,
           paddingVertical: space.lg,
           paddingHorizontal: space.lg,
-          minHeight: 72,
+          minHeight: ms(72),
           borderRadius: radius.xl,
-          overflow: "hidden",
         },
         secondaryCard: {
           flexDirection: "row",
@@ -67,7 +69,7 @@ export default function OperacaoActionCard({
           gap: space.md,
           paddingVertical: space.lg,
           paddingHorizontal: space.lg,
-          minHeight: 72,
+          minHeight: ms(72),
           borderRadius: radius.lg,
           backgroundColor: colors.backgroundCard,
           borderWidth: StyleSheet.hairlineWidth,
@@ -76,7 +78,7 @@ export default function OperacaoActionCard({
         compactCard: {
           paddingVertical: space.md,
           paddingHorizontal: space.sm,
-          minHeight: 108,
+          minHeight: ms(108),
           borderRadius: radius.lg,
           backgroundColor: colors.backgroundCard,
           borderWidth: StyleSheet.hairlineWidth,
@@ -100,9 +102,10 @@ export default function OperacaoActionCard({
           justifyContent: "center",
           marginBottom: 8,
         },
-        textWrap: { flex: 1 },
+        textWrap: { flex: 1, minWidth: 0 },
         title: {
           fontSize: variant === "primary" ? 18 : variant === "compact" ? 14 : 16,
+          lineHeight: variant === "primary" ? 24 : variant === "compact" ? 19 : 22,
           fontWeight: "800",
           color: variant === "primary" ? colors.primaryContrast : colors.text,
         },
@@ -110,10 +113,10 @@ export default function OperacaoActionCard({
           fontSize: variant === "compact" ? 11 : 13,
           color: variant === "primary" ? "rgba(255,255,255,0.9)" : colors.textSecondary,
           marginTop: 4,
-          lineHeight: variant === "compact" ? 15 : 18,
+          lineHeight: variant === "compact" ? 16 : 18,
         },
       }),
-    [colors, variant]
+    [colors, variant, ms]
   );
 
   if (variant === "primary") {
@@ -130,8 +133,8 @@ export default function OperacaoActionCard({
               <Ionicons name={icon} size={26} color={colors.primaryContrast} />
             </View>
             <View style={styles.textWrap}>
-              <Text style={styles.title}>{title}</Text>
-              <Text style={styles.subtitle}>{subtitle}</Text>
+              <AppText style={styles.title}>{title}</AppText>
+              <AppText style={styles.subtitle}>{subtitle}</AppText>
             </View>
             <Ionicons name="chevron-forward" size={22} color={colors.primaryContrast} />
           </LinearGradient>
@@ -147,12 +150,12 @@ export default function OperacaoActionCard({
           <View style={styles.compactIconWrap}>
             <Ionicons name={icon} size={20} color={colors.primary} />
           </View>
-          <Text style={styles.title} numberOfLines={2}>
+          <AppText style={styles.title} numberOfLines={3}>
             {title}
-          </Text>
-          <Text style={styles.subtitle} numberOfLines={2}>
+          </AppText>
+          <AppText style={styles.subtitle} numberOfLines={3}>
             {subtitle}
-          </Text>
+          </AppText>
         </TouchableOpacity>
       </View>
     );
@@ -165,8 +168,8 @@ export default function OperacaoActionCard({
           <Ionicons name={icon} size={24} color={colors.primary} />
         </View>
         <View style={styles.textWrap}>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+          <AppText style={styles.title}>{title}</AppText>
+          <AppText style={styles.subtitle}>{subtitle}</AppText>
         </View>
         <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
       </TouchableOpacity>

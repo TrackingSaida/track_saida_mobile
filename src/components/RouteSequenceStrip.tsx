@@ -70,13 +70,14 @@ export default function RouteSequenceStrip({
         row: { flexDirection: "row", alignItems: "center" },
         chip: {
           minWidth: 40,
-          height: 40,
+          minHeight: 40,
           borderRadius: 20,
           justifyContent: "center",
           alignItems: "center",
           paddingHorizontal: 8,
+          paddingVertical: 6,
         },
-        chipText: { fontSize: 17, fontWeight: "800", color: "#fff" },
+        chipText: { fontSize: 17, lineHeight: 22, fontWeight: "800", color: "#fff" },
         arrow: { fontSize: 14, color: colors.textSecondary, marginHorizontal: 2 },
       }),
     [colors]

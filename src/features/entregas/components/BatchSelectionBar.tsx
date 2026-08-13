@@ -1,8 +1,17 @@
 import React, { useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import {
+  View,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  type LayoutChangeEvent,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
+import AppText from "../../../components/ui/AppText";
+import { textStyle } from "../../../theme/typography";
 
+/** Fallback enquanto a barra ainda não mediu a altura real. */
 export const BATCH_SELECTION_LIST_PADDING = 148;
 
 export interface BatchSelectionBarProps {
@@ -12,6 +21,8 @@ export interface BatchSelectionBarProps {
   onMarcarEntregue: () => void;
   onMarcarAusente: () => void;
   onCancelar: () => void;
+  /** Altura medida da barra (para padding dinâmico da lista). */
+  onHeightChange?: (height: number) => void;
 }
 
 export default function BatchSelectionBar({
@@ -21,6 +32,7 @@ export default function BatchSelectionBar({
   onMarcarEntregue,
   onMarcarAusente,
   onCancelar,
+  onHeightChange,
 }: BatchSelectionBarProps) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -47,14 +59,14 @@ export default function BatchSelectionBar({
           zIndex: 10,
         },
         countText: {
-          fontSize: 14,
+          ...textStyle("bodySmall"),
           fontWeight: "600",
           color: colors.text,
           marginBottom: 2,
           textAlign: "center",
         },
         limitText: {
-          fontSize: 12,
+          ...textStyle("caption"),
           color: colors.warning,
           marginBottom: 8,
           textAlign: "center",
@@ -62,13 +74,18 @@ export default function BatchSelectionBar({
         btnDisabled: { opacity: 0.45 },
         row: {
           flexDirection: "row",
+          flexWrap: "wrap",
           gap: 8,
         },
         btn: {
           flex: 1,
-          paddingVertical: 9,
+          minWidth: 120,
+          minHeight: 40,
+          paddingVertical: 10,
+          paddingHorizontal: 8,
           borderRadius: 8,
           alignItems: "center",
+          justifyContent: "center",
         },
         btnEntregue: { backgroundColor: colors.success },
         btnAusente: { backgroundColor: colors.warning },
@@ -77,11 +94,20 @@ export default function BatchSelectionBar({
           borderWidth: 1,
           borderColor: colors.separator,
         },
-        btnText: { color: colors.primaryContrast, fontSize: 13, fontWeight: "600" },
-        btnCancelText: { color: colors.textSecondary, fontSize: 13, fontWeight: "600" },
+        btnText: { color: colors.primaryContrast, ...textStyle("bodySmall"), fontWeight: "600", textAlign: "center" },
+        btnCancelText: {
+          color: colors.textSecondary,
+          ...textStyle("bodySmall"),
+          fontWeight: "600",
+          textAlign: "center",
+        },
       }),
     [colors, insets.bottom]
   );
+
+  const handleLayout = (e: LayoutChangeEvent) => {
+    onHeightChange?.(e.nativeEvent.layout.height);
+  };
 
   if (count <= 0) return null;
 
@@ -89,17 +115,17 @@ export default function BatchSelectionBar({
   const actionsDisabled = loading || overLimit;
 
   return (
-    <View style={styles.wrap}>
-      <Text style={styles.countText}>
+    <View style={styles.wrap} onLayout={handleLayout}>
+      <AppText style={styles.countText}>
         {loading
           ? "Finalizando em lote..."
           : `${count} selecionado${count !== 1 ? "s" : ""}`}
-      </Text>
-      {overLimit && !loading && (
-        <Text style={styles.limitText}>
+      </AppText>
+      {overLimit && !loading ? (
+        <AppText style={styles.limitText}>
           Máximo {maxCount} pedidos por lote. Reduza a seleção para continuar.
-        </Text>
-      )}
+        </AppText>
+      ) : null}
       <View style={styles.row}>
         <TouchableOpacity
           style={[styles.btn, styles.btnEntregue, actionsDisabled && styles.btnDisabled]}
@@ -109,9 +135,9 @@ export default function BatchSelectionBar({
           {loading ? (
             <ActivityIndicator size="small" color={colors.primaryContrast} />
           ) : (
-            <Text style={styles.btnText} numberOfLines={1}>
+            <AppText style={styles.btnText} numberOfLines={2}>
               Marcar entregue
-            </Text>
+            </AppText>
           )}
         </TouchableOpacity>
         <TouchableOpacity
@@ -119,19 +145,19 @@ export default function BatchSelectionBar({
           onPress={onMarcarAusente}
           disabled={actionsDisabled}
         >
-          <Text style={styles.btnText} numberOfLines={1}>
+          <AppText style={styles.btnText} numberOfLines={2}>
             Marcar ausente
-          </Text>
+          </AppText>
         </TouchableOpacity>
       </View>
       <TouchableOpacity
-        style={[styles.btn, styles.btnCancel, { marginTop: 6 }, loading && styles.btnDisabled]}
+        style={[styles.btn, styles.btnCancel, { marginTop: 6, minWidth: "100%" }, loading && styles.btnDisabled]}
         onPress={onCancelar}
         disabled={loading}
       >
-        <Text style={styles.btnCancelText} numberOfLines={1}>
+        <AppText style={styles.btnCancelText} numberOfLines={2}>
           Cancelar seleção
-        </Text>
+        </AppText>
       </TouchableOpacity>
     </View>
   );

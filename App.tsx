@@ -4,7 +4,9 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFontScale } from "./src/hooks/useFontScale";
+import { textStyle } from "./src/theme/typography";
 import {
   NavigationContainer,
   DefaultTheme,
@@ -190,6 +192,10 @@ function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
   const role = useAuthStore((s) => s.currentUser?.role);
   const isMotoboy = isMotoboyRole(role);
   const profileTab = useMemo(() => getProfileThemeColors(themeMode, role as number | undefined), [themeMode, role]);
+  const insets = useSafeAreaInsets();
+  const { ms } = useFontScale();
+  const tabPadBottom = Math.max(8, insets.bottom);
+  const tabMinHeight = ms(58) + Math.max(0, insets.bottom - 8);
 
   return (
     <Tab.Navigator
@@ -197,14 +203,15 @@ function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
         headerShown: false,
         tabBarActiveTintColor: profileTab.tabBarActive,
         tabBarInactiveTintColor: colors.tabBarInactive,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: "600" },
+        tabBarAllowFontScaling: true,
+        tabBarLabelStyle: { ...textStyle("tabLabel"), fontWeight: "600" },
         tabBarStyle: {
           backgroundColor: colors.tabBarBackground,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.border,
           paddingTop: 6,
-          paddingBottom: 8,
-          minHeight: 58,
+          paddingBottom: tabPadBottom,
+          minHeight: tabMinHeight,
         },
       }}
     >

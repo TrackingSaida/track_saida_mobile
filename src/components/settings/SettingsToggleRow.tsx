@@ -1,6 +1,8 @@
 import React from "react";
-import { View, Text, Switch, StyleSheet } from "react-native";
+import { View, Switch, StyleSheet } from "react-native";
 import { useThemeColors } from "../../theme/colors";
+import AppText from "../ui/AppText";
+import { textStyle } from "../../theme/typography";
 
 type Props = {
   label: string;
@@ -28,9 +30,9 @@ export default function SettingsToggleRow({
       ]}
     >
       <View style={styles.textWrap}>
-        <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
+        <AppText style={[styles.label, { color: colors.text }]}>{label}</AppText>
         {description ? (
-          <Text style={[styles.description, { color: colors.textSecondary }]}>{description}</Text>
+          <AppText style={[styles.description, { color: colors.textSecondary }]}>{description}</AppText>
         ) : null}
       </View>
       <Switch
@@ -52,8 +54,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     gap: 12,
+    minHeight: 52,
   },
-  textWrap: { flex: 1, paddingRight: 8 },
-  label: { fontSize: 15, fontWeight: "600" },
-  description: { fontSize: 13, marginTop: 4, lineHeight: 18 },
+  textWrap: { flex: 1, minWidth: 0, paddingRight: 8 },
+  label: { fontSize: 15, lineHeight: 20, fontWeight: "600" },
+  description: { ...textStyle("bodySmall"), marginTop: 4, fontSize: 13 },
 });

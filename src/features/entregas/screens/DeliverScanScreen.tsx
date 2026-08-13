@@ -76,16 +76,16 @@ export default function DeliverScanScreen({ navigation }: Props) {
           position: "absolute",
           left: 16,
           right: 16,
-          bottom: 14,
+          bottom: Math.max(14, insets.bottom + 8),
           zIndex: 2,
           borderRadius: 10,
           paddingVertical: 10,
           paddingHorizontal: 12,
           backgroundColor: "rgba(0,0,0,0.4)",
         },
-        scannerFooterText: { color: "#fff", fontSize: 13, textAlign: "center" as const },
+        scannerFooterText: { color: "#fff", fontSize: 13, lineHeight: 18, textAlign: "center" as const },
       }),
-    []
+    [insets.bottom]
   );
 
   useFocusEffect(

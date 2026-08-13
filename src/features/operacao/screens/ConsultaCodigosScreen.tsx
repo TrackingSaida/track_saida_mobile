@@ -12,7 +12,6 @@ import {
   Platform,
   KeyboardAvoidingView,
   Pressable,
-  StatusBar,
   Image,
 } from "react-native";
 import type { AxiosError } from "axios";
@@ -134,7 +133,7 @@ type ConflitoTroca = {
 export default function ConsultaCodigosScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const topInsetCamera = Math.max(insets.top, StatusBar.currentHeight ?? 0);
+  const topInsetCamera = Math.max(insets.top, 12);
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeLerSaida = effectivePodeLerSaida(currentUser);
@@ -260,8 +259,10 @@ export default function ConsultaCodigosScreen() {
           minHeight: 52,
         },
         iconBtn: {
-          width: 52,
-          height: 52,
+          minWidth: 52,
+          minHeight: 52,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
           borderRadius: 12,
           backgroundColor: colors.backgroundCard,
           alignItems: "center",
