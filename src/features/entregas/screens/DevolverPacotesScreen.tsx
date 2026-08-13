@@ -121,7 +121,7 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
         },
         searchIconBtn: {
           minWidth: 110,
-          height: 42,
+          minHeight: 42,
           borderRadius: 10,
           backgroundColor: colors.primary,
           paddingHorizontal: 12,
@@ -177,7 +177,7 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
           marginBottom: 12,
         },
         secondaryBtn: {
-          height: 46,
+          minHeight: 46,
           borderRadius: 10,
           borderWidth: 1,
           borderColor: colors.primary,
@@ -189,7 +189,7 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
         },
         secondaryBtnText: { color: colors.primary, fontWeight: "700", fontSize: 15 },
         primaryBtn: {
-          height: 48,
+          minHeight: 48,
           borderRadius: 10,
           backgroundColor: colors.primary,
           alignItems: "center",

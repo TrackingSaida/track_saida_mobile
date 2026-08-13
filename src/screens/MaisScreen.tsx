@@ -56,9 +56,15 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
           alignItems: "center",
           marginBottom: space.md,
         },
-        avatarText: { fontSize: 30, fontWeight: "800", color: profile.accent },
-        greeting: { fontSize: typo.caption, color: colors.textSecondary, marginBottom: 4, fontWeight: "600" },
-        nome: { fontSize: 22, fontWeight: "800", color: colors.text, letterSpacing: -0.3 },
+        avatarText: { fontSize: 30, lineHeight: 36, fontWeight: "800", color: profile.accent },
+        greeting: {
+          fontSize: typo.caption,
+          lineHeight: Math.round(typo.caption * 1.3),
+          color: colors.textSecondary,
+          marginBottom: 4,
+          fontWeight: "600",
+        },
+        nome: { fontSize: 22, lineHeight: 28, fontWeight: "800", color: colors.text, letterSpacing: -0.3 },
         body: { paddingHorizontal: space.md, marginTop: space.sm },
       }),
     [colors, profile]

@@ -66,7 +66,9 @@ export default function RouteStopMarker({
           isStreetLevel && !isFinalized && styles.wrapStreetLevel,
         ]}
       >
-        <Text style={[styles.stopNumber, { color: textColor }]}>{stopNumber}</Text>
+        <Text allowFontScaling={false} style={[styles.stopNumber, { color: textColor }]}>
+          {stopNumber}
+        </Text>
         {status === "entregue" && (
           <Ionicons name="checkmark" size={13} color={STATUS_ICON_COLOR} style={styles.statusIcon} />
         )}
@@ -80,7 +82,9 @@ export default function RouteStopMarker({
       </View>
       {isStreetLevel && !isFinalized ? (
         <View style={styles.streetBadge} pointerEvents="none">
-          <Text style={styles.streetBadgeText}>≈</Text>
+          <Text allowFontScaling={false} style={styles.streetBadgeText}>
+            ≈
+          </Text>
         </View>
       ) : null}
     </View>

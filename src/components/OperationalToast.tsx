@@ -1,8 +1,10 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, Animated } from "react-native";
+import { View, StyleSheet, Animated } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../theme/colors";
 import { useToastStore } from "../store/toastStore";
+import AppText from "./ui/AppText";
+import { textStyle } from "../theme/typography";
 
 export default function OperationalToast() {
   const insets = useSafeAreaInsets();
@@ -33,8 +35,8 @@ export default function OperationalToast() {
           shadowRadius: 8,
           shadowOffset: { width: 0, height: 4 },
         },
-        title: { fontSize: 15, fontWeight: "800", color: colors.text },
-        message: { fontSize: 13, color: colors.textSecondary, marginTop: 2, lineHeight: 18 },
+        title: { fontSize: 15, lineHeight: 20, fontWeight: "800", color: colors.text },
+        message: { ...textStyle("bodySmall"), fontSize: 13, color: colors.textSecondary, marginTop: 2 },
       }),
     [colors, insets.top]
   );
@@ -55,8 +57,8 @@ export default function OperationalToast() {
   return (
     <View style={styles.wrap} pointerEvents="none">
       <Animated.View style={[styles.card, { backgroundColor: bg, borderColor: border }]}>
-        <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
-        {message ? <Text style={[styles.message, { color: messageColor }]}>{message}</Text> : null}
+        <AppText style={[styles.title, { color: titleColor }]}>{title}</AppText>
+        {message ? <AppText style={[styles.message, { color: messageColor }]}>{message}</AppText> : null}
       </Animated.View>
     </View>
   );

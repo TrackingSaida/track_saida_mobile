@@ -1,8 +1,11 @@
 import React, { useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from "react-native";
+import { View, TouchableOpacity, StyleSheet, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../theme/colors";
+import AppText from "./ui/AppText";
+import { textStyle } from "../theme/typography";
+import { useFontScale } from "../hooks/useFontScale";
 
 type HeaderBackButtonProps = {
   onPress: () => void;
@@ -12,32 +15,34 @@ type HeaderBackButtonProps = {
 export function HeaderBackButton({ onPress, label = "Voltar" }: HeaderBackButtonProps) {
   const colors = useThemeColors();
   const { width: windowWidth } = useWindowDimensions();
+  const { ms } = useFontScale();
   const compactHeader = windowWidth < 360;
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
         backButton: {
-          minHeight: 36,
+          minHeight: ms(36),
           borderRadius: 10,
           borderWidth: 1,
           borderColor: colors.inputBorder,
           backgroundColor: colors.inputBackground,
           paddingHorizontal: 10,
+          paddingVertical: 6,
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
           gap: 4,
         },
-        backLabel: { fontSize: 13, fontWeight: "600", color: colors.text },
+        backLabel: { ...textStyle("bodySmall"), fontWeight: "600", color: colors.text },
       }),
-    [colors]
+    [colors, ms]
   );
 
   return (
     <TouchableOpacity style={styles.backButton} onPress={onPress} accessibilityLabel={label}>
       <Ionicons name="chevron-back" size={18} color={colors.text} />
-      {!compactHeader ? <Text style={styles.backLabel}>{label}</Text> : null}
+      {!compactHeader ? <AppText style={styles.backLabel}>{label}</AppText> : null}
     </TouchableOpacity>
   );
 }
@@ -53,6 +58,7 @@ type Props = {
 export default function ScreenHeaderBar({ title, titleNode, onBack, rightElement, paddingTop }: Props) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { ms } = useFontScale();
   const resolvedPaddingTop = paddingTop ?? Math.max(12, insets.top);
 
   const styles = useMemo(
@@ -68,10 +74,12 @@ export default function ScreenHeaderBar({ title, titleNode, onBack, rightElement
         bar: {
           flexDirection: "row",
           alignItems: "center",
-          minHeight: 44,
+          minHeight: ms(44),
         },
         sideSlot: {
-          width: 100,
+          minWidth: ms(72),
+          maxWidth: 120,
+          flexShrink: 0,
           flexDirection: "row",
           alignItems: "center",
         },
@@ -80,18 +88,20 @@ export default function ScreenHeaderBar({ title, titleNode, onBack, rightElement
         },
         title: {
           flex: 1,
+          minWidth: 0,
           textAlign: "center",
-          fontSize: 17,
+          ...textStyle("headerTitle"),
           fontWeight: "700",
           color: colors.text,
         },
         titleSlot: {
           flex: 1,
+          minWidth: 0,
           alignItems: "center",
           justifyContent: "center",
         },
       }),
-    [colors]
+    [colors, ms]
   );
 
   return (
@@ -103,9 +113,9 @@ export default function ScreenHeaderBar({ title, titleNode, onBack, rightElement
         {titleNode ? (
           <View style={styles.titleSlot}>{titleNode}</View>
         ) : (
-          <Text style={styles.title} numberOfLines={1}>
+          <AppText style={styles.title} numberOfLines={2}>
             {title}
-          </Text>
+          </AppText>
         )}
         <View style={[styles.sideSlot, styles.sideSlotRight]}>{rightElement ?? null}</View>
       </View>

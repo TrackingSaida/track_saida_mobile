@@ -1,11 +1,13 @@
 import React, { useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, TouchableOpacity, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
 import { useThemeColors } from "../../../theme/colors";
 import { space, radius } from "../../../theme/spacing";
-import { type as typo } from "../../../theme/typography";
+import { textStyle, type as typo } from "../../../theme/typography";
+import AppText from "../../../components/ui/AppText";
+import { useFontScale } from "../../../hooks/useFontScale";
 import {
   operationalIcons,
   type OperationalIconKey,
@@ -52,6 +54,7 @@ function ScanActionButton({
   fullWidth?: boolean;
 }) {
   const colors = useThemeColors();
+  const { ms } = useFontScale();
   const isDeliver = variant === "deliver";
 
   const styles = useMemo(
@@ -60,8 +63,8 @@ function ScanActionButton({
         btn: {
           flex: fullWidth ? undefined : 1,
           width: fullWidth ? "100%" : undefined,
+          minWidth: 0,
           borderRadius: radius.lg,
-          overflow: "hidden",
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: isDeliver ? colors.success : colors.border,
         },
@@ -71,24 +74,25 @@ function ScanActionButton({
           alignItems: "center",
           justifyContent: "center",
           gap: 4,
-          minHeight: 72,
+          minHeight: ms(72),
         },
         innerNeutral: {
           backgroundColor: colors.chipBackground,
         },
         label: {
-          fontSize: 14,
+          ...textStyle("bodySmall"),
           fontWeight: "800",
           color: isDeliver ? colors.primaryContrast : colors.text,
           textAlign: "center",
         },
         subtitle: {
           fontSize: typo.caption,
+          lineHeight: Math.round(typo.caption * 1.3),
           color: isDeliver ? "rgba(255,255,255,0.85)" : colors.textSecondary,
           textAlign: "center",
         },
       }),
-    [colors, isDeliver, fullWidth]
+    [colors, isDeliver, fullWidth, ms]
   );
 
   const content = (
@@ -98,8 +102,8 @@ function ScanActionButton({
         color={isDeliver ? colors.primaryContrast : colors.text}
         size={22}
       />
-      <Text style={styles.label}>{cta.label}</Text>
-      {cta.subtitle ? <Text style={styles.subtitle}>{cta.subtitle}</Text> : null}
+      <AppText style={styles.label}>{cta.label}</AppText>
+      {cta.subtitle ? <AppText style={styles.subtitle}>{cta.subtitle}</AppText> : null}
     </>
   );
 
@@ -189,7 +193,7 @@ export default function HomeOperationalActions({
           activeOpacity={0.85}
         >
           <CtaIcon iconKey="pendingList" color={colors.text} />
-          <Text style={styles.btnSecondaryText}>{viewPending.label}</Text>
+          <AppText style={styles.btnSecondaryText}>{viewPending.label}</AppText>
         </TouchableOpacity>
       ) : null}
 
@@ -226,7 +230,7 @@ export default function HomeOperationalActions({
           activeOpacity={0.85}
         >
           <CtaIcon iconKey="prepareRoute" color={colors.primary} />
-          <Text style={styles.btnTertiaryText}>{cta.label}</Text>
+          <AppText style={styles.btnTertiaryText}>{cta.label}</AppText>
         </TouchableOpacity>
       ))}
     </View>

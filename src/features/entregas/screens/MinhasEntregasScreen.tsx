@@ -153,7 +153,7 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
         },
         searchIconBtn: {
           minWidth: 110,
-          height: 42,
+          minHeight: 42,
           borderRadius: 10,
           backgroundColor: colors.primary,
           paddingHorizontal: 12,

@@ -181,6 +181,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         },
         tab: {
           flex: 1,
+          minWidth: 0,
           minHeight: 40,
           paddingVertical: 8,
           paddingHorizontal: 4,
@@ -195,7 +196,13 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           backgroundColor: colors.primary,
           borderColor: colors.primary,
         },
-        tabText: { fontSize: 13, color: colors.textSecondary, fontWeight: "600", textAlign: "center" },
+        tabText: {
+          fontSize: 13,
+          lineHeight: 17,
+          color: colors.textSecondary,
+          fontWeight: "600",
+          textAlign: "center",
+        },
         tabTextActive: { color: colors.primaryContrast, fontWeight: "700" },
         btnSugerirRota: {
           marginHorizontal: 16,
@@ -257,10 +264,11 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         },
         searchIconBtn: {
           minWidth: 110,
-          height: 42,
+          minHeight: 42,
           borderRadius: 10,
           backgroundColor: colors.primary,
           paddingHorizontal: 12,
+          paddingVertical: 8,
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
@@ -693,6 +701,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   } = useDeliveryStore();
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const [batchBarHeight, setBatchBarHeight] = useState(BATCH_SELECTION_LIST_PADDING);
   const [batchLoading, setBatchLoading] = useState(false);
   const [showBatchAusenteModal, setShowBatchAusenteModal] = useState(false);
   const [batchResultVisible, setBatchResultVisible] = useState(false);
@@ -1726,7 +1735,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             style={[styles.tab, tab === t && styles.tabActive]}
             onPress={() => setTab(t)}
           >
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]} numberOfLines={1}>
+            <Text style={[styles.tabText, tab === t && styles.tabTextActive]} numberOfLines={2}>
               {`${TAB_LABELS[t]} (${tabCounts[t] ?? 0})`}
             </Text>
           </TouchableOpacity>
@@ -1944,7 +1953,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             contentContainerStyle={[
               styles.listContent,
               tab === "pendente" && selectionMode
-                ? { paddingBottom: BATCH_SELECTION_LIST_PADDING + Math.max(0, insets.bottom - 4) }
+                ? { paddingBottom: Math.max(batchBarHeight, BATCH_SELECTION_LIST_PADDING) + 8 }
                 : { paddingBottom: 24 },
             ]}
             renderItem={({ item: section }) => {
@@ -2104,6 +2113,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
               onMarcarEntregue={handleBatchEntregue}
               onMarcarAusente={() => setShowBatchAusenteModal(true)}
               onCancelar={clearSelection}
+              onHeightChange={setBatchBarHeight}
             />
           )}
         </View>

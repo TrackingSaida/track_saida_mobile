@@ -1,8 +1,11 @@
 import React from "react";
-import { Text, TouchableOpacity, StyleSheet, View } from "react-native";
+import { TouchableOpacity, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../theme/colors";
 import { space } from "../../theme/spacing";
+import { textStyle } from "../../theme/typography";
+import AppText from "./AppText";
+import { useFontScale } from "../../hooks/useFontScale";
 
 type Props = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -32,12 +35,14 @@ export default function PressableMenuRow({
   badgeCount = 0,
 }: Props) {
   const colors = useThemeColors();
+  const { ms } = useFontScale();
   const soft = iconSoftBg ?? colors.primarySoft;
   const showBadge = badgeCount > 0;
   return (
     <TouchableOpacity
       style={[
         styles.row,
+        { minHeight: ms(56) },
         !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
       ]}
       onPress={onPress}
@@ -47,19 +52,22 @@ export default function PressableMenuRow({
       <View style={[styles.iconCircle, { backgroundColor: danger ? colors.chipBackground : soft }]}>
         <Ionicons name={icon} size={22} color={danger ? colors.textSecondary : iconColor ?? colors.primary} />
         {showBadge ? (
-          <View style={[styles.badge, { backgroundColor: colors.danger }]}>
-            <Text style={styles.badgeText}>{badgeCount > 99 ? "99+" : String(badgeCount)}</Text>
+          <View style={[styles.badge, { backgroundColor: colors.danger, minHeight: ms(18) }]}>
+            <AppText style={styles.badgeText}>{badgeCount > 99 ? "99+" : String(badgeCount)}</AppText>
           </View>
         ) : null}
       </View>
       <View style={styles.textCol}>
-        <Text style={[styles.title, { color: danger ? colors.textSecondary : colors.text }]} numberOfLines={2}>
+        <AppText
+          style={[styles.title, { color: danger ? colors.textSecondary : colors.text }]}
+          numberOfLines={2}
+        >
           {title}
-        </Text>
+        </AppText>
         {subtitle ? (
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={2}>
+          <AppText style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={3}>
             {subtitle}
-          </Text>
+          </AppText>
         ) : null}
       </View>
       {showChevron ? (
@@ -77,7 +85,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: space.md,
     paddingHorizontal: space.md,
-    minHeight: 56,
   },
   iconCircle: {
     width: 40,
@@ -92,15 +99,14 @@ const styles = StyleSheet.create({
     top: -4,
     right: -6,
     minWidth: 18,
-    height: 18,
     borderRadius: 9,
     paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
   },
-  badgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  badgeText: { color: "#fff", ...textStyle("badge"), fontWeight: "800" },
   textCol: { flex: 1, minWidth: 0 },
-  title: { fontSize: 16, fontWeight: "600" },
-  subtitle: { fontSize: 13, marginTop: 2, fontWeight: "500" },
+  title: { ...textStyle("body"), fontWeight: "600" },
+  subtitle: { ...textStyle("bodySmall"), marginTop: 2, fontWeight: "500", fontSize: 13, lineHeight: 18 },
   chevron: { width: 24 },
 });

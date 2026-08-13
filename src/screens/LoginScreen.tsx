@@ -247,7 +247,9 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
           backgroundColor: colors.primary,
           borderRadius: 10,
           padding: 14,
+          minHeight: 48,
           alignItems: "center",
+          justifyContent: "center",
         },
         buttonDisabled: { opacity: 0.7 },
         buttonText: {
