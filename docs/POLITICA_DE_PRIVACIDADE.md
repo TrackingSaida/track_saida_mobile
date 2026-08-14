@@ -1,17 +1,17 @@
-# Política de Privacidade — Tracking Saídas (rascunho para publicação)
+# Política de Privacidade — ROTEVO (rascunho para publicação)
 
 > **Status:** rascunho operacional. Preencha os placeholders `[...]` antes de
 > publicar em URL HTTPS pública. Não invente dados jurídicos.
 
 **Última atualização (rascunho):** [DATA_DE_VIGENCIA — ex.: 27/07/2026]  
 **URL definitiva prevista:** `[URL_HTTPS_DA_POLITICA]`  
-**Aplicativo:** Tracking Saídas (Android — `br.com.trackingsaidas.mobile`)
+**Aplicativo:** ROTEVO (Android — `br.com.trackingsaidas.mobile`)
 
 ---
 
 ## 1. Identificação do aplicativo
 
-O **Tracking Saídas** é um aplicativo móvel voltado à operação de entregas
+O **ROTEVO** é um aplicativo móvel voltado à operação de entregas
 last-mile (coleta, preparação de rota, navegação, registro de entrega e
 ausência, comprovantes e consulta de pacotes).
 

@@ -203,13 +203,31 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
           marginBottom: 16,
         },
         logo: {
-          width: 180,
-          height: 180,
+          width: 88,
+          height: 88,
         },
         title: {
-          fontSize: 22,
-          fontWeight: "700",
-          marginBottom: 24,
+          fontSize: 26,
+          fontWeight: "800",
+          marginTop: 8,
+          letterSpacing: 1.5,
+          textAlign: "center",
+          color: colors.text,
+        },
+        tagline: {
+          fontSize: 12,
+          fontWeight: "600",
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+          textAlign: "center",
+          color: colors.textSecondary,
+          marginTop: 4,
+        },
+        welcome: {
+          fontSize: 16,
+          fontWeight: "600",
+          marginTop: 18,
+          marginBottom: 20,
           textAlign: "center",
           color: colors.text,
         },
@@ -250,6 +268,11 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
           alignItems: "center",
         },
         buttonDisabled: { opacity: 0.7 },
+        buttonLoading: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+        },
         buttonText: {
           color: colors.primaryContrast,
           fontSize: 16,
@@ -274,7 +297,7 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
         },
         footerText: {
           fontSize: 12,
-          color: colors.textSecondary,
+          color: "rgba(255,255,255,0.72)",
         },
       }),
     [colors]
@@ -305,35 +328,44 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
                 source={require("../../assets/logo-pin.png")}
                 style={styles.logo}
                 resizeMode="contain"
+                accessibilityLabel="ROTEVO"
               />
+              <Text style={styles.title}>ROTEVO</Text>
+              <Text style={styles.tagline}>Gestão Inteligente de Entregas</Text>
+              <Text style={styles.welcome}>Bem-vindo de volta</Text>
             </View>
-            <Text style={styles.title}>Tracking Saidas</Text>
             <View style={styles.inputRow}>
               <Ionicons name="mail-outline" size={22} color={colors.placeholder} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="E-mail, usuário ou contato"
+                placeholder="E-mail, usuário ou telefone"
                 placeholderTextColor={colors.placeholder}
                 value={identifier}
                 onChangeText={setIdentifier}
                 autoCapitalize="none"
                 autoCorrect={false}
+                autoComplete="username"
+                textContentType="username"
               />
             </View>
             <View style={styles.inputRow}>
               <Ionicons name="lock-closed-outline" size={22} color={colors.placeholder} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Senha"
+                placeholder="Digite sua senha"
                 placeholderTextColor={colors.placeholder}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!passwordVisible}
+                autoComplete="password"
+                textContentType="password"
               />
               <TouchableOpacity
                 onPress={() => setPasswordVisible((v) => !v)}
                 style={styles.passwordToggle}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityRole="button"
+                accessibilityLabel={passwordVisible ? "Ocultar senha" : "Mostrar senha"}
               >
                 <Ionicons
                   name={passwordVisible ? "eye-off-outline" : "eye-outline"}
@@ -349,7 +381,7 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
                 trackColor={{ false: colors.separator, true: colors.primary }}
                 thumbColor={colors.backgroundCard}
               />
-              <Text style={styles.rememberLabel}>Lembrar</Text>
+              <Text style={styles.rememberLabel}>Lembrar-me</Text>
             </View>
             <TouchableOpacity
               style={[styles.button, loading && styles.buttonDisabled]}
@@ -357,7 +389,10 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color={colors.primaryContrast} size="small" />
+                <View style={styles.buttonLoading}>
+                  <ActivityIndicator color={colors.primaryContrast} size="small" />
+                  <Text style={styles.buttonText}>Entrando...</Text>
+                </View>
               ) : (
                 <Text style={styles.buttonText}>Entrar</Text>
               )}
@@ -378,7 +413,7 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
           </View>
         </ScrollView>
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-          <Text style={styles.footerText}>© {new Date().getFullYear()} Tracking Saídas</Text>
+          <Text style={styles.footerText}>© {new Date().getFullYear()} ROTEVO</Text>
           <Text style={styles.footerText}>v{appVersion}</Text>
         </View>
       </KeyboardAvoidingView>

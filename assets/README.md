@@ -1,6 +1,7 @@
 # Assets
 
-- **logo-pin.png** — ícone pin usado na tela de login
-- **logo-light.png** — logotipo horizontal TrackingSaídas (header Home e lista de Entregas)
-
-Origem do `logo-light.png`: `track_saidas_html/Master/src/assets/images/logo-light.png`
+- **logo_rotevo.png** — símbolo isolado ROTEVO (favicon, ícone, splash, sidebar recolhida)
+- **rotevo.png** — logo horizontal com wordmark e tagline
+- **logo-pin.png** — símbolo derivado para a tela de login
+- **logo-light.png** — lockup horizontal para headers
+- **icon.png** / **adaptive-icon.png** / **splash-icon.png** / **favicon.png** — derivados do símbolo, fundo `#0B1F3A`

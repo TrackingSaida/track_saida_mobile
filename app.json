@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Tracking Saídas",
+    "name": "ROTEVO",
     "slug": "track_saida_mobile",
     "version": "1.8.1",
     "orientation": "portrait",
@@ -51,7 +51,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0B1F3A"
     },
     "ios": {
       "supportsTablet": true,
@@ -69,7 +69,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0B1F3A"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
