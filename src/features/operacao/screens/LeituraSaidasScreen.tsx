@@ -49,6 +49,7 @@ import {
 } from "../conferenciaApi";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
 import AvulsoLancamentoModal from "../components/AvulsoLancamentoModal";
+import PhysicalScannerInput from "../components/PhysicalScannerInput";
 import {
   staffSessionTemPendenciaConfirmacao,
   useStaffScanSessionStore,
@@ -281,6 +282,7 @@ export default function LeituraSaidasScreen() {
   const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
   const [modalSelecaoMotoboyVisible, setModalSelecaoMotoboyVisible] = useState(false);
   const [modoManual, setModoManual] = useState(false);
+  const [modoLeitorFisico, setModoLeitorFisico] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   /** Resumo confirmado do dia por motoboy (persiste ao trocar e voltar). */
@@ -485,6 +487,24 @@ export default function LeituraSaidasScreen() {
           marginBottom: 12,
         },
         cameraCtaText: { color: colors.primaryContrast, fontSize: 15, fontWeight: "700" },
+        scanChoiceRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
+        scanChoice: {
+          flex: 1,
+          minHeight: 78,
+          paddingVertical: 12,
+          paddingHorizontal: 10,
+          borderRadius: 12,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        },
+        scanChoiceOutline: {
+          backgroundColor: colors.backgroundCard,
+          borderWidth: 1.5,
+          borderColor: colors.primary,
+        },
+        scanChoiceOutlineText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
         listaContainer: {
           marginTop: 8,
           borderRadius: 14,
@@ -960,6 +980,8 @@ export default function LeituraSaidasScreen() {
     if (!permission) {
       const { granted } = await requestPermission();
       if (!granted) return;
+      setModoLeitorFisico(false);
+      setModoManual(false);
       setCameraAtiva(true);
       return;
     }
@@ -967,6 +989,8 @@ export default function LeituraSaidasScreen() {
       const { granted } = await requestPermission();
       if (!granted) return;
     }
+    setModoLeitorFisico(false);
+    setModoManual(false);
     setCameraAtiva(true);
   }, [permission, requestPermission]);
 
@@ -980,6 +1004,13 @@ export default function LeituraSaidasScreen() {
     suppressAutoCameraRef.current = false;
     void ensurePermissionAndOpenCamera();
   }, [ensurePermissionAndOpenCamera]);
+
+  const abrirLeitorFisico = useCallback(() => {
+    suppressAutoCameraRef.current = false;
+    setModoLeitorFisico(true);
+    setModoManual(false);
+    setCameraAtiva(true);
+  }, []);
 
   const aplicarMotoboySelecionado = useCallback(
     (item: MotoboyItem) => {
@@ -1004,11 +1035,8 @@ export default function LeituraSaidasScreen() {
       }
       setModalSelecaoMotoboyVisible(false);
       suppressAutoCameraRef.current = false;
-      setTimeout(() => {
-        void ensurePermissionAndOpenCamera();
-      }, 0);
     },
-    [ensurePermissionAndOpenCamera, conferenciaHabilitada]
+    [conferenciaHabilitada]
   );
 
   const handleConfirmarLeitura = useCallback(async () => {
@@ -1115,7 +1143,7 @@ export default function LeituraSaidasScreen() {
   }, [leituras, motoboyId]);
 
   const processarLeitura = useCallback(
-    async (raw: string, origem: "camera" | "manual") => {
+    async (raw: string, origem: "camera" | "manual" | "leitor") => {
       if (!podeLerSaida) {
         pushFeedback("info", "Sem permissão para leitura de saídas.");
         return;
@@ -1184,6 +1212,7 @@ export default function LeituraSaidasScreen() {
           codigo: c,
           servico: cls.servico,
           qr_payload_raw: cls.qr_payload_raw,
+          origem: origem === "leitor" ? "manual" : origem,
         });
 
         const inferido = inferServicoSaida(c);
@@ -1643,14 +1672,26 @@ export default function LeituraSaidasScreen() {
         </View>
 
         {motoboySelecionadoOk && podeLerSaida && !cameraAtiva ? (
-          <TouchableOpacity
-            style={styles.cameraCta}
-            onPress={abrirCameraExplicito}
-            activeOpacity={0.88}
-            accessibilityLabel="Escanear saída"
-          >
-            <Text style={styles.cameraCtaText}>Escanear saída</Text>
-          </TouchableOpacity>
+          <View style={styles.scanChoiceRow}>
+            <TouchableOpacity
+              style={styles.scanChoice}
+              onPress={abrirCameraExplicito}
+              activeOpacity={0.88}
+              accessibilityLabel="Usar câmera para registrar saídas"
+            >
+              <Ionicons name="camera-outline" size={23} color={colors.primaryContrast} />
+              <Text style={styles.cameraCtaText}>Câmera</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.scanChoice, styles.scanChoiceOutline]}
+              onPress={abrirLeitorFisico}
+              activeOpacity={0.88}
+              accessibilityLabel="Usar leitor físico para registrar saídas"
+            >
+              <Ionicons name="barcode-outline" size={23} color={colors.primary} />
+              <Text style={styles.scanChoiceOutlineText}>Leitor físico</Text>
+            </TouchableOpacity>
+          </View>
         ) : null}
 
         <View style={styles.resumoCard}>
@@ -1794,10 +1835,12 @@ export default function LeituraSaidasScreen() {
           <View style={styles.modoManualWrap}>
             <Pressable
               onPress={() => setModoManual(false)}
-              accessibilityLabel="Voltar para câmera"
+              accessibilityLabel="Voltar para o modo de leitura"
               disabled={loading}
             >
-              <Text style={[styles.linkManualText, { fontWeight: "600" }]}>← Voltar</Text>
+              <Text style={[styles.linkManualText, { fontWeight: "600" }]}>
+                ← Voltar para {modoLeitorFisico ? "o leitor físico" : "a câmera"}
+              </Text>
             </Pressable>
             <Text style={styles.modoManualTitle}>Digitar código</Text>
             <Text style={styles.modoManualSubtitle}>
@@ -1842,9 +1885,41 @@ export default function LeituraSaidasScreen() {
               onPress={() => setModoManual(false)}
               disabled={loading}
             >
-              <Text style={styles.linkManualText}>← Usar câmera (padrão)</Text>
+              <Text style={styles.linkManualText}>
+                ← Usar {modoLeitorFisico ? "leitor físico" : "câmera"}
+              </Text>
             </TouchableOpacity>
           </View>
+        ) : modoLeitorFisico ? (
+          <PhysicalScannerInput
+            active={cameraAtiva && modoLeitorFisico && !modoManual && !avulsoModalVisible}
+            disabled={loading || confirmandoLeitura || !!conflito || !!conflitoDiaAnterior}
+            title="Leitor físico de saídas"
+            subtitle={`${motoboyNome || "Motoboy não selecionado"} · Lidos: ${totalValidas}`}
+            onClose={fecharCamera}
+            onScan={(codigo) => processarLeitura(codigo, "leitor")}
+          >
+            {feedbackVisual ? renderFeedbackStrip("main") : null}
+            {renderBtnConfirmarLeituraCamera()}
+            {podeLancarAvulso ? (
+              <TouchableOpacity
+                style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+                onPress={() => setAvulsoModalVisible(true)}
+                disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+              >
+                <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+              </TouchableOpacity>
+            ) : null}
+            {podeDigitarManual ? (
+              <TouchableOpacity
+                style={styles.linkManual}
+                onPress={() => setModoManual(true)}
+                disabled={loading}
+              >
+                <Text style={styles.linkManualText}>Digitar código manualmente</Text>
+              </TouchableOpacity>
+            ) : null}
+          </PhysicalScannerInput>
         ) : (
           <View style={styles.cameraModalOverlay}>
             <View style={styles.cameraHeader}>

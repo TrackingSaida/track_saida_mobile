@@ -16,13 +16,21 @@ import { useNavigation } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
+import { formatApiError } from "../../../utils/formatApiError";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeLerColeta, isStaffOperacaoRole } from "../../../utils/role";
+import {
+  effectivePodeDigitarCodigoManual,
+  effectivePodeLancarAvulso,
+  effectivePodeLerColeta,
+  isStaffOperacaoRole,
+} from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
-import { enviarColetaUnica, type ServicoColeta } from "../coletasApi";
+import { enviarColetaUnica, lancarAvulsoColeta, type ServicoColeta } from "../coletasApi";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
+import AvulsoLancamentoModal from "../components/AvulsoLancamentoModal";
+import PhysicalScannerInput from "../components/PhysicalScannerInput";
 import { classifyCodigoParaOperacao, type ClassifyCodigoOperacaoResult } from "../parseCodigoQr";
 
 type StatusLeitura = "pendente" | "enviado" | "duplicado" | "erro";
@@ -106,6 +114,9 @@ export default function LeituraColetasScreen() {
   const [leituras, setLeituras] = useState<ColetaItemLocal[]>([]);
   const [loading, setLoading] = useState(false);
   const [cameraAtiva, setCameraAtiva] = useState(false);
+  const [modoLeitorFisico, setModoLeitorFisico] = useState(false);
+  const [modoManual, setModoManual] = useState(false);
+  const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
   const [configExpanded, setConfigExpanded] = useState(true);
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   const scanLocked = useRef(false);
@@ -204,6 +215,24 @@ export default function LeituraColetasScreen() {
           marginBottom: 16,
         },
         cameraCtaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "700" },
+        scanChoiceRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
+        scanChoice: {
+          flex: 1,
+          minHeight: 82,
+          paddingVertical: 14,
+          paddingHorizontal: 10,
+          borderRadius: 12,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        },
+        scanChoiceOutline: {
+          backgroundColor: colors.backgroundCard,
+          borderWidth: 1.5,
+          borderColor: colors.primary,
+        },
+        scanChoiceOutlineText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
         filterHeader: {
           flexDirection: "row",
           alignItems: "center",
@@ -331,6 +360,26 @@ export default function LeituraColetasScreen() {
           zIndex: 20,
         },
         loadingText: { color: "#fff", marginTop: 8, fontSize: 15 },
+        modoManualWrap: {
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingTop: Math.max(20, insets.top),
+          paddingHorizontal: 20,
+          justifyContent: "center",
+        },
+        modoManualTitle: { color: colors.text, fontSize: 22, fontWeight: "800", marginBottom: 6 },
+        modoManualSubtitle: { color: colors.textSecondary, fontSize: 14, marginBottom: 18 },
+        scannerAction: {
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.75)",
+          borderRadius: 12,
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+          alignItems: "center",
+          backgroundColor: "rgba(0,0,0,0.35)",
+          marginTop: 8,
+        },
+        scannerActionText: { color: "#fff", fontSize: 15, fontWeight: "700" },
       }),
     [colors, insets.bottom, insets.top]
   );
@@ -376,6 +425,8 @@ export default function LeituraColetasScreen() {
   );
 
   const podeLerColeta = effectivePodeLerColeta(currentUser);
+  const podeManual = effectivePodeDigitarCodigoManual(currentUser);
+  const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
   const subBase = currentUser?.sub_base ?? "";
   const ignorarColeta = Boolean(currentUser?.ignorar_coleta);
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
@@ -399,9 +450,15 @@ export default function LeituraColetasScreen() {
   }, [leituras]);
 
   const ensurePermissionAndOpenCamera = useCallback(async () => {
+    if (!base.trim()) {
+      Alert.alert("Base obrigatória", "Informe a base antes de iniciar as leituras.");
+      return;
+    }
     if (!permission) {
       const { granted } = await requestPermission();
       if (!granted) return;
+      setModoLeitorFisico(false);
+      setModoManual(false);
       setCameraAtiva(true);
       return;
     }
@@ -409,11 +466,24 @@ export default function LeituraColetasScreen() {
       const { granted } = await requestPermission();
       if (!granted) return;
     }
+    setModoLeitorFisico(false);
+    setModoManual(false);
     setCameraAtiva(true);
-  }, [permission, requestPermission]);
+  }, [base, permission, requestPermission]);
+
+  const openPhysicalScanner = useCallback(() => {
+    if (!base.trim()) {
+      Alert.alert("Base obrigatória", "Informe a base antes de iniciar as leituras.");
+      return;
+    }
+    if (!podeLerColeta || ignorarColeta) return;
+    setModoLeitorFisico(true);
+    setModoManual(false);
+    setCameraAtiva(true);
+  }, [base, ignorarColeta, podeLerColeta]);
 
   const processarLeitura = useCallback(
-    async (raw: string, origem: "camera" | "manual") => {
+    async (raw: string, origem: "camera" | "manual" | "leitor") => {
       const baseTrimmed = base.trim();
       if (!podeLerColeta) {
         pushFeedback("info", "Sem permissão para leitura de coletas.");
@@ -559,6 +629,45 @@ export default function LeituraColetasScreen() {
     await processarLeitura(c, "manual");
   }, [codigoInput, processarLeitura]);
 
+  const handleLancarAvulso = useCallback(
+    async (payload: {
+      identificacao: string | null;
+      quantidade: number;
+      fotoObjectKeys: string[];
+      photoIds: string[];
+    }) => {
+      const baseTrimmed = base.trim();
+      if (!baseTrimmed) throw new Error("Informe a base antes de lançar o avulso.");
+      setLoading(true);
+      try {
+        const result = await lancarAvulsoColeta({
+          base: baseTrimmed,
+          identificacao: payload.identificacao,
+          quantidade: payload.quantidade,
+        });
+        const novos: ColetaItemLocal[] = result.saidas.map((saida) => ({
+          codigo: saida.codigo,
+          servico: "Avulso",
+          status: "enviado",
+        }));
+        setLeituras((prev) => [...prev, ...novos]);
+        setAvulsoModalVisible(false);
+        playSound("success");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        pushFeedback("sucesso", result.mensagem, result.codigos.at(-1));
+      } catch (error) {
+        playSound("error");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        const mensagem = formatApiError(error, "Não foi possível lançar o avulso na coleta.");
+        pushFeedback("erro", mensagem);
+        throw new Error(mensagem);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [base, pushFeedback]
+  );
+
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult | { nativeEvent: BarcodeScanningResult }) => {
       if (loading) return;
@@ -650,37 +759,29 @@ export default function LeituraColetasScreen() {
       </View>
 
       <View style={{ marginTop: 8 }}>
-        <TouchableOpacity
-          style={styles.cameraCta}
-          onPress={ensurePermissionAndOpenCamera}
-          disabled={loading || !podeLerColeta || ignorarColeta}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.cameraCtaText}>Abrir câmera</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.label}>Ou digite o código</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="BR... / código marketplace"
-          placeholderTextColor={colors.placeholder}
-          value={codigoInput}
-          onChangeText={setCodigoInput}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          editable={!loading}
-        />
-        <TouchableOpacity
-          style={styles.btnOutline}
-          onPress={handleRegistrarManual}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color={colors.primary} size="small" />
-          ) : (
-            <Text style={styles.btnTextOutline}>Registrar manualmente</Text>
-          )}
-        </TouchableOpacity>
+        <Text style={styles.label}>Como deseja realizar as leituras?</Text>
+        <View style={styles.scanChoiceRow}>
+          <TouchableOpacity
+            style={styles.scanChoice}
+            onPress={ensurePermissionAndOpenCamera}
+            disabled={loading || !podeLerColeta || ignorarColeta}
+            activeOpacity={0.85}
+            accessibilityLabel="Usar câmera para registrar coletas"
+          >
+            <Ionicons name="camera-outline" size={24} color={colors.primaryContrast} />
+            <Text style={styles.cameraCtaText}>Câmera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.scanChoice, styles.scanChoiceOutline]}
+            onPress={openPhysicalScanner}
+            disabled={loading || !podeLerColeta || ignorarColeta}
+            activeOpacity={0.85}
+            accessibilityLabel="Usar leitor físico para registrar coletas"
+          >
+            <Ionicons name="barcode-outline" size={24} color={colors.primary} />
+            <Text style={styles.scanChoiceOutlineText}>Leitor físico</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.resumoRow}>
@@ -768,6 +869,81 @@ export default function LeituraColetasScreen() {
       )}
 
       <Modal visible={cameraAtiva} animationType="slide" onRequestClose={() => setCameraAtiva(false)}>
+        {modoManual && podeManual ? (
+          <View style={styles.modoManualWrap}>
+            <TouchableOpacity onPress={() => setModoManual(false)} disabled={loading}>
+              <Text style={styles.btnTextOutline}>
+                ← Voltar para {modoLeitorFisico ? "o leitor físico" : "a câmera"}
+              </Text>
+            </TouchableOpacity>
+            <Text style={[styles.modoManualTitle, { marginTop: 28 }]}>Digitar código</Text>
+            <Text style={styles.modoManualSubtitle}>
+              O código será registrado na coleta da base {base.trim()}.
+            </Text>
+            {renderFeedbackStrip("main")}
+            <TextInput
+              style={styles.input}
+              placeholder="Código do pacote"
+              placeholderTextColor={colors.placeholder}
+              value={codigoInput}
+              onChangeText={setCodigoInput}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!loading}
+              autoFocus
+              onSubmitEditing={() => void handleRegistrarManual()}
+            />
+            <TouchableOpacity
+              style={styles.btnPrimary}
+              onPress={() => void handleRegistrarManual()}
+              disabled={loading || !codigoInput.trim()}
+            >
+              {loading ? (
+                <ActivityIndicator color={colors.primaryContrast} />
+              ) : (
+                <Text style={styles.btnTextPrimary}>Registrar coleta</Text>
+              )}
+            </TouchableOpacity>
+            {podeLancarAvulso ? (
+              <TouchableOpacity
+                style={[styles.btnOutline, { marginTop: 12 }]}
+                onPress={() => setAvulsoModalVisible(true)}
+                disabled={loading}
+              >
+                <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : modoLeitorFisico ? (
+          <PhysicalScannerInput
+            active={cameraAtiva && modoLeitorFisico && !modoManual && !avulsoModalVisible}
+            disabled={loading}
+            title="Leitor físico de coletas"
+            subtitle={`Base ${base.trim()} · Total nesta sessão: ${resumo.total}`}
+            onClose={() => setCameraAtiva(false)}
+            onScan={(codigo) => processarLeitura(codigo, "leitor")}
+          >
+            {feedbackVisual ? renderFeedbackStrip("main") : null}
+            {podeLancarAvulso ? (
+              <TouchableOpacity
+                style={styles.btnOutline}
+                onPress={() => setAvulsoModalVisible(true)}
+                disabled={loading}
+              >
+                <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
+              </TouchableOpacity>
+            ) : null}
+            {podeManual ? (
+              <TouchableOpacity
+                style={styles.btnOutline}
+                onPress={() => setModoManual(true)}
+                disabled={loading}
+              >
+                <Text style={styles.btnTextOutline}>Digitar código manualmente</Text>
+              </TouchableOpacity>
+            ) : null}
+          </PhysicalScannerInput>
+        ) : (
         <View style={styles.cameraModalOverlay}>
           <View style={styles.cameraHeader}>
             <TouchableOpacity onPress={() => setCameraAtiva(false)}>
@@ -797,6 +973,20 @@ export default function LeituraColetasScreen() {
               >
                 <Text style={styles.btnTextPrimary}>Permitir câmera</Text>
               </TouchableOpacity>
+              {podeLancarAvulso ? (
+                <TouchableOpacity
+                  style={styles.scannerAction}
+                  onPress={() => setAvulsoModalVisible(true)}
+                  disabled={loading}
+                >
+                  <Text style={styles.scannerActionText}>Lançar Avulso</Text>
+                </TouchableOpacity>
+              ) : null}
+              {podeManual ? (
+                <TouchableOpacity style={styles.scannerAction} onPress={() => setModoManual(true)}>
+                  <Text style={styles.scannerActionText}>Digitar código manualmente</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           ) : (
             <>
@@ -833,11 +1023,38 @@ export default function LeituraColetasScreen() {
                     <Text style={styles.resumoLabel}>Avulso</Text>
                   </View>
                 </View>
+                {podeLancarAvulso ? (
+                  <TouchableOpacity
+                    style={styles.scannerAction}
+                    onPress={() => setAvulsoModalVisible(true)}
+                    disabled={loading}
+                  >
+                    <Text style={styles.scannerActionText}>Lançar Avulso</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {podeManual ? (
+                  <TouchableOpacity
+                    style={styles.scannerAction}
+                    onPress={() => setModoManual(true)}
+                    disabled={loading}
+                  >
+                    <Text style={styles.scannerActionText}>Digitar código manualmente</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </>
           )}
         </View>
+        )}
       </Modal>
+      <AvulsoLancamentoModal
+        visible={avulsoModalVisible}
+        loading={loading}
+        exigeFoto={false}
+        permitirFotos={false}
+        onClose={() => setAvulsoModalVisible(false)}
+        onConfirm={handleLancarAvulso}
+      />
     </ScrollView>
       </View>
     </>
