@@ -34,7 +34,7 @@ export default function AppBrandTitleLogo({ size = "header", maxWidth }: Props) 
         source={require("../../assets/logo-light.png")}
         style={styles.image}
         resizeMode="contain"
-        accessibilityLabel="TrackingSaídas"
+        accessibilityLabel="ROTEVO"
         accessibilityRole="image"
       />
     </View>

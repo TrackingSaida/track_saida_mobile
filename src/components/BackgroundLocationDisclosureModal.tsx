@@ -8,7 +8,7 @@ import {
 
 const TITLE = "Localização durante a rota";
 const BODY =
-  "Durante uma rota ativa, o Tracking Saídas utiliza sua localização mesmo quando o aplicativo estiver em segundo plano ou com a tela desligada. Isso permite manter a navegação e o andamento da rota. O rastreamento é encerrado ao finalizar ou cancelar a rota.";
+  "Durante uma rota ativa, o ROTEVO utiliza sua localização mesmo quando o aplicativo estiver em segundo plano ou com a tela desligada. Isso permite manter a navegação e o andamento da rota. O rastreamento é encerrado ao finalizar ou cancelar a rota.";
 
 /**
  * Modal de divulgação destacada (Play Store) antes da permissão de localização em segundo plano.
