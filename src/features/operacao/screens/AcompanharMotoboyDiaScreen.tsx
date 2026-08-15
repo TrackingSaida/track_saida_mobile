@@ -26,6 +26,11 @@ function formatDateLabel(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function pctOf(part: number, total: number): number {
+  if (!total) return 0;
+  return Math.min(100, Math.round((part / total) * 1000) / 10);
+}
+
 export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
@@ -54,15 +59,31 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
         },
         summaryName: { fontSize: 18, fontWeight: "800", color: colors.text, marginBottom: 4 },
         summaryMeta: { fontSize: 13, color: colors.textSecondary, marginBottom: 12 },
-        kpiRow: {
+        kpiGrid: {
           flexDirection: "row",
+          flexWrap: "wrap",
           justifyContent: "space-between",
-          paddingVertical: 8,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: colors.separator,
+          gap: 10,
+          marginBottom: 12,
         },
-        kpiLabel: { fontSize: 14, color: colors.textSecondary },
-        kpiValue: { fontSize: 16, fontWeight: "800", color: colors.text },
+        kpiMini: {
+          width: "48%",
+          backgroundColor: colors.inputBackground,
+          borderRadius: 12,
+          padding: 12,
+        },
+        kpiMiniLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 4 },
+        kpiMiniValue: { fontSize: 22, fontWeight: "800", color: colors.text },
+        progressBar: {
+          height: 10,
+          borderRadius: 999,
+          backgroundColor: colors.inputBackground,
+          overflow: "hidden",
+          marginTop: 4,
+          marginBottom: 6,
+        },
+        progressFill: { height: "100%", backgroundColor: colors.primary, borderRadius: 999 },
+        progressMeta: { fontSize: 13, color: colors.textSecondary },
         serviceCard: {
           backgroundColor: colors.backgroundCard,
           borderRadius: 12,
@@ -70,9 +91,13 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
           marginBottom: 10,
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
+          borderLeftWidth: 4,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
         },
         serviceTitle: { fontSize: 15, fontWeight: "700", color: colors.text },
-        serviceCount: { fontSize: 22, fontWeight: "800", color: colors.primary, marginTop: 4 },
+        serviceCount: { fontSize: 22, fontWeight: "800", color: colors.text },
         resumoText: { fontSize: 14, color: colors.text, lineHeight: 21 },
         retryBtn: {
           marginTop: 12,
@@ -104,10 +129,14 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
     }, [load])
   );
 
+  const totalPedidos = pedidos ?? 0;
+  const totalEntregues = entregues ?? 0;
+  const progressPct = pctOf(totalEntregues, totalPedidos);
+
   const servicos = [
-    { label: "Shopee", value: detail?.sum_shopee ?? 0 },
-    { label: "Mercado Livre / Flex", value: detail?.sum_mercado ?? 0 },
-    { label: "Avulso", value: detail?.sum_avulso ?? 0 },
+    { label: "Shopee", value: detail?.sum_shopee ?? 0, accent: "#ee4d2d" },
+    { label: "Mercado Livre", value: detail?.sum_mercado ?? 0, accent: "#c9a227" },
+    { label: "Avulso", value: detail?.sum_avulso ?? 0, accent: "#6c757d" },
   ];
 
   return (
@@ -125,21 +154,35 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
         <View style={styles.summaryCard}>
           <Text style={styles.summaryName}>{motoboyNome}</Text>
           <Text style={styles.summaryMeta}>Data: {formatDateLabel(data)}</Text>
-          {[
-            ["Total pedidos", pedidos ?? "—"],
-            ["Entregues", entregues ?? "—"],
-            ["Em rota", emRota ?? "—"],
-            ["Ocorrências", ocorrencias ?? "—"],
-            ["SLA", sla != null ? fmtSLA(sla) : "—"],
-          ].map(([label, value]) => (
-            <View style={styles.kpiRow} key={String(label)}>
-              <Text style={styles.kpiLabel}>{label}</Text>
-              <Text style={styles.kpiValue}>{value}</Text>
+
+          <View style={styles.kpiGrid}>
+            <View style={styles.kpiMini}>
+              <Text style={styles.kpiMiniLabel}>Pedidos</Text>
+              <Text style={styles.kpiMiniValue}>{pedidos ?? "—"}</Text>
             </View>
-          ))}
+            <View style={styles.kpiMini}>
+              <Text style={styles.kpiMiniLabel}>Entregues</Text>
+              <Text style={styles.kpiMiniValue}>{entregues ?? "—"}</Text>
+            </View>
+            <View style={styles.kpiMini}>
+              <Text style={styles.kpiMiniLabel}>Em rota</Text>
+              <Text style={styles.kpiMiniValue}>{emRota ?? "—"}</Text>
+            </View>
+            <View style={styles.kpiMini}>
+              <Text style={styles.kpiMiniLabel}>Ocorrências</Text>
+              <Text style={styles.kpiMiniValue}>{ocorrencias ?? "—"}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.progressMeta}>
+            Progresso {progressPct}% · {fmtSLA(sla)}
+          </Text>
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Pendentes por serviço</Text>
+        <Text style={styles.sectionTitle}>Volumes por serviço</Text>
         {loading && !detail ? (
           <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 24 }} />
         ) : error ? (
@@ -152,7 +195,7 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
         ) : (
           <>
             {servicos.map((s) => (
-              <View key={s.label} style={styles.serviceCard}>
+              <View key={s.label} style={[styles.serviceCard, { borderLeftColor: s.accent }]}>
                 <Text style={styles.serviceTitle}>{s.label}</Text>
                 <Text style={styles.serviceCount}>{s.value}</Text>
               </View>

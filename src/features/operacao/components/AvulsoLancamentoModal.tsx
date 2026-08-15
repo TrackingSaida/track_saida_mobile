@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -24,12 +24,22 @@ import {
   takeDeliveryPhoto,
   uploadAvulsoFotoPending,
 } from "../../../services/deliveryPhotoService";
+import {
+  AvulsoUploadError,
+  classifyThrownUploadError,
+  friendlyAvulsoUploadMessage,
+} from "../../../services/avulsoUploadDiagnostics";
 
 const MAX_FOTOS_AVULSO = 3;
 
 export type AvulsoFotoLocal = {
   id: string;
   uri: string;
+};
+
+type UploadedCacheEntry = {
+  objectKey: string;
+  photoId: string;
 };
 
 type Props = {
@@ -48,6 +58,43 @@ type Props = {
   }) => void | Promise<void>;
 };
 
+function alertAvulsoError(
+  err: unknown,
+  onRetry: () => void
+): void {
+  const classified =
+    err instanceof AvulsoUploadError
+      ? err
+      : classifyThrownUploadError(err, "unknown");
+  const message =
+    classified.message?.trim() ||
+    friendlyAvulsoUploadMessage({
+      stage: classified.stage,
+      code: classified.code,
+      httpStatus: classified.httpStatus,
+    });
+
+  const buttons: Array<{
+    text: string;
+    style?: "cancel" | "destructive" | "default";
+    onPress?: () => void;
+  }> = [{ text: "Cancelar", style: "cancel" }];
+
+  if (classified.retryable || classified.code === "NETWORK" || classified.code === "TIMEOUT" || classified.code === "STORAGE_TEMPORARY_ERROR" || classified.code === "API_ERROR") {
+    buttons.push({
+      text: "Tentar novamente",
+      onPress: () => onRetry(),
+    });
+  } else if (classified.code !== "SESSION_EXPIRED" && classified.code !== "VALIDATION") {
+    buttons.push({
+      text: "Tentar novamente",
+      onPress: () => onRetry(),
+    });
+  }
+
+  Alert.alert("Erro", message, buttons);
+}
+
 export default function AvulsoLancamentoModal({
   visible,
   loading = false,
@@ -62,6 +109,9 @@ export default function AvulsoLancamentoModal({
   const [fotos, setFotos] = useState<AvulsoFotoLocal[]>([]);
   const [capturando, setCapturando] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const [statusEnvio, setStatusEnvio] = useState<string | null>(null);
+  const uploadedByLocalIdRef = useRef<Record<string, UploadedCacheEntry>>({});
+  const submitLockRef = useRef(false);
 
   const busy = loading || capturando || enviando;
 
@@ -72,6 +122,9 @@ export default function AvulsoLancamentoModal({
     setFotos([]);
     setCapturando(false);
     setEnviando(false);
+    setStatusEnvio(null);
+    uploadedByLocalIdRef.current = {};
+    submitLockRef.current = false;
   }, [visible]);
 
   const styles = useMemo(
@@ -141,6 +194,13 @@ export default function AvulsoLancamentoModal({
           backgroundColor: colors.primarySoft ?? "rgba(13,110,253,0.08)",
         },
         btnTirarFotoText: { fontSize: 15, fontWeight: "700", color: colors.primary },
+        statusEnvio: {
+          marginTop: 10,
+          fontSize: 13,
+          fontWeight: "600",
+          color: colors.textSecondary,
+          textAlign: "center",
+        },
         actions: {
           flexDirection: "row",
           justifyContent: "flex-end",
@@ -161,6 +221,8 @@ export default function AvulsoLancamentoModal({
           backgroundColor: colors.primary,
           minWidth: 120,
           alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
         },
         btnOkText: { fontSize: 15, fontWeight: "700", color: colors.primaryContrast },
         btnDisabled: { opacity: 0.65 },
@@ -191,9 +253,14 @@ export default function AvulsoLancamentoModal({
 
   const handleRemoverFoto = useCallback((id: string) => {
     setFotos((prev) => prev.filter((f) => f.id !== id));
+    const next = { ...uploadedByLocalIdRef.current };
+    delete next[id];
+    uploadedByLocalIdRef.current = next;
   }, []);
 
   const handleConfirmar = useCallback(async () => {
+    if (submitLockRef.current) return;
+
     const validacao = validarLancamentoAvulso(identificacao, quantidade);
     if (!validacao.ok) {
       Alert.alert("Atenção", validacao.message);
@@ -204,31 +271,58 @@ export default function AvulsoLancamentoModal({
       return;
     }
 
+    submitLockRef.current = true;
     setEnviando(true);
+    setStatusEnvio(fotos.length > 0 ? "Enviando foto..." : "Lançando avulso...");
+
     try {
       const fotoObjectKeys: string[] = [];
       const photoIds: string[] = [];
+
       for (let i = 0; permitirFotos && i < fotos.length; i++) {
-        const photoId = `avulso-${Date.now()}-${i}`;
+        const local = fotos[i];
+        const cached = uploadedByLocalIdRef.current[local.id];
+        if (cached?.objectKey) {
+          fotoObjectKeys.push(cached.objectKey);
+          photoIds.push(cached.photoId);
+          continue;
+        }
+
+        setStatusEnvio(
+          fotos.length > 1 ? `Enviando foto ${i + 1} de ${fotos.length}...` : "Enviando foto..."
+        );
+        const photoId = `avulso-${local.id}`;
         const key = await uploadAvulsoFotoPending({
-          uri: fotos[i].uri,
+          uri: local.uri,
           mimeType: "image/jpeg",
           filename: `avulso_${i + 1}.jpg`,
           photoId,
         });
+        uploadedByLocalIdRef.current[local.id] = { objectKey: key, photoId };
         fotoObjectKeys.push(key);
         photoIds.push(photoId);
       }
+
+      setStatusEnvio("Concluindo lançamento...");
       await onConfirm({
         identificacao: validacao.identificacao,
         quantidade: validacao.quantidade,
         fotoObjectKeys,
         photoIds,
       });
+      uploadedByLocalIdRef.current = {};
     } catch (e) {
-      Alert.alert("Erro", e instanceof Error ? e.message : "Falha ao enviar foto ou lançar avulso.");
+      const classified = classifyThrownUploadError(
+        e,
+        e instanceof AvulsoUploadError ? e.stage : "avulso_create"
+      );
+      alertAvulsoError(classified, () => {
+        void handleConfirmar();
+      });
     } finally {
       setEnviando(false);
+      setStatusEnvio(null);
+      submitLockRef.current = false;
     }
   }, [identificacao, quantidade, exigeFoto, fotos, onConfirm, permitirFotos]);
 
@@ -314,6 +408,8 @@ export default function AvulsoLancamentoModal({
               ) : null}
             </View> : null}
 
+            {statusEnvio ? <Text style={styles.statusEnvio}>{statusEnvio}</Text> : null}
+
             <View style={styles.actions}>
               <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={busy}>
                 <Text style={styles.btnCancelText}>Cancelar</Text>
@@ -324,7 +420,12 @@ export default function AvulsoLancamentoModal({
                 disabled={busy}
               >
                 {enviando || loading ? (
-                  <ActivityIndicator color={colors.primaryContrast} size="small" />
+                  <>
+                    <ActivityIndicator color={colors.primaryContrast} size="small" />
+                    <Text style={styles.btnOkText}>
+                      {statusEnvio?.startsWith("Enviando") ? "Enviando..." : "Lançar"}
+                    </Text>
+                  </>
                 ) : (
                   <Text style={styles.btnOkText}>Lançar</Text>
                 )}

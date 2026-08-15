@@ -2,8 +2,41 @@ import { Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
+import Constants from "expo-constants";
 import { getPresignUpload, patchFotoSaida } from "../features/entregas/api";
 import type { AxiosError } from "axios";
+import {
+  AVULSO_UPLOAD_MAX_ATTEMPTS,
+  AvulsoUploadError,
+  backoffMs,
+  classifyStorageUploadFailure,
+  classifyThrownUploadError,
+  formatAvulsoUploadLog,
+  isTransientUploadFailure,
+} from "./avulsoUploadDiagnostics";
+
+function getAppVersionForLog(): string {
+  return (
+    Constants.expoConfig?.version ??
+    (typeof Constants.nativeAppVersion === "string" ? Constants.nativeAppVersion : null) ??
+    "?"
+  );
+}
+
+function logAvulsoUpload(
+  fields: Parameters<typeof formatAvulsoUploadLog>[0]
+): void {
+  console.info(
+    formatAvulsoUploadLog({
+      ...fields,
+      app_version: fields.app_version ?? getAppVersionForLog(),
+    })
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Converte base64 em Uint8Array para enviar no body do PUT. */
 function base64ToUint8Array(base64: string): Uint8Array {
@@ -228,9 +261,11 @@ export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Pr
 async function putPhotoToPresignedUrl(
   presign: Awaited<ReturnType<typeof getPresignUpload>>,
   uri: string,
-  mimeType: string
+  mimeType: string,
+  opts?: { attempt?: number; photoId?: string; logAsAvulso?: boolean }
 ): Promise<void> {
   const contentType = presign.headers["Content-Type"] ?? mimeType;
+  const started = Date.now();
 
   const base64 = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.Base64,
@@ -244,61 +279,168 @@ async function putPhotoToPresignedUrl(
     uploadResponse = await fetch(presign.upload_url, {
       method: "PUT",
       headers: { "Content-Type": contentType },
-      body: bodyBytes.buffer.slice(bodyBytes.byteOffset, bodyBytes.byteOffset + bodyBytes.byteLength) as ArrayBuffer,
+      body: bodyBytes.buffer.slice(
+        bodyBytes.byteOffset,
+        bodyBytes.byteOffset + bodyBytes.byteLength
+      ) as ArrayBuffer,
       signal: controller.signal,
     });
   } catch (e) {
-    if (e instanceof Error && e.name === "AbortError") {
-      throw new Error("Tempo esgotado ao enviar a foto. Verifique a conexão e tente novamente.");
+    if (opts?.logAsAvulso) {
+      logAvulsoUpload({
+        stage: "storage_upload",
+        attempt: opts.attempt,
+        status: e instanceof Error && e.name === "AbortError" ? "timeout" : "network",
+        duration_ms: Date.now() - started,
+        object_key: presign.object_key,
+        photo_id: opts.photoId,
+        code: e instanceof Error && e.name === "AbortError" ? "TIMEOUT" : "NETWORK",
+      });
     }
-    throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new AvulsoUploadError({
+        message:
+          "O envio da foto demorou mais que o esperado.\nTente novamente.",
+        stage: "storage_upload",
+        code: "TIMEOUT",
+        retryable: true,
+        attempt: opts?.attempt,
+      });
+    }
+    throw classifyThrownUploadError(e, "storage_upload");
   } finally {
     clearTimeout(timeoutId);
   }
 
   if (!uploadResponse.ok) {
     const text = await uploadResponse.text().catch(() => "");
-    if (uploadResponse.status === 0 || !uploadResponse.status) {
-      throw new Error(
-        "Falha de rede ao enviar a foto. Verifique a internet e se o bucket está com CORS configurado para o app."
-      );
+    const classified = classifyStorageUploadFailure(uploadResponse.status, text);
+    if (opts?.logAsAvulso) {
+      logAvulsoUpload({
+        stage: "storage_upload",
+        attempt: opts.attempt,
+        status: uploadResponse.status,
+        storage_code: classified.storageCode,
+        duration_ms: Date.now() - started,
+        object_key: presign.object_key,
+        photo_id: opts.photoId,
+        code: classified.code,
+      });
     }
-    if (uploadResponse.status === 403) {
-      const hint =
-        "Acesso negado pelo B2 (403). Verifique a Application Key: deve ser Read and Write, bucket correto e prefixo saida/.";
-      throw new Error(
-        text && text.length < 300 ? `Upload recusado (403): ${text.slice(0, 200)}. ${hint}` : `Upload recusado (403). ${hint}`
-      );
-    }
-    throw new Error(
-      text && text.length < 200
-        ? `Upload recusado (${uploadResponse.status}): ${text}`
-        : `Upload recusado (${uploadResponse.status}). Verifique CORS no bucket B2.`
-    );
+    throw new AvulsoUploadError({
+      message: classified.message,
+      stage: "storage_upload",
+      code: classified.code,
+      httpStatus: uploadResponse.status,
+      storageCode: classified.storageCode,
+      retryable: classified.retryable,
+      attempt: opts?.attempt,
+    });
+  }
+
+  if (opts?.logAsAvulso) {
+    logAvulsoUpload({
+      stage: "storage_upload",
+      attempt: opts.attempt,
+      status: uploadResponse.status,
+      duration_ms: Date.now() - started,
+      object_key: presign.object_key,
+      photo_id: opts.photoId,
+      code: "OK",
+    });
   }
 }
 
 /**
  * Presign sem id_saida, envia ao B2 e retorna object_key (sem PATCH /saidas).
- * Usado antes de POST /pedidos/lancar-avulso quando avulso_exige_foto.
+ * Retry só para falhas transitórias; nova URL pré-assinada a cada tentativa.
  */
 export async function uploadAvulsoFotoPending(params: UploadAvulsoFotoPendingParams): Promise<string> {
   const { uri, mimeType, filename, photoId } = params;
+  let lastError: AvulsoUploadError | null = null;
 
-  let presign: Awaited<ReturnType<typeof getPresignUpload>>;
-  try {
-    presign = await getPresignUpload({
-      filename,
-      tipo: "lancar_avulso",
-      content_type: mimeType,
-      photo_id: photoId,
-    });
-  } catch (e) {
-    throw new Error(getErrorMessage(e) || "Não foi possível obter permissão para envio. Verifique o servidor.");
+  for (let attempt = 1; attempt <= AVULSO_UPLOAD_MAX_ATTEMPTS; attempt++) {
+    let presign: Awaited<ReturnType<typeof getPresignUpload>>;
+    const presignStarted = Date.now();
+    try {
+      presign = await getPresignUpload({
+        filename,
+        tipo: "lancar_avulso",
+        content_type: mimeType,
+        photo_id: photoId,
+      });
+      logAvulsoUpload({
+        stage: "presign",
+        attempt,
+        status: 200,
+        duration_ms: Date.now() - presignStarted,
+        object_key: presign.object_key,
+        photo_id: photoId,
+        code: "OK",
+      });
+    } catch (e) {
+      const classified = classifyThrownUploadError(e, "presign");
+      logAvulsoUpload({
+        stage: "presign",
+        attempt,
+        status: classified.httpStatus ?? "error",
+        duration_ms: Date.now() - presignStarted,
+        photo_id: photoId,
+        code: classified.code,
+      });
+      lastError = classified;
+      if (
+        !isTransientUploadFailure({
+          stage: "presign",
+          httpStatus: classified.httpStatus,
+          code: classified.code,
+          networkLike: classified.code === "NETWORK",
+          timeoutLike: classified.code === "TIMEOUT",
+        }) ||
+        attempt >= AVULSO_UPLOAD_MAX_ATTEMPTS
+      ) {
+        throw classified;
+      }
+      await sleep(backoffMs(attempt));
+      continue;
+    }
+
+    try {
+      await putPhotoToPresignedUrl(presign, uri, mimeType, {
+        attempt,
+        photoId,
+        logAsAvulso: true,
+      });
+      return presign.object_key;
+    } catch (e) {
+      const classified = classifyThrownUploadError(e, "storage_upload");
+      lastError = classified;
+      if (
+        !classified.retryable ||
+        !isTransientUploadFailure({
+          stage: "storage_upload",
+          httpStatus: classified.httpStatus,
+          code: classified.code,
+          networkLike: classified.code === "NETWORK",
+          timeoutLike: classified.code === "TIMEOUT",
+        }) ||
+        attempt >= AVULSO_UPLOAD_MAX_ATTEMPTS
+      ) {
+        throw classified;
+      }
+      await sleep(backoffMs(attempt));
+    }
   }
 
-  await putPhotoToPresignedUrl(presign, uri, mimeType);
-  return presign.object_key;
+  throw (
+    lastError ??
+    new AvulsoUploadError({
+      message: "Não foi possível enviar a foto agora.\nVerifique sua conexão e tente novamente.",
+      stage: "storage_upload",
+      code: "STORAGE_TEMPORARY_ERROR",
+      retryable: true,
+    })
+  );
 }
 
 /** Atalho: preparePhoto + uploadAvulsoFotoPending. Exportado para fluxos staff (LeituraSaidas). */

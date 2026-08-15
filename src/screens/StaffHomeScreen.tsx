@@ -29,6 +29,9 @@ export default function StaffHomeScreen({ navigation }: Props) {
   const mostrarEntrada = effectiveEntradaObrigatoria(currentUser);
   const mostrarConferencia = effectiveConferenciaSaida(currentUser);
   const mostrarEnviarAviso = isAdminRole(role);
+  const mostrarIndicadores = isAdminRole(role);
+  // Com conferência ativa, a consulta de volumes fica na própria Conferência.
+  const mostrarSaidasPorMotoboy = !mostrarConferencia;
 
   const styles = useMemo(
     () =>
@@ -89,6 +92,15 @@ export default function StaffHomeScreen({ navigation }: Props) {
         />
 
         <View style={styles.grid}>
+          {mostrarIndicadores ? (
+            <OperacaoActionCard
+              variant="compact"
+              title="Indicadores"
+              subtitle="Saídas, entradas e coletas"
+              icon="analytics-outline"
+              onPress={() => go("IndicadoresOperacao")}
+            />
+          ) : null}
           <OperacaoActionCard
             variant="compact"
             title="Registrar saídas"
@@ -114,17 +126,19 @@ export default function StaffHomeScreen({ navigation }: Props) {
               onPress={() => go("ConferenciaSaida")}
             />
           ) : null}
-          <OperacaoActionCard
-            variant="compact"
-            title="Saídas por motoboy"
-            subtitle="Shopee, ML e Avulso"
-            icon="cube-outline"
-            onPress={() => go("SaidasPorMotoboy")}
-          />
+          {mostrarSaidasPorMotoboy ? (
+            <OperacaoActionCard
+              variant="compact"
+              title="Saídas por motoboy"
+              subtitle="Shopee, ML e Avulso"
+              icon="cube-outline"
+              onPress={() => go("SaidasPorMotoboy")}
+            />
+          ) : null}
           <OperacaoActionCard
             variant="compact"
             title="Acompanhamento"
-            subtitle="Progresso do dia"
+            subtitle="Progresso e desempenho"
             icon="stats-chart-outline"
             onPress={() => go("AcompanharOperacao")}
           />

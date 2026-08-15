@@ -29,6 +29,7 @@ import {
   motoboyStatusColors,
   type QuickFilterKey,
 } from "../utils/acompanhamentoOperational";
+import { formatPersonName } from "../../../utils/personName";
 
 type Props = NativeStackScreenProps<StaffStackParamList, "AcompanharOperacao">;
 
@@ -45,12 +46,23 @@ function formatDateLabel(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function pctOf(part: number, total: number): number {
+  if (!total) return 0;
+  return Math.min(100, Math.round((part / total) * 1000) / 10);
+}
+
 const QUICK_FILTERS: { key: QuickFilterKey; label: string }[] = [
   { key: "todos", label: "Todos" },
   { key: "criticos", label: "Críticos" },
   { key: "sem_entrega", label: "Sem entrega" },
   { key: "finalizados", label: "Finalizados" },
 ];
+
+const SERVICE_CHIP_COLORS = {
+  shopee: { bg: "#fee2e2", fg: "#b91c1c" },
+  ml: { bg: "#fef3c7", fg: "#a16207" },
+  avulso: { bg: "#e5e7eb", fg: "#374151" },
+};
 
 export default function AcompanharOperacaoScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -66,6 +78,10 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
     em_rota: 0,
     ausente_ou_ocorrencias: 0,
     sla: null as number | null,
+    entrada_habilitada: false,
+    entradas: null as number | null,
+    saidas: null as number | null,
+    pct_saida_sobre_entrada: null as number | null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +95,7 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 16, paddingBottom: 32 },
         sectionTitle: { fontSize: 16, fontWeight: "800", color: colors.text, marginBottom: 10 },
+        sectionHint: { fontSize: 13, color: colors.textSecondary, marginBottom: 12 },
         search: {
           borderWidth: 1,
           borderColor: colors.inputBorder,
@@ -89,34 +106,62 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
           color: colors.text,
           marginBottom: 12,
         },
-        kpiCard: {
+        kpiGrid: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 14,
+        },
+        kpiMini: {
+          width: "48%",
           backgroundColor: colors.backgroundCard,
           borderRadius: 14,
-          padding: 16,
+          padding: 14,
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
-          marginBottom: 16,
+          minHeight: 88,
         },
-        kpiRow: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-          paddingVertical: 8,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: colors.separator,
+        kpiMiniLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 6 },
+        kpiMiniValue: { fontSize: 26, fontWeight: "800", color: colors.text },
+        kpiMiniHint: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
+        entradaCard: {
+          backgroundColor: colors.backgroundCard,
+          borderRadius: 14,
+          padding: 14,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          marginBottom: 14,
         },
-        kpiLabel: { fontSize: 14, color: colors.textSecondary },
-        kpiValue: { fontSize: 16, fontWeight: "800", color: colors.text },
+        entradaTitle: {
+          fontSize: 13,
+          fontWeight: "800",
+          color: colors.text,
+          marginBottom: 10,
+        },
+        entradaRow: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
+        entradaCell: { flex: 1, alignItems: "center" },
+        entradaLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 4 },
+        entradaValue: { fontSize: 20, fontWeight: "800", color: colors.text },
         progressWrap: { marginBottom: 16 },
+        progressLegend: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 12,
+          marginBottom: 8,
+        },
+        legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+        legendDot: { width: 8, height: 8, borderRadius: 999 },
+        legendText: { fontSize: 12, color: colors.textSecondary },
         progressBar: {
-          height: 10,
+          height: 12,
           borderRadius: 999,
           backgroundColor: colors.inputBackground,
           overflow: "hidden",
-          marginTop: 8,
-          marginBottom: 6,
+          flexDirection: "row",
         },
-        progressFill: { height: "100%", backgroundColor: colors.primary, borderRadius: 999 },
-        progressMeta: { fontSize: 13, color: colors.textSecondary },
+        progressSeg: { height: "100%" },
+        progressMeta: { fontSize: 13, color: colors.textSecondary, marginTop: 8 },
         chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
         chip: {
           paddingHorizontal: 12,
@@ -137,12 +182,33 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
         },
-        motoboyName: { fontSize: 16, fontWeight: "800", color: colors.text, marginBottom: 6 },
+        motoboyTop: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 8,
+          marginBottom: 8,
+        },
+        motoboyName: { fontSize: 16, fontWeight: "800", color: colors.text, flex: 1 },
         motoboyMeta: { fontSize: 14, color: colors.text, marginBottom: 4 },
-        motoboySub: { fontSize: 12, color: colors.textSecondary },
+        motoboySub: { fontSize: 12, color: colors.textSecondary, marginBottom: 8 },
+        miniBar: {
+          height: 8,
+          borderRadius: 999,
+          backgroundColor: colors.inputBackground,
+          overflow: "hidden",
+          flexDirection: "row",
+          marginBottom: 10,
+        },
+        serviceRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
+        serviceChip: {
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+          borderRadius: 999,
+        },
+        serviceChipText: { fontSize: 11, fontWeight: "700" },
         statusBadge: {
           alignSelf: "flex-start",
-          marginTop: 8,
           paddingHorizontal: 10,
           paddingVertical: 4,
           borderRadius: 999,
@@ -207,6 +273,10 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
         em_rota: res.totais.em_rota,
         ausente_ou_ocorrencias: res.totais.ausente_ou_ocorrencias,
         sla: res.totais.sla ?? null,
+        entrada_habilitada: Boolean(res.totais.entrada_habilitada),
+        entradas: res.totais.entradas ?? null,
+        saidas: res.totais.saidas ?? null,
+        pct_saida_sobre_entrada: res.totais.pct_saida_sobre_entrada ?? null,
       });
     } catch {
       setError("Não foi possível carregar o acompanhamento.");
@@ -231,12 +301,16 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
     );
   }, [filtroNome, items, quickFilter]);
 
-  const progressPct = useMemo(() => {
-    if (!totais.pedidos) return 0;
-    return Math.min(100, Math.round((totais.entregues / totais.pedidos) * 1000) / 10);
-  }, [totais]);
+  const progressPct = useMemo(() => pctOf(totais.entregues, totais.pedidos), [totais]);
+  const segEntregues = useMemo(() => pctOf(totais.entregues, totais.pedidos), [totais]);
+  const segEmRota = useMemo(() => pctOf(totais.em_rota, totais.pedidos), [totais]);
+  const segOcorrencias = useMemo(
+    () => pctOf(totais.ausente_ou_ocorrencias, totais.pedidos),
+    [totais]
+  );
 
   const filterActiveCount = dataRef !== today ? 1 : 0;
+  const resumoTitle = dataRef === today ? "Resumo de hoje" : "Resumo do dia";
 
   const yesterday = useMemo(() => {
     const d = new Date();
@@ -247,7 +321,7 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <ScreenHeaderBar
-        title="Operação"
+        title="Acompanhamento"
         onBack={() => navigation.goBack()}
         paddingTop={Math.max(12, insets.top)}
         rightElement={
@@ -265,10 +339,8 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
       >
-        <Text style={styles.sectionTitle}>Resumo de hoje</Text>
-        <Text style={[styles.progressMeta, { marginBottom: 8 }]}>
-          Data: {formatDateLabel(dataRef)}
-        </Text>
+        <Text style={styles.sectionTitle}>{resumoTitle}</Text>
+        <Text style={styles.sectionHint}>Data: {formatDateLabel(dataRef)}</Text>
 
         {loading && items.length === 0 ? (
           <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 24 }} />
@@ -281,28 +353,95 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
           </>
         ) : (
           <>
-            <View style={styles.kpiCard}>
-              {[
-                ["Total pedidos", totais.pedidos],
-                ["Entregues", totais.entregues],
-                ["Em rota", totais.em_rota],
-                ["Ocorrências", totais.ausente_ou_ocorrencias],
-              ].map(([label, value]) => (
-                <View style={styles.kpiRow} key={String(label)}>
-                  <Text style={styles.kpiLabel}>{label}</Text>
-                  <Text style={styles.kpiValue}>{value}</Text>
-                </View>
-              ))}
+            <View style={styles.kpiGrid}>
+              <View style={styles.kpiMini}>
+                <Text style={styles.kpiMiniLabel}>Pedidos</Text>
+                <Text style={styles.kpiMiniValue}>{totais.pedidos}</Text>
+                <Text style={styles.kpiMiniHint}>Total do dia</Text>
+              </View>
+              <View style={styles.kpiMini}>
+                <Text style={styles.kpiMiniLabel}>Entregues</Text>
+                <Text style={styles.kpiMiniValue}>{totais.entregues}</Text>
+                <Text style={styles.kpiMiniHint}>{progressPct}% concluído</Text>
+              </View>
+              <View style={styles.kpiMini}>
+                <Text style={styles.kpiMiniLabel}>Em rota</Text>
+                <Text style={styles.kpiMiniValue}>{totais.em_rota}</Text>
+                <Text style={styles.kpiMiniHint}>{pctOf(totais.em_rota, totais.pedidos)}% do total</Text>
+              </View>
+              <View style={styles.kpiMini}>
+                <Text style={styles.kpiMiniLabel}>Ocorrências</Text>
+                <Text style={styles.kpiMiniValue}>{totais.ausente_ou_ocorrencias}</Text>
+                <Text style={styles.kpiMiniHint}>{fmtSLA(totais.sla)}</Text>
+              </View>
             </View>
+
+            {totais.entrada_habilitada ? (
+              <View style={styles.entradaCard}>
+                <Text style={styles.entradaTitle}>Entrada na base × saídas</Text>
+                <View style={styles.entradaRow}>
+                  <View style={styles.entradaCell}>
+                    <Text style={styles.entradaLabel}>Entradas</Text>
+                    <Text style={styles.entradaValue}>{totais.entradas ?? 0}</Text>
+                  </View>
+                  <View style={styles.entradaCell}>
+                    <Text style={styles.entradaLabel}>Já saíram</Text>
+                    <Text style={styles.entradaValue}>{totais.saidas ?? 0}</Text>
+                  </View>
+                  <View style={styles.entradaCell}>
+                    <Text style={styles.entradaLabel}>% saída</Text>
+                    <Text style={styles.entradaValue}>
+                      {totais.pct_saida_sobre_entrada != null
+                        ? `${totais.pct_saida_sobre_entrada}%`
+                        : "—"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
 
             <View style={styles.progressWrap}>
               <Text style={styles.sectionTitle}>Progresso geral</Text>
+              <View style={styles.progressLegend}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: colors.primary }]} />
+                  <Text style={styles.legendText}>Entregues</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: "#f59e0b" }]} />
+                  <Text style={styles.legendText}>Em rota</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: colors.danger }]} />
+                  <Text style={styles.legendText}>Ocorrências</Text>
+                </View>
+              </View>
+              <View style={styles.progressBar}>
+                {segEntregues > 0 ? (
+                  <View
+                    style={[
+                      styles.progressSeg,
+                      { width: `${segEntregues}%`, backgroundColor: colors.primary },
+                    ]}
+                  />
+                ) : null}
+                {segEmRota > 0 ? (
+                  <View
+                    style={[styles.progressSeg, { width: `${segEmRota}%`, backgroundColor: "#f59e0b" }]}
+                  />
+                ) : null}
+                {segOcorrencias > 0 ? (
+                  <View
+                    style={[
+                      styles.progressSeg,
+                      { width: `${segOcorrencias}%`, backgroundColor: colors.danger },
+                    ]}
+                  />
+                ) : null}
+              </View>
               <Text style={styles.progressMeta}>
                 {totais.entregues} / {totais.pedidos} entregues · {fmtSLA(totais.sla)}
               </Text>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
-              </View>
             </View>
 
             <Text style={styles.sectionTitle}>Motoboys</Text>
@@ -343,6 +482,13 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
                 const status = deriveStatus(row);
                 const colorsBadge = motoboyStatusColors(status.key);
                 const ultima = fmtUltimaEntrega(row.ultima_entrega);
+                const rowPct = pctOf(row.entregues, row.pedidos);
+                const rowEmRota = pctOf(row.em_rota, row.pedidos);
+                const rowOcorr = pctOf(row.ausente_ou_ocorrencias, row.pedidos);
+                const shopee = row.sum_shopee ?? 0;
+                const ml = row.sum_mercado ?? 0;
+                const avulso = row.sum_avulso ?? 0;
+                const hasServicos = shopee + ml + avulso > 0;
                 return (
                   <TouchableOpacity
                     key={row.motoboy_id}
@@ -351,7 +497,7 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
                     onPress={() =>
                       navigation.navigate("AcompanharMotoboyDia", {
                         motoboyId: row.motoboy_id,
-                        motoboyNome: row.motoboy_nome,
+                        motoboyNome: formatPersonName(row.motoboy_nome || ""),
                         data: dataRef,
                         pedidos: row.pedidos,
                         entregues: row.entregues,
@@ -361,16 +507,91 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
                       })
                     }
                   >
-                    <Text style={styles.motoboyName}>{row.motoboy_nome}</Text>
-                    <Text style={styles.motoboyMeta}>
-                      {row.entregues}/{row.pedidos} entregues · {fmtSLA(row.sla)}
-                    </Text>
-                    <Text style={styles.motoboySub}>{ultima.text}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: colorsBadge.bg }]}>
-                      <Text style={[styles.statusBadgeText, { color: colorsBadge.fg }]}>
-                        {status.label}
+                    <View style={styles.motoboyTop}>
+                      <Text style={styles.motoboyName}>
+                        {formatPersonName(row.motoboy_nome || "")}
                       </Text>
+                      <View style={[styles.statusBadge, { backgroundColor: colorsBadge.bg }]}>
+                        <Text style={[styles.statusBadgeText, { color: colorsBadge.fg }]}>
+                          {status.label}
+                        </Text>
+                      </View>
                     </View>
+                    <Text style={styles.motoboyMeta}>
+                      {row.entregues}/{row.pedidos} entregues · {rowPct}% · {fmtSLA(row.sla)}
+                    </Text>
+                    <Text style={styles.motoboySub}>
+                      Em rota {row.em_rota} · Ocorrências {row.ausente_ou_ocorrencias} · {ultima.text}
+                    </Text>
+                    <View style={styles.miniBar}>
+                      {rowPct > 0 ? (
+                        <View
+                          style={[
+                            styles.progressSeg,
+                            { width: `${rowPct}%`, backgroundColor: colors.primary },
+                          ]}
+                        />
+                      ) : null}
+                      {rowEmRota > 0 ? (
+                        <View
+                          style={[
+                            styles.progressSeg,
+                            { width: `${rowEmRota}%`, backgroundColor: "#f59e0b" },
+                          ]}
+                        />
+                      ) : null}
+                      {rowOcorr > 0 ? (
+                        <View
+                          style={[
+                            styles.progressSeg,
+                            { width: `${rowOcorr}%`, backgroundColor: colors.danger },
+                          ]}
+                        />
+                      ) : null}
+                    </View>
+                    {hasServicos ? (
+                      <View style={styles.serviceRow}>
+                        <View
+                          style={[
+                            styles.serviceChip,
+                            { backgroundColor: SERVICE_CHIP_COLORS.shopee.bg },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.serviceChipText,
+                              { color: SERVICE_CHIP_COLORS.shopee.fg },
+                            ]}
+                          >
+                            Shopee {shopee}
+                          </Text>
+                        </View>
+                        <View
+                          style={[styles.serviceChip, { backgroundColor: SERVICE_CHIP_COLORS.ml.bg }]}
+                        >
+                          <Text
+                            style={[styles.serviceChipText, { color: SERVICE_CHIP_COLORS.ml.fg }]}
+                          >
+                            ML {ml}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.serviceChip,
+                            { backgroundColor: SERVICE_CHIP_COLORS.avulso.bg },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.serviceChipText,
+                              { color: SERVICE_CHIP_COLORS.avulso.fg },
+                            ]}
+                          >
+                            Avulso {avulso}
+                          </Text>
+                        </View>
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                 );
               })

@@ -29,6 +29,15 @@ function fmtDate(ymd?: string): string {
   return d && m && y ? `${d}/${m}/${y}` : ymd;
 }
 
+function labelStatus(status?: string): string {
+  const st = String(status || "").toUpperCase();
+  if (st === "PAGO") return "Pago";
+  if (st === "GERADO" || st === "FECHADO") return "Gerado";
+  if (st === "REAJUSTADO") return "Reajustado";
+  if (st === "PENDENTE") return "Pendente";
+  return st || "—";
+}
+
 export default function MeusFechamentosScreen({ navigation }: Props) {
   const colors = useThemeColors();
   const [items, setItems] = useState<FechamentoItem[]>([]);
@@ -99,7 +108,7 @@ export default function MeusFechamentosScreen({ navigation }: Props) {
               </Text>
               <View style={styles.row}>
                 <Text style={styles.value}>{fmtBrl(item.valor_final)}</Text>
-                <Text style={styles.status}>{(item.status || "").toUpperCase()}</Text>
+                <Text style={styles.status}>{labelStatus(item.status)}</Text>
               </View>
             </TouchableOpacity>
           )}

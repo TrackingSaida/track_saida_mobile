@@ -1,4 +1,5 @@
 import { apiClient as client } from "../../services/apiClient";
+import { normalizePersonList } from "../../utils/personName";
 
 export interface MotoboyItem {
   id_motoboy: number;
@@ -9,7 +10,7 @@ export interface MotoboyItem {
 
 export async function listMotoboysOperacao(): Promise<MotoboyItem[]> {
   const { data } = await client.get<MotoboyItem[]>("/users/motoboys");
-  return data;
+  return normalizePersonList(Array.isArray(data) ? data : []);
 }
 
 export interface ListSaidasParams {
