@@ -11,12 +11,13 @@ import {
   Alert,
   ScrollView,
   Image,
+  ImageBackground,
   Switch,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import Constants from "expo-constants";
+import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { motoboyLogin, normalizeAuthError, userLogin } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
 import { getSavedCredentials, saveOrClearCredentials } from "../services/savedCredentials";
@@ -180,7 +181,16 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        gradient: { flex: 1 },
+        root: { flex: 1 },
+        background: {
+          flex: 1,
+          width: "100%",
+          height: "100%",
+        },
+        overlay: {
+          flex: 1,
+          backgroundColor: "rgba(7, 21, 38, 0.55)",
+        },
         scroll: { flex: 1 },
         scrollContent: {
           flexGrow: 1,
@@ -194,7 +204,7 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
           padding: 24,
           shadowColor: colors.shadowColor,
           shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.12,
+          shadowOpacity: 0.18,
           shadowRadius: 12,
           elevation: 4,
         },
@@ -203,13 +213,13 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
           marginBottom: 16,
         },
         logo: {
-          width: 88,
-          height: 88,
+          width: 120,
+          height: 120,
         },
         title: {
-          fontSize: 26,
+          fontSize: 28,
           fontWeight: "800",
-          marginTop: 8,
+          marginTop: 10,
           letterSpacing: 1.5,
           textAlign: "center",
           color: colors.text,
@@ -299,7 +309,10 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
         },
         footerText: {
           fontSize: 12,
-          color: "rgba(255,255,255,0.72)",
+          color: "rgba(255,255,255,0.82)",
+          textShadowColor: "rgba(0,0,0,0.45)",
+          textShadowOffset: { width: 0, height: 1 },
+          textShadowRadius: 3,
         },
       }),
     [colors]
@@ -310,115 +323,123 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
   }
 
   return (
-    <LinearGradient
-      colors={[colors.loginGradientStart, colors.loginGradientEnd]}
-      style={styles.gradient}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.gradient}
-      >
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+    <View style={[styles.root, { backgroundColor: "#071526" }]}>
+      <StatusBar style="light" backgroundColor="#071526" translucent={false} />
+      <SafeAreaView style={styles.root} edges={["top"]}>
+        <ImageBackground
+          source={require("../../assets/rotevo-login-hero.jpg")}
+          style={styles.background}
+          resizeMode="cover"
         >
-          <View style={styles.card}>
-            <View style={styles.logoContainer}>
-              <Image
-                source={require("../../assets/logo-pin.png")}
-                style={styles.logo}
-                resizeMode="contain"
-                accessibilityLabel="ROTEVO"
-              />
-              <Text style={styles.title}>ROTEVO</Text>
-              <Text style={styles.tagline}>Gestão Inteligente de Entregas</Text>
-              <Text style={styles.welcome}>Bem-vindo de volta</Text>
-            </View>
-            <View style={styles.inputRow}>
-              <Ionicons name="mail-outline" size={22} color={colors.placeholder} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="E-mail, usuário ou telefone"
-                placeholderTextColor={colors.placeholder}
-                value={identifier}
-                onChangeText={setIdentifier}
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="username"
-                textContentType="username"
-              />
-            </View>
-            <View style={styles.inputRow}>
-              <Ionicons name="lock-closed-outline" size={22} color={colors.placeholder} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Digite sua senha"
-                placeholderTextColor={colors.placeholder}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!passwordVisible}
-                autoComplete="password"
-                textContentType="password"
-              />
-              <TouchableOpacity
-                onPress={() => setPasswordVisible((v) => !v)}
-                style={styles.passwordToggle}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                accessibilityRole="button"
-                accessibilityLabel={passwordVisible ? "Ocultar senha" : "Mostrar senha"}
-              >
-                <Ionicons
-                  name={passwordVisible ? "eye-off-outline" : "eye-outline"}
-                  size={22}
-                  color={colors.placeholder}
-                />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.rememberRow}>
-              <Switch
-                value={rememberMe}
-                onValueChange={setRememberMe}
-                trackColor={{ false: colors.separator, true: colors.primary }}
-                thumbColor={colors.backgroundCard}
-              />
-              <Text style={styles.rememberLabel}>Lembrar-me</Text>
-            </View>
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleLogin}
-              disabled={loading}
+          <View style={styles.overlay}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              style={styles.root}
             >
-              {loading ? (
-                <View style={styles.buttonLoading}>
-                  <ActivityIndicator color={colors.primaryContrast} size="small" />
-                  <Text style={styles.buttonText}>Entrando...</Text>
-                </View>
-              ) : (
-                <Text style={styles.buttonText}>Entrar</Text>
-              )}
-            </TouchableOpacity>
-            {requiresBiometricUnlock && (
-              <TouchableOpacity
-                style={[styles.buttonBiometric, biometricLoading && styles.buttonDisabled]}
-                onPress={handleBiometricUnlock}
-                disabled={biometricLoading}
+              <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={styles.scrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
               >
-                {biometricLoading ? (
-                  <ActivityIndicator color={colors.primary} size="small" />
-                ) : (
-                  <Text style={styles.buttonBiometricText}>Desbloquear app</Text>
-                )}
-              </TouchableOpacity>
-            )}
+                <View style={styles.card}>
+                  <View style={styles.logoContainer}>
+                    <Image
+                      source={require("../../assets/logo-pin.png")}
+                      style={styles.logo}
+                      resizeMode="contain"
+                      accessibilityLabel="ROTEVO"
+                    />
+                    <Text style={styles.title}>ROTEVO</Text>
+                    <Text style={styles.tagline}>Gestão Inteligente de Entregas</Text>
+                    <Text style={styles.welcome}>Bem-vindo de volta</Text>
+                  </View>
+                  <View style={styles.inputRow}>
+                    <Ionicons name="mail-outline" size={22} color={colors.placeholder} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="E-mail, usuário ou telefone"
+                      placeholderTextColor={colors.placeholder}
+                      value={identifier}
+                      onChangeText={setIdentifier}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="username"
+                      textContentType="username"
+                    />
+                  </View>
+                  <View style={styles.inputRow}>
+                    <Ionicons name="lock-closed-outline" size={22} color={colors.placeholder} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Digite sua senha"
+                      placeholderTextColor={colors.placeholder}
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry={!passwordVisible}
+                      autoComplete="password"
+                      textContentType="password"
+                    />
+                    <TouchableOpacity
+                      onPress={() => setPasswordVisible((v) => !v)}
+                      style={styles.passwordToggle}
+                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={passwordVisible ? "Ocultar senha" : "Mostrar senha"}
+                    >
+                      <Ionicons
+                        name={passwordVisible ? "eye-off-outline" : "eye-outline"}
+                        size={22}
+                        color={colors.placeholder}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.rememberRow}>
+                    <Switch
+                      value={rememberMe}
+                      onValueChange={setRememberMe}
+                      trackColor={{ false: colors.separator, true: colors.primary }}
+                      thumbColor={colors.backgroundCard}
+                    />
+                    <Text style={styles.rememberLabel}>Lembrar-me</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.button, loading && styles.buttonDisabled]}
+                    onPress={handleLogin}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <View style={styles.buttonLoading}>
+                        <ActivityIndicator color={colors.primaryContrast} size="small" />
+                        <Text style={styles.buttonText}>Entrando...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.buttonText}>Entrar</Text>
+                    )}
+                  </TouchableOpacity>
+                  {requiresBiometricUnlock && (
+                    <TouchableOpacity
+                      style={[styles.buttonBiometric, biometricLoading && styles.buttonDisabled]}
+                      onPress={handleBiometricUnlock}
+                      disabled={biometricLoading}
+                    >
+                      {biometricLoading ? (
+                        <ActivityIndicator color={colors.primary} size="small" />
+                      ) : (
+                        <Text style={styles.buttonBiometricText}>Desbloquear app</Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </ScrollView>
+              <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+                <Text style={styles.footerText}>© {new Date().getFullYear()} ROTEVO</Text>
+                <Text style={styles.footerText}>v{appVersion}</Text>
+              </View>
+            </KeyboardAvoidingView>
           </View>
-        </ScrollView>
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-          <Text style={styles.footerText}>© {new Date().getFullYear()} ROTEVO</Text>
-          <Text style={styles.footerText}>v{appVersion}</Text>
-        </View>
-      </KeyboardAvoidingView>
-    </LinearGradient>
+        </ImageBackground>
+      </SafeAreaView>
+    </View>
   );
 }
