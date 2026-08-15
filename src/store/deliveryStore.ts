@@ -23,10 +23,16 @@ import {
   postRotasAvancar,
   postRotasFinalizar,
   putRotasOrdem,
+  postRotasGeometryRefresh,
   type EnderecoBody,
   type EntregueBody,
   type RotasAtivaResponse,
+  type RoutePolylineCoord,
 } from "../features/entregas/api";
+import {
+  beginOptimizeIdempotencyKey,
+  endOptimizeIdempotencyKey,
+} from "../features/entregas/utils/optimizeIdempotency";
 import { inferCoordPrecision, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
 import { geocodeAddressStrict } from "../features/entregas/utils/geocodeStrict";
 import { mergeEntregaPreservingCampos } from "../features/entregas/utils/camposObrigatoriosUtils";
@@ -140,6 +146,8 @@ export type CurrentLocation = {
 
 export type RouteOptimizationMode =
   | "osrm_trip"
+  | "osrm"
+  | "google"
   | "nearest_fallback"
   | "priority_soft"
   | "local_fallback"
@@ -225,6 +233,12 @@ interface DeliveryState {
   routeDistanceM: number | null;
   /** Duração total da última otimização (segundos), quando disponível via OSRM. */
   routeDurationS: number | null;
+  routeGeometryProvider: "google" | "osrm" | null;
+  routeGeometryStatus: "valid" | "stale" | "missing" | "failed" | null;
+  routeRevision: number | null;
+  routePolylineCoords: RoutePolylineCoord[] | null;
+  /** ID da rota no backend (preparando ou ativa) para refresh de geometria. */
+  persistedRouteId: string | null;
   /** Motoboy conferiu lista Pacote→Parada antes de iniciar. */
   routeSeparationAcknowledged: boolean;
   acknowledgeRouteSeparation: () => void;
@@ -414,6 +428,11 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   routeOptimizationMode: null,
   routeDistanceM: null,
   routeDurationS: null,
+  routeGeometryProvider: null,
+  routeGeometryStatus: null,
+  routeRevision: null,
+  routePolylineCoords: null,
+  persistedRouteId: null,
   routeSeparationAcknowledged: false,
   routeOriginalOrder: null,
   routeManuallyAdjusted: false,
@@ -688,6 +707,25 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDeliveries: deliveries,
       routeDeliveryStatus,
       routeStarted: payload.status === "em_entrega",
+      persistedRouteId: payload.rota_id ?? null,
+      routeGeometryProvider:
+        payload.geometry_provider === "google" || payload.geometry_provider === "osrm"
+          ? payload.geometry_provider
+          : null,
+      routeGeometryStatus:
+        payload.geometry_status === "valid" ||
+        payload.geometry_status === "stale" ||
+        payload.geometry_status === "missing" ||
+        payload.geometry_status === "failed"
+          ? payload.geometry_status
+          : null,
+      routeRevision: payload.route_revision ?? null,
+      routePolylineCoords:
+        payload.geometry_status === "valid" && payload.polyline_coords?.length
+          ? payload.polyline_coords
+          : null,
+      routeDistanceM: payload.distancia_total_m ?? get().routeDistanceM,
+      routeDurationS: payload.duracao_total_s ?? get().routeDurationS,
     });
     get().syncActiveStopIndex();
 
@@ -943,6 +981,11 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeOptimizationMode: null,
       routeDistanceM: null,
       routeDurationS: null,
+      routeGeometryProvider: null,
+      routeGeometryStatus: null,
+      routeRevision: null,
+      routePolylineCoords: null,
+      persistedRouteId: null,
       routeSeparationAcknowledged: false,
       routeOriginalOrder: null,
       routeManuallyAdjusted: false,
@@ -962,6 +1005,11 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeOptimizationMode: null,
       routeDistanceM: null,
       routeDurationS: null,
+      routeGeometryProvider: null,
+      routeGeometryStatus: null,
+      routeRevision: null,
+      routePolylineCoords: null,
+      persistedRouteId: null,
       routeSeparationAcknowledged: false,
       routeOriginalOrder: null,
       routeManuallyAdjusted: false,
@@ -1164,7 +1212,15 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       mode: RouteOptimizationMode,
       message: OptimizeRouteResult["message"],
       semCoordenadas: number[],
-      stats?: { distanceM: number | null; durationS: number | null }
+      stats?: {
+        distanceM: number | null;
+        durationS: number | null;
+        geometryProvider?: "google" | "osrm" | null;
+        geometryStatus?: "valid" | "stale" | "missing" | "failed" | null;
+        routeRevision?: number | null;
+        polylineCoords?: RoutePolylineCoord[] | null;
+        rotaId?: string | null;
+      }
     ) => {
       let newOrder = usePartial ? [...prefix, ...newSuffix] : newSuffix;
       newOrder = clusterRouteOrderByAddress(routeDeliveries, newOrder);
@@ -1177,6 +1233,12 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         routeOptimizationMode: mode,
         routeDistanceM: stats?.distanceM ?? null,
         routeDurationS: stats?.durationS ?? null,
+        routeGeometryProvider: stats?.geometryProvider ?? null,
+        routeGeometryStatus: stats?.geometryStatus ?? null,
+        routeRevision: stats?.routeRevision ?? null,
+        routePolylineCoords:
+          stats?.geometryStatus === "valid" ? stats?.polylineCoords ?? null : null,
+        persistedRouteId: stats?.rotaId ?? get().persistedRouteId,
         ...snapshotUpdate,
       });
       if (activeRouteId != null && opts?.persistActive !== false) {
@@ -1187,17 +1249,55 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
 
     const routePriority: RoutePriority = useMotoboyPrefsStore.getState().routePriority;
     const apiPriority = toApiPriorityPayload(routePriority);
+    const idemKey = beginOptimizeIdempotencyKey();
 
     try {
-      const res = await postRotasOtimizar(idsForApi, start, apiPriority, end);
+      const res = await postRotasOtimizar(idsForApi, start, apiPriority, end, idemKey);
       const semCoordenadas = res.sem_coordenadas ?? [];
       const message: OptimizeRouteResult["message"] =
         semCoordenadas.length > 0 ? "partial" : "success";
-      return applyOrder(res.ordem, res.modo, message, semCoordenadas, {
+      const rawMode = String(res.optimization_mode || res.modo || "nearest_fallback");
+      const mode: RouteOptimizationMode =
+        rawMode === "google"
+          ? "google"
+          : rawMode === "osrm" || rawMode === "osrm_trip"
+            ? "osrm_trip"
+            : rawMode === "priority_soft"
+              ? "priority_soft"
+              : rawMode === "nearest_fallback"
+                ? "nearest_fallback"
+                : "osrm_trip";
+      const geomStatus =
+        res.geometry_status === "valid" ||
+        res.geometry_status === "stale" ||
+        res.geometry_status === "missing" ||
+        res.geometry_status === "failed"
+          ? res.geometry_status
+          : null;
+      return await applyOrder(res.ordem, mode, message, semCoordenadas, {
         distanceM: res.distancia_total_m ?? null,
         durationS: res.duracao_total_s ?? null,
+        geometryProvider:
+          res.geometry_provider === "google" || res.geometry_provider === "osrm"
+            ? res.geometry_provider
+            : null,
+        geometryStatus: geomStatus,
+        routeRevision: res.route_revision ?? null,
+        polylineCoords: res.polyline_coords ?? null,
+        rotaId: res.rota_id ?? null,
       });
-    } catch {
+    } catch (err: unknown) {
+      const detail =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+          : null;
+      const code =
+        detail && typeof detail === "object" && detail !== null && "code" in detail
+          ? String((detail as { code?: string }).code || "")
+          : "";
+      if (code.startsWith("ROUTING_") || code === "OPTIMIZATION_IN_PROGRESS") {
+        throw err;
+      }
       const suffixDeliveries = getOrderedRouteDeliveries(
         routeDeliveries.filter((d) => suffix.includes(d.id_saida)),
         suffix
@@ -1222,7 +1322,12 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       return applyOrder(orderedIds, mode, "local_fallback", semCoordenadas, {
         distanceM: Math.round(distKm * 1000),
         durationS: Math.round((distKm / 30) * 3600),
+        geometryProvider: null,
+        geometryStatus: "missing",
+        polylineCoords: null,
       });
+    } finally {
+      endOptimizeIdempotencyKey();
     }
   },
   reorderRoute: (order) => {
@@ -1318,7 +1423,41 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         routeManuallyAdjusted: true,
         routeAdjustMode: "swap_only",
         routeLastRecalcAnchor: toGroupIndex + 1,
+        routeGeometryStatus:
+          get().routeGeometryProvider === "google" ? "stale" : get().routeGeometryStatus,
+        routePolylineCoords:
+          get().routeGeometryProvider === "google" ? null : get().routePolylineCoords,
       });
+      const routeId = get().activeRouteId ?? get().persistedRouteId;
+      if (routeId) {
+        try {
+          await putRotasOrdem(routeId, get().routeOrder);
+          if (get().routeGeometryProvider === "google") {
+            const geom = await postRotasGeometryRefresh(routeId);
+            if (geom.ok && geom.polyline_coords?.length) {
+              set({
+                routeGeometryStatus: "valid",
+                routeGeometryProvider: "google",
+                routePolylineCoords: geom.polyline_coords,
+                routeRevision: geom.route_revision ?? get().routeRevision,
+                routeDistanceM: geom.distancia_total_m ?? get().routeDistanceM,
+                routeDurationS: geom.duracao_total_s ?? get().routeDurationS,
+              });
+            } else {
+              set({
+                routeGeometryStatus: geom.discarded ? "stale" : "failed",
+                routePolylineCoords: null,
+              });
+            }
+          }
+        } catch {
+          // Ordem local já aplicada; geometria pode ficar stale.
+          set({
+            routeGeometryStatus:
+              get().routeGeometryProvider === "google" ? "stale" : get().routeGeometryStatus,
+          });
+        }
+      }
       return { ok: true, mode: "swap_only" };
     }
 

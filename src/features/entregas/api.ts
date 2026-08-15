@@ -530,14 +530,31 @@ export async function exportComprovante(
 
 // --- Otimização e rotas ativas persistidas ---
 
-export type RotasOtimizarModo = "osrm_trip" | "nearest_fallback" | "priority_soft";
+export type RotasOtimizarModo =
+  | "osrm_trip"
+  | "osrm"
+  | "google"
+  | "nearest_fallback"
+  | "priority_soft"
+  | "local_fallback";
+
+export type RouteGeometryStatus = "valid" | "stale" | "missing" | "failed";
+
+export type RoutePolylineCoord = { latitude: number; longitude: number };
 
 export interface RotasOtimizarResponse {
   ordem: number[];
-  modo: RotasOtimizarModo;
+  modo: RotasOtimizarModo | string;
   sem_coordenadas: number[];
   distancia_total_m?: number | null;
   duracao_total_s?: number | null;
+  optimization_mode?: string | null;
+  geometry_provider?: "google" | "osrm" | string | null;
+  geometry_status?: RouteGeometryStatus | string | null;
+  route_revision?: number | null;
+  polyline_encoded?: string | null;
+  polyline_coords?: RoutePolylineCoord[] | null;
+  rota_id?: string | null;
 }
 
 export type RotasOtimizarPriority =
@@ -548,7 +565,8 @@ export async function postRotasOtimizar(
   deliveryIds: number[],
   start?: { latitude: number; longitude: number },
   priority?: RotasOtimizarPriority,
-  end?: { latitude: number; longitude: number }
+  end?: { latitude: number; longitude: number },
+  idempotencyKey?: string
 ): Promise<RotasOtimizarResponse> {
   const body: {
     delivery_ids: number[];
@@ -561,8 +579,11 @@ export async function postRotasOtimizar(
   if (start) body.start = start;
   if (end) body.end = end;
   if (priority) body.priority = priority;
+  const headers: Record<string, string> = {};
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const { data } = await client.post<RotasOtimizarResponse>("/mobile/rotas/otimizar", body, {
     timeout: ROUTE_OPTIMIZE_TIMEOUT_MS,
+    headers,
   });
   return data;
 }
@@ -640,6 +661,14 @@ export interface RotasAtivaResponse {
   started_at?: string | null;
   updated_at?: string | null;
   pending_sync?: boolean;
+  optimization_mode?: string | null;
+  geometry_provider?: string | null;
+  geometry_status?: RouteGeometryStatus | string | null;
+  route_revision?: number | null;
+  polyline_encoded?: string | null;
+  polyline_coords?: RoutePolylineCoord[] | null;
+  distancia_total_m?: number | null;
+  duracao_total_s?: number | null;
 }
 
 export async function postRotasIniciar(ordem: number[]): Promise<{ rota_id: string }> {
@@ -655,6 +684,22 @@ export async function getRotasAtiva(dataHoje?: string): Promise<RotasAtivaRespon
   if (data.status === "sem_rota" || !data.rota_id) {
     return { ...data, status: data.status || "sem_rota", ordem: data.ordem || [], parada_atual: data.parada_atual ?? 0 };
   }
+  return data;
+}
+
+export async function postRotasGeometryRefresh(rotaId: string): Promise<{
+  ok: boolean;
+  discarded?: boolean;
+  route_revision: number;
+  geometry_status: string;
+  geometry_provider?: string | null;
+  polyline_encoded?: string | null;
+  polyline_coords?: RoutePolylineCoord[] | null;
+  distancia_total_m?: number | null;
+  duracao_total_s?: number | null;
+  message?: string | null;
+}> {
+  const { data } = await client.post(`/mobile/rotas/${rotaId}/geometry/refresh`);
   return data;
 }
 

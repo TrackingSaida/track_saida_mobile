@@ -3,6 +3,10 @@ import * as Location from "expo-location";
 import type { OptimizeRouteOptions, OptimizeRouteResult } from "../../../store/deliveryStore";
 import { useRouteDestinationStore } from "../../../store/routeDestinationStore";
 import { formatApiError } from "../../../utils/formatApiError";
+import {
+  beginOptimizeIdempotencyKey,
+  isOptimizeInFlight,
+} from "./optimizeIdempotency";
 
 type OptimizeFn = (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
 
@@ -68,6 +72,14 @@ export async function runOptimizeRouteWithFeedback(
   opts?: OptimizeRouteFeedbackOptions
 ): Promise<OptimizeRouteResult | null> {
   const silent = opts?.silent === true;
+  if (isOptimizeInFlight()) {
+    if (!silent) {
+      Alert.alert("Aguarde", "Já existe uma otimização em andamento.");
+    }
+    return null;
+  }
+  // Garante key criada no início do gesto (antes de retries internos).
+  beginOptimizeIdempotencyKey();
   const endOpts = resolveEndOpts(opts);
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
