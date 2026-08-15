@@ -20,6 +20,10 @@ export function useActiveRoutePolyline(params: {
   geocodedMeta?: GeocodedMetaMap;
   legacyValidationCache?: LegacyValidationCache;
   currentLocation?: { latitude: number; longitude: number } | null;
+  /** Geometria persistida pelo backend (Google). Se provider=google e válida, não chama OSRM. */
+  backendPolylineCoords?: RoutePoint[] | null;
+  geometryProvider?: "google" | "osrm" | null;
+  geometryStatus?: "valid" | "stale" | "missing" | "failed" | null;
 }) {
   const {
     isRouteActive,
@@ -30,7 +34,16 @@ export function useActiveRoutePolyline(params: {
     geocodedMeta,
     legacyValidationCache,
     currentLocation,
+    backendPolylineCoords,
+    geometryProvider,
+    geometryStatus,
   } = params;
+
+  const useBackendGoogle =
+    geometryProvider === "google" &&
+    geometryStatus === "valid" &&
+    !!backendPolylineCoords &&
+    backendPolylineCoords.length >= 2;
 
   const [polyline, setPolyline] = useState<RoutePoint[] | null>(null);
   const [lastValidPolyline, setLastValidPolyline] = useState<RoutePoint[] | null>(null);
@@ -71,7 +84,19 @@ export function useActiveRoutePolyline(params: {
     currentLocation,
   ]);
 
+  // Backend Google geometry: usa coordenadas salvas; não chama OSRM.
+  useEffect(() => {
+    if (!useBackendGoogle || !backendPolylineCoords) return;
+    setPolyline(backendPolylineCoords);
+    setLastValidPolyline(backendPolylineCoords);
+    lastValidRef.current = backendPolylineCoords;
+    setError(null);
+    setLoading(false);
+    lastHashRef.current = waypointsHash(backendPolylineCoords);
+  }, [useBackendGoogle, backendPolylineCoords]);
+
   const runFetch = useCallback(async (points: RoutePoint[], force = false) => {
+    if (useBackendGoogle) return;
     if (points.length < 2) {
       setPolyline(null);
       setError(null);
@@ -93,7 +118,6 @@ export function useActiveRoutePolyline(params: {
       if (controller.signal.aborted) return;
 
       if (result && result.length >= 2) {
-        // Marca como feito só no sucesso: fetch abortado/falho deve ser retentado.
         lastHashRef.current = hash;
         setPolyline(result);
         setLastValidPolyline(result);
@@ -111,9 +135,22 @@ export function useActiveRoutePolyline(params: {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [useBackendGoogle]);
 
   useEffect(() => {
+    if (useBackendGoogle) return;
+    if (geometryProvider === "google" && geometryStatus && geometryStatus !== "valid") {
+      // stale/failed/missing com provider google: não desenhar OSRM enganoso
+      setPolyline(null);
+      setError(
+        geometryStatus === "stale"
+          ? "Linha da rota desatualizada. Reotimize ou aguarde o recálculo."
+          : geometryStatus === "failed"
+            ? "Não foi possível atualizar a linha da rota."
+            : null
+      );
+      return;
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       void runFetch(routePoints);
@@ -123,19 +160,20 @@ export function useActiveRoutePolyline(params: {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       abortRef.current?.abort();
     };
-  }, [routePoints, runFetch]);
+  }, [routePoints, runFetch, useBackendGoogle, geometryProvider, geometryStatus]);
 
   const recalcPolyline = useCallback(() => {
+    if (useBackendGoogle) return;
     lastHashRef.current = null;
     void runFetch(routePoints, true);
-  }, [routePoints, runFetch]);
+  }, [routePoints, runFetch, useBackendGoogle]);
 
   const polylineWarning = error && !polyline ? error : error ? error : null;
 
   return {
-    polyline,
+    polyline: useBackendGoogle ? backendPolylineCoords : polyline,
     lastValidPolyline,
-    loading,
+    loading: useBackendGoogle ? false : loading,
     error,
     polylineWarning,
     recalcPolyline,

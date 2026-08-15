@@ -312,6 +312,10 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     return target.mode === "coords" || (target.mode === "address" && Boolean(target.address));
   }, [nextGroup, geocodedCoords, geocodedMeta, legacyValidationCache]);
 
+  const routePolylineCoords = useDeliveryStore((s) => s.routePolylineCoords);
+  const routeGeometryProvider = useDeliveryStore((s) => s.routeGeometryProvider);
+  const routeGeometryStatus = useDeliveryStore((s) => s.routeGeometryStatus);
+
   const { polyline: routePolyline, polylineWarning, recalcPolyline } = useActiveRoutePolyline({
     isRouteActive,
     groupedStops,
@@ -321,6 +325,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     geocodedMeta,
     legacyValidationCache,
     currentLocation,
+    backendPolylineCoords: routePolylineCoords,
+    geometryProvider: routeGeometryProvider,
+    geometryStatus: routeGeometryStatus,
   });
 
   useEffect(() => {
