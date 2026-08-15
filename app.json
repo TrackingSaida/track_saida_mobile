@@ -1,11 +1,11 @@
 {
   "expo": {
     "name": "ROTEVO",
-    "slug": "track_saida_mobile",
+    "slug": "rotevo",
     "version": "1.8.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "trackingsaida",
+    "scheme": "rotevo",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "plugins": [
