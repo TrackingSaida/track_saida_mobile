@@ -4,8 +4,11 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { useAuthStore } from "../store/authStore";
 import GradientScreenHeader from "../components/ui/GradientScreenHeader";
+import AppBrandTitleLogo from "../components/AppBrandTitleLogo";
+import AppText from "../components/ui/AppText";
 import { useThemeColors } from "../theme/colors";
 import { space } from "../theme/spacing";
+import { textStyle } from "../theme/typography";
 import {
   effectiveConferenciaSaida,
   effectiveEntradaObrigatoria,
@@ -44,6 +47,13 @@ export default function StaffHomeScreen({ navigation }: Props) {
           color: colors.textSecondary,
           marginTop: 4,
         },
+        operacaoTitle: {
+          ...textStyle("screenTitle"),
+          fontWeight: "800",
+          letterSpacing: -0.5,
+          color: colors.text,
+          marginTop: space.sm,
+        },
         grid: {
           flexDirection: "row",
           flexWrap: "wrap",
@@ -74,11 +84,12 @@ export default function StaffHomeScreen({ navigation }: Props) {
     >
       <GradientScreenHeader
         gradientColors={headerGradient}
-        title="Operação"
+        titleNode={<AppBrandTitleLogo size="home" />}
         subtitle={`Olá, ${nome}`}
         tertiary={subBase ? `Base: ${subBase}` : undefined}
         paddingBottom={space.lg}
       >
+        <AppText style={styles.operacaoTitle}>Operação</AppText>
         <Text style={styles.perfilLine}>Perfil: {labelPerfil}</Text>
       </GradientScreenHeader>
 
