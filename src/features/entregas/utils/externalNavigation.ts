@@ -281,6 +281,30 @@ export async function openExternalNavigation(
   return openNavigationToStop(stop, app, { skipApproximateConfirm: true });
 }
 
+/** Navega ou copia a partir de um endereço textual (ex.: base/seller da coleta). */
+export async function openNavigationByAddress(
+  app: NavigationApp,
+  address: string
+): Promise<boolean> {
+  const text = String(address || "").trim();
+  if (!text) {
+    Alert.alert("Atenção", "Endereço indisponível.");
+    return false;
+  }
+  if (app === "copy") {
+    const ok = await copyToClipboard(text);
+    if (ok) Alert.alert("Copiado", "Endereço copiado para a área de transferência.");
+    return ok;
+  }
+  const target: NavigationTarget = { mode: "address", address: text, trusted: true };
+  const urls = buildNavigationUrls(app, target);
+  if (!urls) {
+    Alert.alert("Atenção", "Não foi possível montar o link de navegação.");
+    return false;
+  }
+  return openNavigationUrl(urls.primary, urls.fallback);
+}
+
 export function getNavigationOptions(): Array<{ id: NavigationApp; label: string }> {
   const options: Array<{ id: NavigationApp; label: string }> = [
     { id: "google", label: "Google Maps" },

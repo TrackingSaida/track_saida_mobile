@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Pressable,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,11 +29,17 @@ import {
 } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { enviarColetaUnica, lancarAvulsoColeta, type ServicoColeta } from "../coletasApi";
+import { listarBasesAtivas, type BaseItem } from "../basesApi";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
 import AvulsoLancamentoModal from "../components/AvulsoLancamentoModal";
 import PhysicalScannerInput from "../components/PhysicalScannerInput";
 import { classifyCodigoParaOperacao, type ClassifyCodigoOperacaoResult } from "../parseCodigoQr";
+import {
+  getNavigationOptions,
+  openNavigationByAddress,
+  type NavigationApp,
+} from "../../entregas/utils/externalNavigation";
 
 type StatusLeitura = "pendente" | "enviado" | "duplicado" | "erro";
 
@@ -109,7 +117,10 @@ export default function LeituraColetasScreen() {
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
   const [permission, requestPermission] = useCameraPermissions();
+  const [bases, setBases] = useState<BaseItem[]>([]);
   const [base, setBase] = useState("");
+  const [carregandoBases, setCarregandoBases] = useState(false);
+  const [modalBaseVisible, setModalBaseVisible] = useState(false);
   const [codigoInput, setCodigoInput] = useState("");
   const [leituras, setLeituras] = useState<ColetaItemLocal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -117,7 +128,6 @@ export default function LeituraColetasScreen() {
   const [modoLeitorFisico, setModoLeitorFisico] = useState(false);
   const [modoManual, setModoManual] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
-  const [configExpanded, setConfigExpanded] = useState(true);
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -156,6 +166,81 @@ export default function LeituraColetasScreen() {
           backgroundColor: colors.backgroundCard,
         },
         badgeText: { fontSize: 13, color: colors.textSecondary },
+        baseBlock: {
+          borderRadius: 14,
+          padding: 16,
+          backgroundColor: colors.backgroundCard,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          marginBottom: 16,
+        },
+        baseBadge: {
+          alignSelf: "flex-start",
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 999,
+          backgroundColor: "rgba(20, 184, 166, 0.14)",
+          marginBottom: 10,
+        },
+        baseBadgeText: {
+          fontSize: 11,
+          fontWeight: "700",
+          color: "#0F766E",
+          textTransform: "uppercase",
+        },
+        baseLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 6, fontWeight: "600" },
+        baseNome: { fontSize: 22, fontWeight: "800", color: colors.text, marginBottom: 12 },
+        baseCta: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+          borderRadius: 12,
+          backgroundColor: "rgba(20, 184, 166, 0.12)",
+          borderWidth: 1,
+          borderColor: "#14B8A6",
+        },
+        baseCtaText: { fontSize: 15, fontWeight: "600", color: "#0F766E", flex: 1 },
+        baseHint: {
+          fontSize: 14,
+          color: colors.textSecondary,
+          marginBottom: 12,
+          lineHeight: 20,
+        },
+        enderecoTexto: {
+          fontSize: 14,
+          color: colors.textSecondary,
+          lineHeight: 20,
+          marginBottom: 10,
+        },
+        navActionsRow: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 4,
+        },
+        navActionChip: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: 8,
+          paddingHorizontal: 12,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.background,
+        },
+        navActionChipText: {
+          fontSize: 13,
+          fontWeight: "600",
+          color: colors.primary,
+        },
+        atualizarLink: {
+          fontSize: 13,
+          color: colors.primary,
+          fontWeight: "600",
+        },
         infoCard: {
           marginTop: 8,
           padding: 16,
@@ -176,6 +261,38 @@ export default function LeituraColetasScreen() {
           color: colors.text,
           marginBottom: 12,
         },
+        pickerOverlay: {
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          justifyContent: "flex-end",
+        },
+        pickerSheet: {
+          backgroundColor: colors.backgroundCard,
+          borderTopLeftRadius: 18,
+          borderTopRightRadius: 18,
+          paddingHorizontal: 18,
+          paddingTop: 12,
+          paddingBottom: Platform.OS === "ios" ? 28 : 18,
+          maxHeight: "72%",
+        },
+        pickerTitle: { fontSize: 17, fontWeight: "700", color: colors.text, marginBottom: 12 },
+        pickerItem: {
+          paddingVertical: 14,
+          paddingHorizontal: 14,
+          borderRadius: 12,
+          marginBottom: 8,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.inputBackground,
+        },
+        pickerItemActive: {
+          borderColor: "#14B8A6",
+          backgroundColor: "rgba(20, 184, 166, 0.12)",
+        },
+        pickerItemText: { fontSize: 16, color: colors.text, fontWeight: "600" },
+        pickerItemSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+        pickerClose: { alignSelf: "center", paddingVertical: 12 },
+        pickerCloseText: { fontSize: 15, color: colors.primary, fontWeight: "600" },
         row: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
         btnPrimary: {
           paddingHorizontal: 16,
@@ -240,11 +357,39 @@ export default function LeituraColetasScreen() {
           marginBottom: 8,
         },
         filterHeaderTitle: { fontSize: 15, fontWeight: "600", color: colors.text },
+        resumoCard: {
+          borderRadius: 14,
+          padding: 16,
+          backgroundColor: colors.backgroundCard,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          marginTop: 4,
+          marginBottom: 8,
+        },
+        sessaoTitulo: {
+          fontSize: 12,
+          fontWeight: "700",
+          color: colors.textSecondary,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+          marginBottom: 8,
+        },
+        totalGigante: {
+          fontSize: 40,
+          fontWeight: "800",
+          color: colors.text,
+          lineHeight: 44,
+        },
+        totalLegenda: {
+          fontSize: 13,
+          color: colors.textSecondary,
+          marginTop: 4,
+          marginBottom: 14,
+        },
         resumoRow: {
           flexDirection: "row",
           justifyContent: "space-between",
-          marginTop: 12,
-          marginBottom: 8,
+          marginBottom: 12,
         },
         resumoBadge: {
           flex: 1,
@@ -252,7 +397,7 @@ export default function LeituraColetasScreen() {
           paddingVertical: 10,
           borderRadius: 10,
           alignItems: "center",
-          backgroundColor: colors.backgroundCard,
+          backgroundColor: colors.background,
         },
         resumoShopee: {
           borderWidth: 1,
@@ -268,6 +413,23 @@ export default function LeituraColetasScreen() {
         },
         resumoNum: { fontSize: 18, fontWeight: "700", color: colors.text },
         resumoLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+        ultimaLeituraBox: {
+          borderRadius: 10,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          backgroundColor: colors.background,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+        },
+        ultimaLeituraLabel: {
+          fontSize: 11,
+          fontWeight: "700",
+          color: colors.textSecondary,
+          textTransform: "uppercase",
+          marginBottom: 4,
+        },
+        ultimaLeituraTexto: { fontSize: 14, color: colors.text, fontWeight: "600" },
+        ultimaLeituraSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
         listaContainer: {
           marginTop: 12,
           borderRadius: 12,
@@ -396,6 +558,57 @@ export default function LeituraColetasScreen() {
     }, FEEDBACK_MS);
   }, []);
 
+  const baseSelecionadaOk = base.trim().length > 0;
+  const isOwnerTipoBase = String(currentUser?.tipo_owner || "").toLowerCase() === "base";
+  const entidadeLabel = isOwnerTipoBase ? "Seller" : "Base";
+  const entidadeLabelLower = isOwnerTipoBase ? "seller" : "base";
+  const baseSelecionada = useMemo(
+    () => bases.find((b) => b.base === base) ?? null,
+    [bases, base]
+  );
+  const enderecoSelecionado = (baseSelecionada?.endereco_completo || "").trim();
+  const navOptions = useMemo(() => getNavigationOptions(), []);
+
+  const carregarBases = useCallback(async () => {
+    setCarregandoBases(true);
+    try {
+      const lista = await listarBasesAtivas();
+      setBases(lista);
+      setBase((atual) => {
+        if (atual && lista.some((b) => b.base === atual)) return atual;
+        if (lista.length === 1) return lista[0].base;
+        return "";
+      });
+    } catch (e) {
+      Alert.alert(
+        "Erro",
+        formatApiError(e, `Não foi possível carregar os ${isOwnerTipoBase ? "sellers" : "bases"}.`)
+      );
+    } finally {
+      setCarregandoBases(false);
+    }
+  }, [isOwnerTipoBase]);
+
+  useEffect(() => {
+    void carregarBases();
+  }, [carregarBases]);
+
+  const selecionarBase = useCallback((item: BaseItem) => {
+    setBase(item.base);
+    setModalBaseVisible(false);
+  }, []);
+
+  const handleNavEndereco = useCallback(
+    async (app: NavigationApp) => {
+      if (!enderecoSelecionado) {
+        Alert.alert("Atenção", "Endereço indisponível para este cadastro.");
+        return;
+      }
+      await openNavigationByAddress(app, enderecoSelecionado);
+    },
+    [enderecoSelecionado]
+  );
+
   const feedbackColors = useCallback((tipo: FeedbackTipo) => {
     if (tipo === "sucesso") return { bg: "rgba(25,135,84,0.16)", border: "rgba(25,135,84,0.4)", fg: "#198754" };
     if (tipo === "duplicado") return { bg: "rgba(255,193,7,0.18)", border: "rgba(200,150,0,0.4)", fg: "#856404" };
@@ -439,6 +652,15 @@ export default function LeituraColetasScreen() {
     const total = ativos.length;
     return { shopee, ml, avulso, total };
   }, [leituras]);
+  const ultimaLeitura = useMemo(() => {
+    for (let i = leituras.length - 1; i >= 0; i -= 1) {
+      const item = leituras[i];
+      if (item.status === "enviado" || item.status === "duplicado" || item.status === "erro") {
+        return item;
+      }
+    }
+    return null;
+  }, [leituras]);
   const codigosLidosSessao = useMemo(() => {
     const set = new Set<string>();
     leituras.forEach((l) => {
@@ -451,7 +673,10 @@ export default function LeituraColetasScreen() {
 
   const ensurePermissionAndOpenCamera = useCallback(async () => {
     if (!base.trim()) {
-      Alert.alert("Base obrigatória", "Informe a base antes de iniciar as leituras.");
+      Alert.alert(
+        `${entidadeLabel} obrigatóri${isOwnerTipoBase ? "o" : "a"}`,
+        `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} antes de iniciar as leituras.`
+      );
       return;
     }
     if (!permission) {
@@ -469,18 +694,21 @@ export default function LeituraColetasScreen() {
     setModoLeitorFisico(false);
     setModoManual(false);
     setCameraAtiva(true);
-  }, [base, permission, requestPermission]);
+  }, [base, entidadeLabel, entidadeLabelLower, isOwnerTipoBase, permission, requestPermission]);
 
   const openPhysicalScanner = useCallback(() => {
     if (!base.trim()) {
-      Alert.alert("Base obrigatória", "Informe a base antes de iniciar as leituras.");
+      Alert.alert(
+        `${entidadeLabel} obrigatóri${isOwnerTipoBase ? "o" : "a"}`,
+        `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} antes de iniciar as leituras.`
+      );
       return;
     }
     if (!podeLerColeta || ignorarColeta) return;
     setModoLeitorFisico(true);
     setModoManual(false);
     setCameraAtiva(true);
-  }, [base, ignorarColeta, podeLerColeta]);
+  }, [base, entidadeLabel, entidadeLabelLower, ignorarColeta, isOwnerTipoBase, podeLerColeta]);
 
   const processarLeitura = useCallback(
     async (raw: string, origem: "camera" | "manual" | "leitor") => {
@@ -499,8 +727,11 @@ export default function LeituraColetasScreen() {
         return;
       }
       if (!baseTrimmed) {
-        pushFeedback("info", "Informe a base antes de iniciar.");
-        Alert.alert("Base obrigatória", "Informe a base para registrar as coletas.");
+        pushFeedback("info", `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} antes de iniciar.`);
+        Alert.alert(
+          `${entidadeLabel} obrigatóri${isOwnerTipoBase ? "o" : "a"}`,
+          `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} para registrar as coletas.`
+        );
         return;
       }
 
@@ -617,7 +848,7 @@ export default function LeituraColetasScreen() {
         }, 400);
       }
     },
-    [base, codigosLidosSessao, ignorarColeta, leituras, podeLerColeta, pushFeedback]
+    [base, codigosLidosSessao, entidadeLabel, entidadeLabelLower, ignorarColeta, isOwnerTipoBase, leituras, podeLerColeta, pushFeedback]
   );
 
   const handleRegistrarManual = useCallback(async () => {
@@ -637,8 +868,11 @@ export default function LeituraColetasScreen() {
       photoIds: string[];
     }) => {
       const baseTrimmed = base.trim();
-      if (!baseTrimmed) throw new Error("Informe a base antes de lançar o avulso.");
-      setLoading(true);
+      if (!baseTrimmed) {
+        throw new Error(
+          `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} antes de lançar o avulso.`
+        );
+      }      setLoading(true);
       try {
         const result = await lancarAvulsoColeta({
           base: baseTrimmed,
@@ -665,7 +899,7 @@ export default function LeituraColetasScreen() {
         setLoading(false);
       }
     },
-    [base, pushFeedback]
+    [base, entidadeLabelLower, isOwnerTipoBase, pushFeedback]
   );
 
   const handleBarcodeScanned = useCallback(
@@ -698,73 +932,106 @@ export default function LeituraColetasScreen() {
       style={styles.container}
       contentContainerStyle={[styles.content, { paddingBottom: 48 + insets.bottom }]}
     >
-      <Text style={styles.description}>
-        Leia códigos Shopee, Mercado Livre ou avulsos; a base é obrigatória antes de registrar.
-      </Text>
+      {!hideStaffBadges || ignorarColeta ? (
+        <View style={styles.badgeRow}>
+          {!hideStaffBadges && subBase ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>Unidade: {subBase}</Text>
+            </View>
+          ) : null}
+          {!hideStaffBadges ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                Coleta: {podeLerColeta && !ignorarColeta ? "Ativa" : "Desativada"}
+              </Text>
+            </View>
+          ) : null}
+          {ignorarColeta ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>Coletas desativadas para este owner</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {feedbackVisual && !cameraAtiva ? renderFeedbackStrip("main") : null}
 
-      <View style={styles.badgeRow}>
-        {subBase ? (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Base: {subBase}</Text>
+      <View style={styles.baseBlock}>
+        {baseSelecionadaOk ? (
+          <View style={styles.baseBadge}>
+            <Text style={styles.baseBadgeText}>{entidadeLabel} selecionad{isOwnerTipoBase ? "o" : "a"}</Text>
           </View>
         ) : null}
-        {!hideStaffBadges ? (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              Permissão de leitura de coletas: {podeLerColeta ? "Ativa" : "Desativada"}
-            </Text>
-          </View>
-        ) : null}
-        {ignorarColeta ? (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Coletas desativadas para este owner</Text>
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.infoCard}>
-        <TouchableOpacity
-          style={styles.filterHeader}
-          onPress={() => setConfigExpanded((e) => !e)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.filterHeaderTitle}>Configuração da coleta</Text>
-          <Ionicons
-            name={configExpanded ? "chevron-up" : "chevron-down"}
-            size={22}
-            color={colors.textSecondary}
-          />
-        </TouchableOpacity>
-        {configExpanded ? (
-          <Text style={styles.infoText}>
-            Informe a base, depois escaneie ou digite. O serviço é detectado automaticamente.
+        {!baseSelecionadaOk ? <Text style={styles.baseLabel}>{entidadeLabel}</Text> : null}
+        {baseSelecionadaOk ? (
+          <Text style={styles.baseNome} numberOfLines={2}>
+            {base.trim()}
           </Text>
+        ) : (
+          <Text style={styles.baseHint}>
+            Selecione {isOwnerTipoBase ? "o" : "a"} {entidadeLabelLower} para iniciar as leituras de coleta.
+          </Text>
+        )}
+        {baseSelecionadaOk && enderecoSelecionado ? (
+          <>
+            <Text style={styles.enderecoTexto}>{enderecoSelecionado}</Text>
+            <View style={styles.navActionsRow}>
+              {navOptions.map((opt) => (
+                <TouchableOpacity
+                  key={opt.id}
+                  style={styles.navActionChip}
+                  onPress={() => void handleNavEndereco(opt.id)}
+                  accessibilityLabel={opt.label}
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name={
+                      opt.id === "copy"
+                        ? "copy-outline"
+                        : opt.id === "waze"
+                          ? "navigate-outline"
+                          : "map-outline"
+                    }
+                    size={16}
+                    color={colors.primary}
+                  />
+                  <Text style={styles.navActionChipText}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
         ) : null}
+        <TouchableOpacity
+          style={[styles.baseCta, baseSelecionadaOk && enderecoSelecionado ? { marginTop: 12 } : null]}
+          onPress={() => setModalBaseVisible(true)}
+          disabled={loading}
+          accessibilityLabel={
+            baseSelecionadaOk ? `Trocar ${entidadeLabelLower}` : `Selecionar ${entidadeLabelLower}`
+          }
+          accessibilityRole="button"
+        >
+          <Text style={styles.baseCtaText}>
+            {baseSelecionadaOk ? `Trocar ${entidadeLabelLower}` : `Selecionar ${entidadeLabelLower}`}
+          </Text>
+          <Ionicons name="chevron-forward" size={20} color="#0F766E" />
+        </TouchableOpacity>
+        <View style={{ flexDirection: "row", marginTop: 10, justifyContent: "flex-end" }}>
+          <TouchableOpacity onPress={() => void carregarBases()} disabled={carregandoBases}>
+            {carregandoBases ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Text style={styles.atualizarLink}>Atualizar lista</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <View style={{ marginTop: 16 }}>
-        <Text style={styles.label}>Base</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Ex: BASE-01"
-          placeholderTextColor={colors.placeholder}
-          value={base}
-          onChangeText={setBase}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          editable={!loading}
-        />
-      </View>
-
-      <View style={{ marginTop: 8 }}>
-        <Text style={styles.label}>Como deseja realizar as leituras?</Text>
+      {baseSelecionadaOk && podeLerColeta && !ignorarColeta ? (
         <View style={styles.scanChoiceRow}>
           <TouchableOpacity
             style={styles.scanChoice}
             onPress={ensurePermissionAndOpenCamera}
-            disabled={loading || !podeLerColeta || ignorarColeta}
+            disabled={loading}
             activeOpacity={0.85}
             accessibilityLabel="Usar câmera para registrar coletas"
           >
@@ -774,7 +1041,7 @@ export default function LeituraColetasScreen() {
           <TouchableOpacity
             style={[styles.scanChoice, styles.scanChoiceOutline]}
             onPress={openPhysicalScanner}
-            disabled={loading || !podeLerColeta || ignorarColeta}
+            disabled={loading}
             activeOpacity={0.85}
             accessibilityLabel="Usar leitor físico para registrar coletas"
           >
@@ -782,25 +1049,47 @@ export default function LeituraColetasScreen() {
             <Text style={styles.scanChoiceOutlineText}>Leitor físico</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      ) : null}
 
-      <View style={styles.resumoRow}>
-        <View style={[styles.resumoBadge, styles.resumoShopee]}>
-          <Text style={styles.resumoNum}>{resumo.shopee}</Text>
-          <Text style={styles.resumoLabel}>Shopee</Text>
+      <View style={styles.resumoCard}>
+        <Text style={styles.sessaoTitulo}>Nesta sessão</Text>
+        <Text style={styles.totalGigante}>{resumo.total}</Text>
+        <Text style={styles.totalLegenda}>Pacotes registrados na coleta atual</Text>
+        <View style={styles.resumoRow}>
+          <View style={[styles.resumoBadge, styles.resumoShopee]}>
+            <Text style={styles.resumoNum}>{resumo.shopee}</Text>
+            <Text style={styles.resumoLabel}>Shopee</Text>
+          </View>
+          <View style={[styles.resumoBadge, styles.resumoMl]}>
+            <Text style={styles.resumoNum}>{resumo.ml}</Text>
+            <Text style={styles.resumoLabel}>Mercado Livre</Text>
+          </View>
+          <View style={[styles.resumoBadge, styles.resumoAvulso]}>
+            <Text style={styles.resumoNum}>{resumo.avulso}</Text>
+            <Text style={styles.resumoLabel}>Avulso</Text>
+          </View>
         </View>
-        <View style={[styles.resumoBadge, styles.resumoMl]}>
-          <Text style={styles.resumoNum}>{resumo.ml}</Text>
-          <Text style={styles.resumoLabel}>Mercado Livre</Text>
-        </View>
-        <View style={[styles.resumoBadge, styles.resumoAvulso]}>
-          <Text style={styles.resumoNum}>{resumo.avulso}</Text>
-          <Text style={styles.resumoLabel}>Avulso</Text>
+        <View style={styles.ultimaLeituraBox}>
+          <Text style={styles.ultimaLeituraLabel}>Última leitura</Text>
+          {ultimaLeitura ? (
+            <>
+              <Text style={styles.ultimaLeituraTexto}>{ultimaLeitura.codigo}</Text>
+              <Text style={styles.ultimaLeituraSub}>
+                {ultimaLeitura.servico}
+                {ultimaLeitura.status === "enviado"
+                  ? " · Registrado"
+                  : ultimaLeitura.status === "duplicado"
+                    ? " · Duplicado"
+                    : ultimaLeitura.status === "erro"
+                      ? " · Erro"
+                      : ""}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.ultimaLeituraSub}>Aguardando primeira leitura nesta sessão</Text>
+          )}
         </View>
       </View>
-      <Text style={[styles.resumoLabel, { textAlign: "right" }]}>
-        Total (sessão atual): {resumo.total}
-      </Text>
 
       {leituras.length > 0 && (
         <View style={styles.listaContainer}>
@@ -1047,6 +1336,56 @@ export default function LeituraColetasScreen() {
         </View>
         )}
       </Modal>
+
+      <Modal
+        visible={modalBaseVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setModalBaseVisible(false)}
+      >
+        <Pressable style={styles.pickerOverlay} onPress={() => setModalBaseVisible(false)}>
+          <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.pickerTitle}>Escolher {entidadeLabelLower}</Text>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {carregandoBases ? (
+                <ActivityIndicator color={colors.primary} style={{ marginVertical: 24 }} />
+              ) : bases.length === 0 ? (
+                <Text style={[styles.infoText, { paddingVertical: 16 }]}>
+                  Nenhum{isOwnerTipoBase ? "" : "a"} {entidadeLabelLower} ativ{isOwnerTipoBase ? "o" : "a"} disponível.
+                </Text>
+              ) : (
+                bases.map((item) => {
+                  const ativo = base === item.base;
+                  return (
+                    <TouchableOpacity
+                      key={item.id_base}
+                      style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                      onPress={() => selecionarBase(item)}
+                      accessibilityState={{ selected: ativo }}
+                    >
+                      <Text style={styles.pickerItemText}>{item.base}</Text>
+                      {item.endereco_completo ? (
+                        <Text style={styles.pickerItemSub} numberOfLines={2}>
+                          {item.endereco_completo}
+                        </Text>
+                      ) : null}
+                      {ativo ? (
+                        <Text style={styles.pickerItemSub}>
+                          Selecionad{isOwnerTipoBase ? "o" : "a"}
+                        </Text>
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+            <TouchableOpacity style={styles.pickerClose} onPress={() => setModalBaseVisible(false)}>
+              <Text style={styles.pickerCloseText}>Cancelar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <AvulsoLancamentoModal
         visible={avulsoModalVisible}
         loading={loading}
