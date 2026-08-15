@@ -214,6 +214,7 @@ export interface LerSaidaAdminBody {
   servico?: string | null;
   registrar_nao_coletado?: boolean;
   qr_payload_raw?: string;
+  origem?: "camera" | "manual";
 }
 
 export interface LerSaidaApiRow {
@@ -373,4 +374,3 @@ export async function getSaidaHistorico(idSaida: number | string): Promise<Saida
   );
   return Array.isArray(data) ? data : [];
 }
-

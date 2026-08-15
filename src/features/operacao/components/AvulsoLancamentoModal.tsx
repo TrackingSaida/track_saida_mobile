@@ -47,6 +47,8 @@ type Props = {
   loading?: boolean;
   /** Quando true, exige ao menos 1 foto antes de confirmar. */
   exigeFoto: boolean;
+  /** Coletas e entradas não utilizam comprovante no lançamento avulso. */
+  permitirFotos?: boolean;
   onClose: () => void;
   onConfirm: (payload: {
     identificacao: string | null;
@@ -97,6 +99,7 @@ export default function AvulsoLancamentoModal({
   visible,
   loading = false,
   exigeFoto,
+  permitirFotos = true,
   onClose,
   onConfirm,
 }: Props) {
@@ -263,7 +266,7 @@ export default function AvulsoLancamentoModal({
       Alert.alert("Atenção", validacao.message);
       return;
     }
-    if (exigeFoto && fotos.length === 0) {
+    if (permitirFotos && exigeFoto && fotos.length === 0) {
       Alert.alert("Foto obrigatória", "Tire ao menos uma foto antes de lançar o avulso.");
       return;
     }
@@ -276,7 +279,7 @@ export default function AvulsoLancamentoModal({
       const fotoObjectKeys: string[] = [];
       const photoIds: string[] = [];
 
-      for (let i = 0; i < fotos.length; i++) {
+      for (let i = 0; permitirFotos && i < fotos.length; i++) {
         const local = fotos[i];
         const cached = uploadedByLocalIdRef.current[local.id];
         if (cached?.objectKey) {
@@ -321,7 +324,7 @@ export default function AvulsoLancamentoModal({
       setStatusEnvio(null);
       submitLockRef.current = false;
     }
-  }, [identificacao, quantidade, exigeFoto, fotos, onConfirm]);
+  }, [identificacao, quantidade, exigeFoto, fotos, onConfirm, permitirFotos]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onClose}>
@@ -356,7 +359,7 @@ export default function AvulsoLancamentoModal({
               editable={!busy}
             />
 
-            <View style={styles.fotoSection}>
+            {permitirFotos ? <View style={styles.fotoSection}>
               <View style={styles.fotoHeader}>
                 <Text style={styles.label}>Fotos</Text>
                 {exigeFoto ? (
@@ -403,7 +406,7 @@ export default function AvulsoLancamentoModal({
                   )}
                 </TouchableOpacity>
               ) : null}
-            </View>
+            </View> : null}
 
             {statusEnvio ? <Text style={styles.statusEnvio}>{statusEnvio}</Text> : null}
 

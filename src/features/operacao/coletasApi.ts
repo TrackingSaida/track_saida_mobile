@@ -46,6 +46,19 @@ export interface LoteResponse {
   saidas_criadas: SaidaCriadaLote[];
 }
 
+export interface ColetaLancarAvulsoResult {
+  quantidade_criada: number;
+  codigos: string[];
+  saidas: Array<{
+    id_saida: number;
+    codigo: string;
+    servico: string;
+    status: string;
+  }>;
+  coleta: ColetaOut;
+  mensagem: string;
+}
+
 export interface EnviarColetaParams {
   base: string;
   item: ColetaItemPayload;
@@ -81,3 +94,15 @@ export async function enviarColetaUnica({
   return data;
 }
 
+export async function lancarAvulsoColeta(params: {
+  base: string;
+  identificacao?: string | null;
+  quantidade: number;
+}): Promise<ColetaLancarAvulsoResult> {
+  const { data } = await client.post<ColetaLancarAvulsoResult>("/coletas/lancar-avulso", {
+    base: params.base,
+    quantidade: params.quantidade,
+    ...(params.identificacao ? { identificacao: params.identificacao } : {}),
+  });
+  return data;
+}

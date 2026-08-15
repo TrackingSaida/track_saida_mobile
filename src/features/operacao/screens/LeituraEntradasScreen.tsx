@@ -40,6 +40,7 @@ import {
 } from "../utils/avulsoLancamento";
 import { useScannerTorch } from "../../entregas/hooks/useScannerTorch";
 import ScannerTorchButton from "../../entregas/components/ScannerTorchButton";
+import PhysicalScannerInput from "../components/PhysicalScannerInput";
 
 type StatusLeitura = "sucesso" | "duplicado" | "erro";
 type FeedbackTipo = StatusLeitura | "info";
@@ -125,6 +126,7 @@ export default function LeituraEntradasScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraOpen, setCameraOpen] = useState(false);
   const [modoManual, setModoManual] = useState(false);
+  const [modoLeitorFisico, setModoLeitorFisico] = useState(false);
   const [codigoManual, setCodigoManual] = useState("");
   const [loading, setLoading] = useState(false);
   /** Só câmera: chip leve — não pausa onBarcodeScanned nem cobre a tela. */
@@ -140,7 +142,9 @@ export default function LeituraEntradasScreen() {
   const [resumoLoading, setResumoLoading] = useState(false);
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const torch = useScannerTorch(cameraOpen && !modoManual && !!permission?.granted);
+  const torch = useScannerTorch(
+    cameraOpen && !modoManual && !modoLeitorFisico && !!permission?.granted
+  );
 
   const styles = useMemo(
     () =>
@@ -159,6 +163,24 @@ export default function LeituraEntradasScreen() {
           marginBottom: 16,
         },
         cameraCtaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "700" },
+        scanChoiceRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
+        scanChoice: {
+          flex: 1,
+          minHeight: 82,
+          paddingVertical: 14,
+          paddingHorizontal: 10,
+          borderRadius: 12,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        },
+        scanChoiceOutline: {
+          backgroundColor: colors.backgroundCard,
+          borderWidth: 1.5,
+          borderColor: colors.primary,
+        },
+        scanChoiceOutlineText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
         resumoCard: {
           borderRadius: 14,
           padding: 18,
@@ -440,19 +462,26 @@ export default function LeituraEntradasScreen() {
         return;
       }
     }
+    setModoLeitorFisico(false);
     setModoManual(false);
     setCameraOpen(true);
   }, [permission?.granted, requestPermission]);
 
+  const abrirLeitorFisico = useCallback(() => {
+    setModoLeitorFisico(true);
+    setModoManual(false);
+    setCameraOpen(true);
+  }, []);
+
   const processar = useCallback(
-    async (raw: string, origem: "camera" | "manual") => {
+    async (raw: string, origem: "camera" | "manual" | "leitor") => {
       const rawStr = String(raw || "").trim();
       if (!rawStr || scanLocked.current) return;
 
       const classified = classifyCodigoParaOperacao(rawStr);
       if (!classified.ok || !classified.codigo) {
         playSound("error");
-        pushFeedback("erro", classified.motivo || "Código inválido");
+        pushFeedback("erro", !classified.ok ? classified.motivo : "Código inválido");
         appendLeitura({
           codigo: rawStr.slice(0, 40) || "—",
           servico: "Avulso",
@@ -479,7 +508,7 @@ export default function LeituraEntradasScreen() {
         // Persistência no servidor antes de contar sucesso / atualizar resumo.
         const res = await lerEntrada({
           codigo: classified.qr_payload_raw || classified.codigo,
-          origem,
+          origem: origem === "leitor" ? "manual" : origem,
           qr_payload_raw: classified.qr_payload_raw,
         });
         const servico = labelServicoUi(res.servico, c);
@@ -624,10 +653,25 @@ export default function LeituraEntradasScreen() {
         </Text>
         {renderFeedbackStrip("main")}
 
-        <TouchableOpacity style={styles.cameraCta} onPress={() => void abrirCamera()}>
-          <Ionicons name="scan-outline" size={22} color={colors.primaryContrast} />
-          <Text style={styles.cameraCtaText}>Abrir scanner</Text>
-        </TouchableOpacity>
+        <Text style={[styles.hint, { marginBottom: 8 }]}>Como deseja realizar as leituras?</Text>
+        <View style={styles.scanChoiceRow}>
+          <TouchableOpacity
+            style={styles.scanChoice}
+            onPress={() => void abrirCamera()}
+            accessibilityLabel="Usar câmera para registrar entradas"
+          >
+            <Ionicons name="camera-outline" size={24} color={colors.primaryContrast} />
+            <Text style={styles.cameraCtaText}>Câmera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.scanChoice, styles.scanChoiceOutline]}
+            onPress={abrirLeitorFisico}
+            accessibilityLabel="Usar leitor físico para registrar entradas"
+          >
+            <Ionicons name="barcode-outline" size={24} color={colors.primary} />
+            <Text style={styles.scanChoiceOutlineText}>Leitor físico</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.resumoCard}>
           <Text style={styles.sessaoTitulo}>Hoje na base</Text>
@@ -671,7 +715,9 @@ export default function LeituraEntradasScreen() {
         {modoManual ? (
           <View style={styles.modoManualWrap}>
             <TouchableOpacity onPress={() => setModoManual(false)}>
-              <Text style={styles.linkManualText}>← Usar câmera</Text>
+              <Text style={styles.linkManualText}>
+                ← Voltar para {modoLeitorFisico ? "o leitor físico" : "a câmera"}
+              </Text>
             </TouchableOpacity>
             <Text style={styles.modoManualTitle}>Digitar código</Text>
             <Text style={styles.modoManualSubtitle}>Registra a entrada na base sem bipar.</Text>
@@ -706,6 +752,33 @@ export default function LeituraEntradasScreen() {
               <Text style={styles.linkManualText}>Fechar scanner</Text>
             </TouchableOpacity>
           </View>
+        ) : modoLeitorFisico ? (
+          <PhysicalScannerInput
+            active={cameraOpen && modoLeitorFisico && !modoManual && !avulsoModalVisible}
+            disabled={loading}
+            title="Leitor físico de entradas"
+            subtitle={`Entradas nesta sessão: ${totalOk}`}
+            onClose={() => setCameraOpen(false)}
+            onScan={(codigo) => processar(codigo, "leitor")}
+          >
+            {renderFeedbackStrip("main")}
+            <TouchableOpacity
+              style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+              onPress={() => setAvulsoModalVisible(true)}
+              disabled={loading}
+            >
+              <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+            </TouchableOpacity>
+            {podeManual ? (
+              <TouchableOpacity
+                style={styles.linkManual}
+                onPress={() => setModoManual(true)}
+                disabled={loading}
+              >
+                <Text style={styles.linkManualText}>Digitar código manualmente</Text>
+              </TouchableOpacity>
+            ) : null}
+          </PhysicalScannerInput>
         ) : (
           <View style={styles.cameraModalOverlay}>
             <View style={styles.cameraHeader}>
