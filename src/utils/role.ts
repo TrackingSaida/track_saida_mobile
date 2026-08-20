@@ -46,9 +46,26 @@ export function effectivePodeLerColeta(claims: JwtClaims | null | undefined): bo
   if (!claims) return false;
   if (claims.ignorar_coleta === true) return false;
   const r = asRole(claims.role);
+  const modo = String(claims.modo_operacao || "codigo").toLowerCase();
+  if (modo !== "codigo" && modo !== "ambos") return false;
   if (isStaffOperacaoRole(r)) return true;
-  if (isMotoboyRole(r)) return asExplicitTrue(claims.pode_ler_coleta);
+  if (isMotoboyRole(r)) return asExplicitTrue(claims.pode_realizar_coleta ?? claims.pode_ler_coleta);
   return asExplicitTrue(claims.pode_ler_coleta);
+}
+
+export function effectivePodeRealizarColeta(claims: JwtClaims | null | undefined): boolean {
+  if (!claims || claims.ignorar_coleta === true) return false;
+  const r = asRole(claims.role);
+  if (isStaffOperacaoRole(r)) return true;
+  return isMotoboyRole(r)
+    ? asExplicitTrue(claims.pode_realizar_coleta ?? claims.pode_ler_coleta)
+    : false;
+}
+
+export function effectivePodeLancarColetaManual(claims: JwtClaims | null | undefined): boolean {
+  if (!effectivePodeRealizarColeta(claims)) return false;
+  const modo = String(claims?.modo_operacao || "codigo").toLowerCase();
+  return modo === "coleta_manual" || modo === "ambos";
 }
 
 /** Digitação manual: nega só com false explícito (default liberado). */

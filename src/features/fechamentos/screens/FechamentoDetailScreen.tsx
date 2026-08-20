@@ -107,8 +107,14 @@ export default function FechamentoDetailScreen({ navigation, route }: Props) {
               <Text style={styles.value}>{item.chave_pix}</Text>
             </>
           ) : null}
-          <Text style={styles.label}>Valor base</Text>
-          <Text style={styles.value}>{fmtBrl(item.valor_base)}</Text>
+          <Text style={styles.label}>Entregas</Text>
+          <Text style={styles.value}>{fmtBrl(item.valor_entregas ?? item.valor_base)}</Text>
+          {(Number(item.valor_coletas || 0) > 0 || Number(item.qtd_dias_coleta || 0) > 0) ? (
+            <>
+              <Text style={styles.label}>Diárias de coleta ({item.qtd_dias_coleta || 0} dias)</Text>
+              <Text style={styles.value}>{fmtBrl(item.valor_coletas || 0)}</Text>
+            </>
+          ) : null}
           <Text style={styles.label}>Total a receber</Text>
           <Text style={styles.total}>{fmtBrl(item.valor_final)}</Text>
           <TouchableOpacity style={styles.btn} onPress={() => void onDownload()} disabled={downloading}>

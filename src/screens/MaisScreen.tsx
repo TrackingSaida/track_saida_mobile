@@ -14,6 +14,7 @@ import { space } from "../theme/spacing";
 import { type as typo } from "../theme/typography";
 import { decodeJwtPayload } from "../utils/jwt";
 import { isMotoboyRole } from "../utils/role";
+import { effectivePodeRealizarColeta } from "../utils/role";
 
 export type MaisStackParamList = {
   MaisInicio: undefined;
@@ -24,6 +25,7 @@ export type MaisStackParamList = {
   MinhasEntregasDia: { data: string };
   EntregaDetail: { idSaida: number };
   MeusFechamentos: undefined;
+  MinhasColetas: undefined;
   FechamentoDetail: { idFechamento: number };
   Avisos: undefined;
   AvisoDetail: { avisoId: number };
@@ -74,6 +76,7 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
   const nome = claims.username || "Usuário";
   const role = claims.role as number | undefined;
   const showMotoboyMenu = isMotoboyRole(role);
+  const showColetas = showMotoboyMenu && effectivePodeRealizarColeta(claims);
   const unreadAvisos = useAvisosUnreadStore((s) => s.unreadCount);
   const refreshUnreadAvisos = useAvisosUnreadStore((s) => s.refresh);
 
@@ -147,6 +150,16 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
 
         {showMotoboyMenu ? (
           <MenuSection label="Operação">
+            {showColetas ? (
+              <PressableMenuRow
+                icon="layers-outline"
+                title="Minhas coletas"
+                subtitle="Lançar e consultar o dia"
+                onPress={() => navigation.navigate("MinhasColetas")}
+                iconColor={profile.accent}
+                iconSoftBg={profile.accentSoft}
+              />
+            ) : null}
             <PressableMenuRow
               icon="list-outline"
               title="Minhas entregas"

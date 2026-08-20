@@ -10,6 +10,9 @@ export type FechamentoItem = {
   periodo_inicio: string;
   periodo_fim: string;
   valor_base: number | string;
+  valor_entregas: number | string;
+  valor_coletas: number | string;
+  qtd_dias_coleta: number;
   valor_adicao: number | string;
   valor_subtracao: number | string;
   valor_final: number | string;

@@ -57,6 +57,7 @@ import MeusFechamentosScreen from "./src/features/fechamentos/screens/MeusFecham
 import FechamentoDetailScreen from "./src/features/fechamentos/screens/FechamentoDetailScreen";
 import AvisosScreen from "./src/features/avisos/screens/AvisosScreen";
 import AvisoDetailScreen from "./src/features/avisos/screens/AvisoDetailScreen";
+import MinhasColetasScreen from "./src/features/operacao/screens/MinhasColetasScreen";
 import UrgentAvisoGate from "./src/features/avisos/components/UrgentAvisoGate";
 import {
   attachPushListeners,
@@ -179,6 +180,7 @@ function MaisStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <MaisStack.Screen name="MinhasEntregasDia" component={MinhasEntregasDiaScreen} />
       <MaisStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
       <MaisStack.Screen name="MeusFechamentos" component={MeusFechamentosScreen} />
+      <MaisStack.Screen name="MinhasColetas" component={MinhasColetasScreen} />
       <MaisStack.Screen name="FechamentoDetail" component={FechamentoDetailScreen} />
       <MaisStack.Screen name="Avisos" component={AvisosScreen} />
       <MaisStack.Screen name="AvisoDetail" component={AvisoDetailScreen} />

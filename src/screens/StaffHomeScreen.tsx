@@ -13,6 +13,7 @@ import {
   effectiveConferenciaSaida,
   effectiveEntradaObrigatoria,
   effectivePodeLerColeta,
+  effectivePodeLancarColetaManual,
   isAdminRole,
   staffRoleLabel,
 } from "../utils/role";
@@ -29,6 +30,7 @@ export default function StaffHomeScreen({ navigation }: Props) {
   const role = currentUser?.role as number | undefined;
   const labelPerfil = staffRoleLabel(role);
   const mostrarColeta = effectivePodeLerColeta(currentUser);
+  const mostrarColetaManual = effectivePodeLancarColetaManual(currentUser);
   const mostrarEntrada = effectiveEntradaObrigatoria(currentUser);
   const mostrarConferencia = effectiveConferenciaSaida(currentUser);
   const mostrarEnviarAviso = isAdminRole(role);
@@ -169,6 +171,15 @@ export default function StaffHomeScreen({ navigation }: Props) {
               subtitle="Shopee, ML e avulsas"
               icon="layers-outline"
               onPress={() => go("LeituraColetas")}
+            />
+          ) : null}
+          {mostrarColetaManual ? (
+            <OperacaoActionCard
+              variant="compact"
+              title="Coleta manual"
+              subtitle="Lançar e consultar quantidades"
+              icon="create-outline"
+              onPress={() => go("MinhasColetas")}
             />
           ) : null}
         </View>

@@ -11,6 +11,7 @@ export interface JwtClaims {
   owner_valor?: string;
   motoboy_id?: number;
   pode_ler_coleta?: boolean;
+  pode_realizar_coleta?: boolean;
   pode_ler_saida?: boolean;
   pode_digitar_codigo_manual?: boolean;
   /** Motoboy pode lançar avulso (default true / opt-out). */

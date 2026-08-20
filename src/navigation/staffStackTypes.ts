@@ -2,6 +2,7 @@ export type StaffStackParamList = {
   StaffHome: undefined;
   LeituraSaidas: undefined;
   LeituraColetas: undefined;
+  MinhasColetas: undefined;
   LeituraEntradas: undefined;
   ConferenciaSaida:
     | {
