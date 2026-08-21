@@ -9,6 +9,7 @@ import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
 import { useThemeColors } from "../theme/colors";
 import { space } from "../theme/spacing";
 import { decodeJwtPayload } from "../utils/jwt";
+import { effectivePodeRealizarColeta } from "../utils/role";
 import type { EntregasListInitialTab } from "../features/entregas/types";
 import HomePager, { type HomePagerCallbacks } from "../features/home/components/HomePager";
 import { useHomeData } from "../features/home/hooks/useHomeData";
@@ -25,12 +26,14 @@ type Props = {
     openLocatePackage?: boolean;
     openSeparation?: boolean;
     highlightLocatePackage?: boolean;
+    pendingAddToRoute?: number;
   }) => void;
   onNavigateRotasHistorico: () => void;
   onNavigateMinhasEntregas: () => void;
   onNavigatePreferencias: () => void;
   onNavigateAvisos: () => void;
   onNavigateDevolverPacotes?: () => void;
+  onNavigateColetas: () => void;
 };
 
 export default function HomeScreen({
@@ -44,6 +47,7 @@ export default function HomeScreen({
   onNavigatePreferencias,
   onNavigateAvisos,
   onNavigateDevolverPacotes,
+  onNavigateColetas,
 }: Props) {
   const colors = useThemeColors();
   const data = useHomeData();
@@ -52,6 +56,7 @@ export default function HomeScreen({
   const nome = claims.username || "Motoboy";
   const subBase = claims.sub_base || "";
   const devolucaoHabilitada = claims.devolucao_sub_base_habilitada === true;
+  const podeRealizarColeta = effectivePodeRealizarColeta(claims);
   const unreadCount = useAvisosUnreadStore((s) => s.unreadCount);
   const refreshUnread = useAvisosUnreadStore((s) => s.refresh);
 
@@ -86,6 +91,11 @@ export default function HomeScreen({
           justifyContent: "center",
         },
         bellBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
+        operationChoice: { flexDirection: "row", gap: 10, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.background },
+        operationButton: { flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.backgroundCard, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+        operationButtonActive: { borderColor: colors.primary, backgroundColor: colors.primary },
+        operationText: { color: colors.text, fontWeight: "800" },
+        operationTextActive: { color: colors.primaryContrast },
       }),
     [colors]
   );
@@ -149,6 +159,18 @@ export default function HomeScreen({
           </TouchableOpacity>
         }
       />
+      {podeRealizarColeta ? (
+        <View style={styles.operationChoice}>
+          <View style={[styles.operationButton, styles.operationButtonActive]}>
+            <Ionicons name="bicycle-outline" size={20} color={colors.primaryContrast} />
+            <Text style={[styles.operationText, styles.operationTextActive]}>Fazer entregas</Text>
+          </View>
+          <TouchableOpacity style={styles.operationButton} onPress={onNavigateColetas} accessibilityRole="button">
+            <Ionicons name="layers-outline" size={20} color={colors.primary} />
+            <Text style={styles.operationText}>Fazer coletas</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <HomePager data={data} callbacks={callbacks} />
     </View>
   );

@@ -153,8 +153,8 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
             {showColetas ? (
               <PressableMenuRow
                 icon="layers-outline"
-                title="Minhas coletas"
-                subtitle="Lançar e consultar o dia"
+                title="Fazer coletas"
+                subtitle="Câmera, leitor ou quantidades"
                 onPress={() => navigation.navigate("MinhasColetas")}
                 iconColor={profile.accent}
                 iconSoftBg={profile.accentSoft}

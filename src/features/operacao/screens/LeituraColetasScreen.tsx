@@ -11,6 +11,7 @@ import {
   Modal,
   Pressable,
   Platform,
+  Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,7 +29,19 @@ import {
   isStaffOperacaoRole,
 } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
-import { enviarColetaUnica, lancarAvulsoColeta, type ServicoColeta } from "../coletasApi";
+import {
+  consultarSituacaoColetas,
+  enviarColetaUnica,
+  finalizarColetaOperacional,
+  iniciarColetaOperacional,
+  lancarAvulsoColeta,
+  lancarColetaManualOperacional,
+  liberarParticipacaoColeta,
+  obterConfigColetaOperacional,
+  type ColetaOperacionalConfig,
+  type ServicoColeta,
+  type SituacaoBaseColeta,
+} from "../coletasApi";
 import { listarBasesAtivas, type BaseItem } from "../basesApi";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
@@ -111,6 +124,16 @@ function classifyCodigo(rawInput: string): ClassifyResult {
   return { ok: true, servico: serv, codigo: r.codigo, qr_payload_raw: r.qr_payload_raw };
 }
 
+function hojeLocal(): string {
+  const data = new Date();
+  return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}-${String(data.getDate()).padStart(2, "0")}`;
+}
+
+function numero(value: string): number {
+  const parsed = Number.parseInt(value.replace(/\D/g, ""), 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function LeituraColetasScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -118,6 +141,8 @@ export default function LeituraColetasScreen() {
   const currentUser = useAuthStore((s) => s.currentUser);
   const [permission, requestPermission] = useCameraPermissions();
   const [bases, setBases] = useState<BaseItem[]>([]);
+  const [situacoes, setSituacoes] = useState<SituacaoBaseColeta[]>([]);
+  const [configColeta, setConfigColeta] = useState<ColetaOperacionalConfig | null>(null);
   const [base, setBase] = useState("");
   const [carregandoBases, setCarregandoBases] = useState(false);
   const [modalBaseVisible, setModalBaseVisible] = useState(false);
@@ -128,6 +153,12 @@ export default function LeituraColetasScreen() {
   const [modoLeitorFisico, setModoLeitorFisico] = useState(false);
   const [modoManual, setModoManual] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
+  const [quantidadesVisible, setQuantidadesVisible] = useState(false);
+  const [quantidadeShopee, setQuantidadeShopee] = useState("0");
+  const [quantidadeFlex, setQuantidadeFlex] = useState("0");
+  const [quantidadeAvulso, setQuantidadeAvulso] = useState("0");
+  const [semVolume, setSemVolume] = useState(false);
+  const [execucaoAtivaId, setExecucaoAtivaId] = useState<number | null>(null);
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -291,6 +322,7 @@ export default function LeituraColetasScreen() {
         },
         pickerItemText: { fontSize: 16, color: colors.text, fontWeight: "600" },
         pickerItemSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+        pickerStatus: { fontSize: 12, color: colors.primary, fontWeight: "800", marginTop: 5 },
         pickerClose: { alignSelf: "center", paddingVertical: 12 },
         pickerCloseText: { fontSize: 15, color: colors.primary, fontWeight: "600" },
         row: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
@@ -335,6 +367,7 @@ export default function LeituraColetasScreen() {
         scanChoiceRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
         scanChoice: {
           flex: 1,
+          minWidth: 0,
           minHeight: 82,
           paddingVertical: 14,
           paddingHorizontal: 10,
@@ -542,6 +575,11 @@ export default function LeituraColetasScreen() {
           marginTop: 8,
         },
         scannerActionText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+        quantityRow: { flexDirection: "row", gap: 8, marginTop: 14 },
+        quantityField: { flex: 1 },
+        quantityLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginBottom: 5 },
+        quantityInput: { borderWidth: 1, borderColor: colors.inputBorder, backgroundColor: colors.inputBackground, color: colors.text, borderRadius: 10, padding: 11, textAlign: "center", fontSize: 17 },
+        quantitySwitch: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 16 },
       }),
     [colors, insets.bottom, insets.top]
   );
@@ -566,16 +604,29 @@ export default function LeituraColetasScreen() {
     () => bases.find((b) => b.base === base) ?? null,
     [bases, base]
   );
+  const situacaoSelecionada = useMemo(
+    () => situacoes.find((item) => item.base_id === baseSelecionada?.id_base) ?? null,
+    [baseSelecionada?.id_base, situacoes]
+  );
   const enderecoSelecionado = (baseSelecionada?.endereco_completo || "").trim();
   const navOptions = useMemo(() => getNavigationOptions(), []);
 
   const carregarBases = useCallback(async () => {
     setCarregandoBases(true);
     try {
-      const lista = await listarBasesAtivas();
+      const [lista, situacao, config] = await Promise.all([
+        listarBasesAtivas(),
+        consultarSituacaoColetas(hojeLocal()),
+        obterConfigColetaOperacional(),
+      ]);
       setBases(lista);
+      setSituacoes(situacao.itens || []);
+      setConfigColeta(config);
+      const participacao = (situacao.itens || []).find((item) => item.participando && item.status === "em_coleta");
+      setExecucaoAtivaId(participacao?.id_execucao || null);
       setBase((atual) => {
         if (atual && lista.some((b) => b.base === atual)) return atual;
+        if (participacao) return lista.find((b) => b.id_base === participacao.base_id)?.base || "";
         if (lista.length === 1) return lista[0].base;
         return "";
       });
@@ -593,10 +644,49 @@ export default function LeituraColetasScreen() {
     void carregarBases();
   }, [carregarBases]);
 
-  const selecionarBase = useCallback((item: BaseItem) => {
-    setBase(item.base);
-    setModalBaseVisible(false);
-  }, []);
+  const selecionarBase = useCallback(async (item: BaseItem) => {
+    const situacao = situacoes.find((baseItem) => baseItem.base_id === item.id_base);
+    if (situacao?.status === "coletado" || situacao?.status === "sem_volume") {
+      Alert.alert("Coleta finalizada", "Esta base já foi coletada hoje.");
+      return;
+    }
+    let ajudar = false;
+    if (situacao?.pode_ajudar) {
+      const nomes = situacao.participantes.filter((p) => p.status === "em_coleta").map((p) => p.username).join(", ");
+      ajudar = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          "Base já está em coleta",
+          `${nomes || "Outro usuário"} já está nesta coleta. Deseja ajudar na mesma base?`,
+          [
+            { text: "Cancelar", style: "cancel", onPress: () => resolve(false) },
+            { text: "Ajudar nesta coleta", onPress: () => resolve(true) },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) }
+        );
+      });
+      if (!ajudar) return;
+    }
+    if (situacao?.participando && situacao.id_execucao) {
+      setBase(item.base);
+      setExecucaoAtivaId(situacao.id_execucao);
+      setModalBaseVisible(false);
+      return;
+    }
+    const metodo = configColeta?.permite_leitura ? "codigo" : "coleta_manual";
+    setLoading(true);
+    try {
+      const execucao = await iniciarColetaOperacional({ baseId: item.id_base, metodo, ajudar });
+      setBase(item.base);
+      setExecucaoAtivaId(execucao.id_execucao);
+      setModalBaseVisible(false);
+      await carregarBases();
+    } catch (error) {
+      Alert.alert("Não foi possível selecionar", formatApiError(error, "Atualize a lista e tente novamente."));
+      await carregarBases();
+    } finally {
+      setLoading(false);
+    }
+  }, [carregarBases, configColeta?.permite_leitura, situacoes]);
 
   const handleNavEndereco = useCallback(
     async (app: NavigationApp) => {
@@ -637,7 +727,8 @@ export default function LeituraColetasScreen() {
     [feedbackColors, feedbackVisual, styles.cameraFeedbackAbs, styles.feedbackCodigo, styles.feedbackStrip, styles.feedbackTitulo]
   );
 
-  const podeLerColeta = effectivePodeLerColeta(currentUser);
+  const podeLerColeta = effectivePodeLerColeta(currentUser) && configColeta?.permite_leitura !== false;
+  const podeInformarQuantidades = configColeta?.permite_manual === true;
   const podeManual = effectivePodeDigitarCodigoManual(currentUser);
   const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
   const subBase = currentUser?.sub_base ?? "";
@@ -671,6 +762,56 @@ export default function LeituraColetasScreen() {
     return set;
   }, [leituras]);
 
+  const confirmarAjuda = useCallback((nomes: string): Promise<boolean> => new Promise((resolve) => {
+    Alert.alert(
+      "Base já está em coleta",
+      `${nomes || "Outro usuário"} já está nesta coleta. Deseja ajudar na mesma base?`,
+      [
+        { text: "Cancelar", style: "cancel", onPress: () => resolve(false) },
+        { text: "Ajudar nesta coleta", onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) }
+    );
+  }), []);
+
+  const garantirParticipacao = useCallback(async (metodo: "codigo" | "coleta_manual") => {
+    if (!baseSelecionada) return false;
+    if (situacaoSelecionada?.status === "coletado" || situacaoSelecionada?.status === "sem_volume") {
+      Alert.alert("Coleta finalizada", "Esta base já foi coletada hoje.");
+      return false;
+    }
+    let ajudar = false;
+    if (situacaoSelecionada?.pode_ajudar) {
+      const nomes = situacaoSelecionada.participantes.filter((item) => item.status === "em_coleta").map((item) => item.username).join(", ");
+      ajudar = await confirmarAjuda(nomes);
+      if (!ajudar) return false;
+    }
+    setLoading(true);
+    try {
+      const execucao = await iniciarColetaOperacional({ baseId: baseSelecionada.id_base, metodo, ajudar });
+      setExecucaoAtivaId(execucao.id_execucao);
+      if (metodo === "coleta_manual") {
+        const userId = Number(currentUser?.uid);
+        const participante = execucao.participantes.find((item) => item.user_id === userId)
+          || execucao.participantes.find((item) => item.status === "em_coleta");
+        if (participante) {
+          setQuantidadeShopee(String(participante.shopee || 0));
+          setQuantidadeFlex(String(participante.mercado_livre || 0));
+          setQuantidadeAvulso(String(participante.avulso || 0));
+          setSemVolume(Boolean(participante.sem_volume));
+        }
+      }
+      await carregarBases();
+      return true;
+    } catch (error) {
+      Alert.alert("Não foi possível iniciar", formatApiError(error, "Atualize a lista de bases e tente novamente."));
+      await carregarBases();
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [baseSelecionada, carregarBases, confirmarAjuda, currentUser?.uid, situacaoSelecionada]);
+
   const ensurePermissionAndOpenCamera = useCallback(async () => {
     if (!base.trim()) {
       Alert.alert(
@@ -679,6 +820,7 @@ export default function LeituraColetasScreen() {
       );
       return;
     }
+    if (!(await garantirParticipacao("codigo"))) return;
     if (!permission) {
       const { granted } = await requestPermission();
       if (!granted) return;
@@ -694,9 +836,9 @@ export default function LeituraColetasScreen() {
     setModoLeitorFisico(false);
     setModoManual(false);
     setCameraAtiva(true);
-  }, [base, entidadeLabel, entidadeLabelLower, isOwnerTipoBase, permission, requestPermission]);
+  }, [base, entidadeLabel, entidadeLabelLower, garantirParticipacao, isOwnerTipoBase, permission, requestPermission]);
 
-  const openPhysicalScanner = useCallback(() => {
+  const openPhysicalScanner = useCallback(async () => {
     if (!base.trim()) {
       Alert.alert(
         `${entidadeLabel} obrigatóri${isOwnerTipoBase ? "o" : "a"}`,
@@ -705,10 +847,20 @@ export default function LeituraColetasScreen() {
       return;
     }
     if (!podeLerColeta || ignorarColeta) return;
+    if (!(await garantirParticipacao("codigo"))) return;
     setModoLeitorFisico(true);
     setModoManual(false);
     setCameraAtiva(true);
-  }, [base, entidadeLabel, entidadeLabelLower, ignorarColeta, isOwnerTipoBase, podeLerColeta]);
+  }, [base, entidadeLabel, entidadeLabelLower, garantirParticipacao, ignorarColeta, isOwnerTipoBase, podeLerColeta]);
+
+  const abrirQuantidades = useCallback(async () => {
+    if (!baseSelecionada) {
+      Alert.alert("Base obrigatória", "Selecione a base antes de informar as quantidades.");
+      return;
+    }
+    if (!(await garantirParticipacao("coleta_manual"))) return;
+    setQuantidadesVisible(true);
+  }, [baseSelecionada, garantirParticipacao]);
 
   const processarLeitura = useCallback(
     async (raw: string, origem: "camera" | "manual" | "leitor") => {
@@ -860,6 +1012,73 @@ export default function LeituraColetasScreen() {
     await processarLeitura(c, "manual");
   }, [codigoInput, processarLeitura]);
 
+  const salvarQuantidades = useCallback(async () => {
+    if (!baseSelecionada) return;
+    const valores = semVolume
+      ? { shopee: 0, mercado_livre: 0, avulso: 0 }
+      : { shopee: numero(quantidadeShopee), mercado_livre: numero(quantidadeFlex), avulso: numero(quantidadeAvulso) };
+    if (!semVolume && valores.shopee + valores.mercado_livre + valores.avulso === 0) {
+      Alert.alert("Informe as quantidades", "Preencha ao menos uma quantidade ou marque Sem volume.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await lancarColetaManualOperacional({
+        base_id: baseSelecionada.id_base,
+        data_operacao: hojeLocal(),
+        ...valores,
+        sem_volume: semVolume,
+        origem_cliente: "mobile",
+        client_request_id: `mobile-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      });
+      setQuantidadesVisible(false);
+      setQuantidadeShopee("0");
+      setQuantidadeFlex("0");
+      setQuantidadeAvulso("0");
+      setSemVolume(false);
+      setExecucaoAtivaId(null);
+      setBase("");
+      await carregarBases();
+      Alert.alert("Coleta finalizada", "As quantidades foram registradas com sucesso.");
+    } catch (error) {
+      Alert.alert("Não foi possível salvar", formatApiError(error, "Confira os dados e tente novamente."));
+    } finally {
+      setLoading(false);
+    }
+  }, [baseSelecionada, carregarBases, quantidadeAvulso, quantidadeFlex, quantidadeShopee, semVolume]);
+
+  const finalizarColeta = useCallback(async () => {
+    if (!execucaoAtivaId) return;
+    setLoading(true);
+    try {
+      await finalizarColetaOperacional(execucaoAtivaId);
+      setExecucaoAtivaId(null);
+      setBase("");
+      setLeituras([]);
+      await carregarBases();
+      Alert.alert("Coleta finalizada", "A base foi marcada como coletada.");
+    } catch (error) {
+      Alert.alert("Não foi possível finalizar", formatApiError(error, "Confira os registros e tente novamente."));
+    } finally {
+      setLoading(false);
+    }
+  }, [carregarBases, execucaoAtivaId]);
+
+  const liberarBase = useCallback(async () => {
+    if (!execucaoAtivaId) return;
+    setLoading(true);
+    try {
+      await liberarParticipacaoColeta(execucaoAtivaId);
+      setExecucaoAtivaId(null);
+      setBase("");
+      await carregarBases();
+    } catch (error) {
+      Alert.alert("Não foi possível liberar", formatApiError(error, "Finalize a coleta caso já tenha registrado volumes."));
+    } finally {
+      setLoading(false);
+    }
+  }, [carregarBases, execucaoAtivaId]);
+
   const handleLancarAvulso = useCallback(
     async (payload: {
       identificacao: string | null;
@@ -924,7 +1143,7 @@ export default function LeituraColetasScreen() {
     <>
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <ScreenHeaderBar
-          title="Leitura de coletas"
+          title="Registrar coletas"
           onBack={() => navigation.goBack()}
           paddingTop={Math.max(12, insets.top)}
         />
@@ -959,7 +1178,9 @@ export default function LeituraColetasScreen() {
       <View style={styles.baseBlock}>
         {baseSelecionadaOk ? (
           <View style={styles.baseBadge}>
-            <Text style={styles.baseBadgeText}>{entidadeLabel} selecionad{isOwnerTipoBase ? "o" : "a"}</Text>
+            <Text style={styles.baseBadgeText}>
+              {situacaoSelecionada?.status === "em_coleta" ? "Em coleta" : situacaoSelecionada?.status === "coletado" || situacaoSelecionada?.status === "sem_volume" ? "Coletada" : `${entidadeLabel} selecionad${isOwnerTipoBase ? "o" : "a"}`}
+            </Text>
           </View>
         ) : null}
         {!baseSelecionadaOk ? <Text style={styles.baseLabel}>{entidadeLabel}</Text> : null}
@@ -1001,6 +1222,11 @@ export default function LeituraColetasScreen() {
             </View>
           </>
         ) : null}
+        {baseSelecionadaOk && situacaoSelecionada?.participantes?.length ? (
+          <Text style={styles.baseHint}>
+            {situacaoSelecionada.participantes.map((item) => `${item.username}${item.status === "em_coleta" ? " está coletando" : " finalizou"}`).join(" • ")}
+          </Text>
+        ) : null}
         <TouchableOpacity
           style={[styles.baseCta, baseSelecionadaOk && enderecoSelecionado ? { marginTop: 12 } : null]}
           onPress={() => setModalBaseVisible(true)}
@@ -1026,9 +1252,9 @@ export default function LeituraColetasScreen() {
         </View>
       </View>
 
-      {baseSelecionadaOk && podeLerColeta && !ignorarColeta ? (
+      {baseSelecionadaOk && (podeLerColeta || podeInformarQuantidades) && !ignorarColeta ? (
         <View style={styles.scanChoiceRow}>
-          <TouchableOpacity
+          {podeLerColeta ? <TouchableOpacity
             style={styles.scanChoice}
             onPress={ensurePermissionAndOpenCamera}
             disabled={loading}
@@ -1037,16 +1263,37 @@ export default function LeituraColetasScreen() {
           >
             <Ionicons name="camera-outline" size={24} color={colors.primaryContrast} />
             <Text style={styles.cameraCtaText}>Câmera</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </TouchableOpacity> : null}
+          {podeLerColeta ? <TouchableOpacity
             style={[styles.scanChoice, styles.scanChoiceOutline]}
-            onPress={openPhysicalScanner}
+            onPress={() => void openPhysicalScanner()}
             disabled={loading}
             activeOpacity={0.85}
             accessibilityLabel="Usar leitor físico para registrar coletas"
           >
             <Ionicons name="barcode-outline" size={24} color={colors.primary} />
             <Text style={styles.scanChoiceOutlineText}>Leitor físico</Text>
+          </TouchableOpacity> : null}
+          {podeInformarQuantidades ? <TouchableOpacity
+            style={[styles.scanChoice, styles.scanChoiceOutline]}
+            onPress={() => void abrirQuantidades()}
+            disabled={loading}
+            activeOpacity={0.85}
+            accessibilityLabel="Informar quantidades da coleta"
+          >
+            <Ionicons name="create-outline" size={24} color={colors.primary} />
+            <Text style={styles.scanChoiceOutlineText}>Quantidades</Text>
+          </TouchableOpacity> : null}
+        </View>
+      ) : null}
+
+      {execucaoAtivaId ? (
+        <View style={[styles.row, { justifyContent: "space-between" }]}>
+          <TouchableOpacity style={[styles.btnOutline, { flex: 1 }]} onPress={() => void liberarBase()} disabled={loading}>
+            <Text style={styles.btnTextOutline}>Liberar base</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.btnPrimary, { flex: 1 }]} onPress={() => void finalizarColeta()} disabled={loading}>
+            <Text style={styles.btnTextPrimary}>Finalizar coleta</Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -1369,6 +1616,12 @@ export default function LeituraColetasScreen() {
                           {item.endereco_completo}
                         </Text>
                       ) : null}
+                      {(() => {
+                        const situacao = situacoes.find((baseItem) => baseItem.base_id === item.id_base);
+                        const label = situacao?.status === "em_coleta" ? "Em coleta" : situacao?.status === "coletado" || situacao?.status === "sem_volume" ? "Coletada" : "Pendente";
+                        const nomes = situacao?.participantes?.map((p) => p.username).join(", ");
+                        return <Text style={styles.pickerStatus}>{label}{nomes ? ` · ${nomes}` : ""}</Text>;
+                      })()}
                       {ativo ? (
                         <Text style={styles.pickerItemSub}>
                           Selecionad{isOwnerTipoBase ? "o" : "a"}
@@ -1381,6 +1634,39 @@ export default function LeituraColetasScreen() {
             </ScrollView>
             <TouchableOpacity style={styles.pickerClose} onPress={() => setModalBaseVisible(false)}>
               <Text style={styles.pickerCloseText}>Cancelar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={quantidadesVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setQuantidadesVisible(false)}
+      >
+        <Pressable style={styles.pickerOverlay} onPress={() => setQuantidadesVisible(false)}>
+          <Pressable style={styles.pickerSheet} onPress={(event) => event.stopPropagation()}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={styles.pickerTitle}>Informar quantidades</Text>
+              <TouchableOpacity onPress={() => setQuantidadesVisible(false)}><Ionicons name="close" size={25} color={colors.text} /></TouchableOpacity>
+            </View>
+            <Text style={styles.infoText}>Base: {baseSelecionada?.base || "—"}</Text>
+            <View style={styles.quantityRow}>
+              {([
+                ["Flex", quantidadeFlex, setQuantidadeFlex],
+                ["Shopee", quantidadeShopee, setQuantidadeShopee],
+                ["Avulso", quantidadeAvulso, setQuantidadeAvulso],
+              ] as const).map(([label, value, setter]) => (
+                <View style={styles.quantityField} key={label}>
+                  <Text style={styles.quantityLabel}>{label}</Text>
+                  <TextInput style={styles.quantityInput} value={value} onChangeText={setter} keyboardType="number-pad" editable={!semVolume && !loading} />
+                </View>
+              ))}
+            </View>
+            <View style={styles.quantitySwitch}><Text style={styles.infoTitle}>Sem volume</Text><Switch value={semVolume} onValueChange={setSemVolume} disabled={loading} /></View>
+            <TouchableOpacity style={[styles.btnPrimary, { marginTop: 18 }]} onPress={() => void salvarQuantidades()} disabled={loading}>
+              {loading ? <ActivityIndicator color={colors.primaryContrast} /> : <Text style={styles.btnTextPrimary}>Salvar e finalizar</Text>}
             </TouchableOpacity>
           </Pressable>
         </Pressable>

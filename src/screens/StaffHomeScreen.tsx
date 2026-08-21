@@ -12,8 +12,7 @@ import { textStyle } from "../theme/typography";
 import {
   effectiveConferenciaSaida,
   effectiveEntradaObrigatoria,
-  effectivePodeLerColeta,
-  effectivePodeLancarColetaManual,
+  effectivePodeRealizarColeta,
   isAdminRole,
   staffRoleLabel,
 } from "../utils/role";
@@ -29,8 +28,7 @@ export default function StaffHomeScreen({ navigation }: Props) {
   const subBase = (currentUser?.sub_base as string | undefined) || "";
   const role = currentUser?.role as number | undefined;
   const labelPerfil = staffRoleLabel(role);
-  const mostrarColeta = effectivePodeLerColeta(currentUser);
-  const mostrarColetaManual = effectivePodeLancarColetaManual(currentUser);
+  const mostrarColeta = effectivePodeRealizarColeta(currentUser);
   const mostrarEntrada = effectiveEntradaObrigatoria(currentUser);
   const mostrarConferencia = effectiveConferenciaSaida(currentUser);
   const mostrarEnviarAviso = isAdminRole(role);
@@ -62,6 +60,7 @@ export default function StaffHomeScreen({ navigation }: Props) {
           justifyContent: "space-between",
           marginTop: space.xs,
         },
+        groupTitle: { color: colors.text, fontSize: 16, fontWeight: "800", marginTop: space.lg, marginBottom: 2 },
       }),
     [colors]
   );
@@ -104,16 +103,28 @@ export default function StaffHomeScreen({ navigation }: Props) {
           onPress={() => go("ConsultaCodigos")}
         />
 
-        <View style={styles.grid}>
-          {mostrarIndicadores ? (
+        {mostrarColeta ? <Text style={styles.groupTitle}>Coletas</Text> : null}
+        {mostrarColeta ? (
+          <View style={styles.grid}>
             <OperacaoActionCard
               variant="compact"
-              title="Indicadores"
-              subtitle="Saídas, entradas e coletas"
-              icon="analytics-outline"
-              onPress={() => go("IndicadoresOperacao")}
+              title="Registrar coletas"
+              subtitle="Câmera, leitor ou quantidades"
+              icon="layers-outline"
+              onPress={() => go("LeituraColetas")}
             />
-          ) : null}
+            <OperacaoActionCard
+              variant="compact"
+              title="Consultar coletas"
+              subtitle="Pendentes e andamento"
+              icon="list-outline"
+              onPress={() => go("ConsultarColetas")}
+            />
+          </View>
+        ) : null}
+
+        <Text style={styles.groupTitle}>Saídas</Text>
+        <View style={styles.grid}>
           <OperacaoActionCard
             variant="compact"
             title="Registrar saídas"
@@ -148,6 +159,19 @@ export default function StaffHomeScreen({ navigation }: Props) {
               onPress={() => go("SaidasPorMotoboy")}
             />
           ) : null}
+        </View>
+
+        <Text style={styles.groupTitle}>Indicadores</Text>
+        <View style={styles.grid}>
+          {mostrarIndicadores ? (
+            <OperacaoActionCard
+              variant="compact"
+              title="Indicadores"
+              subtitle="Saídas, entradas e coletas"
+              icon="analytics-outline"
+              onPress={() => go("IndicadoresOperacao")}
+            />
+          ) : null}
           <OperacaoActionCard
             variant="compact"
             title="Acompanhamento"
@@ -155,34 +179,19 @@ export default function StaffHomeScreen({ navigation }: Props) {
             icon="stats-chart-outline"
             onPress={() => go("AcompanharOperacao")}
           />
-          {mostrarEnviarAviso ? (
+        </View>
+
+        {mostrarEnviarAviso ? (
+          <View style={{ marginTop: space.lg }}>
             <OperacaoActionCard
-              variant="compact"
+              variant="primary"
               title="Enviar aviso"
               subtitle="Avisar motoboys da base"
               icon="notifications-outline"
               onPress={() => go("EnviarAviso")}
             />
-          ) : null}
-          {mostrarColeta ? (
-            <OperacaoActionCard
-              variant="compact"
-              title="Coleta"
-              subtitle="Shopee, ML e avulsas"
-              icon="layers-outline"
-              onPress={() => go("LeituraColetas")}
-            />
-          ) : null}
-          {mostrarColetaManual ? (
-            <OperacaoActionCard
-              variant="compact"
-              title="Coleta manual"
-              subtitle="Lançar e consultar quantidades"
-              icon="create-outline"
-              onPress={() => go("MinhasColetas")}
-            />
-          ) : null}
-        </View>
+          </View>
+        ) : null}
       </View>
     </ScrollView>
   );

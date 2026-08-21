@@ -120,6 +120,7 @@ export interface ColetaParticipanteOperacional {
   g_ml: number;
   g_avulso: number;
   sem_volume: boolean;
+  status: "em_coleta" | "finalizado";
   versao: number;
   total: number;
   pode_editar: boolean;
@@ -185,4 +186,64 @@ export async function editarColetaManualOperacional(
     payload
   );
   return data;
+}
+
+export interface ParticipanteSituacaoColeta {
+  user_id: number;
+  username: string;
+  status: "em_coleta" | "finalizado";
+  total: number;
+}
+
+export interface SituacaoBaseColeta {
+  base_id: number;
+  base: string;
+  endereco_completo?: string | null;
+  status: "pendente" | "em_coleta" | "coletado" | "sem_volume";
+  id_execucao: number | null;
+  modo: "codigo" | "coleta_manual" | "ambos" | null;
+  total: number;
+  shopee: number;
+  mercado_livre: number;
+  avulso: number;
+  participantes: ParticipanteSituacaoColeta[];
+  participando: boolean;
+  pode_ajudar: boolean;
+  atualizado_em?: string | null;
+}
+
+export interface SituacaoColetasResponse {
+  data_operacao: string;
+  resumo: { pendentes: number; em_coleta: number; coletadas: number };
+  itens: SituacaoBaseColeta[];
+}
+
+export async function consultarSituacaoColetas(dataOperacao: string): Promise<SituacaoColetasResponse> {
+  const { data } = await client.get<SituacaoColetasResponse>("/coletas/operacionais/situacao", {
+    params: { data_operacao: dataOperacao },
+  });
+  return data;
+}
+
+export async function iniciarColetaOperacional(params: {
+  baseId: number;
+  metodo: "codigo" | "coleta_manual";
+  ajudar?: boolean;
+}): Promise<ColetaExecucaoOperacional> {
+  const { data } = await client.post<ColetaExecucaoOperacional>(
+    `/coletas/operacionais/bases/${params.baseId}/iniciar`,
+    { metodo: params.metodo, ajudar: params.ajudar === true }
+  );
+  return data;
+}
+
+export async function finalizarColetaOperacional(idExecucao: number): Promise<ColetaExecucaoOperacional> {
+  const { data } = await client.post<ColetaExecucaoOperacional>(
+    `/coletas/operacionais/execucoes/${idExecucao}/finalizar`
+  );
+  return data;
+}
+
+export async function liberarParticipacaoColeta(idExecucao: number): Promise<void> {
+  await client.delete(`/coletas/operacionais/execucoes/${idExecucao}/participacao`);
 }

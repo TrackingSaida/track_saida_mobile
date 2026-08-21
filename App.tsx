@@ -57,7 +57,7 @@ import MeusFechamentosScreen from "./src/features/fechamentos/screens/MeusFecham
 import FechamentoDetailScreen from "./src/features/fechamentos/screens/FechamentoDetailScreen";
 import AvisosScreen from "./src/features/avisos/screens/AvisosScreen";
 import AvisoDetailScreen from "./src/features/avisos/screens/AvisoDetailScreen";
-import MinhasColetasScreen from "./src/features/operacao/screens/MinhasColetasScreen";
+import LeituraColetasScreen from "./src/features/operacao/screens/LeituraColetasScreen";
 import UrgentAvisoGate from "./src/features/avisos/components/UrgentAvisoGate";
 import {
   attachPushListeners,
@@ -94,6 +94,7 @@ export type RootStackParamList = {
     | undefined;
   RotasHistorico: undefined;
   DevolverPacotes: undefined;
+  Coletas: undefined;
 };
 
 export type AuthStackParamList = {
@@ -148,6 +149,7 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
               }
             }}
             onNavigateDevolverPacotes={() => navigation.navigate("DevolverPacotes")}
+            onNavigateColetas={() => navigation.navigate("Coletas")}
           />
         )}
       </HomeStack.Screen>
@@ -163,6 +165,7 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <HomeStack.Screen name="RouteBuilder" component={RouteBuilderScreen} />
       <HomeStack.Screen name="RotasHistorico" component={RotasHistoricoScreen} />
       <HomeStack.Screen name="DevolverPacotes" component={DevolverPacotesScreen} />
+      <HomeStack.Screen name="Coletas" component={LeituraColetasScreen} />
     </HomeStack.Navigator>
   );
 }
@@ -180,7 +183,7 @@ function MaisStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <MaisStack.Screen name="MinhasEntregasDia" component={MinhasEntregasDiaScreen} />
       <MaisStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
       <MaisStack.Screen name="MeusFechamentos" component={MeusFechamentosScreen} />
-      <MaisStack.Screen name="MinhasColetas" component={MinhasColetasScreen} />
+      <MaisStack.Screen name="MinhasColetas" component={LeituraColetasScreen} />
       <MaisStack.Screen name="FechamentoDetail" component={FechamentoDetailScreen} />
       <MaisStack.Screen name="Avisos" component={AvisosScreen} />
       <MaisStack.Screen name="AvisoDetail" component={AvisoDetailScreen} />
