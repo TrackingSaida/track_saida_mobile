@@ -1,9 +1,17 @@
 import React, { useCallback, useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  Pressable,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "../store/authStore";
 import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
 import MenuSection from "../components/ui/MenuSection";
@@ -11,15 +19,19 @@ import PressableMenuRow from "../components/ui/PressableMenuRow";
 import { useThemeColors } from "../theme/colors";
 import { useProfileTheme } from "../theme/profileTheme";
 import { space } from "../theme/spacing";
-import { type as typo } from "../theme/typography";
-import { decodeJwtPayload } from "../utils/jwt";
-import { isMotoboyRole } from "../utils/role";
+import {
+  isAdminRole,
+  isMotoboyRole,
+  staffRoleLabel,
+} from "../utils/role";
 
 export type MaisStackParamList = {
   MaisInicio: undefined;
   MeusDados: undefined;
   Configuracoes: undefined;
   Privacidade: undefined;
+  SobreRotevo: undefined;
+  EnviarAviso: undefined;
   MinhasEntregas: { presetPeriodoHoje?: true } | undefined;
   MinhasEntregasDia: { data: string };
   EntregaDetail: { idSaida: number };
@@ -37,45 +49,83 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const profile = useProfileTheme();
+  const currentUser = useAuthStore((s) => s.currentUser);
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        content: { paddingBottom: space.xxl },
+        content: { paddingBottom: space.xxl + insets.bottom },
         headerGradient: {
-          paddingHorizontal: space.lg,
-          paddingBottom: space.xl,
+          paddingHorizontal: space.md,
+          paddingBottom: space.md,
+        },
+        headerRow: {
+          flexDirection: "row",
           alignItems: "center",
+          gap: space.sm,
         },
         avatar: {
-          width: 76,
-          height: 76,
-          borderRadius: 38,
+          width: 44,
+          height: 44,
+          borderRadius: 22,
           backgroundColor: colors.backgroundCard,
           justifyContent: "center",
           alignItems: "center",
-          marginBottom: space.md,
+          borderWidth: 2,
+          borderColor: profile.accentSoft,
         },
-        avatarText: { fontSize: 30, lineHeight: 36, fontWeight: "800", color: profile.accent },
-        greeting: {
-          fontSize: typo.caption,
-          lineHeight: Math.round(typo.caption * 1.3),
+        avatarText: {
+          fontSize: 18,
+          lineHeight: 22,
+          fontWeight: "800",
+          color: profile.accent,
+        },
+        headerTextCol: { flex: 1, minWidth: 0 },
+        nome: {
+          fontSize: 17,
+          lineHeight: 22,
+          fontWeight: "800",
+          color: colors.text,
+          letterSpacing: -0.2,
+        },
+        meta: {
+          fontSize: 13,
+          lineHeight: 18,
           color: colors.textSecondary,
-          marginBottom: 4,
-          fontWeight: "600",
+          fontWeight: "500",
+          marginTop: 2,
         },
-        nome: { fontSize: 22, lineHeight: 28, fontWeight: "800", color: colors.text, letterSpacing: -0.3 },
+        verPerfil: {
+          flexDirection: "row",
+          alignItems: "center",
+          alignSelf: "flex-start",
+          marginTop: 6,
+          gap: 2,
+        },
+        verPerfilText: {
+          fontSize: 13,
+          lineHeight: 18,
+          fontWeight: "700",
+          color: profile.accent,
+        },
         body: { paddingHorizontal: space.md, marginTop: space.sm },
       }),
-    [colors, profile]
+    [colors, insets.bottom, profile]
   );
-  const token = useAuthStore((s) => s.token);
-  const claims = token ? decodeJwtPayload(token) : {};
-  const nome = claims.username || "Usuário";
-  const role = claims.role as number | undefined;
+
+  const nome = (currentUser?.username as string | undefined)?.trim() || "Usuário";
+  const subBase = (currentUser?.sub_base as string | undefined)?.trim() || "";
+  const role = currentUser?.role as number | undefined;
+  const labelPerfil = staffRoleLabel(role);
   const showMotoboyMenu = isMotoboyRole(role);
+  const mostrarEnviarAviso = !showMotoboyMenu && isAdminRole(role);
   const unreadAvisos = useAvisosUnreadStore((s) => s.unreadCount);
   const refreshUnreadAvisos = useAvisosUnreadStore((s) => s.refresh);
+
+  const metaParts = [subBase || null, showMotoboyMenu ? null : labelPerfil || null].filter(
+    Boolean
+  ) as string[];
+  const metaLine = metaParts.join(" · ");
 
   useFocusEffect(
     useCallback(() => {
@@ -99,46 +149,94 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: 0 }]}
+      contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
       <LinearGradient
         colors={[...profile.headerGradient]}
         locations={[0, 1]}
-        style={[styles.headerGradient, { paddingTop: Math.max(space.lg, insets.top) }]}
+        style={[styles.headerGradient, { paddingTop: Math.max(space.md, insets.top) }]}
       >
-        <View style={[styles.avatar, { borderWidth: 3, borderColor: profile.accentSoft }]}>
-          <Text style={styles.avatarText}>{nome.charAt(0).toUpperCase()}</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{nome.charAt(0).toUpperCase()}</Text>
+          </View>
+          <View style={styles.headerTextCol}>
+            <Text style={styles.nome} numberOfLines={1}>
+              {nome}
+            </Text>
+            {metaLine ? (
+              <Text style={styles.meta} numberOfLines={1}>
+                {metaLine}
+              </Text>
+            ) : null}
+            <Pressable
+              style={styles.verPerfil}
+              onPress={() => navigation.navigate("MeusDados")}
+              accessibilityRole="button"
+              accessibilityLabel="Ver meu perfil"
+            >
+              <Text style={styles.verPerfilText}>Ver meu perfil</Text>
+              <Ionicons name="chevron-forward" size={14} color={profile.accent} />
+            </Pressable>
+          </View>
         </View>
-        <Text style={styles.greeting}>Olá</Text>
-        <Text style={styles.nome}>{nome}</Text>
       </LinearGradient>
 
       <View style={styles.body}>
         <MenuSection label="Conta">
           <PressableMenuRow
             icon="person-outline"
-            title="Meus dados"
+            title="Meu perfil"
+            subtitle="Dados pessoais e acesso"
             onPress={() => navigation.navigate("MeusDados")}
             iconColor={profile.accent}
             iconSoftBg={profile.accentSoft}
-            isLast
+            isLast={!subBase}
           />
+          {subBase ? (
+            <PressableMenuRow
+              icon="business-outline"
+              title="Base atual"
+              subtitle={subBase}
+              onPress={() => undefined}
+              iconColor={profile.accent}
+              iconSoftBg={profile.accentSoft}
+              showChevron={false}
+              disabled
+              isLast
+            />
+          ) : null}
         </MenuSection>
+
+        {mostrarEnviarAviso ? (
+          <MenuSection label="Comunicação">
+            <PressableMenuRow
+              icon="notifications-outline"
+              title="Enviar aviso"
+              subtitle="Comunicar motoboys da base"
+              onPress={() => navigation.navigate("EnviarAviso")}
+              iconColor={profile.accent}
+              iconSoftBg={profile.accentSoft}
+              isLast
+            />
+          </MenuSection>
+        ) : null}
 
         <MenuSection label="Aplicativo">
           <PressableMenuRow
             icon="settings-outline"
-            title="Configurações"
+            title="Preferências"
+            subtitle="Configurações do aplicativo"
             onPress={() => navigation.navigate("Configuracoes")}
             iconColor={profile.accent}
             iconSoftBg={profile.accentSoft}
           />
           <PressableMenuRow
-            icon="shield-checkmark-outline"
-            title="Privacidade"
-            subtitle="Política de Privacidade"
-            onPress={() => navigation.navigate("Privacidade")}
+            icon="information-circle-outline"
+            title="Sobre o ROTEVO"
+            subtitle="Versão e privacidade"
+            onPress={() => navigation.navigate("SobreRotevo")}
             iconColor={profile.accent}
             iconSoftBg={profile.accentSoft}
             isLast
@@ -176,7 +274,7 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
         <MenuSection label="Sessão">
           <PressableMenuRow
             icon="log-out-outline"
-            title="Sair"
+            title="Sair da conta"
             onPress={handleSair}
             danger
             showChevron={false}

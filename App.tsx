@@ -35,6 +35,7 @@ import MaisScreen, { type MaisStackParamList } from "./src/screens/MaisScreen";
 import MeusDadosScreen from "./src/screens/MeusDadosScreen";
 import ConfiguracoesScreen from "./src/screens/ConfiguracoesScreen";
 import PrivacidadeScreen from "./src/screens/PrivacidadeScreen";
+import SobreRotevoScreen from "./src/screens/SobreRotevoScreen";
 import BackgroundLocationDisclosureModal from "./src/components/BackgroundLocationDisclosureModal";
 import EntregasListScreen from "./src/features/entregas/screens/EntregasListScreen";
 import EntregaDetailScreen from "./src/features/entregas/screens/EntregaDetailScreen";
@@ -47,7 +48,15 @@ import MinhasEntregasDiaScreen from "./src/features/entregas/screens/MinhasEntre
 import DevolverPacotesScreen from "./src/features/entregas/screens/DevolverPacotesScreen";
 import DiaRotaConcluidaModal from "./src/features/entregas/components/DiaRotaConcluidaModal";
 import RotasHistoricoScreen from "./src/features/home/screens/RotasHistoricoScreen";
-import StaffHomeStack from "./src/navigation/StaffHomeStack";
+import InicioStack from "./src/navigation/InicioStack";
+import OperacaoStack from "./src/navigation/OperacaoStack";
+import GestaoStack from "./src/navigation/GestaoStack";
+import type {
+  GestaoStackParamList,
+  InicioStackParamList,
+  OperacaoStackParamList,
+} from "./src/navigation/staffStackTypes";
+import EnviarAvisoScreen from "./src/features/avisos/screens/EnviarAvisoScreen";
 import {
   navigateToConfiguracoes,
   navigateToMinhasEntregas,
@@ -101,7 +110,10 @@ export type AuthStackParamList = {
 };
 
 export type MainTabParamList = {
-  Home: undefined;
+  Home: NavigatorScreenParams<RootStackParamList> | undefined;
+  Inicio: NavigatorScreenParams<InicioStackParamList> | undefined;
+  Operacao: NavigatorScreenParams<OperacaoStackParamList> | undefined;
+  Gestao: NavigatorScreenParams<GestaoStackParamList> | undefined;
   Mais: NavigatorScreenParams<MaisStackParamList> | undefined;
 };
 
@@ -175,6 +187,8 @@ function MaisStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <MaisStack.Screen name="MeusDados" component={MeusDadosScreen} />
       <MaisStack.Screen name="Configuracoes" component={ConfiguracoesScreen} />
       <MaisStack.Screen name="Privacidade" component={PrivacidadeScreen} />
+      <MaisStack.Screen name="SobreRotevo" component={SobreRotevoScreen} />
+      <MaisStack.Screen name="EnviarAviso" component={EnviarAvisoScreen} />
       <MaisStack.Screen name="MinhasEntregas" component={MinhasEntregasScreen} />
       <MaisStack.Screen name="MinhasEntregasDia" component={MinhasEntregasDiaScreen} />
       <MaisStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
@@ -197,42 +211,95 @@ function MainTabs({ onLogout }: { onLogout: () => Promise<void> }) {
   const tabPadBottom = Math.max(8, insets.bottom);
   const tabMinHeight = ms(58) + Math.max(0, insets.bottom - 8);
 
+  const tabScreenOptions = {
+    headerShown: false,
+    tabBarActiveTintColor: profileTab.tabBarActive,
+    tabBarInactiveTintColor: colors.tabBarInactive,
+    tabBarAllowFontScaling: true,
+    tabBarLabelStyle: { ...textStyle("tabLabel"), fontWeight: "600" as const },
+    tabBarStyle: {
+      backgroundColor: colors.tabBarBackground,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      paddingTop: 6,
+      paddingBottom: tabPadBottom,
+      minHeight: tabMinHeight,
+    },
+  };
+
+  if (isMotoboy) {
+    return (
+      <Tab.Navigator screenOptions={tabScreenOptions}>
+        <Tab.Screen
+          name="Home"
+          options={{
+            tabBarLabel: "Home",
+            tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size ?? 24} color={color} />,
+          }}
+        >
+          {() => <HomeStackScreen onLogout={onLogout} />}
+        </Tab.Screen>
+        <Tab.Screen
+          name="Mais"
+          options={{
+            tabBarLabel: "Mais",
+            tabBarIcon: ({ color, size }) => <Ionicons name="menu-outline" size={size ?? 24} color={color} />,
+          }}
+          listeners={({ navigation }) => ({
+            tabPress: () => {
+              navigation.navigate("Mais", { screen: "MaisInicio" });
+            },
+          })}
+        >
+          {() => <MaisStackScreen onLogout={onLogout} />}
+        </Tab.Screen>
+      </Tab.Navigator>
+    );
+  }
+
   return (
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: profileTab.tabBarActive,
-        tabBarInactiveTintColor: colors.tabBarInactive,
-        tabBarAllowFontScaling: true,
-        tabBarLabelStyle: { ...textStyle("tabLabel"), fontWeight: "600" },
-        tabBarStyle: {
-          backgroundColor: colors.tabBarBackground,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: colors.border,
-          paddingTop: 6,
-          paddingBottom: tabPadBottom,
-          minHeight: tabMinHeight,
-        },
-      }}
-    >
+    <Tab.Navigator screenOptions={tabScreenOptions}>
       <Tab.Screen
-        name="Home"
+        name="Inicio"
         options={{
-          tabBarLabel: isMotoboy ? "Home" : "Operação",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name={isMotoboy ? "home-outline" : "briefcase-outline"} size={size ?? 24} color={color} />
-          ),
+          tabBarLabel: "Início",
+          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size ?? 24} color={color} />,
         }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.navigate("Inicio", { screen: "StaffInicio" });
+          },
+        })}
       >
-        {() =>
-          isMotoboy ? (
-            <HomeStackScreen onLogout={onLogout} />
-          ) : (
-            <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-              <StaffHomeStack />
-            </SafeAreaView>
-          )
-        }
+        {() => <InicioStack />}
+      </Tab.Screen>
+      <Tab.Screen
+        name="Operacao"
+        options={{
+          tabBarLabel: "Operação",
+          tabBarIcon: ({ color, size }) => <Ionicons name="cube-outline" size={size ?? 24} color={color} />,
+        }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.navigate("Operacao", { screen: "StaffOperacao" });
+          },
+        })}
+      >
+        {() => <OperacaoStack />}
+      </Tab.Screen>
+      <Tab.Screen
+        name="Gestao"
+        options={{
+          tabBarLabel: "Gestão",
+          tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart-outline" size={size ?? 24} color={color} />,
+        }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.navigate("Gestao", { screen: "StaffGestao" });
+          },
+        })}
+      >
+        {() => <GestaoStack />}
       </Tab.Screen>
       <Tab.Screen
         name="Mais"

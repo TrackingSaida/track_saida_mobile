@@ -18,6 +18,7 @@ type Props = {
   showChevron?: boolean;
   danger?: boolean;
   isLast?: boolean;
+  disabled?: boolean;
   /** Contador de badge (ex.: avisos não lidos). */
   badgeCount?: number;
 };
@@ -32,6 +33,7 @@ export default function PressableMenuRow({
   showChevron = true,
   danger = false,
   isLast = false,
+  disabled = false,
   badgeCount = 0,
 }: Props) {
   const colors = useThemeColors();
@@ -42,12 +44,14 @@ export default function PressableMenuRow({
     <TouchableOpacity
       style={[
         styles.row,
-        { minHeight: ms(56) },
+        { minHeight: ms(56), opacity: disabled ? 0.55 : 1 },
         !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
       ]}
       onPress={onPress}
       activeOpacity={0.65}
+      disabled={disabled}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
     >
       <View style={[styles.iconCircle, { backgroundColor: danger ? colors.chipBackground : soft }]}>
         <Ionicons name={icon} size={22} color={danger ? colors.textSecondary : iconColor ?? colors.primary} />

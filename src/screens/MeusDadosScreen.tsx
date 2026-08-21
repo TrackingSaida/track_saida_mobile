@@ -43,7 +43,7 @@ export default function MeusDadosScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <ScreenHeaderBar
-        title="Meus dados"
+        title="Meu perfil"
         onBack={() => navigation.goBack()}
         paddingTop={Math.max(12, insets.top)}
       />

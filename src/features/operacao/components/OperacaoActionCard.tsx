@@ -34,7 +34,7 @@ export default function OperacaoActionCard({
     () =>
       StyleSheet.create({
         shadow: {
-          borderRadius: radius.xl,
+          borderRadius: radius.lg,
           marginBottom: space.sm,
           shadowColor: colors.shadowColor,
           shadowOffset: { width: 0, height: variant === "primary" ? 6 : 2 },
@@ -57,11 +57,11 @@ export default function OperacaoActionCard({
         primaryBtn: {
           flexDirection: "row",
           alignItems: "center",
-          gap: space.md,
-          paddingVertical: space.lg,
-          paddingHorizontal: space.lg,
-          minHeight: ms(72),
-          borderRadius: radius.xl,
+          gap: space.sm,
+          paddingVertical: space.md,
+          paddingHorizontal: space.md,
+          minHeight: ms(56),
+          borderRadius: radius.lg,
         },
         secondaryCard: {
           flexDirection: "row",
@@ -86,9 +86,9 @@ export default function OperacaoActionCard({
           alignItems: "flex-start",
         },
         iconWrap: {
-          width: 48,
-          height: 48,
-          borderRadius: 24,
+          width: variant === "primary" ? 40 : 48,
+          height: variant === "primary" ? 40 : 48,
+          borderRadius: variant === "primary" ? 12 : 24,
           backgroundColor: variant === "primary" ? "rgba(255,255,255,0.2)" : colors.primarySoft,
           alignItems: "center",
           justifyContent: "center",
@@ -103,9 +103,9 @@ export default function OperacaoActionCard({
           marginBottom: 8,
         },
         textWrap: { flex: 1, minWidth: 0 },
-        title: {
-          fontSize: variant === "primary" ? 18 : variant === "compact" ? 14 : 16,
-          lineHeight: variant === "primary" ? 24 : variant === "compact" ? 19 : 22,
+          title: {
+          fontSize: variant === "primary" ? 16 : variant === "compact" ? 14 : 16,
+          lineHeight: variant === "primary" ? 22 : variant === "compact" ? 19 : 22,
           fontWeight: "800",
           color: variant === "primary" ? colors.primaryContrast : colors.text,
         },
@@ -130,7 +130,7 @@ export default function OperacaoActionCard({
             style={styles.primaryBtn}
           >
             <View style={styles.iconWrap}>
-              <Ionicons name={icon} size={26} color={colors.primaryContrast} />
+              <Ionicons name={icon} size={22} color={colors.primaryContrast} />
             </View>
             <View style={styles.textWrap}>
               <AppText style={styles.title}>{title}</AppText>

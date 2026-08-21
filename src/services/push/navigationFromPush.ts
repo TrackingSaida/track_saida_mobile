@@ -56,7 +56,7 @@ export function navigateFromPushData(
       }
       case "reconferir_saida": {
         const motoboyId = Number(data.motoboy_id);
-        navigation.navigate("Home", {
+        navigation.navigate("Operacao", {
           screen: "ConferenciaSaida",
           params: {
             initialAba: "reconferir",
