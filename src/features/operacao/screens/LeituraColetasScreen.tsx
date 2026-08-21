@@ -22,6 +22,12 @@ import { formatApiError } from "../../../utils/formatApiError";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
 import {
+  isOwnerTipoBase,
+  ownerEntityArticle,
+  ownerEntityLabel,
+  ownerEntityLabelLower,
+} from "../../../utils/ownerLabels";
+import {
   effectivePodeDigitarCodigoManual,
   effectivePodeLancarAvulso,
   effectivePodeLerColeta,
@@ -559,9 +565,10 @@ export default function LeituraColetasScreen() {
   }, []);
 
   const baseSelecionadaOk = base.trim().length > 0;
-  const isOwnerTipoBase = String(currentUser?.tipo_owner || "").toLowerCase() === "base";
-  const entidadeLabel = isOwnerTipoBase ? "Seller" : "Base";
-  const entidadeLabelLower = isOwnerTipoBase ? "seller" : "base";
+  const ownerTipoBase = isOwnerTipoBase(currentUser);
+  const entidadeLabel = ownerEntityLabel(currentUser);
+  const entidadeLabelLower = ownerEntityLabelLower(currentUser);
+  const entidadeArticle = ownerEntityArticle(currentUser);
   const baseSelecionada = useMemo(
     () => bases.find((b) => b.base === base) ?? null,
     [bases, base]
@@ -582,12 +589,12 @@ export default function LeituraColetasScreen() {
     } catch (e) {
       Alert.alert(
         "Erro",
-        formatApiError(e, `Não foi possível carregar os ${isOwnerTipoBase ? "sellers" : "bases"}.`)
+        formatApiError(e, `Não foi possível carregar ${ownerTipoBase ? "os sellers" : "as bases"}.`)
       );
     } finally {
       setCarregandoBases(false);
     }
-  }, [isOwnerTipoBase]);
+  }, [ownerTipoBase]);
 
   useEffect(() => {
     void carregarBases();
@@ -674,8 +681,8 @@ export default function LeituraColetasScreen() {
   const ensurePermissionAndOpenCamera = useCallback(async () => {
     if (!base.trim()) {
       Alert.alert(
-        `${entidadeLabel} obrigatóri${isOwnerTipoBase ? "o" : "a"}`,
-        `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} antes de iniciar as leituras.`
+        `${entidadeLabel} obrigatóri${ownerTipoBase ? "o" : "a"}`,
+        `Selecione ${entidadeArticle} ${entidadeLabelLower} antes de iniciar as leituras.`
       );
       return;
     }
@@ -694,13 +701,13 @@ export default function LeituraColetasScreen() {
     setModoLeitorFisico(false);
     setModoManual(false);
     setCameraAtiva(true);
-  }, [base, entidadeLabel, entidadeLabelLower, isOwnerTipoBase, permission, requestPermission]);
+  }, [base, entidadeLabel, entidadeLabelLower, entidadeArticle, ownerTipoBase, permission, requestPermission]);
 
   const openPhysicalScanner = useCallback(() => {
     if (!base.trim()) {
       Alert.alert(
-        `${entidadeLabel} obrigatóri${isOwnerTipoBase ? "o" : "a"}`,
-        `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} antes de iniciar as leituras.`
+        `${entidadeLabel} obrigatóri${ownerTipoBase ? "o" : "a"}`,
+        `Selecione ${entidadeArticle} ${entidadeLabelLower} antes de iniciar as leituras.`
       );
       return;
     }
@@ -708,7 +715,7 @@ export default function LeituraColetasScreen() {
     setModoLeitorFisico(true);
     setModoManual(false);
     setCameraAtiva(true);
-  }, [base, entidadeLabel, entidadeLabelLower, ignorarColeta, isOwnerTipoBase, podeLerColeta]);
+  }, [base, entidadeLabel, entidadeLabelLower, entidadeArticle, ignorarColeta, ownerTipoBase, podeLerColeta]);
 
   const processarLeitura = useCallback(
     async (raw: string, origem: "camera" | "manual" | "leitor") => {
@@ -727,10 +734,10 @@ export default function LeituraColetasScreen() {
         return;
       }
       if (!baseTrimmed) {
-        pushFeedback("info", `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} antes de iniciar.`);
+        pushFeedback("info", `Selecione ${entidadeArticle} ${entidadeLabelLower} antes de iniciar.`);
         Alert.alert(
-          `${entidadeLabel} obrigatóri${isOwnerTipoBase ? "o" : "a"}`,
-          `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} para registrar as coletas.`
+          `${entidadeLabel} obrigatóri${ownerTipoBase ? "o" : "a"}`,
+          `Selecione ${entidadeArticle} ${entidadeLabelLower} para registrar as coletas.`
         );
         return;
       }
@@ -848,7 +855,7 @@ export default function LeituraColetasScreen() {
         }, 400);
       }
     },
-    [base, codigosLidosSessao, entidadeLabel, entidadeLabelLower, ignorarColeta, isOwnerTipoBase, leituras, podeLerColeta, pushFeedback]
+    [base, codigosLidosSessao, entidadeLabel, entidadeLabelLower, entidadeArticle, ignorarColeta, ownerTipoBase, leituras, podeLerColeta, pushFeedback]
   );
 
   const handleRegistrarManual = useCallback(async () => {
@@ -870,7 +877,7 @@ export default function LeituraColetasScreen() {
       const baseTrimmed = base.trim();
       if (!baseTrimmed) {
         throw new Error(
-          `Selecione ${isOwnerTipoBase ? "o" : "a"} ${entidadeLabelLower} antes de lançar o avulso.`
+          `Selecione ${entidadeArticle} ${entidadeLabelLower} antes de lançar o avulso.`
         );
       }      setLoading(true);
       try {
@@ -899,7 +906,7 @@ export default function LeituraColetasScreen() {
         setLoading(false);
       }
     },
-    [base, entidadeLabelLower, isOwnerTipoBase, pushFeedback]
+    [base, entidadeLabelLower, entidadeArticle, ownerTipoBase, pushFeedback]
   );
 
   const handleBarcodeScanned = useCallback(
@@ -959,7 +966,7 @@ export default function LeituraColetasScreen() {
       <View style={styles.baseBlock}>
         {baseSelecionadaOk ? (
           <View style={styles.baseBadge}>
-            <Text style={styles.baseBadgeText}>{entidadeLabel} selecionad{isOwnerTipoBase ? "o" : "a"}</Text>
+            <Text style={styles.baseBadgeText}>{entidadeLabel} selecionad{ownerTipoBase ? "o" : "a"}</Text>
           </View>
         ) : null}
         {!baseSelecionadaOk ? <Text style={styles.baseLabel}>{entidadeLabel}</Text> : null}
@@ -969,7 +976,7 @@ export default function LeituraColetasScreen() {
           </Text>
         ) : (
           <Text style={styles.baseHint}>
-            Selecione {isOwnerTipoBase ? "o" : "a"} {entidadeLabelLower} para iniciar as leituras de coleta.
+            Selecione {entidadeArticle} {entidadeLabelLower} para iniciar as leituras de coleta.
           </Text>
         )}
         {baseSelecionadaOk && enderecoSelecionado ? (
@@ -1006,12 +1013,12 @@ export default function LeituraColetasScreen() {
           onPress={() => setModalBaseVisible(true)}
           disabled={loading}
           accessibilityLabel={
-            baseSelecionadaOk ? `Trocar ${entidadeLabelLower}` : `Selecionar ${entidadeLabelLower}`
+            baseSelecionadaOk ? `Trocar ${entidadeLabel}` : `Selecionar ${entidadeLabel}`
           }
           accessibilityRole="button"
         >
           <Text style={styles.baseCtaText}>
-            {baseSelecionadaOk ? `Trocar ${entidadeLabelLower}` : `Selecionar ${entidadeLabelLower}`}
+            {baseSelecionadaOk ? `Trocar ${entidadeLabel}` : `Selecionar ${entidadeLabel}`}
           </Text>
           <Ionicons name="chevron-forward" size={20} color="#0F766E" />
         </TouchableOpacity>
@@ -1345,13 +1352,13 @@ export default function LeituraColetasScreen() {
       >
         <Pressable style={styles.pickerOverlay} onPress={() => setModalBaseVisible(false)}>
           <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>Escolher {entidadeLabelLower}</Text>
+            <Text style={styles.pickerTitle}>Escolher {entidadeLabel}</Text>
             <ScrollView keyboardShouldPersistTaps="handled">
               {carregandoBases ? (
                 <ActivityIndicator color={colors.primary} style={{ marginVertical: 24 }} />
               ) : bases.length === 0 ? (
                 <Text style={[styles.infoText, { paddingVertical: 16 }]}>
-                  Nenhum{isOwnerTipoBase ? "" : "a"} {entidadeLabelLower} ativ{isOwnerTipoBase ? "o" : "a"} disponível.
+                  Nenhum{ownerTipoBase ? "" : "a"} {entidadeLabelLower} ativ{ownerTipoBase ? "o" : "a"} disponível.
                 </Text>
               ) : (
                 bases.map((item) => {
@@ -1371,7 +1378,7 @@ export default function LeituraColetasScreen() {
                       ) : null}
                       {ativo ? (
                         <Text style={styles.pickerItemSub}>
-                          Selecionad{isOwnerTipoBase ? "o" : "a"}
+                          Selecionad{ownerTipoBase ? "o" : "a"}
                         </Text>
                       ) : null}
                     </TouchableOpacity>
