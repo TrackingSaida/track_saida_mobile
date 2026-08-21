@@ -106,3 +106,40 @@ export async function lancarAvulsoColeta(params: {
   });
   return data;
 }
+
+export interface ParticipanteSituacaoColeta {
+  user_id: number;
+  username: string;
+  status: "em_coleta" | "finalizado";
+  total: number;
+}
+
+export interface SituacaoBaseColeta {
+  base_id: number;
+  base: string;
+  endereco_completo?: string | null;
+  status: "pendente" | "em_coleta" | "coletado" | "sem_volume";
+  id_execucao: number | null;
+  modo: "codigo" | "coleta_manual" | "ambos" | null;
+  total: number;
+  shopee: number;
+  mercado_livre: number;
+  avulso: number;
+  participantes: ParticipanteSituacaoColeta[];
+  participando: boolean;
+  pode_ajudar: boolean;
+  atualizado_em?: string | null;
+}
+
+export interface SituacaoColetasResponse {
+  data_operacao: string;
+  resumo: { pendentes: number; em_coleta: number; coletadas: number };
+  itens: SituacaoBaseColeta[];
+}
+
+export async function consultarSituacaoColetas(dataOperacao: string): Promise<SituacaoColetasResponse> {
+  const { data } = await client.get<SituacaoColetasResponse>("/coletas/operacionais/situacao", {
+    params: { data_operacao: dataOperacao },
+  });
+  return data;
+}

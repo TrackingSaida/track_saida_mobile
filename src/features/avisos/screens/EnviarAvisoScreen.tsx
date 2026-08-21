@@ -14,11 +14,11 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useThemeColors } from "../../../theme/colors";
 import { space } from "../../../theme/spacing";
-import type { StaffStackParamList } from "../../../navigation/staffStackTypes";
+import type { MaisStackParamList } from "../../../screens/MaisScreen";
 import { listMotoboysOperacao, type MotoboyItem } from "../../operacao/saidasApi";
 import { criarAviso } from "../api";
 
-type Props = NativeStackScreenProps<StaffStackParamList, "EnviarAviso">;
+type Props = NativeStackScreenProps<MaisStackParamList, "EnviarAviso">;
 
 export default function EnviarAvisoScreen({ navigation }: Props) {
   const colors = useThemeColors();
