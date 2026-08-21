@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
 import axios from "axios";
 import { decodeJwtPayload, isJwtExpired, type JwtClaims } from "../utils/jwt";
+import { normalizeTipoOwner } from "../utils/ownerLabels";
 import { getBiometricEnabled, setBiometricEnabled as persistBiometricEnabled } from "../services/settingsService";
 import { getSavedCredentials } from "../services/savedCredentials";
 import { API_BASE_URL } from "../config/api";
@@ -30,6 +31,19 @@ interface AuthState {
   unlockWithBiometric: () => Promise<boolean>;
   /** @deprecated use onSessionExpired */
   onUnauthorized: () => Promise<void>;
+}
+
+async function fetchTipoOwnerFromMe(token: string): Promise<string | null> {
+  try {
+    const { data } = await axios.get<{ tipo_owner?: string }>(`${API_BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      timeout: 10000,
+    });
+    if (data?.tipo_owner == null) return null;
+    return normalizeTipoOwner(data.tipo_owner);
+  } catch {
+    return null;
+  }
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -68,6 +82,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentUser: claims,
       sessionExpiredVisible: false,
     });
+    const tipoOwner = await fetchTipoOwnerFromMe(accessToken);
+    if (tipoOwner) {
+      const current = get().currentUser;
+      if (current && current.tipo_owner !== tipoOwner) {
+        set({ currentUser: { ...current, tipo_owner: tipoOwner } });
+      }
+    }
     const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
     await useMotoboyPrefsStore.getState().loadForCurrentUser();
     try {
@@ -103,6 +124,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           currentUser: claims,
           isLoading: false,
           requiresBiometricUnlock: false,
+        });
+        void fetchTipoOwnerFromMe(token).then((tipoOwner) => {
+          const current = get().currentUser;
+          if (tipoOwner && current && current.tipo_owner !== tipoOwner) {
+            set({ currentUser: { ...current, tipo_owner: tipoOwner } });
+          }
         });
         return;
       }
@@ -257,6 +284,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         requiresBiometricUnlock: false,
         sessionExpiredVisible: false,
       });
+      const tipoOwner = await fetchTipoOwnerFromMe(token);
+      const current = get().currentUser;
+      if (tipoOwner && current && current.tipo_owner !== tipoOwner) {
+        set({ currentUser: { ...current, tipo_owner: tipoOwner } });
+      }
       const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
       await useMotoboyPrefsStore.getState().loadForCurrentUser();
       try {
