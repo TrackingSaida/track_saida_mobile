@@ -20,7 +20,7 @@ import { formatApiError } from "../../../utils/formatApiError";
 import { useAuthStore } from "../../../store/authStore";
 import { ownerEntityLabel, ownerEntityLabelLower } from "../../../utils/ownerLabels";
 import { isAdminRole } from "../../../utils/role";
-import type { OperacaoStackParamList } from "../../../navigation/staffStackTypes";
+import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import {
   consultarSituacaoColetas,
   corrigirQuantidadesParticipante,
@@ -38,7 +38,7 @@ import {
 } from "../utils/coletaSituacaoUi";
 
 type Filtro = "todos" | ColetaStatusFiltro;
-type Nav = NativeStackNavigationProp<OperacaoStackParamList, "ConsultarColetas">;
+type Nav = NativeStackNavigationProp<ColetasFluxoParamList, "ConsultarColetas">;
 
 type CorrecaoCtx = {
   item: SituacaoBaseColeta;

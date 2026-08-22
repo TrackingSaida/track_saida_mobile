@@ -54,7 +54,7 @@ import {
 import { listarBasesAtivas, type BaseItem } from "../basesApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
 import { hojeOperacaoLocal } from "../utils/coletaSituacaoUi";
-import type { OperacaoStackParamList } from "../../../navigation/staffStackTypes";
+import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
 import AvulsoLancamentoModal from "../components/AvulsoLancamentoModal";
@@ -137,8 +137,8 @@ function classifyCodigo(rawInput: string): ClassifyResult {
 }
 
 export default function LeituraColetasScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<OperacaoStackParamList>>();
-  const route = useRoute<RouteProp<OperacaoStackParamList, "LeituraColetas"> | RouteProp<{ Coletas: undefined }, "Coletas">>();
+  const navigation = useNavigation<NativeStackNavigationProp<ColetasFluxoParamList>>();
+  const route = useRoute<RouteProp<ColetasFluxoParamList, "LeituraColetas"> | RouteProp<{ Coletas: undefined }, "Coletas">>();
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);

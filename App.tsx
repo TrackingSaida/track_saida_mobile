@@ -51,6 +51,9 @@ import RotasHistoricoScreen from "./src/features/home/screens/RotasHistoricoScre
 import InicioStack from "./src/navigation/InicioStack";
 import OperacaoStack from "./src/navigation/OperacaoStack";
 import GestaoStack from "./src/navigation/GestaoStack";
+import LeituraColetasScreen from "./src/features/operacao/screens/LeituraColetasScreen";
+import LeiturasColetaScreen from "./src/features/operacao/screens/LeiturasColetaScreen";
+import ConsultarColetasScreen from "./src/features/operacao/screens/ConsultarColetasScreen";
 import type {
   GestaoStackParamList,
   InicioStackParamList,
@@ -102,6 +105,13 @@ export type RootStackParamList = {
     | undefined;
   RotasHistorico: undefined;
   DevolverPacotes: undefined;
+  LeituraColetas: { baseId?: number; baseNome?: string } | undefined;
+  LeiturasColeta: {
+    baseId: number;
+    baseNome: string;
+    dataOperacao?: string;
+  };
+  ConsultarColetas: undefined;
 };
 
 export type AuthStackParamList = {
@@ -159,6 +169,8 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
               }
             }}
             onNavigateDevolverPacotes={() => navigation.navigate("DevolverPacotes")}
+            onNavigateLeituraColetas={() => navigation.navigate("LeituraColetas")}
+            onNavigateConsultarColetas={() => navigation.navigate("ConsultarColetas")}
           />
         )}
       </HomeStack.Screen>
@@ -174,6 +186,9 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <HomeStack.Screen name="RouteBuilder" component={RouteBuilderScreen} />
       <HomeStack.Screen name="RotasHistorico" component={RotasHistoricoScreen} />
       <HomeStack.Screen name="DevolverPacotes" component={DevolverPacotesScreen} />
+      <HomeStack.Screen name="LeituraColetas" component={LeituraColetasScreen} />
+      <HomeStack.Screen name="LeiturasColeta" component={LeiturasColetaScreen} />
+      <HomeStack.Screen name="ConsultarColetas" component={ConsultarColetasScreen} />
     </HomeStack.Navigator>
   );
 }

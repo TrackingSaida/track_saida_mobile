@@ -17,6 +17,8 @@ type Props = {
   onVerResumoUltimaRota: () => void;
   onScan?: () => void;
   onDevolverPacotes?: () => void;
+  onRegistrarColeta?: () => void;
+  onConsultarColetas?: () => void;
 };
 
 export default function HomeAtalhosPage({
@@ -29,6 +31,8 @@ export default function HomeAtalhosPage({
   onVerResumoUltimaRota,
   onScan,
   onDevolverPacotes,
+  onRegistrarColeta,
+  onConsultarColetas,
 }: Props) {
   const colors = useThemeColors();
   const styles = useMemo(
@@ -105,6 +109,22 @@ export default function HomeAtalhosPage({
       ) : null}
 
       <View style={styles.section}>
+        {onRegistrarColeta ? (
+          <PressableMenuRow
+            icon="layers-outline"
+            title="Registrar coleta"
+            subtitle="Pacotes coletados na base"
+            onPress={onRegistrarColeta}
+          />
+        ) : null}
+        {onConsultarColetas ? (
+          <PressableMenuRow
+            icon="list-outline"
+            title="Consultar coletas"
+            subtitle="Pendentes e andamento"
+            onPress={onConsultarColetas}
+          />
+        ) : null}
         {onScan ? (
           <PressableMenuRow icon="cube-outline" title="Inserir novos pacotes" onPress={onScan} />
         ) : null}

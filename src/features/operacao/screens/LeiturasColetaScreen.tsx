@@ -23,7 +23,7 @@ import {
   type TotaisColetaBase,
 } from "../coletasApi";
 import { hojeOperacaoLocal } from "../utils/coletaSituacaoUi";
-import type { OperacaoStackParamList } from "../../../navigation/staffStackTypes";
+import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 
 function formatHorario(raw: string | null | undefined): string {
   if (!raw) return "—";
@@ -35,8 +35,8 @@ function formatHorario(raw: string | null | undefined): string {
 export default function LeiturasColetaScreen() {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
-  const navigation = useNavigation<NativeStackNavigationProp<OperacaoStackParamList>>();
-  const route = useRoute<RouteProp<OperacaoStackParamList, "LeiturasColeta">>();
+  const navigation = useNavigation<NativeStackNavigationProp<ColetasFluxoParamList>>();
+  const route = useRoute<RouteProp<ColetasFluxoParamList, "LeiturasColeta">>();
   const { baseId, baseNome, dataOperacao } = route.params;
   const dataRef = dataOperacao || hojeOperacaoLocal();
 

@@ -9,6 +9,7 @@ import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
 import { useThemeColors } from "../theme/colors";
 import { space } from "../theme/spacing";
 import { decodeJwtPayload } from "../utils/jwt";
+import { effectivePodeLerColeta } from "../utils/role";
 import type { EntregasListInitialTab } from "../features/entregas/types";
 import HomePager, { type HomePagerCallbacks } from "../features/home/components/HomePager";
 import { useHomeData } from "../features/home/hooks/useHomeData";
@@ -31,6 +32,8 @@ type Props = {
   onNavigatePreferencias: () => void;
   onNavigateAvisos: () => void;
   onNavigateDevolverPacotes?: () => void;
+  onNavigateLeituraColetas?: () => void;
+  onNavigateConsultarColetas?: () => void;
 };
 
 export default function HomeScreen({
@@ -44,14 +47,18 @@ export default function HomeScreen({
   onNavigatePreferencias,
   onNavigateAvisos,
   onNavigateDevolverPacotes,
+  onNavigateLeituraColetas,
+  onNavigateConsultarColetas,
 }: Props) {
   const colors = useThemeColors();
   const data = useHomeData();
   const token = useAuthStore((s) => s.token);
+  const currentUser = useAuthStore((s) => s.currentUser);
   const claims = token ? decodeJwtPayload(token) : {};
   const nome = claims.username || "Motoboy";
   const subBase = claims.sub_base || "";
   const devolucaoHabilitada = claims.devolucao_sub_base_habilitada === true;
+  const podeRegistrarColeta = effectivePodeLerColeta(currentUser);
   const unreadCount = useAvisosUnreadStore((s) => s.unreadCount);
   const refreshUnread = useAvisosUnreadStore((s) => s.refresh);
 
@@ -110,6 +117,10 @@ export default function HomeScreen({
       devolucaoHabilitada && onNavigateDevolverPacotes
         ? onNavigateDevolverPacotes
         : undefined,
+    onRegistrarColeta:
+      podeRegistrarColeta && onNavigateLeituraColetas ? onNavigateLeituraColetas : undefined,
+    onConsultarColetas:
+      podeRegistrarColeta && onNavigateConsultarColetas ? onNavigateConsultarColetas : undefined,
   };
 
   const headerGradient: readonly [string, string] = [
