@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
@@ -39,6 +40,7 @@ import {
 } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import {
+  consultarResumoBaseColeta,
   consultarSituacaoColetas,
   enviarColetaUnica,
   lancarAvulsoColeta,
@@ -47,6 +49,7 @@ import {
   type ColetaOperacionalConfig,
   type ServicoColeta,
   type SituacaoBaseColeta,
+  type TotaisColetaBase,
 } from "../coletasApi";
 import { listarBasesAtivas, type BaseItem } from "../basesApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
@@ -65,13 +68,13 @@ import {
 
 type StatusLeitura = "pendente" | "enviado" | "duplicado" | "erro";
 
-interface ColetaItemLocal {
+interface UltimaLeituraLocal {
   codigo: string;
   servico: ServicoColeta;
   status: StatusLeitura;
-  qr_payload_raw?: string;
-  is_grande?: boolean;
 }
+
+const TOTAIS_VAZIOS: TotaisColetaBase = { total: 0, shopee: 0, mercado_livre: 0, avulso: 0 };
 
 type FeedbackTipo = "sucesso" | "duplicado" | "erro" | "info";
 
@@ -134,7 +137,7 @@ function classifyCodigo(rawInput: string): ClassifyResult {
 }
 
 export default function LeituraColetasScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<OperacaoStackParamList>>();
   const route = useRoute<RouteProp<OperacaoStackParamList, "LeituraColetas"> | RouteProp<{ Coletas: undefined }, "Coletas">>();
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
@@ -148,8 +151,11 @@ export default function LeituraColetasScreen() {
   const [carregandoBases, setCarregandoBases] = useState(false);
   const [modalBaseVisible, setModalBaseVisible] = useState(false);
   const [codigoInput, setCodigoInput] = useState("");
-  const [leituras, setLeituras] = useState<ColetaItemLocal[]>([]);
+  const [totaisColeta, setTotaisColeta] = useState<TotaisColetaBase>(TOTAIS_VAZIOS);
+  const [ultimaLeitura, setUltimaLeitura] = useState<UltimaLeituraLocal | null>(null);
+  const [codigosSessao, setCodigosSessao] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(false);
+  const [resumoLoading, setResumoLoading] = useState(false);
   const [cameraAtiva, setCameraAtiva] = useState(false);
   const [modoLeitorFisico, setModoLeitorFisico] = useState(false);
   const [modoManual, setModoManual] = useState(false);
@@ -163,6 +169,7 @@ export default function LeituraColetasScreen() {
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cameraPausadaPorLeituras = useRef(false);
 
   const styles = useMemo(
     () =>
@@ -677,6 +684,41 @@ export default function LeituraColetasScreen() {
     }
   }, []);
 
+  const aplicarTotais = useCallback((totais?: TotaisColetaBase | null) => {
+    if (!totais) return;
+    setTotaisColeta({
+      total: Number(totais.total) || 0,
+      shopee: Number(totais.shopee) || 0,
+      mercado_livre: Number(totais.mercado_livre) || 0,
+      avulso: Number(totais.avulso) || 0,
+    });
+  }, []);
+
+  const carregarResumoBase = useCallback(
+    async (baseId: number) => {
+      setResumoLoading(true);
+      try {
+        const resumo = await consultarResumoBaseColeta(baseId, hojeOperacaoLocal());
+        aplicarTotais({
+          total: resumo.total,
+          shopee: resumo.shopee,
+          mercado_livre: resumo.mercado_livre,
+          avulso: resumo.avulso,
+        });
+      } catch {
+        // Mantém totais atuais; situação completa ainda pode preencher badge
+      } finally {
+        setResumoLoading(false);
+      }
+    },
+    [aplicarTotais]
+  );
+
+  React.useEffect(() => {
+    if (!baseSelecionada?.id_base) return;
+    void carregarResumoBase(baseSelecionada.id_base);
+  }, [baseSelecionada?.id_base, carregarResumoBase]);
+
   const carregarBases = useCallback(async () => {
     setCarregandoBases(true);
     try {
@@ -712,13 +754,34 @@ export default function LeituraColetasScreen() {
       void carregarBases();
       void carregarSituacao();
       void carregarConfig();
-    }, [capturarParametroRota, carregarBases, carregarConfig, carregarSituacao])
+      if (baseSelecionada?.id_base) {
+        void carregarResumoBase(baseSelecionada.id_base);
+      }
+      if (cameraPausadaPorLeituras.current) {
+        cameraPausadaPorLeituras.current = false;
+        setCameraAtiva(true);
+      }
+    }, [
+      baseSelecionada?.id_base,
+      capturarParametroRota,
+      carregarBases,
+      carregarConfig,
+      carregarResumoBase,
+      carregarSituacao,
+    ])
   );
 
-  const selecionarBase = useCallback((item: BaseItem) => {
-    setBase(item.base);
-    setModalBaseVisible(false);
-  }, []);
+  const selecionarBase = useCallback(
+    (item: BaseItem) => {
+      setUltimaLeitura(null);
+      setCodigosSessao(new Set());
+      setTotaisColeta(TOTAIS_VAZIOS);
+      setBase(item.base);
+      setModalBaseVisible(false);
+      void carregarResumoBase(item.id_base);
+    },
+    [carregarResumoBase]
+  );
 
   const handleNavEndereco = useCallback(
     async (app: NavigationApp) => {
@@ -769,32 +832,8 @@ export default function LeituraColetasScreen() {
   const subBase = currentUser?.sub_base ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
-  const resumo = useMemo(() => {
-    const ativos = leituras.filter((l) => l.status !== "duplicado");
-    const shopee = ativos.filter((l) => l.servico === "Shopee").length;
-    const ml = ativos.filter((l) => l.servico === "Mercado Livre").length;
-    const avulso = ativos.filter((l) => l.servico === "Avulso").length;
-    const total = ativos.length;
-    return { shopee, ml, avulso, total };
-  }, [leituras]);
-  const ultimaLeitura = useMemo(() => {
-    for (let i = leituras.length - 1; i >= 0; i -= 1) {
-      const item = leituras[i];
-      if (item.status === "enviado" || item.status === "duplicado" || item.status === "erro") {
-        return item;
-      }
-    }
-    return null;
-  }, [leituras]);
-  const codigosLidosSessao = useMemo(() => {
-    const set = new Set<string>();
-    leituras.forEach((l) => {
-      if (l.status === "erro") return;
-      const code = String(l.codigo || "").trim().toUpperCase();
-      if (code) set.add(code);
-    });
-    return set;
-  }, [leituras]);
+  const resumo = totaisColeta;
+  const codigosLidosSessao = codigosSessao;
 
   const ensurePermissionAndOpenCamera = useCallback(async () => {
     if (!base.trim()) {
@@ -877,6 +916,9 @@ export default function LeituraColetasScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       pushFeedback("sucesso", "Quantidades registradas com sucesso.");
       void carregarSituacao();
+      if (baseSelecionada?.id_base) {
+        void carregarResumoBase(baseSelecionada.id_base);
+      }
     } catch (error) {
       Alert.alert("Não foi possível salvar", formatApiError(error, "Tente novamente."));
     } finally {
@@ -884,6 +926,7 @@ export default function LeituraColetasScreen() {
     }
   }, [
     baseSelecionada,
+    carregarResumoBase,
     carregarSituacao,
     quantidadeAvulso,
     quantidadeFlex,
@@ -955,7 +998,7 @@ export default function LeituraColetasScreen() {
       const codigoNorm = classified.codigo;
       const servico = classified.servico;
 
-      if (leituras.some((l) => l.codigo === codigoNorm && l.status !== "erro")) {
+      if (codigosLidosSessao.has(codigoNorm.toUpperCase())) {
         scanLocked.current = false;
         playSound("warn");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -963,21 +1006,19 @@ export default function LeituraColetasScreen() {
         return;
       }
 
-      const novoItem: ColetaItemLocal = {
-        codigo: codigoNorm,
-        servico,
-        status: "pendente",
-        qr_payload_raw: classified.qr_payload_raw,
-      };
-
-      setLeituras((prev) => [...prev, novoItem]);
+      setCodigosSessao((prev) => {
+        const next = new Set(prev);
+        next.add(codigoNorm.toUpperCase());
+        return next;
+      });
+      setUltimaLeitura({ codigo: codigoNorm, servico, status: "pendente" });
       if (origem === "manual") {
         setCodigoInput("");
       }
 
       setLoading(true);
       try {
-        await enviarColetaUnica({
+        const result = await enviarColetaUnica({
           base: baseTrimmed,
           item: {
             codigo: codigoNorm,
@@ -985,15 +1026,22 @@ export default function LeituraColetasScreen() {
             qr_payload_raw: classified.qr_payload_raw,
           },
         });
-        setLeituras((prev) =>
-          prev.map((l) =>
-            l.codigo === codigoNorm ? { ...l, status: "enviado" } : l
-          )
-        );
+        setUltimaLeitura({ codigo: codigoNorm, servico, status: "enviado" });
+        if (result.totais) {
+          aplicarTotais(result.totais);
+        } else {
+          setTotaisColeta((prev) => {
+            const next = { ...prev };
+            if (servico === "Shopee") next.shopee += 1;
+            else if (servico === "Mercado Livre") next.mercado_livre += 1;
+            else next.avulso += 1;
+            next.total = next.shopee + next.mercado_livre + next.avulso;
+            return next;
+          });
+        }
         playSound("success");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         pushFeedback("sucesso", "Coleta registrada com sucesso.", codigoNorm);
-        void carregarSituacao();
       } catch (err) {
         const ax = err as {
           response?: { status?: number; data?: { detail?: string } };
@@ -1002,20 +1050,17 @@ export default function LeituraColetasScreen() {
         const detail = ax.response?.data?.detail;
 
         if (status === 409) {
-          setLeituras((prev) =>
-            prev.map((l) =>
-              l.codigo === codigoNorm ? { ...l, status: "duplicado" } : l
-            )
-          );
+          setUltimaLeitura({ codigo: codigoNorm, servico, status: "duplicado" });
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           pushFeedback("duplicado", String(detail || "Código já coletado."), codigoNorm);
         } else {
-          setLeituras((prev) =>
-            prev.map((l) =>
-              l.codigo === codigoNorm ? { ...l, status: "erro" } : l
-            )
-          );
+          setCodigosSessao((prev) => {
+            const next = new Set(prev);
+            next.delete(codigoNorm.toUpperCase());
+            return next;
+          });
+          setUltimaLeitura({ codigo: codigoNorm, servico, status: "erro" });
           playSound("error");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           pushFeedback("erro", typeof detail === "string" && detail ? detail : "Falha ao registrar coleta.", codigoNorm);
@@ -1031,7 +1076,7 @@ export default function LeituraColetasScreen() {
         }, 400);
       }
     },
-    [base, carregarSituacao, codigosLidosSessao, entidadeLabel, entidadeLabelLower, entidadeArticle, ignorarColeta, ownerTipoBase, leituras, podeLerColeta, pushFeedback]
+    [aplicarTotais, base, codigosLidosSessao, entidadeLabel, entidadeLabelLower, entidadeArticle, ignorarColeta, ownerTipoBase, podeLerColeta, pushFeedback]
   );
 
   const handleRegistrarManual = useCallback(async () => {
@@ -1062,17 +1107,24 @@ export default function LeituraColetasScreen() {
           identificacao: payload.identificacao,
           quantidade: payload.quantidade,
         });
-        const novos: ColetaItemLocal[] = result.saidas.map((saida) => ({
-          codigo: saida.codigo,
-          servico: "Avulso",
-          status: "enviado",
-        }));
-        setLeituras((prev) => [...prev, ...novos]);
+        const ultimoCodigo = result.codigos.at(-1) || result.saidas.at(-1)?.codigo || "";
+        if (ultimoCodigo) {
+          setUltimaLeitura({ codigo: ultimoCodigo, servico: "Avulso", status: "enviado" });
+          setCodigosSessao((prev) => {
+            const next = new Set(prev);
+            result.codigos.forEach((c) => next.add(String(c).toUpperCase()));
+            return next;
+          });
+        }
+        if (result.totais) {
+          aplicarTotais(result.totais);
+        } else if (baseSelecionada?.id_base) {
+          void carregarResumoBase(baseSelecionada.id_base);
+        }
         setAvulsoModalVisible(false);
         playSound("success");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         pushFeedback("sucesso", result.mensagem, result.codigos.at(-1));
-        void carregarSituacao();
       } catch (error) {
         playSound("error");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -1083,7 +1135,15 @@ export default function LeituraColetasScreen() {
         setLoading(false);
       }
     },
-    [base, carregarSituacao, entidadeLabelLower, entidadeArticle, ownerTipoBase, pushFeedback]
+    [
+      aplicarTotais,
+      base,
+      baseSelecionada?.id_base,
+      carregarResumoBase,
+      entidadeLabelLower,
+      entidadeArticle,
+      pushFeedback,
+    ]
   );
 
   const handleBarcodeScanned = useCallback(
@@ -1100,9 +1160,32 @@ export default function LeituraColetasScreen() {
     [loading, processarLeitura]
   );
 
-  const handleRemover = useCallback((codigo: string) => {
-    setLeituras((prev) => prev.filter((l) => l.codigo !== codigo));
-  }, []);
+  const abrirLeituras = useCallback(() => {
+    if (!baseSelecionada) {
+      Alert.alert(
+        `${entidadeLabel} obrigatóri${ownerTipoBase ? "o" : "a"}`,
+        `Selecione ${entidadeArticle} ${entidadeLabelLower} para ver as leituras.`
+      );
+      return;
+    }
+    if (cameraAtiva) {
+      cameraPausadaPorLeituras.current = true;
+      setCameraAtiva(false);
+    }
+    navigation.navigate("LeiturasColeta", {
+      baseId: baseSelecionada.id_base,
+      baseNome: baseSelecionada.base,
+      dataOperacao: hojeOperacaoLocal(),
+    });
+  }, [
+    baseSelecionada,
+    cameraAtiva,
+    entidadeArticle,
+    entidadeLabel,
+    entidadeLabelLower,
+    navigation,
+    ownerTipoBase,
+  ]);
 
   return (
     <>
@@ -1279,7 +1362,10 @@ export default function LeituraColetasScreen() {
       ) : null}
 
       <View style={styles.resumoCard}>
-        <Text style={styles.sessaoTitulo}>Nesta sessão</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={styles.sessaoTitulo}>Coleta atual</Text>
+          {resumoLoading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+        </View>
         <Text style={styles.totalGigante}>{resumo.total}</Text>
         <Text style={styles.totalLegenda}>Pacotes registrados na coleta atual</Text>
         <View style={styles.resumoRow}>
@@ -1288,7 +1374,7 @@ export default function LeituraColetasScreen() {
             <Text style={styles.resumoLabel}>Shopee</Text>
           </View>
           <View style={[styles.resumoBadge, styles.resumoMl]}>
-            <Text style={styles.resumoNum}>{resumo.ml}</Text>
+            <Text style={styles.resumoNum}>{resumo.mercado_livre}</Text>
             <Text style={styles.resumoLabel}>Mercado Livre</Text>
           </View>
           <View style={[styles.resumoBadge, styles.resumoAvulso]}>
@@ -1309,73 +1395,28 @@ export default function LeituraColetasScreen() {
                     ? " · Duplicado"
                     : ultimaLeitura.status === "erro"
                       ? " · Erro"
-                      : ""}
+                      : ultimaLeitura.status === "pendente"
+                        ? " · Enviando"
+                        : ""}
               </Text>
             </>
           ) : (
-            <Text style={styles.ultimaLeituraSub}>Aguardando primeira leitura nesta sessão</Text>
+            <Text style={styles.ultimaLeituraSub}>Aguardando leitura nesta base</Text>
           )}
         </View>
+        {baseSelecionadaOk ? (
+          <TouchableOpacity
+            style={[styles.baseCta, { marginTop: 14 }]}
+            onPress={abrirLeituras}
+            disabled={loading}
+            accessibilityRole="button"
+            accessibilityLabel={`Abrir leituras, ${resumo.total} pacotes`}
+          >
+            <Text style={styles.baseCtaText}>Leituras ({resumo.total})</Text>
+            <Ionicons name="list-outline" size={20} color="#0F766E" />
+          </TouchableOpacity>
+        ) : null}
       </View>
-
-      {leituras.length > 0 && (
-        <View style={styles.listaContainer}>
-          <View style={styles.listaHeader}>
-            <Text style={styles.listaHeaderText}>Leituras recentes</Text>
-            <Text style={styles.listaHeaderText}>{leituras.length} código(s)</Text>
-          </View>
-          <ScrollView>
-            {leituras
-              .slice(-200)
-              .reverse()
-              .map((l) => {
-                const servStyle =
-                  l.servico === "Shopee"
-                    ? styles.servShopee
-                    : l.servico === "Mercado Livre"
-                    ? styles.servMl
-                    : styles.servAvulso;
-                let statusStyle = styles.statusPendente;
-                let statusTextStyle = styles.statusPendenteText;
-                let statusLabel = "Pendente";
-                if (l.status === "enviado") {
-                  statusStyle = styles.statusEnviado;
-                  statusTextStyle = styles.statusEnviadoText;
-                  statusLabel = "Enviado";
-                } else if (l.status === "duplicado") {
-                  statusStyle = styles.statusDuplicado;
-                  statusTextStyle = styles.statusDuplicadoText;
-                  statusLabel = "Duplicado";
-                } else if (l.status === "erro") {
-                  statusStyle = styles.statusErro;
-                  statusTextStyle = styles.statusErroText;
-                  statusLabel = "Erro";
-                }
-                return (
-                  <View key={l.codigo} style={styles.listaItem}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.listaCodigo}>{l.codigo}</Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
-                        <View style={[styles.listaServicoBadge, servStyle]}>
-                          <Text style={styles.listaServicoText}>{l.servico}</Text>
-                        </View>
-                        <View style={[styles.statusBadge, statusStyle]}>
-                          <Text style={[styles.statusText, statusTextStyle]}>{statusLabel}</Text>
-                        </View>
-                      </View>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.btnRemover}
-                      onPress={() => handleRemover(l.codigo)}
-                    >
-                      <Text style={styles.btnRemoverText}>Remover</Text>
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
-          </ScrollView>
-        </View>
-      )}
 
       {loading && (
         <View style={styles.loadingOverlay}>
@@ -1531,7 +1572,7 @@ export default function LeituraColetasScreen() {
                     <Text style={styles.resumoLabel}>Shopee</Text>
                   </View>
                   <View style={[styles.resumoBadge, styles.resumoMl]}>
-                    <Text style={styles.resumoNum}>{resumo.ml}</Text>
+                    <Text style={styles.resumoNum}>{resumo.mercado_livre}</Text>
                     <Text style={styles.resumoLabel}>Mercado Livre</Text>
                   </View>
                   <View style={[styles.resumoBadge, styles.resumoAvulso]}>
