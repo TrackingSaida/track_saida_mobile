@@ -25,7 +25,7 @@ export type InicioStackParamList = {
 export type OperacaoStackParamList = {
   StaffOperacao: undefined;
   LeituraSaidas: undefined;
-  LeituraColetas: undefined;
+  LeituraColetas: { baseId?: number; baseNome?: string } | undefined;
   ConsultarColetas: undefined;
   LeituraEntradas: undefined;
   ConferenciaSaida: ConferenciaSaidaParams;

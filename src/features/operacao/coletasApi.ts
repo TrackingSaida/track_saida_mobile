@@ -112,6 +112,15 @@ export interface ParticipanteSituacaoColeta {
   username: string;
   status: "em_coleta" | "finalizado";
   total: number;
+  id_participante?: number;
+  shopee?: number;
+  mercado_livre?: number;
+  avulso?: number;
+  versao?: number;
+  sem_volume?: boolean;
+  valor_total?: string;
+  pode_editar?: boolean;
+  pode_corrigir?: boolean;
 }
 
 export interface SituacaoBaseColeta {
@@ -125,14 +134,18 @@ export interface SituacaoBaseColeta {
   shopee: number;
   mercado_livre: number;
   avulso: number;
+  valor_total?: string;
+  precos?: { shopee: string; mercado_livre: string; avulso: string };
   participantes: ParticipanteSituacaoColeta[];
   participando: boolean;
   pode_ajudar: boolean;
+  pode_corrigir?: boolean;
   atualizado_em?: string | null;
 }
 
 export interface SituacaoColetasResponse {
   data_operacao: string;
+  pode_corrigir_quantidades?: boolean;
   resumo: { pendentes: number; em_coleta: number; coletadas: number };
   itens: SituacaoBaseColeta[];
 }
@@ -141,5 +154,70 @@ export async function consultarSituacaoColetas(dataOperacao: string): Promise<Si
   const { data } = await client.get<SituacaoColetasResponse>("/coletas/operacionais/situacao", {
     params: { data_operacao: dataOperacao },
   });
+  return data;
+}
+
+export interface CorrigirQuantidadesPayload {
+  shopee: number;
+  mercado_livre: number;
+  avulso: number;
+  versao: number;
+  origem_cliente: "mobile" | "web";
+}
+
+export interface CorrigirQuantidadesResult {
+  id_participante: number;
+  base: string;
+  data_operacao: string;
+  modo: string;
+  tipo_ajuste: "manual" | "leitura";
+  shopee: number;
+  mercado_livre: number;
+  avulso: number;
+  delta_shopee: number;
+  delta_mercado_livre: number;
+  delta_avulso: number;
+  valor_anterior: string;
+  valor_novo: string;
+  versao: number;
+}
+
+export async function corrigirQuantidadesParticipante(
+  idParticipante: number,
+  payload: CorrigirQuantidadesPayload
+): Promise<CorrigirQuantidadesResult> {
+  const { data } = await client.post<CorrigirQuantidadesResult>(
+    `/coletas/operacionais/participantes/${idParticipante}/corrigir`,
+    payload
+  );
+  return data;
+}
+
+export interface ColetaOperacionalConfig {
+  modo_operacao: "desativado" | "codigo" | "coleta_manual" | "ambos";
+  coleta_habilitada: boolean;
+  permite_leitura: boolean;
+  permite_manual: boolean;
+}
+
+export async function obterConfigColetaOperacional(): Promise<ColetaOperacionalConfig> {
+  const { data } = await client.get<ColetaOperacionalConfig>("/coletas/operacionais/config");
+  return data;
+}
+
+export interface ColetaManualOperacionalPayload {
+  base_id: number;
+  data_operacao: string;
+  shopee: number;
+  mercado_livre: number;
+  avulso: number;
+  sem_volume: boolean;
+  origem_cliente: "mobile";
+}
+
+export async function lancarColetaManualOperacional(
+  payload: ColetaManualOperacionalPayload
+): Promise<unknown> {
+  const { data } = await client.post("/coletas/operacionais/manual", payload);
   return data;
 }
