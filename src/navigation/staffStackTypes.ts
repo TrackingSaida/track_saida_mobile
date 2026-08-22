@@ -26,6 +26,11 @@ export type OperacaoStackParamList = {
   StaffOperacao: undefined;
   LeituraSaidas: undefined;
   LeituraColetas: { baseId?: number; baseNome?: string } | undefined;
+  LeiturasColeta: {
+    baseId: number;
+    baseNome: string;
+    dataOperacao?: string;
+  };
   ConsultarColetas: undefined;
   LeituraEntradas: undefined;
   ConferenciaSaida: ConferenciaSaidaParams;

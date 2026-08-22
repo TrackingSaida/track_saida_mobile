@@ -44,6 +44,14 @@ export interface LoteResponse {
   coleta: ColetaOut;
   resumo: ResumoLote;
   saidas_criadas: SaidaCriadaLote[];
+  totais?: TotaisColetaBase | null;
+}
+
+export interface TotaisColetaBase {
+  total: number;
+  shopee: number;
+  mercado_livre: number;
+  avulso: number;
 }
 
 export interface ColetaLancarAvulsoResult {
@@ -57,6 +65,7 @@ export interface ColetaLancarAvulsoResult {
   }>;
   coleta: ColetaOut;
   mensagem: string;
+  totais?: TotaisColetaBase | null;
 }
 
 export interface EnviarColetaParams {
@@ -219,5 +228,89 @@ export async function lancarColetaManualOperacional(
   payload: ColetaManualOperacionalPayload
 ): Promise<unknown> {
   const { data } = await client.post("/coletas/operacionais/manual", payload);
+  return data;
+}
+
+export interface ResumoBaseColeta {
+  base_id: number;
+  base: string;
+  data_operacao: string;
+  status: string;
+  id_execucao: number | null;
+  total: number;
+  shopee: number;
+  mercado_livre: number;
+  avulso: number;
+  atualizado_em?: string | null;
+}
+
+export async function consultarResumoBaseColeta(
+  baseId: number,
+  dataOperacao: string
+): Promise<ResumoBaseColeta> {
+  const { data } = await client.get<ResumoBaseColeta>(
+    `/coletas/operacionais/bases/${baseId}/resumo`,
+    { params: { data_operacao: dataOperacao } }
+  );
+  return data;
+}
+
+export interface LeituraColetaItem {
+  id_saida: number;
+  codigo: string;
+  servico: string | null;
+  horario: string;
+  operador: string;
+  operador_user_id?: number | null;
+  situacao: string;
+  status?: string | null;
+  pode_remover: boolean;
+  motivo_bloqueio?: string | null;
+}
+
+export interface LeiturasColetaResponse {
+  base_id: number;
+  base: string;
+  data_operacao: string;
+  itens: LeituraColetaItem[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export async function listarLeiturasColeta(params: {
+  baseId: number;
+  dataOperacao: string;
+  limit?: number;
+  cursor?: string | null;
+  somenteMinhas?: boolean;
+}): Promise<LeiturasColetaResponse> {
+  const { data } = await client.get<LeiturasColetaResponse>("/coletas/operacionais/leituras", {
+    params: {
+      base_id: params.baseId,
+      data_operacao: params.dataOperacao,
+      limit: params.limit ?? 40,
+      ...(params.cursor ? { cursor: params.cursor } : {}),
+      ...(params.somenteMinhas ? { somente_minhas: true } : {}),
+    },
+  });
+  return data;
+}
+
+export interface RemoverLeituraColetaResult {
+  removido: boolean;
+  id_saida: number;
+  codigo: string;
+  totais: TotaisColetaBase;
+  idempotente?: boolean;
+}
+
+export async function removerLeituraColeta(
+  idSaida: number,
+  motivo?: string
+): Promise<RemoverLeituraColetaResult> {
+  const { data } = await client.delete<RemoverLeituraColetaResult>(
+    `/coletas/operacionais/leituras/${idSaida}`,
+    { params: motivo ? { motivo } : undefined }
+  );
   return data;
 }

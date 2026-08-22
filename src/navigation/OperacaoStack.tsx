@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import StaffOperacaoScreen from "../screens/StaffOperacaoScreen";
 import LeituraSaidasScreen from "../features/operacao/screens/LeituraSaidasScreen";
 import LeituraColetasScreen from "../features/operacao/screens/LeituraColetasScreen";
+import LeiturasColetaScreen from "../features/operacao/screens/LeiturasColetaScreen";
 import ConsultarColetasScreen from "../features/operacao/screens/ConsultarColetasScreen";
 import LeituraEntradasScreen from "../features/operacao/screens/LeituraEntradasScreen";
 import ConferenciaSaidaScreen from "../features/operacao/screens/ConferenciaSaidaScreen";
@@ -27,6 +28,7 @@ export default function OperacaoStack() {
       <Stack.Screen name="StaffOperacao" component={StaffOperacaoScreen} options={{ headerShown: false }} />
       <Stack.Screen name="LeituraSaidas" component={LeituraSaidasScreen} options={{ headerShown: false }} />
       <Stack.Screen name="LeituraColetas" component={LeituraColetasScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="LeiturasColeta" component={LeiturasColetaScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ConsultarColetas" component={ConsultarColetasScreen} options={{ headerShown: false }} />
       <Stack.Screen name="LeituraEntradas" component={LeituraEntradasScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ConferenciaSaida" component={ConferenciaSaidaScreen} options={{ headerShown: false }} />
