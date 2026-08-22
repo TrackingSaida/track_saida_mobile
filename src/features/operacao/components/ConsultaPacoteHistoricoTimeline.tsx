@@ -9,6 +9,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../../theme/colors";
+import { useAuthStore } from "../../../store/authStore";
+import { ownerEntityLabel } from "../../../utils/ownerLabels";
 import type { SaidaDetail, SaidaHistoricoItem } from "../saidasApi";
 import OperacaoEmptyState from "./OperacaoEmptyState";
 import {
@@ -56,7 +58,10 @@ export default function ConsultaPacoteHistoricoTimeline({
   onVerComprovante,
 }: Props) {
   const colors = useThemeColors();
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const entidadeLabel = ownerEntityLabel(currentUser);
   const nested = getDetailNested(detail);
+  const baseNome = String(detail?.base ?? "").trim();
 
   const lastEntregaIndex = useMemo(
     () => findLastHistoricoIndexByKeys(historico, isEventoEntrega),
@@ -70,11 +75,34 @@ export default function ConsultaPacoteHistoricoTimeline({
   const styles = useMemo(
     () =>
       StyleSheet.create({
+        headerRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 14,
+        },
         sectionTitle: {
           fontSize: 15,
           fontWeight: "700",
           color: colors.text,
-          marginBottom: 14,
+        },
+        baseBadge: {
+          alignSelf: "flex-start",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 999,
+          backgroundColor: "rgba(45, 50, 119, 0.12)",
+          borderWidth: 1,
+          borderColor: "rgba(45, 50, 119, 0.28)",
+        },
+        baseBadgeText: {
+          fontSize: 12,
+          fontWeight: "700",
+          color: "#2d3277",
         },
         track: {
           paddingLeft: 8,
@@ -124,7 +152,21 @@ export default function ConsultaPacoteHistoricoTimeline({
 
   return (
     <View style={{ marginTop: 4 }}>
-      <Text style={styles.sectionTitle}>Histórico da movimentação</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.sectionTitle}>Histórico da movimentação</Text>
+        {baseNome ? (
+          <View
+            style={styles.baseBadge}
+            accessibilityRole="text"
+            accessibilityLabel={`${entidadeLabel}: ${baseNome}`}
+          >
+            <Ionicons name="business-outline" size={12} color="#2d3277" />
+            <Text style={styles.baseBadgeText}>
+              {entidadeLabel}: {baseNome}
+            </Text>
+          </View>
+        ) : null}
+      </View>
       <View style={styles.track}>
         {historico.map((item, index) => {
           const key = String(item.id ?? `${item.evento}-${item.timestamp}-${index}`);
