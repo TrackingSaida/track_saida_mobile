@@ -436,7 +436,10 @@ export default function ScanScreen({ navigation }: Props) {
   const avulsoExigeFoto = effectiveAvulsoExigeFoto(currentUser);
   const [permission, requestPermission] = useCameraPermissions();
   const isFocused = useIsFocused();
-  const torch = useScannerTorch(isFocused && !!permission?.granted && !modoManual);
+  // Desliga tocha e libera hardware enquanto o modal de avulso usa ImagePicker.
+  const torch = useScannerTorch(
+    isFocused && !!permission?.granted && !modoManual && !showAvulsoModal
+  );
   const sessionHadNewScanRef = useRef(false);
 
   // Ao sair do scanner, uma única sincronização dos pendentes (não a cada bip).
@@ -1042,28 +1045,40 @@ export default function ScanScreen({ navigation }: Props) {
         <Text style={styles.subtitleWhite}>Aponte para o QRCode da etiqueta</Text>
       </View>
 
-      <CameraView
-        style={StyleSheet.absoluteFill}
-        facing="back"
-        barcodeScannerSettings={{
-          barcodeTypes: BARCODE_TYPES,
-        }}
-        enableTorch={torch.enableTorch}
-        onCameraReady={torch.onCameraReady}
-        onBarcodeScanned={scannerAtivo ? handleBarcodeScanned : undefined}
-      />
+      {/*
+        Desmonta o scanner enquanto o modal de avulso está aberto.
+        Evita conflito CameraView + ImagePicker (recriação da Activity / volta à Home).
+      */}
+      {showAvulsoModal ? (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} />
+      ) : (
+        <CameraView
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          barcodeScannerSettings={{
+            barcodeTypes: BARCODE_TYPES,
+          }}
+          enableTorch={torch.enableTorch}
+          onCameraReady={torch.onCameraReady}
+          onBarcodeScanned={scannerAtivo ? handleBarcodeScanned : undefined}
+        />
+      )}
 
-      <ScannerTorchButton
-        mode={torch.mode}
-        onPress={torch.cycleMode}
-        style={{ top: insets.top + 56, right: 16 }}
-      />
+      {!showAvulsoModal ? (
+        <ScannerTorchButton
+          mode={torch.mode}
+          onPress={torch.cycleMode}
+          style={{ top: insets.top + 56, right: 16 }}
+        />
+      ) : null}
 
       {renderFeedback()}
 
-      <View style={styles.scanFrameContainer} pointerEvents="none">
-        <ScanFrameOverlay wrapStyle={styles.scanFrameWrap} />
-      </View>
+      {!showAvulsoModal ? (
+        <View style={styles.scanFrameContainer} pointerEvents="none">
+          <ScanFrameOverlay wrapStyle={styles.scanFrameWrap} />
+        </View>
+      ) : null}
 
       {cameraBusy ? (
         <View style={[styles.processingChip, { top: insets.top + 120 }]} pointerEvents="none">
