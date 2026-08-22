@@ -39,6 +39,27 @@ export function effectivePodeLerSaida(claims: JwtClaims | null | undefined): boo
   return asExplicitTrue(claims.pode_ler_saida);
 }
 
+export type ModoOperacaoColeta = "desativado" | "codigo" | "coleta_manual" | "ambos";
+
+export function modoOperacaoColeta(claims: JwtClaims | null | undefined): ModoOperacaoColeta {
+  if (!claims || claims.ignorar_coleta === true) return "desativado";
+  const modo = String(claims.modo_operacao || "codigo").trim().toLowerCase();
+  if (modo === "coleta_manual" || modo === "ambos" || modo === "codigo") return modo;
+  return "codigo";
+}
+
+/** Câmera e leitor físico. */
+export function permiteLeituraColeta(claims: JwtClaims | null | undefined): boolean {
+  const modo = modoOperacaoColeta(claims);
+  return modo === "codigo" || modo === "ambos";
+}
+
+/** Lançamento por quantidades (Flex/Shopee/Avulso). */
+export function permiteManualColeta(claims: JwtClaims | null | undefined): boolean {
+  const modo = modoOperacaoColeta(claims);
+  return modo === "coleta_manual" || modo === "ambos";
+}
+
 /**
  * Leitura de coletas: respeita ignorar_coleta; staff 0–3 com coleta ativa no owner; motoboy segue token.
  */
