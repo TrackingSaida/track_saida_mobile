@@ -1,11 +1,13 @@
 import React, { useCallback, useMemo } from "react";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, ScrollView } from "react-native";
 import { getRotaResumo } from "../../entregas/api";
 import {
   useDiaRotaConcluidaStore,
   VALOR_ROTA_LABEL,
 } from "../../../store/diaRotaConcluidaStore";
-import { space } from "../../../theme/spacing";
+import { space, radius } from "../../../theme/spacing";
+import { useThemeColors } from "../../../theme/colors";
+import PressableMenuRow from "../../../components/ui/PressableMenuRow";
 import HomeStateHero from "./HomeStateHero";
 import HomeOperationalActions from "./HomeOperationalActions";
 import {
@@ -29,6 +31,8 @@ export type HomeNavigationHandlers = {
   onLocatePackage: () => void;
   onEditRoute: () => void;
   onRouteHistory: () => void;
+  onRegistrarColeta?: () => void;
+  onConsultarColetas?: () => void;
 };
 
 type Props = {
@@ -51,13 +55,24 @@ async function openRouteResumo(rotaId: string): Promise<void> {
 }
 
 export default function HomeProximoPage({ data, navigation }: Props) {
+  const colors = useThemeColors();
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: { flex: 1, paddingHorizontal: space.md, paddingTop: space.sm },
+        coletaSection: {
+          marginTop: space.md,
+          backgroundColor: colors.backgroundCard,
+          borderRadius: radius.lg,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          overflow: "hidden",
+        },
       }),
-    []
+    [colors]
   );
+
+  const mostrarColeta = Boolean(navigation.onRegistrarColeta);
 
   const view = deriveHomeOperationalView({
     roteirizacaoHabilitada: data.roteirizacaoHabilitada,
@@ -128,9 +143,38 @@ export default function HomeProximoPage({ data, navigation }: Props) {
     [navigation, data]
   );
 
+  const coletaBlock = mostrarColeta ? (
+    <View style={styles.coletaSection}>
+      <PressableMenuRow
+        icon="layers-outline"
+        title="Registrar coleta"
+        subtitle="Pacotes coletados na base"
+        onPress={() => navigation.onRegistrarColeta?.()}
+        iconColor={colors.primary}
+        iconSoftBg={colors.primarySoft}
+        isLast={!navigation.onConsultarColetas}
+      />
+      {navigation.onConsultarColetas ? (
+        <PressableMenuRow
+          icon="list-outline"
+          title="Consultar coletas"
+          subtitle="Pendentes e andamento"
+          onPress={() => navigation.onConsultarColetas?.()}
+          iconColor={colors.primary}
+          iconSoftBg={colors.primarySoft}
+          isLast
+        />
+      ) : null}
+    </View>
+  ) : null;
+
   if (ctas.layout === "operational") {
     return (
-      <View style={styles.container}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: space.xl }}
+        keyboardShouldPersistTaps="handled"
+      >
         <HomeStateHero
           state={view.heroState}
           title={view.title}
@@ -146,12 +190,17 @@ export default function HomeProximoPage({ data, navigation }: Props) {
             />
           }
         />
-      </View>
+        {coletaBlock}
+      </ScrollView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingBottom: space.xl }}
+      keyboardShouldPersistTaps="handled"
+    >
       <HomeStateHero
         state={view.heroState}
         title={view.title}
@@ -169,6 +218,7 @@ export default function HomeProximoPage({ data, navigation }: Props) {
           iconKey: ctaActionToIcon(cta.action) ?? undefined,
         }))}
       />
-    </View>
+      {coletaBlock}
+    </ScrollView>
   );
 }

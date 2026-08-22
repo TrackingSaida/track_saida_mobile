@@ -22,9 +22,8 @@ export type InicioStackParamList = {
   ConsultaCodigos: undefined;
 };
 
-export type OperacaoStackParamList = {
-  StaffOperacao: undefined;
-  LeituraSaidas: undefined;
+/** Rotas compartilhadas do fluxo de coletas (Home motoboy + Operação staff). */
+export type ColetasFluxoParamList = {
   LeituraColetas: { baseId?: number; baseNome?: string } | undefined;
   LeiturasColeta: {
     baseId: number;
@@ -32,10 +31,15 @@ export type OperacaoStackParamList = {
     dataOperacao?: string;
   };
   ConsultarColetas: undefined;
+};
+
+export type OperacaoStackParamList = {
+  StaffOperacao: undefined;
+  LeituraSaidas: undefined;
   LeituraEntradas: undefined;
   ConferenciaSaida: ConferenciaSaidaParams;
   SaidasPorMotoboy: undefined;
-};
+} & ColetasFluxoParamList;
 
 export type GestaoStackParamList = {
   StaffGestao: undefined;

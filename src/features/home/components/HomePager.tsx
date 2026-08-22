@@ -35,6 +35,8 @@ export type HomePagerCallbacks = HomeNavigationHandlers & {
   onMapaPendentes: () => void;
   onPreferencias: () => void;
   onDevolverPacotes?: () => void;
+  onRegistrarColeta?: () => void;
+  onConsultarColetas?: () => void;
 };
 
 type Props = {
@@ -110,6 +112,8 @@ export default function HomePager({ data, callbacks }: Props) {
             onPreferencias={callbacks.onPreferencias}
             onScan={callbacks.onScan}
             onDevolverPacotes={callbacks.onDevolverPacotes}
+            onRegistrarColeta={callbacks.onRegistrarColeta}
+            onConsultarColetas={callbacks.onConsultarColetas}
             onVerResumoUltimaRota={() => {
               if (lastCompleted?.rotaId) void openRouteResumo(lastCompleted.rotaId);
             }}
