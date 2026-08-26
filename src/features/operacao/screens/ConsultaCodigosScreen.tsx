@@ -518,7 +518,6 @@ export default function ConsultaCodigosScreen() {
         sort: "recentes",
         ...rest,
         codigo: codigoTrim,
-        codigoExato: codigoTrim ? true : undefined,
       };
     },
     [searchInput, appliedStatus, appliedPeriod]
@@ -588,9 +587,6 @@ export default function ConsultaCodigosScreen() {
         setSearchTruncated(cascade.truncated);
         setResults(rows);
         setNotFound(rows.length === 0 && Boolean(codigoTrim));
-        if (rows.length === 0 && codigoTrim.length > 0 && codigoTrim.length < 4 && !opts?.forceExact) {
-          setPartialHint("Digite pelo menos 4 caracteres para busca parcial.");
-        }
         setTotal(cascade.total ?? rows.length);
         setHasMore(false);
         setOffset(0);

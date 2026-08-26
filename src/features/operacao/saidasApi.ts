@@ -65,7 +65,6 @@ export interface SearchCodigosCascadeResult {
   truncated: boolean;
 }
 
-const PARTIAL_SEARCH_MIN_LEN = 4;
 const PARTIAL_SEARCH_LIMIT = 20;
 
 export async function searchCodigosCascade(
@@ -79,15 +78,19 @@ export async function searchCodigosCascade(
   }
 
   const upper = term.toUpperCase();
-  const exact = await listSaidas({
-    ...baseParams,
-    codigo: upper,
-    codigoExato: true,
-    limit: PARTIAL_SEARCH_LIMIT,
-    offset: 0,
-  });
+  // Consulta por código não restringe período — fragmento precisa achar pedido antigo.
+  const rest = { ...baseParams };
+  delete rest.de;
+  delete rest.ate;
 
-  if (exact.rows.length > 0 || options?.forceExact) {
+  if (options?.forceExact) {
+    const exact = await listSaidas({
+      ...rest,
+      codigo: upper,
+      codigoExato: true,
+      limit: PARTIAL_SEARCH_LIMIT,
+      offset: 0,
+    });
     return {
       rows: exact.rows,
       total: exact.total,
@@ -96,27 +99,8 @@ export async function searchCodigosCascade(
     };
   }
 
-  if (term.length < PARTIAL_SEARCH_MIN_LEN) {
-    return { rows: [], total: 0, mode: "none", truncated: false };
-  }
-
-  const prefix = await listSaidas({
-    ...baseParams,
-    codigo: upper,
-    limit: PARTIAL_SEARCH_LIMIT,
-    offset: 0,
-  });
-  if (prefix.rows.length > 0) {
-    return {
-      rows: prefix.rows,
-      total: prefix.total,
-      mode: "prefix",
-      truncated: prefix.hasMore || (prefix.total ?? prefix.rows.length) > PARTIAL_SEARCH_LIMIT,
-    };
-  }
-
   const containsRes = await listSaidas({
-    ...baseParams,
+    ...rest,
     localizar: term,
     limit: PARTIAL_SEARCH_LIMIT,
     offset: 0,
