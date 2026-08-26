@@ -42,6 +42,7 @@ type Props = {
   onClose: () => void;
   onGerarEtiqueta: () => void;
   onCancelarSaida: () => void;
+  onReverterStatus: () => void;
 };
 
 export default function ConsultaPacoteDetailModal({
@@ -57,6 +58,7 @@ export default function ConsultaPacoteDetailModal({
   onClose,
   onGerarEtiqueta,
   onCancelarSaida,
+  onReverterStatus,
 }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
@@ -222,6 +224,11 @@ export default function ConsultaPacoteDetailModal({
           borderWidth: 1.5,
           borderColor: "#dc3545",
         },
+        actionWarningOutline: {
+          backgroundColor: "transparent",
+          borderWidth: 1.5,
+          borderColor: "#b45309",
+        },
         actionText: { color: colors.primaryContrast, fontSize: 14, fontWeight: "700" },
         actionOutlineText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
         closeBtn: { alignSelf: "flex-end", marginTop: 12, padding: 10 },
@@ -334,6 +341,23 @@ export default function ConsultaPacoteDetailModal({
                         <ActivityIndicator color="#dc3545" />
                       ) : (
                         <Text style={[styles.actionText, { color: "#dc3545" }]}>Cancelar pacote</Text>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                ) : null}
+
+                {podeCancelarSaida && detalheCancelado ? (
+                  <>
+                    <Text style={styles.sectionLabel}>Mais ações</Text>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.actionWarningOutline]}
+                      onPress={onReverterStatus}
+                      disabled={cancelandoSaida || gerandoEtiqueta || sharingComprovante}
+                    >
+                      {cancelandoSaida ? (
+                        <ActivityIndicator color="#b45309" />
+                      ) : (
+                        <Text style={[styles.actionText, { color: "#b45309" }]}>Reverter status</Text>
                       )}
                     </TouchableOpacity>
                   </>

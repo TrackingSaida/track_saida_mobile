@@ -234,6 +234,24 @@ export function isEventoCancelamento(evento?: string | null): boolean {
   return normalizeEventoKey(evento) === "cancelado";
 }
 
+export function statusAntesDoCancelamento(
+  historico: Array<{
+    evento?: string | null;
+    status_anterior?: string | null;
+    status_novo?: string | null;
+  }>
+): string | null {
+  for (let i = historico.length - 1; i >= 0; i -= 1) {
+    const item = historico[i];
+    const evento = String(item.evento || "").trim().toLowerCase();
+    const statusNovo = String(item.status_novo || "").toLowerCase();
+    if (evento !== "cancelado" && !statusNovo.includes("cancelad")) continue;
+    const anterior = String(item.status_anterior || "").trim();
+    if (anterior && !anterior.toLowerCase().includes("cancelad")) return anterior;
+  }
+  return null;
+}
+
 export function findLastHistoricoIndexByKeys(
   historico: { evento?: string | null }[],
   matcher: (evento?: string | null) => boolean
