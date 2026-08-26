@@ -281,6 +281,7 @@ export interface UpdateSaidaBody {
   motoboy_id?: number;
   entregador?: string;
   is_grande?: boolean;
+  reverter_cancelamento?: boolean;
 }
 
 export async function updateSaidaAdmin(idSaida: number, body: UpdateSaidaBody): Promise<void> {

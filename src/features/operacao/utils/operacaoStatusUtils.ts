@@ -17,6 +17,24 @@ export function formatStatusSaidaLabel(status?: string | null): string {
   return s.toUpperCase();
 }
 
+/** Rótulo curto para avisos operacionais (sem termos internos). */
+export function labelStatusOperacional(status?: string | null): string {
+  const lower = String(status || "")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .trim();
+  if (!lower) return "status anterior";
+  if (lower.includes("cancelad")) return "Cancelado";
+  if (lower.includes("entregue")) return "Entregue";
+  if (lower.includes("ausente")) return "Ausente";
+  if (lower.includes("nao coletado") || lower.includes("não coletado")) return "Não coletado";
+  if (lower.includes("coletado")) return "Coletado";
+  if (lower.includes("em rota") || lower.includes("saiu")) return "Saiu para entrega";
+  if (lower.includes("encerrado")) return "Encerrado";
+  if (lower.includes("na base")) return "Na base";
+  return formatStatusSaidaLabel(status);
+}
+
 export function statusVisualSaida(s?: string | null): { label: string; bg: string; fg: string } {
   const u = (s || "").toLowerCase().replace(/\s+/g, "_");
   if (u === "encerrado_sistema" || u === "encerrado" || (u.includes("encerrado") && u.includes("sistema"))) {

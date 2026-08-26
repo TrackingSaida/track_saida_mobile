@@ -51,6 +51,8 @@ import OperacaoFilterButton from "../components/OperacaoFilterButton";
 import ConsultaCodigoCard from "../components/ConsultaCodigoCard";
 import ConsultaPacoteDetailModal from "../components/ConsultaPacoteDetailModal";
 import OperacaoEmptyState from "../components/OperacaoEmptyState";
+import { statusAntesDoCancelamento } from "../utils/operacaoHistoricoUtils";
+import { labelStatusOperacional } from "../utils/operacaoStatusUtils";
 
 /** Consulta por câmera: apenas QR (moldura central), como na leitura de coleta. */
 const CONSULTA_BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -808,6 +810,73 @@ export default function ConsultaCodigosScreen() {
     ]);
   }, [podeCancelarSaida, performCancelarSaida, selectedDetailId]);
 
+  const performReverterStatus = useCallback(async () => {
+    if (!selectedDetailId) return;
+    setCancelandoSaida(true);
+    try {
+      await updateSaidaAdmin(selectedDetailId, { reverter_cancelamento: true });
+      await carregarDetalhe(selectedDetailId);
+      const codigoAtual = String(selectedDetail?.codigo ?? "").trim();
+      await executarBusca(0, codigoAtual ? { codigoOverride: codigoAtual } : undefined);
+      const statusRestaurado =
+        statusAntesDoCancelamento(selectedHistorico) || "saiu";
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        "Status revertido",
+        `O pedido voltou para: ${labelStatusOperacional(statusRestaurado)}.`
+      );
+    } catch (err) {
+      const ax = err as AxiosError<{
+        code?: string;
+        status_atual?: string;
+        detail?: { code?: string; status_atual?: string; message?: string } | string;
+        message?: string;
+      }>;
+      const body = ax.response?.data;
+      const detailObj =
+        body && typeof body.detail === "object" && body.detail
+          ? (body.detail as { code?: string; status_atual?: string; message?: string })
+          : null;
+      const code = body?.code ?? detailObj?.code;
+      const msg = detailObj?.message || (typeof body?.detail === "string" ? body.detail : null);
+      if (ax.response?.status === 422 && (code === "STATUS_FINALIZADO" || code === "STATUS_NAO_CANCELADO")) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert("Não foi possível reverter", msg || "Este pedido não pode ter o status revertido.");
+      } else {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert("Erro", formatApiError(err, "Não foi possível reverter o status deste pedido."));
+      }
+    } finally {
+      setCancelandoSaida(false);
+    }
+  }, [carregarDetalhe, executarBusca, selectedDetail?.codigo, selectedDetailId, selectedHistorico]);
+
+  const handleReverterStatus = useCallback(() => {
+    if (!podeCancelarSaida) {
+      Alert.alert("Sem permissão", "Apenas root ou admin podem reverter um pedido cancelado.");
+      return;
+    }
+    if (!selectedDetailId) {
+      Alert.alert("Indisponível", "Não foi possível identificar este registro.");
+      return;
+    }
+    const statusAnterior = statusAntesDoCancelamento(selectedHistorico) || "saiu";
+    const labelAnterior = labelStatusOperacional(statusAnterior);
+    Alert.alert(
+      "Reverter status",
+      `Este pedido está cancelado.\n\nAo confirmar, ele volta para: ${labelAnterior}.\n\nEssa ação fica registrada no histórico.`,
+      [
+        { text: "Voltar", style: "cancel" },
+        {
+          text: "Reverter",
+          onPress: () => {
+            void performReverterStatus();
+          },
+        },
+      ]
+    );
+  }, [podeCancelarSaida, performReverterStatus, selectedDetailId, selectedHistorico]);
+
   const parseLerError = (err: unknown) => {
     const ax = err as AxiosError<{
       code?: string;
@@ -1411,6 +1480,7 @@ export default function ConsultaCodigosScreen() {
         onClose={handleFecharDetalhe}
         onGerarEtiqueta={() => void handleGerarEtiqueta()}
         onCancelarSaida={handleCancelarSaida}
+        onReverterStatus={handleReverterStatus}
       />
 
       <Modal
