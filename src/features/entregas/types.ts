@@ -152,7 +152,7 @@ export interface ExtratoPedidoItem {
   status: string;
   exibicao: string;
   servico: string;
-  valor?: string;
+  valor?: string | number;
 }
 
 export interface ExtratoDiaItem {
@@ -160,7 +160,10 @@ export interface ExtratoDiaItem {
   total_pacotes_associados: number;
   total_pacotes_filtrados: number;
   valor_dia: string;
+  valor_feitos?: string;
+  valor_cancelados?: string;
   itens: ExtratoPedidoItem[];
+  itens_cancelados?: ExtratoPedidoItem[];
 }
 
 export interface ExtratoFinanceiro {
@@ -168,6 +171,8 @@ export interface ExtratoFinanceiro {
   periodo_fim: string;
   status_filtro: ExtratoStatusFiltro;
   valor_a_receber: string;
+  valor_feitos?: string;
+  valor_cancelados?: string;
   total_pacotes_associados: number;
   total_pacotes_filtrados: number;
   total_cancelados: number;
@@ -177,6 +182,7 @@ export interface ExtratoFinanceiro {
     avulso: number;
   };
   dias: ExtratoDiaItem[];
+  itens_cancelados?: ExtratoPedidoItem[];
 }
 
 export interface ScanConflito {

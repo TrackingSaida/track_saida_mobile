@@ -106,9 +106,11 @@ export async function getExtratoFinanceiro(params?: {
   });
   return {
     ...data,
+    itens_cancelados: data.itens_cancelados ?? [],
     dias: (data.dias ?? []).map((d) => ({
       ...d,
       itens: d.itens ?? [],
+      itens_cancelados: d.itens_cancelados ?? [],
     })),
   };
 }
