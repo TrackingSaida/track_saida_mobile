@@ -12,6 +12,7 @@ import {
   Pressable,
   Platform,
   Switch,
+  KeyboardAvoidingView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,6 +44,7 @@ import {
   consultarResumoBaseColeta,
   consultarSituacaoColetas,
   enviarColetaUnica,
+  iniciarColetaOperacional,
   lancarAvulsoColeta,
   lancarColetaManualOperacional,
   obterConfigColetaOperacional,
@@ -311,8 +313,8 @@ export default function LeituraColetasScreen() {
           borderTopRightRadius: 18,
           paddingHorizontal: 18,
           paddingTop: 12,
-          paddingBottom: Platform.OS === "ios" ? 28 : 18,
-          maxHeight: "72%",
+          paddingBottom: Math.max(18, insets.bottom + 12),
+          maxHeight: "88%",
         },
         pickerTitle: { fontSize: 17, fontWeight: "700", color: colors.text, marginBottom: 12 },
         pickerItem: {
@@ -332,8 +334,18 @@ export default function LeituraColetasScreen() {
         pickerItemText: { fontSize: 16, color: colors.text, fontWeight: "600", flex: 1 },
         pickerItemSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
         situacaoRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-        pickerClose: { alignSelf: "center", paddingVertical: 12 },
-        pickerCloseText: { fontSize: 15, color: colors.primary, fontWeight: "600" },
+        pickerClose: {
+          alignSelf: "stretch",
+          alignItems: "center",
+          paddingVertical: 14,
+          marginTop: 4,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        pickerCloseText: { fontSize: 15, color: colors.primary, fontWeight: "700" },
+        quantityScrollContent: { paddingBottom: 8, gap: 4 },
+        keyboardAvoid: { flex: 1, justifyContent: "flex-end" },
         row: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
         btnPrimary: {
           paddingHorizontal: 16,
@@ -724,9 +736,24 @@ export default function LeituraColetasScreen() {
     try {
       const lista = await listarBasesAtivas();
       setBases(lista);
+      const selecionadaNome = aplicarSelecaoPendente(lista);
+      if (selecionadaNome) {
+        const item = lista.find((b) => b.base === selecionadaNome);
+        if (item) {
+          setBase(item.base);
+          void carregarResumoBase(item.id_base);
+          const metodo: "codigo" | "coleta_manual" =
+            (configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser)) ? "codigo" : "coleta_manual";
+          try {
+            await iniciarColetaOperacional(item.id_base, { metodo, ajudar: false });
+          } catch {
+            // Já coletada / outro usuário: só atualiza situação.
+          }
+          void carregarSituacao();
+          return;
+        }
+      }
       setBase((atual) => {
-        const selecionada = aplicarSelecaoPendente(lista);
-        if (selecionada) return selecionada;
         if (atual && lista.some((b) => b.base === atual)) return atual;
         if (lista.length === 1) return lista[0].base;
         return "";
@@ -739,7 +766,14 @@ export default function LeituraColetasScreen() {
     } finally {
       setCarregandoBases(false);
     }
-  }, [aplicarSelecaoPendente, ownerTipoBase]);
+  }, [
+    aplicarSelecaoPendente,
+    carregarResumoBase,
+    carregarSituacao,
+    configColeta?.permite_leitura,
+    currentUser,
+    ownerTipoBase,
+  ]);
 
   const capturarParametroRota = useCallback(() => {
     const params = "params" in route ? (route.params as { baseId?: number; baseNome?: string } | undefined) : undefined;
@@ -772,15 +806,83 @@ export default function LeituraColetasScreen() {
   );
 
   const selecionarBase = useCallback(
-    (item: BaseItem) => {
+    async (item: BaseItem, opts?: { ajudar?: boolean }) => {
       setUltimaLeitura(null);
       setCodigosSessao(new Set());
       setTotaisColeta(TOTAIS_VAZIOS);
       setBase(item.base);
       setModalBaseVisible(false);
       void carregarResumoBase(item.id_base);
+
+      const situacaoAtual = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
+      if (situacaoAtual?.status === "coletado" || situacaoAtual?.status === "sem_volume") {
+        void carregarSituacao();
+        return;
+      }
+      if (situacaoAtual?.participando) {
+        void carregarSituacao();
+        return;
+      }
+
+      const metodo: "codigo" | "coleta_manual" =
+        (configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser)) ? "codigo" : "coleta_manual";
+
+      try {
+        await iniciarColetaOperacional(item.id_base, {
+          metodo,
+          ajudar: Boolean(opts?.ajudar),
+        });
+        await carregarSituacao();
+      } catch (error: unknown) {
+        const axiosError = error as {
+          response?: { status?: number; data?: { detail?: unknown } };
+        };
+        const status = axiosError?.response?.status;
+        const detail = axiosError?.response?.data?.detail;
+        const detailObj =
+          detail && typeof detail === "object" && !Array.isArray(detail)
+            ? (detail as { mensagem?: string; pode_ajudar?: boolean; participantes?: string[] })
+            : null;
+
+        if (status === 409 && detailObj?.pode_ajudar) {
+          const nomes = (detailObj.participantes || []).join(", ") || "outro usuário";
+          Alert.alert(
+            "Base em coleta",
+            detailObj.mensagem || `Esta base já está em coleta por ${nomes}. Deseja ajudar?`,
+            [
+              { text: "Não", style: "cancel", onPress: () => void carregarSituacao() },
+              {
+                text: "Ajudar",
+                onPress: () => {
+                  void selecionarBase(item, { ajudar: true });
+                },
+              },
+            ]
+          );
+          return;
+        }
+
+        const msg =
+          typeof detail === "string"
+            ? detail
+            : detailObj?.mensagem || formatApiError(error, "Não foi possível iniciar a coleta.");
+        // Base já coletada: mantém seleção local e só atualiza situação.
+        if (status === 409 && /já foi coletad/i.test(msg)) {
+          void carregarSituacao();
+          return;
+        }
+        Alert.alert("Atenção", msg);
+        void carregarSituacao();
+      }
     },
-    [carregarResumoBase]
+    [
+      carregarResumoBase,
+      carregarSituacao,
+      configColeta?.permite_leitura,
+      currentUser,
+      situacaoPorBaseId,
+      situacaoPorNome,
+    ]
   );
 
   const handleNavEndereco = useCallback(
@@ -835,6 +937,34 @@ export default function LeituraColetasScreen() {
   const resumo = totaisColeta;
   const codigosLidosSessao = codigosSessao;
 
+  const garantirColetaIniciada = useCallback(async () => {
+    if (!baseSelecionada) return false;
+    if (
+      situacaoSelecionada?.participando ||
+      situacaoSelecionada?.status === "coletado" ||
+      situacaoSelecionada?.status === "sem_volume" ||
+      situacaoSelecionada?.status === "em_coleta"
+    ) {
+      return true;
+    }
+    const metodo: "codigo" | "coleta_manual" =
+      (configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser)) ? "codigo" : "coleta_manual";
+    try {
+      await iniciarColetaOperacional(baseSelecionada.id_base, { metodo, ajudar: false });
+      await carregarSituacao();
+    } catch {
+      void carregarSituacao();
+    }
+    return true;
+  }, [
+    baseSelecionada,
+    carregarSituacao,
+    configColeta?.permite_leitura,
+    currentUser,
+    situacaoSelecionada?.participando,
+    situacaoSelecionada?.status,
+  ]);
+
   const ensurePermissionAndOpenCamera = useCallback(async () => {
     if (!base.trim()) {
       Alert.alert(
@@ -843,6 +973,7 @@ export default function LeituraColetasScreen() {
       );
       return;
     }
+    await garantirColetaIniciada();
     if (!permission) {
       const { granted } = await requestPermission();
       if (!granted) return;
@@ -858,9 +989,18 @@ export default function LeituraColetasScreen() {
     setModoLeitorFisico(false);
     setModoManual(false);
     setCameraAtiva(true);
-  }, [base, entidadeLabel, entidadeLabelLower, entidadeArticle, ownerTipoBase, permission, requestPermission]);
+  }, [
+    base,
+    entidadeLabel,
+    entidadeLabelLower,
+    entidadeArticle,
+    garantirColetaIniciada,
+    ownerTipoBase,
+    permission,
+    requestPermission,
+  ]);
 
-  const openPhysicalScanner = useCallback(() => {
+  const openPhysicalScanner = useCallback(async () => {
     if (!base.trim()) {
       Alert.alert(
         `${entidadeLabel} obrigatóri${ownerTipoBase ? "o" : "a"}`,
@@ -869,12 +1009,22 @@ export default function LeituraColetasScreen() {
       return;
     }
     if (!podeLerColeta || ignorarColeta) return;
+    await garantirColetaIniciada();
     setModoLeitorFisico(true);
     setModoManual(false);
     setCameraAtiva(true);
-  }, [base, entidadeLabel, entidadeLabelLower, entidadeArticle, ignorarColeta, ownerTipoBase, podeLerColeta]);
+  }, [
+    base,
+    entidadeLabel,
+    entidadeLabelLower,
+    entidadeArticle,
+    garantirColetaIniciada,
+    ignorarColeta,
+    ownerTipoBase,
+    podeLerColeta,
+  ]);
 
-  const abrirQuantidades = useCallback(() => {
+  const abrirQuantidades = useCallback(async () => {
     if (!baseSelecionada) {
       Alert.alert(
         `${entidadeLabel} obrigatóri${ownerTipoBase ? "o" : "a"}`,
@@ -882,8 +1032,9 @@ export default function LeituraColetasScreen() {
       );
       return;
     }
+    await garantirColetaIniciada();
     setQuantidadesVisible(true);
-  }, [baseSelecionada, entidadeArticle, entidadeLabel, entidadeLabelLower, ownerTipoBase]);
+  }, [baseSelecionada, entidadeArticle, entidadeLabel, entidadeLabelLower, garantirColetaIniciada, ownerTipoBase]);
 
   const salvarQuantidades = useCallback(async () => {
     if (!baseSelecionada) return;
@@ -1614,7 +1765,7 @@ export default function LeituraColetasScreen() {
         <Pressable style={styles.pickerOverlay} onPress={() => setModalBaseVisible(false)}>
           <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.pickerTitle}>Escolher {entidadeLabel}</Text>
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <ScrollView keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }}>
               {carregandoBases ? (
                 <ActivityIndicator color={colors.primary} style={{ marginVertical: 24 }} />
               ) : bases.length === 0 ? (
@@ -1629,7 +1780,7 @@ export default function LeituraColetasScreen() {
                     <TouchableOpacity
                       key={item.id_base}
                       style={[styles.pickerItem, ativo && styles.pickerItemActive]}
-                      onPress={() => selecionarBase(item)}
+                      onPress={() => void selecionarBase(item)}
                       accessibilityState={{ selected: ativo }}
                     >
                       <View style={styles.pickerItemTop}>
@@ -1664,54 +1815,68 @@ export default function LeituraColetasScreen() {
         animationType="slide"
         onRequestClose={() => setQuantidadesVisible(false)}
       >
-        <Pressable style={styles.pickerOverlay} onPress={() => setQuantidadesVisible(false)}>
-          <Pressable style={styles.pickerSheet} onPress={(event) => event.stopPropagation()}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={styles.pickerTitle}>Informar quantidades</Text>
-              <TouchableOpacity onPress={() => setQuantidadesVisible(false)}>
-                <Ionicons name="close" size={25} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.infoText}>
-              {entidadeLabel}: {baseSelecionada?.base || "—"}
-            </Text>
-            <View style={styles.quantityRow}>
-              {(
-                [
-                  ["Flex", quantidadeFlex, setQuantidadeFlex],
-                  ["Shopee", quantidadeShopee, setQuantidadeShopee],
-                  ["Avulso", quantidadeAvulso, setQuantidadeAvulso],
-                ] as const
-              ).map(([label, value, setter]) => (
-                <View style={styles.quantityField} key={label}>
-                  <Text style={styles.quantityLabel}>{label}</Text>
-                  <TextInput
-                    style={styles.quantityInput}
-                    value={value}
-                    onChangeText={setter}
-                    keyboardType="number-pad"
-                    editable={!semVolume && !loading}
-                  />
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoid}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+        >
+          <Pressable style={styles.pickerOverlay} onPress={() => setQuantidadesVisible(false)}>
+            <Pressable style={styles.pickerSheet} onPress={(event) => event.stopPropagation()}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                contentContainerStyle={styles.quantityScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={styles.pickerTitle}>Informar quantidades</Text>
+                  <TouchableOpacity onPress={() => setQuantidadesVisible(false)} hitSlop={12}>
+                    <Ionicons name="close" size={25} color={colors.text} />
+                  </TouchableOpacity>
                 </View>
-              ))}
-            </View>
-            <View style={styles.quantitySwitch}>
-              <Text style={styles.infoTitle}>Sem volume</Text>
-              <Switch value={semVolume} onValueChange={setSemVolume} disabled={loading} />
-            </View>
-            <TouchableOpacity
-              style={[styles.btnPrimary, { marginTop: 18 }]}
-              onPress={() => void salvarQuantidades()}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color={colors.primaryContrast} />
-              ) : (
-                <Text style={styles.btnTextPrimary}>Salvar</Text>
-              )}
-            </TouchableOpacity>
+                <Text style={styles.infoText}>
+                  {entidadeLabel}: {baseSelecionada?.base || "—"}
+                </Text>
+                <View style={styles.quantityRow}>
+                  {(
+                    [
+                      ["Flex", quantidadeFlex, setQuantidadeFlex],
+                      ["Shopee", quantidadeShopee, setQuantidadeShopee],
+                      ["Avulso", quantidadeAvulso, setQuantidadeAvulso],
+                    ] as const
+                  ).map(([label, value, setter]) => (
+                    <View style={styles.quantityField} key={label}>
+                      <Text style={styles.quantityLabel}>{label}</Text>
+                      <TextInput
+                        style={styles.quantityInput}
+                        value={value}
+                        onChangeText={setter}
+                        keyboardType="number-pad"
+                        editable={!semVolume && !loading}
+                        selectTextOnFocus
+                      />
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.quantitySwitch}>
+                  <Text style={styles.infoTitle}>Sem volume</Text>
+                  <Switch value={semVolume} onValueChange={setSemVolume} disabled={loading} />
+                </View>
+                <TouchableOpacity
+                  style={[styles.btnPrimary, { marginTop: 18 }]}
+                  onPress={() => void salvarQuantidades()}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color={colors.primaryContrast} />
+                  ) : (
+                    <Text style={styles.btnTextPrimary}>Salvar</Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       <AvulsoLancamentoModal

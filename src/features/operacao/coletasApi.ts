@@ -214,6 +214,23 @@ export async function obterConfigColetaOperacional(): Promise<ColetaOperacionalC
   return data;
 }
 
+export interface IniciarColetaOperacionalPayload {
+  metodo: "codigo" | "coleta_manual";
+  ajudar?: boolean;
+}
+
+/** Marca a base como Em coleta para o dia (visível aos demais usuários). */
+export async function iniciarColetaOperacional(
+  baseId: number,
+  payload: IniciarColetaOperacionalPayload
+): Promise<unknown> {
+  const { data } = await client.post(`/coletas/operacionais/bases/${baseId}/iniciar`, {
+    metodo: payload.metodo,
+    ajudar: Boolean(payload.ajudar),
+  });
+  return data;
+}
+
 export interface ColetaManualOperacionalPayload {
   base_id: number;
   data_operacao: string;
