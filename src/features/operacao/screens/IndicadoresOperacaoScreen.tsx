@@ -1,12 +1,10 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   RefreshControl,
   ActivityIndicator,
-  TouchableOpacity,
   Platform,
 } from "react-native";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
@@ -14,8 +12,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
+import AppText from "../../../components/ui/AppText";
 import OperacaoEmptyState from "../components/OperacaoEmptyState";
+import FilterChip from "../components/FilterChip";
+import KpiCard from "../components/KpiCard";
+import ServiceCard from "../components/ServiceCard";
+import BaseByDayCard from "../components/BaseByDayCard";
 import { useThemeColors } from "../../../theme/colors";
+import { radius, space } from "../../../theme/spacing";
+import { serviceSemanticKey } from "../../../theme/semantic";
 import { useAuthStore } from "../../../store/authStore";
 import type { StaffStackParamList } from "../../../navigation/staffStackTypes";
 import {
@@ -31,7 +36,6 @@ import {
 } from "../indicadoresApi";
 import {
   buildPeriodo,
-  formatDateLabel,
   labelPeriodo,
   parseYmd,
   type PeriodoConsulta,
@@ -40,18 +44,18 @@ import {
 
 type Props = NativeStackScreenProps<StaffStackParamList, "IndicadoresOperacao">;
 
-const PRESETS: { key: PeriodoPreset; label: string }[] = [
+const PRESETS: { key: PeriodoPreset; label: string; icon?: "calendar-outline" }[] = [
   { key: "hoje", label: "Hoje" },
   { key: "ontem", label: "Ontem" },
   { key: "quinzena", label: "Quinzena atual" },
-  { key: "outro", label: "Outro dia" },
+  { key: "outro", label: "Outro dia", icon: "calendar-outline" },
 ];
 
-const MP_COLORS: Record<string, string> = {
-  Shopee: "#ee4d2d",
-  "Mercado Livre": "#c9a227",
-  Avulso: "#6c757d",
-};
+const SERVICE_ICONS = {
+  Shopee: "bag-handle-outline",
+  "Mercado Livre": "storefront-outline",
+  Avulso: "cube-outline",
+} as const;
 
 function findMp(items: DashboardMarketplaceItem[] | undefined, nome: string): DashboardMarketplaceItem | null {
   if (!items?.length) return null;
@@ -84,7 +88,7 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        content: { padding: 16, paddingBottom: 40 },
+        content: { padding: space.md, paddingBottom: 40 },
         fieldLabel: {
           fontSize: 12,
           fontWeight: "700",
@@ -94,63 +98,24 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
           letterSpacing: 0.4,
         },
         chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
-        chip: {
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: colors.inputBorder,
-          backgroundColor: colors.inputBackground,
-        },
-        chipActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
-        chipText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-        chipTextActive: { color: colors.primary },
-        periodoMeta: { fontSize: 13, color: colors.textSecondary, marginBottom: 16 },
+        periodoMeta: { fontSize: 13, color: colors.textSecondary, marginBottom: space.md },
         grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 10 },
-        kpiCard: {
-          width: "48%",
-          backgroundColor: colors.backgroundCard,
-          borderRadius: 14,
-          padding: 14,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          minHeight: 96,
-        },
-        kpiLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 6 },
-        kpiValue: { fontSize: 28, fontWeight: "800", color: colors.text },
-        kpiHint: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
         sectionTitle: {
           fontSize: 15,
           fontWeight: "800",
           color: colors.text,
-          marginTop: 20,
+          marginTop: space.lg,
           marginBottom: 10,
         },
-        mpCard: {
-          backgroundColor: colors.backgroundCard,
-          borderRadius: 14,
-          padding: 14,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          marginBottom: 10,
-          borderLeftWidth: 4,
-        },
-        mpTitle: { fontSize: 13, fontWeight: "800", color: colors.text, marginBottom: 8, letterSpacing: 0.3 },
-        mpRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-        mpLabel: { fontSize: 13, color: colors.textSecondary },
-        mpValue: { fontSize: 14, fontWeight: "700", color: colors.text },
-        detalheBox: {
-          marginTop: 12,
-          backgroundColor: colors.backgroundCard,
-          borderRadius: 12,
-          padding: 12,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-        },
-        detalheTitle: { fontSize: 13, fontWeight: "700", color: colors.text, marginBottom: 6 },
-        detalheLine: { fontSize: 13, color: colors.textSecondary, marginBottom: 2 },
         center: { paddingVertical: 40, alignItems: "center" },
         errorText: { color: colors.danger, textAlign: "center", marginTop: 12 },
+        errorBox: {
+          backgroundColor: colors.backgroundCard,
+          borderRadius: radius.md,
+          padding: space.md,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+        },
       }),
     [colors]
   );
@@ -265,96 +230,96 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} />}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.fieldLabel}>Período</Text>
+        <AppText style={styles.fieldLabel}>Período</AppText>
         <View style={styles.chipsRow}>
           {PRESETS.map((p) => (
-            <TouchableOpacity
+            <FilterChip
               key={p.key}
-              style={[styles.chip, periodo.preset === p.key && styles.chipActive]}
+              label={p.label}
+              selected={periodo.preset === p.key}
               onPress={() => onSelectPreset(p.key)}
-            >
-              <Text style={[styles.chipText, periodo.preset === p.key && styles.chipTextActive]}>
-                {p.label}
-              </Text>
-            </TouchableOpacity>
+              icon={p.icon}
+            />
           ))}
         </View>
-        <Text style={styles.periodoMeta}>{labelPeriodo(periodo)}</Text>
+        <AppText style={styles.periodoMeta}>{labelPeriodo(periodo)}</AppText>
 
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator color={colors.primary} />
           </View>
         ) : error ? (
-          <Text style={styles.errorText}>{error}</Text>
+          <View style={styles.errorBox}>
+            <AppText style={styles.errorText}>{error}</AppText>
+          </View>
         ) : (
           <>
             <View style={styles.grid}>
-              <View style={styles.kpiCard}>
-                <Text style={styles.kpiLabel}>Saídas</Text>
-                <Text style={styles.kpiValue}>{totalSaidas}</Text>
-                <Text style={styles.kpiHint}>{hintPeriodo}</Text>
-              </View>
+              <KpiCard
+                title="Saídas"
+                value={totalSaidas}
+                subtitle={hintPeriodo}
+                icon="arrow-up-circle-outline"
+                semantic="primary"
+                variant="filledSoft"
+              />
               {mostrarEntrada ? (
-                <View style={styles.kpiCard}>
-                  <Text style={styles.kpiLabel}>Entradas</Text>
-                  <Text style={styles.kpiValue}>{totalEntradas}</Text>
-                  <Text style={styles.kpiHint}>{hintPeriodo}</Text>
-                </View>
+                <KpiCard
+                  title="Entradas"
+                  value={totalEntradas}
+                  subtitle={hintPeriodo}
+                  icon="download-outline"
+                  semantic="success"
+                  variant="filledSoft"
+                />
               ) : null}
               {mostrarEntrada ? (
-                <View style={styles.kpiCard}>
-                  <Text style={styles.kpiLabel}>Ainda na base</Text>
-                  <Text style={styles.kpiValue}>{aindaNaBase}</Text>
-                  <Text style={styles.kpiHint}>Aguardando saída</Text>
-                </View>
+                <KpiCard
+                  title="Ainda na base"
+                  value={aindaNaBase}
+                  subtitle="Aguardando saída"
+                  icon="cube-outline"
+                  semantic="route"
+                  variant="filledSoft"
+                />
               ) : null}
               {mostrarColeta ? (
-                <View style={styles.kpiCard}>
-                  <Text style={styles.kpiLabel}>Coletas</Text>
-                  <Text style={styles.kpiValue}>{totalColetas}</Text>
-                  <Text style={styles.kpiHint}>{hintPeriodo}</Text>
-                </View>
+                <KpiCard
+                  title="Coletas"
+                  value={totalColetas}
+                  subtitle={hintPeriodo}
+                  icon="bag-handle-outline"
+                  semantic="collection"
+                  variant="filledSoft"
+                />
               ) : null}
             </View>
 
             {mostrarEntrada && aindaNaBaseDetalhe.length > 0 ? (
-              <View style={styles.detalheBox}>
-                <Text style={styles.detalheTitle}>Na base por dia</Text>
-                {aindaNaBaseDetalhe.slice(0, 5).map((d) => (
-                  <Text key={d.date} style={styles.detalheLine}>
-                    {formatDateLabel(d.date)}: {d.qty} pacote(s)
-                  </Text>
-                ))}
-              </View>
+              <BaseByDayCard items={aindaNaBaseDetalhe} />
             ) : null}
 
-            <Text style={styles.sectionTitle}>Por serviço</Text>
+            <AppText style={styles.sectionTitle}>Por serviço</AppText>
             {servicos.map((nome) => {
               const s = findMp(mpSaidas, nome);
               const e = findMp(mpEntradas, nome);
               const c = findMp(mpColetas, nome);
-              const accent = MP_COLORS[nome] || colors.primary;
+              const metrics = [
+                ...(mostrarColeta ? [{ label: "Coletas", value: c?.qty ?? 0 }] : []),
+                ...(mostrarEntrada ? [{ label: "Entradas", value: e?.qty ?? 0 }] : []),
+                { label: "Saídas", value: s?.qty ?? 0 },
+              ];
               return (
-                <View key={nome} style={[styles.mpCard, { borderLeftColor: accent }]}>
-                  <Text style={styles.mpTitle}>{nome.toUpperCase()}</Text>
-                  {mostrarColeta ? (
-                    <View style={styles.mpRow}>
-                      <Text style={styles.mpLabel}>Coletas</Text>
-                      <Text style={styles.mpValue}>{c?.qty ?? 0}</Text>
-                    </View>
-                  ) : null}
-                  {mostrarEntrada ? (
-                    <View style={styles.mpRow}>
-                      <Text style={styles.mpLabel}>Entradas</Text>
-                      <Text style={styles.mpValue}>{e?.qty ?? 0}</Text>
-                    </View>
-                  ) : null}
-                  <View style={styles.mpRow}>
-                    <Text style={styles.mpLabel}>Saídas</Text>
-                    <Text style={styles.mpValue}>{s?.qty ?? 0}</Text>
-                  </View>
-                </View>
+                <ServiceCard
+                  key={nome}
+                  name={nome}
+                  icon={SERVICE_ICONS[nome]}
+                  semantic={serviceSemanticKey(nome)}
+                  metrics={metrics}
+                  saidas={s?.qty ?? 0}
+                  entradas={e?.qty ?? 0}
+                  showTaxa={mostrarEntrada}
+                />
               );
             })}
           </>
