@@ -1,4 +1,14 @@
 /** Navega a partir do payload de push (data.type). */
+import { useAuthStore } from "../../store/authStore";
+import { isAdminRole } from "../../utils/role";
+
+function formatYmdLocal(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
 export function navigateFromPushData(
   navigation: { navigate: (...args: any[]) => void } | null,
   data: Record<string, unknown> | null | undefined
@@ -64,6 +74,22 @@ export function navigateFromPushData(
             dataRef: typeof data.data_ref === "string" ? data.data_ref : undefined,
           },
         });
+        break;
+      }
+      case "entrada_sem_saida": {
+        const role = useAuthStore.getState().currentUser?.role as number | undefined;
+        const dia =
+          typeof data.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.data)
+            ? data.data
+            : formatYmdLocal();
+        if (isAdminRole(role)) {
+          navigation.navigate("Gestao", { screen: "IndicadoresOperacao" });
+        } else {
+          navigation.navigate("Inicio", {
+            screen: "ConsultaCodigos",
+            params: { status: "NA_BASE", de: dia, ate: dia },
+          });
+        }
         break;
       }
       default:

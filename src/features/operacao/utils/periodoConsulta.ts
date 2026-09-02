@@ -1,6 +1,6 @@
 /** Helpers de período para consulta de saídas (operação). */
 
-export type PeriodoPreset = "hoje" | "ontem" | "quinzena" | "outro";
+export type PeriodoPreset = "hoje" | "ontem" | "quinzena" | "quinzena_anterior" | "outro";
 
 export type PeriodoConsulta = {
   preset: PeriodoPreset;
@@ -38,6 +38,31 @@ export function periodoQuinzenaAtual(ref: Date = new Date()): { inicio: string; 
   return { inicio: formatYmd(inicioDate), fim };
 }
 
+/**
+ * Quinzena completa imediatamente anterior.
+ * Quinzena 1 = dias 1–15; quinzena 2 = 16 até o último dia do mês.
+ */
+export function periodoQuinzenaAnterior(ref: Date = new Date()): { inicio: string; fim: string } {
+  const ano = ref.getFullYear();
+  const mes = ref.getMonth();
+  const dia = ref.getDate();
+
+  if (dia <= 15) {
+    const mesAnterior = mes === 0 ? 11 : mes - 1;
+    const anoAnterior = mes === 0 ? ano - 1 : ano;
+    const ultimoDiaAnterior = new Date(anoAnterior, mesAnterior + 1, 0).getDate();
+    return {
+      inicio: formatYmd(new Date(anoAnterior, mesAnterior, 16)),
+      fim: formatYmd(new Date(anoAnterior, mesAnterior, ultimoDiaAnterior)),
+    };
+  }
+
+  return {
+    inicio: formatYmd(new Date(ano, mes, 1)),
+    fim: formatYmd(new Date(ano, mes, 15)),
+  };
+}
+
 export function buildPeriodo(preset: PeriodoPreset, outroDia?: string): PeriodoConsulta {
   const today = new Date();
   const todayIso = formatYmd(today);
@@ -55,6 +80,10 @@ export function buildPeriodo(preset: PeriodoPreset, outroDia?: string): PeriodoC
     const q = periodoQuinzenaAtual(today);
     return { preset, dataInicio: q.inicio, dataFim: q.fim };
   }
+  if (preset === "quinzena_anterior") {
+    const q = periodoQuinzenaAnterior(today);
+    return { preset, dataInicio: q.inicio, dataFim: q.fim };
+  }
   const iso = outroDia && parseYmd(outroDia) ? outroDia : todayIso;
   return { preset: "outro", dataInicio: iso, dataFim: iso };
 }
@@ -64,6 +93,9 @@ export function labelPeriodo(p: PeriodoConsulta): string {
   if (p.preset === "ontem") return `Ontem (${formatDateLabel(p.dataFim)})`;
   if (p.preset === "quinzena") {
     return `Quinzena atual (${formatDateLabel(p.dataInicio)} – ${formatDateLabel(p.dataFim)})`;
+  }
+  if (p.preset === "quinzena_anterior") {
+    return `Quinzena anterior (${formatDateLabel(p.dataInicio)} – ${formatDateLabel(p.dataFim)})`;
   }
   return formatDateLabel(p.dataFim);
 }

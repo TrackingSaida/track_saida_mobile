@@ -19,7 +19,13 @@ export type AcompanharMotoboyDiaParams = {
 
 export type InicioStackParamList = {
   StaffInicio: undefined;
-  ConsultaCodigos: undefined;
+  ConsultaCodigos:
+    | {
+        status?: string;
+        de?: string;
+        ate?: string;
+      }
+    | undefined;
 };
 
 /** Rotas compartilhadas do fluxo de coletas (Home motoboy + Operação staff). */

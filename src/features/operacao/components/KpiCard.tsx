@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
 import { LinearGradient } from "expo-linear-gradient";
@@ -25,6 +25,7 @@ type Props = {
   variant?: KpiCardVariant;
   microLabel?: string;
   progress?: number | null;
+  onPress?: () => void;
 };
 
 export default function KpiCard({
@@ -36,6 +37,7 @@ export default function KpiCard({
   variant = "filledSoft",
   microLabel,
   progress,
+  onPress,
 }: Props) {
   const colors = useThemeColors();
   const themeMode = useThemeStore((s) => s.theme);
@@ -139,17 +141,49 @@ export default function KpiCard({
   );
 
   if (filled) {
+    if (!onPress) {
+      return (
+        <LinearGradient
+          colors={[tone.bgFilled, tone.bgFilledEnd] as [string, string]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.card}
+          accessibilityLabel={accessibilityBits}
+          accessible
+        >
+          {body}
+        </LinearGradient>
+      );
+    }
     return (
-      <LinearGradient
-        colors={[tone.bgFilled, tone.bgFilledEnd] as [string, string]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.card}
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
         accessibilityLabel={accessibilityBits}
-        accessible
+        style={{ width: "48%" }}
+      >
+        <LinearGradient
+          colors={[tone.bgFilled, tone.bgFilledEnd] as [string, string]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.card, { width: "100%" }]}
+        >
+          {body}
+        </LinearGradient>
+      </Pressable>
+    );
+  }
+
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={styles.card}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityBits}
       >
         {body}
-      </LinearGradient>
+      </Pressable>
     );
   }
 
