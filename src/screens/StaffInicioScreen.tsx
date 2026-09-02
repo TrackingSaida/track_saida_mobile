@@ -15,6 +15,7 @@ import { textStyle } from "../theme/typography";
 import AppText from "../components/ui/AppText";
 import {
   effectiveConferenciaSaida,
+  effectiveEntradaObrigatoria,
   effectivePodeLerColeta,
 } from "../utils/role";
 import type { InicioStackParamList, OperacaoStackParamList } from "../navigation/staffStackTypes";
@@ -34,6 +35,7 @@ export default function StaffInicioScreen({ navigation }: Props) {
   const nome = (currentUser?.username as string | undefined)?.trim() || "Usuário";
   const subBase = (currentUser?.sub_base as string | undefined)?.trim() || "";
   const mostrarColeta = effectivePodeLerColeta(currentUser);
+  const mostrarEntrada = effectiveEntradaObrigatoria(currentUser);
   const mostrarConferencia = effectiveConferenciaSaida(currentUser);
 
   const styles = useMemo(
@@ -105,6 +107,16 @@ export default function StaffInicioScreen({ navigation }: Props) {
         />
 
         <MenuSection label="Ações rápidas">
+          {mostrarEntrada ? (
+            <PressableMenuRow
+              icon="enter-outline"
+              title="Registrar entrada"
+              subtitle="Entrada na base"
+              onPress={() => goOperacao("LeituraEntradas")}
+              iconColor={colors.primary}
+              iconSoftBg={colors.primarySoft}
+            />
+          ) : null}
           {mostrarColeta ? (
             <PressableMenuRow
               icon="layers-outline"
