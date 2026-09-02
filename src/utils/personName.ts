@@ -41,6 +41,25 @@ export function sortByPersonName<T>(
   return [...list].sort((a, b) => comparePersonNames(getName(a), getName(b)));
 }
 
+/** Iniciais para avatar (primeiro + segundo nome significativo). */
+export function personInitials(raw: string): string {
+  const parts = String(raw || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .filter(Boolean);
+  const significant = parts.filter(
+    (word, index) => index === 0 || !MINOR_WORDS.has(word.toLocaleLowerCase("pt-BR"))
+  );
+  if (significant.length === 0) return "?";
+  if (significant.length === 1) {
+    return significant[0].slice(0, 2).toLocaleUpperCase("pt-BR");
+  }
+  const first = significant[0].charAt(0);
+  const second = significant[1].charAt(0);
+  return `${first}${second}`.toLocaleUpperCase("pt-BR");
+}
+
 /** Formata campo `nome` e ordena A→Z. */
 export function normalizePersonList<T extends { nome: string }>(list: T[]): T[] {
   return sortByPersonName(
