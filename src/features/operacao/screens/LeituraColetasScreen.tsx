@@ -22,7 +22,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import { useThemeColors } from "../../../theme/colors";
-import { formatApiError } from "../../../utils/formatApiError";
+import { formatApiError, parseApiDetailObject } from "../../../utils/formatApiError";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
 import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
@@ -842,13 +842,19 @@ export default function LeituraColetasScreen() {
         };
         const status = axiosError?.response?.status;
         const detail = axiosError?.response?.data?.detail;
-        const detailObj =
-          detail && typeof detail === "object" && !Array.isArray(detail)
-            ? (detail as { mensagem?: string; pode_ajudar?: boolean; participantes?: string[] })
-            : null;
+        const parsed = parseApiDetailObject(detail);
+        const detailObj = parsed
+          ? {
+              mensagem: typeof parsed.mensagem === "string" ? parsed.mensagem : undefined,
+              pode_ajudar: Boolean(parsed.pode_ajudar),
+              participantes: Array.isArray(parsed.participantes)
+                ? parsed.participantes.filter((p): p is string => typeof p === "string")
+                : [],
+            }
+          : null;
 
         if (status === 409 && detailObj?.pode_ajudar) {
-          const nomes = (detailObj.participantes || []).join(", ") || "outro usuário";
+          const nomes = detailObj.participantes.join(", ") || "outro usuário";
           Alert.alert(
             "Base em coleta",
             detailObj.mensagem || `Esta base já está em coleta por ${nomes}. Deseja ajudar?`,
@@ -866,9 +872,9 @@ export default function LeituraColetasScreen() {
         }
 
         const msg =
-          typeof detail === "string"
-            ? detail
-            : detailObj?.mensagem || formatApiError(error, "Não foi possível iniciar a coleta.");
+          detailObj?.mensagem ||
+          (typeof detail === "string" && !parsed ? detail : null) ||
+          formatApiError(error, "Não foi possível iniciar a coleta.");
         // Base já coletada: mantém seleção local e só atualiza situação.
         if (status === 409 && /já foi coletad/i.test(msg)) {
           void carregarSituacao();
