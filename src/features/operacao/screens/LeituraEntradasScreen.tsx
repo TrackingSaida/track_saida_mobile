@@ -21,6 +21,7 @@ import * as Haptics from "expo-haptics";
 import { useThemeColors } from "../../../theme/colors";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
+import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
 import { effectiveEntradaObrigatoria, effectivePodeDigitarCodigoManual } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
@@ -120,6 +121,7 @@ export default function LeituraEntradasScreen() {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
+  const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
   const habilitada = effectiveEntradaObrigatoria(currentUser);
   const podeManual = effectivePodeDigitarCodigoManual(currentUser);
 
@@ -136,6 +138,7 @@ export default function LeituraEntradasScreen() {
     null
   );
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
+  const holdScannerCamera = avulsoModalVisible || photoCaptureActive;
   const [avulsoIdentificacao, setAvulsoIdentificacao] = useState("");
   const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
   const [resumoDia, setResumoDia] = useState<EntradaResumoDia>(RESUMO_DIA_VAZIO);
@@ -143,7 +146,7 @@ export default function LeituraEntradasScreen() {
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const torch = useScannerTorch(
-    cameraOpen && !modoManual && !modoLeitorFisico && !!permission?.granted
+    cameraOpen && !modoManual && !modoLeitorFisico && !!permission?.granted && !holdScannerCamera
   );
 
   const styles = useMemo(
@@ -825,6 +828,8 @@ export default function LeituraEntradasScreen() {
                   </TouchableOpacity>
                 ) : null}
               </View>
+            ) : holdScannerCamera ? (
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} />
             ) : (
               <>
                 <CameraView

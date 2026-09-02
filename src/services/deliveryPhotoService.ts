@@ -1,10 +1,15 @@
-import { Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
 import Constants from "expo-constants";
 import { getPresignUpload, patchFotoSaida } from "../features/entregas/api";
 import type { AxiosError } from "axios";
+import { usePhotoCaptureStore } from "../store/photoCaptureStore";
+import {
+  PREPARE_MAX_WIDTH,
+  shouldSkipImageResize,
+  type PhotoPickResult,
+} from "./photoFlowUtils";
 import {
   AVULSO_UPLOAD_MAX_ATTEMPTS,
   AvulsoUploadError,
@@ -14,6 +19,8 @@ import {
   formatAvulsoUploadLog,
   isTransientUploadFailure,
 } from "./avulsoUploadDiagnostics";
+
+export type { PhotoPickResult };
 
 function getAppVersionForLog(): string {
   return (
@@ -38,23 +45,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Converte base64 em Uint8Array para enviar no body do PUT. */
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
 const MAX_PHOTOS = 3;
 
 export type PhotoSource = "camera" | "gallery";
-
-export interface PhotoPickResult {
-  uri: string;
-  mimeType: string;
-  filename: string;
-}
 
 /** Abre ActionSheet: Tirar foto | Galeria | Cancelar. Retorna resultado ou null se cancelar. */
 export async function selectOrTakePhoto(): Promise<PhotoPickResult | null> {
@@ -63,7 +56,7 @@ export async function selectOrTakePhoto(): Promise<PhotoPickResult | null> {
     Alert.alert("Adicionar foto", "Escolha uma opção", [
       {
         text: "Tirar foto",
-        onPress: () => openCamera().then(resolve),
+        onPress: () => takeDeliveryPhoto().then(resolve),
       },
       {
         text: "Galeria",
@@ -74,35 +67,15 @@ export async function selectOrTakePhoto(): Promise<PhotoPickResult | null> {
   });
 }
 
-function getCameraLaunchOptions(): ImagePicker.ImagePickerOptions {
-  return {
-    mediaTypes: ["images"],
-    allowsEditing: false,
-    quality: 0.7,
-    cameraType: ImagePicker.CameraType.back,
-    ...(Platform.OS === "android" ? { legacy: true } : {}),
-  };
-}
-
-async function openCamera(): Promise<PhotoPickResult | null> {
-  const { status } = await ImagePicker.requestCameraPermissionsAsync();
-  if (status !== "granted") {
-    throw new Error("Permissão de câmera negada.");
-  }
-  const result = await ImagePicker.launchCameraAsync(getCameraLaunchOptions());
-  if (result.canceled || !result.assets?.[0]) return null;
-  const asset = result.assets[0];
-  const filename = asset.uri.split("/").pop() || "foto.jpg";
-  return {
-    uri: asset.uri,
-    mimeType: asset.mimeType || "image/jpeg",
-    filename,
-  };
-}
-
-/** Abre a câmera traseira direto no toque (sem Alert intermediário). */
+/** Captura in-app (não abre a câmera do sistema) e persiste o JPEG em disco. */
 export async function takeDeliveryPhoto(): Promise<PhotoPickResult | null> {
-  return openCamera();
+  try {
+    const captured = await usePhotoCaptureStore.getState().requestCapture();
+    if (!captured) return null;
+    return await preparePhoto(captured.uri);
+  } finally {
+    usePhotoCaptureStore.getState().releaseHardware();
+  }
 }
 
 /** Abre a galeria para escolher foto de comprovante. */
@@ -118,7 +91,7 @@ async function openGallery(): Promise<PhotoPickResult | null> {
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ["images"],
     allowsEditing: false,
-    quality: 1,
+    quality: 0.7,
   });
   if (result.canceled || !result.assets?.[0]) return null;
   const asset = result.assets[0];
@@ -140,18 +113,64 @@ async function ensurePhotosDir(): Promise<void> {
   }
 }
 
-/** Redimensiona, comprime e copia para URI única (evita colisão ao adicionar várias fotos). */
-export async function preparePhoto(uri: string, indexHint?: number): Promise<PhotoPickResult> {
-  const manipulated = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ resize: { width: 1280 } }],
-    { compress: 0.75, format: ImageManipulator.SaveFormat.JPEG }
-  );
+function uniquePhotoFilename(indexHint?: number): string {
+  return `photo_${Date.now()}_${indexHint ?? 0}.jpg`;
+}
+
+/** Copia a captura imediatamente para o armazenamento do app (sobrevive se o processo morrer). */
+export async function persistCapturedPhoto(uri: string): Promise<PhotoPickResult> {
   await ensurePhotosDir();
-  const suffix = indexHint ?? Date.now();
-  const filename = `photo_${Date.now()}_${suffix}.jpg`;
+  const filename = `capture_${Date.now()}.jpg`;
   const dest = `${PHOTOS_DIR}${filename}`;
-  await FileSystem.copyAsync({ from: manipulated.uri, to: dest });
+  if (uri === dest) {
+    return { uri: dest, mimeType: "image/jpeg", filename };
+  }
+  await FileSystem.copyAsync({ from: uri, to: dest });
+  return {
+    uri: dest,
+    mimeType: "image/jpeg",
+    filename,
+  };
+}
+
+async function fileSizeBytes(uri: string): Promise<number | undefined> {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info.exists && "size" in info && typeof info.size === "number") return info.size;
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+/** Redimensiona se necessário e copia para URI única. Se o resize falhar, usa o arquivo original. */
+export async function preparePhoto(uri: string, indexHint?: number): Promise<PhotoPickResult> {
+  await ensurePhotosDir();
+  const filename = uniquePhotoFilename(indexHint);
+  const dest = `${PHOTOS_DIR}${filename}`;
+  const size = await fileSizeBytes(uri);
+
+  const copyOriginal = async () => {
+    if (uri === dest) return;
+    await FileSystem.copyAsync({ from: uri, to: dest });
+  };
+
+  if (shouldSkipImageResize(size)) {
+    await copyOriginal();
+    return { uri: dest, mimeType: "image/jpeg", filename };
+  }
+
+  try {
+    const manipulated = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: PREPARE_MAX_WIDTH } }],
+      { compress: 0.75, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    await FileSystem.copyAsync({ from: manipulated.uri, to: dest });
+  } catch (e) {
+    console.warn("[preparePhoto] resize falhou, usando arquivo em disco", e);
+    await copyOriginal();
+  }
   return {
     uri: dest,
     mimeType: "image/jpeg",
@@ -267,25 +286,57 @@ async function putPhotoToPresignedUrl(
   const contentType = presign.headers["Content-Type"] ?? mimeType;
   const started = Date.now();
 
-  const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  const bodyBytes = base64ToUint8Array(base64);
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), B2_UPLOAD_TIMEOUT_MS);
-  let uploadResponse: Response;
+  const timeoutError = Object.assign(new Error("timeout"), { name: "AbortError" });
   try {
-    uploadResponse = await fetch(presign.upload_url, {
-      method: "PUT",
-      headers: { "Content-Type": contentType },
-      body: bodyBytes.buffer.slice(
-        bodyBytes.byteOffset,
-        bodyBytes.byteOffset + bodyBytes.byteLength
-      ) as ArrayBuffer,
-      signal: controller.signal,
-    });
+    const result = await Promise.race([
+      FileSystem.uploadAsync(presign.upload_url, uri, {
+        httpMethod: "PUT",
+        headers: { "Content-Type": contentType },
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      }),
+      sleep(B2_UPLOAD_TIMEOUT_MS).then(() => {
+        throw timeoutError;
+      }),
+    ]);
+
+    if (result.status < 200 || result.status >= 300) {
+      const classified = classifyStorageUploadFailure(result.status, "");
+      if (opts?.logAsAvulso) {
+        logAvulsoUpload({
+          stage: "storage_upload",
+          attempt: opts.attempt,
+          status: result.status,
+          storage_code: classified.storageCode,
+          duration_ms: Date.now() - started,
+          object_key: presign.object_key,
+          photo_id: opts.photoId,
+          code: classified.code,
+        });
+      }
+      throw new AvulsoUploadError({
+        message: classified.message,
+        stage: "storage_upload",
+        code: classified.code,
+        httpStatus: result.status,
+        storageCode: classified.storageCode,
+        retryable: classified.retryable,
+        attempt: opts?.attempt,
+      });
+    }
+
+    if (opts?.logAsAvulso) {
+      logAvulsoUpload({
+        stage: "storage_upload",
+        attempt: opts.attempt,
+        status: result.status,
+        duration_ms: Date.now() - started,
+        object_key: presign.object_key,
+        photo_id: opts.photoId,
+        code: "OK",
+      });
+    }
   } catch (e) {
+    if (e instanceof AvulsoUploadError) throw e;
     if (opts?.logAsAvulso) {
       logAvulsoUpload({
         stage: "storage_upload",
@@ -308,46 +359,6 @@ async function putPhotoToPresignedUrl(
       });
     }
     throw classifyThrownUploadError(e, "storage_upload");
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  if (!uploadResponse.ok) {
-    const text = await uploadResponse.text().catch(() => "");
-    const classified = classifyStorageUploadFailure(uploadResponse.status, text);
-    if (opts?.logAsAvulso) {
-      logAvulsoUpload({
-        stage: "storage_upload",
-        attempt: opts.attempt,
-        status: uploadResponse.status,
-        storage_code: classified.storageCode,
-        duration_ms: Date.now() - started,
-        object_key: presign.object_key,
-        photo_id: opts.photoId,
-        code: classified.code,
-      });
-    }
-    throw new AvulsoUploadError({
-      message: classified.message,
-      stage: "storage_upload",
-      code: classified.code,
-      httpStatus: uploadResponse.status,
-      storageCode: classified.storageCode,
-      retryable: classified.retryable,
-      attempt: opts?.attempt,
-    });
-  }
-
-  if (opts?.logAsAvulso) {
-    logAvulsoUpload({
-      stage: "storage_upload",
-      attempt: opts.attempt,
-      status: uploadResponse.status,
-      duration_ms: Date.now() - started,
-      object_key: presign.object_key,
-      photo_id: opts.photoId,
-      code: "OK",
-    });
   }
 }
 

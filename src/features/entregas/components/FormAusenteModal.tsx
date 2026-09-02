@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -26,7 +26,7 @@ import {
 } from "../../../services/deliveryPhotoService";
 import {
   clearDeliveryPhotoDraft,
-  loadDeliveryPhotoDraft,
+  loadDeliveryPhotoDraftRecord,
   saveDeliveryPhotoDraft,
 } from "../../../services/deliveryPhotoDraft";
 import { canConfirmWithPhotos } from "../utils/photoValidationUtils";
@@ -78,6 +78,7 @@ export default function FormAusenteModal({
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
+  const draftMotivoRef = useRef<number | null>(null);
   const primaryIdSaida = idSaidas.find((id) => id > 0) ?? 0;
   const [resolvedRequiredFields, setResolvedRequiredFields] = useState<string[]>(
     () => unionCamposObrigatorios(requiredFields)
@@ -140,18 +141,27 @@ export default function FormAusenteModal({
     setObservacao("");
     setMotivoId(null);
     setDraftReady(false);
+    draftMotivoRef.current = null;
     let cancelled = false;
     void (async () => {
-      const uris = await loadDeliveryPhotoDraft("ausente", primaryIdSaida);
+      const draft = await loadDeliveryPhotoDraftRecord("ausente", primaryIdSaida);
       if (cancelled) return;
-      setPhotos(uris.map((uri) => ({ uri })));
+      setPhotos((draft?.photoUris || []).map((uri) => ({ uri })));
+      const fields = draft?.kind === "ausente" ? draft.fields : undefined;
+      setObservacao(fields?.observacao || "");
+      draftMotivoRef.current = fields?.motivoId ?? null;
+      if (fields?.motivoId) setMotivoId(fields.motivoId);
       setDraftReady(true);
     })();
     getMotivosAusencia()
       .then((m) => {
         if (cancelled) return;
         setMotivos(m);
-        if (m.length) setMotivoId(m[0].id);
+        if (draftMotivoRef.current) {
+          setMotivoId(draftMotivoRef.current);
+        } else if (m.length) {
+          setMotivoId(m[0].id);
+        }
       })
       .catch(() => setMotivos([]));
     return () => {
@@ -164,9 +174,10 @@ export default function FormAusenteModal({
     void saveDeliveryPhotoDraft(
       "ausente",
       primaryIdSaida,
-      photos.map((p) => p.uri)
+      photos.map((p) => p.uri),
+      { motivoId, observacao }
     );
-  }, [visible, draftReady, primaryIdSaida, photos]);
+  }, [visible, draftReady, primaryIdSaida, photos, motivoId, observacao]);
 
   const styles = useMemo(
     () =>
@@ -272,17 +283,25 @@ export default function FormAusenteModal({
         await saveDeliveryPhotoDraft(
           "ausente",
           primaryIdSaida,
-          photos.map((p) => p.uri)
+          photos.map((p) => p.uri),
+          { motivoId, observacao }
         );
         const picked = await pick();
         if (!picked) return;
         const prepared = await preparePhoto(picked.uri, photos.length);
-        setPhotos((prev) => [...prev, { uri: prepared.uri }]);
+        const next = [...photos, { uri: prepared.uri }];
+        setPhotos(next);
+        await saveDeliveryPhotoDraft(
+          "ausente",
+          primaryIdSaida,
+          next.map((p) => p.uri),
+          { motivoId, observacao }
+        );
       } catch (e) {
         Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
       }
     },
-    [photos, primaryIdSaida]
+    [photos, primaryIdSaida, motivoId, observacao]
   );
 
   const addPhotoFromCamera = useCallback(

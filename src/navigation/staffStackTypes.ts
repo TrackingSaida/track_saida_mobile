@@ -35,7 +35,7 @@ export type ColetasFluxoParamList = {
 
 export type OperacaoStackParamList = {
   StaffOperacao: undefined;
-  LeituraSaidas: undefined;
+  LeituraSaidas: { resumeAvulso?: boolean } | undefined;
   LeituraEntradas: undefined;
   ConferenciaSaida: ConferenciaSaidaParams;
   SaidasPorMotoboy: undefined;
