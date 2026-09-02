@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import {
   View,
   Text,
@@ -32,6 +32,7 @@ import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import type { EntregaListItem } from "../types";
 import AvulsoLancamentoModal from "../../operacao/components/AvulsoLancamentoModal";
+import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Scan">;
 
@@ -164,7 +165,7 @@ function ScanFrameOverlay({ wrapStyle }: { wrapStyle: ViewStyle }) {
   );
 }
 
-export default function ScanScreen({ navigation }: Props) {
+export default function ScanScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(
@@ -400,6 +401,14 @@ export default function ScanScreen({ navigation }: Props) {
   const [modoManual, setModoManual] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [showAvulsoModal, setShowAvulsoModal] = useState(false);
+  const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
+  const holdScannerCamera = showAvulsoModal || photoCaptureActive;
+
+  useEffect(() => {
+    if (!route.params?.resumeAvulso) return;
+    setShowAvulsoModal(true);
+    navigation.setParams({ resumeAvulso: undefined });
+  }, [route.params?.resumeAvulso, navigation]);
   const [loading, setLoading] = useState(false);
   /** Só para bip de câmera: chip leve, sem pausar o scanner nem overlay cheio. */
   const [cameraBusy, setCameraBusy] = useState(false);
@@ -438,7 +447,7 @@ export default function ScanScreen({ navigation }: Props) {
   const isFocused = useIsFocused();
   // Desliga tocha e libera hardware enquanto o modal de avulso usa ImagePicker.
   const torch = useScannerTorch(
-    isFocused && !!permission?.granted && !modoManual && !showAvulsoModal
+    isFocused && !!permission?.granted && !modoManual && !holdScannerCamera
   );
   const sessionHadNewScanRef = useRef(false);
 
@@ -907,6 +916,7 @@ export default function ScanScreen({ navigation }: Props) {
       visible={showAvulsoModal}
       loading={loading}
       exigeFoto={avulsoExigeFoto}
+      source="scan"
       onClose={() => setShowAvulsoModal(false)}
       onConfirm={handleLancarAvulso}
     />
@@ -1049,7 +1059,7 @@ export default function ScanScreen({ navigation }: Props) {
         Desmonta o scanner enquanto o modal de avulso está aberto.
         Evita conflito CameraView + ImagePicker (recriação da Activity / volta à Home).
       */}
-      {showAvulsoModal ? (
+      {holdScannerCamera ? (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} />
       ) : (
         <CameraView
@@ -1064,7 +1074,7 @@ export default function ScanScreen({ navigation }: Props) {
         />
       )}
 
-      {!showAvulsoModal ? (
+      {!holdScannerCamera ? (
         <ScannerTorchButton
           mode={torch.mode}
           onPress={torch.cycleMode}
@@ -1074,7 +1084,7 @@ export default function ScanScreen({ navigation }: Props) {
 
       {renderFeedback()}
 
-      {!showAvulsoModal ? (
+      {!holdScannerCamera ? (
         <View style={styles.scanFrameContainer} pointerEvents="none">
           <ScanFrameOverlay wrapStyle={styles.scanFrameWrap} />
         </View>

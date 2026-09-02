@@ -15,7 +15,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import type { AxiosError } from "axios";
@@ -23,6 +23,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../../theme/colors";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
+import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
+import type { OperacaoStackParamList } from "../../../navigation/staffStackTypes";
 import { playSound } from "../../../utils/sound";
 import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
@@ -263,9 +265,11 @@ function coresFeedbackMain(tipo: FeedbackTipo, colors: ReturnType<typeof useThem
 
 export default function LeituraSaidasScreen() {
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<OperacaoStackParamList, "LeituraSaidas">>();
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
+  const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
   const [permission, requestPermission] = useCameraPermissions();
   const [motoboys, setMotoboys] = useState<MotoboyItem[]>([]);
   const [motoboyId, setMotoboyId] = useState<number | null>(null);
@@ -284,6 +288,7 @@ export default function LeituraSaidasScreen() {
   const [modoManual, setModoManual] = useState(false);
   const [modoLeitorFisico, setModoLeitorFisico] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
+  const holdScannerCamera = avulsoModalVisible || photoCaptureActive;
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   /** Resumo confirmado do dia por motoboy (persiste ao trocar e voltar). */
   const [confirmadoPorMotoboy, setConfirmadoPorMotoboy] = useState<
@@ -298,6 +303,12 @@ export default function LeituraSaidasScreen() {
   const scanLocked = useRef(false);
   const suppressAutoCameraRef = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!route.params?.resumeAvulso) return;
+    setAvulsoModalVisible(true);
+    navigation.setParams({ resumeAvulso: undefined } as never);
+  }, [route.params?.resumeAvulso, navigation]);
 
   const pushFeedback = useCallback((tipo: FeedbackTipo, mensagem: string, codigo?: string) => {
     if (feedbackClearRef.current) {
@@ -1892,7 +1903,7 @@ export default function LeituraSaidasScreen() {
           </View>
         ) : modoLeitorFisico ? (
           <PhysicalScannerInput
-            active={cameraAtiva && modoLeitorFisico && !modoManual && !avulsoModalVisible}
+            active={cameraAtiva && modoLeitorFisico && !modoManual && !holdScannerCamera}
             disabled={loading || confirmandoLeitura || !!conflito || !!conflitoDiaAnterior}
             title="Leitor físico de saídas"
             subtitle={`${motoboyNome || "Motoboy não selecionado"} · Lidos: ${totalValidas}`}
@@ -1976,6 +1987,8 @@ export default function LeituraSaidasScreen() {
                   </TouchableOpacity>
                 ) : null}
               </View>
+            ) : holdScannerCamera ? (
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} />
             ) : (
               <>
                 <CameraView
@@ -2101,6 +2114,7 @@ export default function LeituraSaidasScreen() {
         visible={avulsoModalVisible}
         loading={loading}
         exigeFoto={avulsoExigeFoto}
+        source="saidas"
         onClose={() => setAvulsoModalVisible(false)}
         onConfirm={handleLancarAvulso}
       />

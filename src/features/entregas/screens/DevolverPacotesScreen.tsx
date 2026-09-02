@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -27,6 +27,12 @@ import { getEntregas } from "../api";
 import type { EntregaListItem } from "../types";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import { takeDeliveryPhoto, preparePhoto } from "../../../services/deliveryPhotoService";
+import {
+  clearDevolucaoPhotoDraft,
+  loadDevolucaoPhotoDraft,
+  saveDevolucaoPhotoDraft,
+} from "../../../services/deliveryPhotoDraft";
+import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
 import {
   enqueueDevolucaoCompletion,
   OutboxKindConflictError,
@@ -88,7 +94,8 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [takingPhoto, setTakingPhoto] = useState(false);
-  const torch = useScannerTorch(scannerVisible && !!cameraPermission?.granted);
+  const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
+  const torch = useScannerTorch(scannerVisible && !!cameraPermission?.granted && !photoCaptureActive);
 
   const styles = useMemo(
     () =>
@@ -260,6 +267,34 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
     }, [carregarPacotes])
   );
 
+  const draftHydratedRef = useRef(false);
+  useEffect(() => {
+    if (loading || draftHydratedRef.current) return;
+    draftHydratedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      const draft = await loadDevolucaoPhotoDraft();
+      if (cancelled || !draft) return;
+      if (draft.idSaida) {
+        const found = pacotes.find((p) => p.id_saida === draft.idSaida);
+        if (found) setSelected(found);
+      }
+      if (draft.photoUri) setPhotoUri(draft.photoUri);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, pacotes]);
+
+  useEffect(() => {
+    if (!selected && !photoUri) return;
+    void saveDevolucaoPhotoDraft({
+      idSaida: selected?.id_saida ?? null,
+      codigo: selected?.codigo ?? undefined,
+      photoUri,
+    });
+  }, [selected, photoUri]);
+
   const searchResults = useMemo(
     () => searchEntregasByCodigo(pacotes, searchQuery),
     [pacotes, searchQuery]
@@ -315,19 +350,30 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
 
   const tirarFoto = useCallback(async () => {
     if (takingPhoto) return;
+    setScannerVisible(false);
     setTakingPhoto(true);
     try {
+      await saveDevolucaoPhotoDraft({
+        idSaida: selected?.id_saida ?? null,
+        codigo: selected?.codigo ?? undefined,
+        photoUri,
+      });
       const picked = await takeDeliveryPhoto();
       if (!picked) return;
       const prepared = await preparePhoto(picked.uri);
       setPhotoUri(prepared.uri);
+      await saveDevolucaoPhotoDraft({
+        idSaida: selected?.id_saida ?? null,
+        codigo: selected?.codigo ?? undefined,
+        photoUri: prepared.uri,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Não foi possível tirar a foto.";
       Alert.alert("Foto", msg);
     } finally {
       setTakingPhoto(false);
     }
-  }, [takingPhoto]);
+  }, [takingPhoto, selected, photoUri]);
 
   const confirmarDevolucao = useCallback(async () => {
     if (!selected || !photoUri || submitting) return;
@@ -341,6 +387,7 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
       setSelected(null);
       setPhotoUri(null);
       setPacotes((prev) => prev.filter((d) => d.id_saida !== selected.id_saida));
+      await clearDevolucaoPhotoDraft();
       alertDevolucaoFeita(codigo, subBaseNome, undefined, result.queued);
     } catch (e) {
       if (e instanceof OutboxKindConflictError) {
@@ -522,6 +569,9 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
             <Text style={styles.scannerTitle}>Escanear pedido</Text>
             <Text style={styles.scannerSubtitle}>Aponte para o QR Code da etiqueta</Text>
           </View>
+          {photoCaptureActive ? (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} />
+          ) : (
           <CameraView
             style={StyleSheet.absoluteFill}
             facing="back"
@@ -530,6 +580,7 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
             onCameraReady={torch.onCameraReady}
             onBarcodeScanned={scanLockedRef.current ? undefined : handleBarcodeScanned}
           />
+          )}
           <ScannerTorchButton
             mode={torch.mode}
             onPress={torch.cycleMode}

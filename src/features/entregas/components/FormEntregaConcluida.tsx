@@ -27,7 +27,7 @@ import {
 } from "../../../services/deliveryPhotoService";
 import {
   clearDeliveryPhotoDraft,
-  loadDeliveryPhotoDraft,
+  loadDeliveryPhotoDraftRecord,
   saveDeliveryPhotoDraft,
 } from "../../../services/deliveryPhotoDraft";
 import {
@@ -292,20 +292,20 @@ export default function FormEntregaConcluida({
       setDraftReady(false);
       return;
     }
-    // Só inicializa ao abrir — não resetar se destinatario/id mudarem no meio do confirm.
-    setTipoRecebedor("Comprador");
-    setNomeRecebedor(destinatarioPreenchido?.trim() ?? "");
-    setTipoDocumento("RG");
-    setNumeroDocumento("");
-    setObservacao("");
     setError(null);
     setMissingKeys(new Set());
     setDraftReady(false);
     let cancelled = false;
     void (async () => {
-      const uris = await loadDeliveryPhotoDraft("entregue", idSaida);
+      const draft = await loadDeliveryPhotoDraftRecord("entregue", idSaida);
       if (cancelled) return;
-      setPhotos(uris.map((uri) => ({ uri })));
+      setPhotos((draft?.photoUris || []).map((uri) => ({ uri })));
+      const fields = draft?.kind === "entregue" ? draft.fields : undefined;
+      setTipoRecebedor(fields?.tipoRecebedor || "Comprador");
+      setNomeRecebedor(fields?.nomeRecebedor || destinatarioPreenchido?.trim() || "");
+      setTipoDocumento(fields?.tipoDocumento || "RG");
+      setNumeroDocumento(fields?.numeroDocumento || "");
+      setObservacao(fields?.observacao || "");
       setDraftReady(true);
     })();
     return () => {
@@ -319,9 +319,16 @@ export default function FormEntregaConcluida({
     void saveDeliveryPhotoDraft(
       "entregue",
       idSaida,
-      photos.map((p) => p.uri)
+      photos.map((p) => p.uri),
+      {
+        tipoRecebedor,
+        nomeRecebedor,
+        tipoDocumento,
+        numeroDocumento,
+        observacao,
+      }
     );
-  }, [visible, draftReady, idSaida, photos]);
+  }, [visible, draftReady, idSaida, photos, tipoRecebedor, nomeRecebedor, tipoDocumento, numeroDocumento, observacao]);
 
   const fotoObrigatoria = required.has("foto");
 
@@ -363,12 +370,32 @@ export default function FormEntregaConcluida({
       await saveDeliveryPhotoDraft(
         "entregue",
         idSaida,
-        photos.map((p) => p.uri)
+        photos.map((p) => p.uri),
+        {
+          tipoRecebedor,
+          nomeRecebedor,
+          tipoDocumento,
+          numeroDocumento,
+          observacao,
+        }
       );
       const picked = await pick();
       if (!picked) return;
       const prepared = await preparePhoto(picked.uri, photos.length);
-      setPhotos((prev) => [...prev, { uri: prepared.uri }]);
+      const next = [...photos, { uri: prepared.uri }];
+      setPhotos(next);
+      await saveDeliveryPhotoDraft(
+        "entregue",
+        idSaida,
+        next.map((p) => p.uri),
+        {
+          tipoRecebedor,
+          nomeRecebedor,
+          tipoDocumento,
+          numeroDocumento,
+          observacao,
+        }
+      );
     } catch (e) {
       Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
     }

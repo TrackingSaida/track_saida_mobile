@@ -29,6 +29,12 @@ import {
   classifyThrownUploadError,
   friendlyAvulsoUploadMessage,
 } from "../../../services/avulsoUploadDiagnostics";
+import {
+  clearAvulsoPhotoDraft,
+  loadAvulsoPhotoDraft,
+  saveAvulsoPhotoDraft,
+} from "../../../services/deliveryPhotoDraft";
+import type { AvulsoPhotoSource } from "../../../services/photoFlowUtils";
 
 const MAX_FOTOS_AVULSO = 3;
 
@@ -47,6 +53,8 @@ type Props = {
   loading?: boolean;
   /** Quando true, exige ao menos 1 foto antes de confirmar. */
   exigeFoto: boolean;
+  /** Origem do lançamento — usada para retomar o rascunho após o app fechar. */
+  source?: AvulsoPhotoSource;
   /** Coletas e entradas não utilizam comprovante no lançamento avulso. */
   permitirFotos?: boolean;
   onClose: () => void;
@@ -99,6 +107,7 @@ export default function AvulsoLancamentoModal({
   visible,
   loading = false,
   exigeFoto,
+  source = "scan",
   permitirFotos = true,
   onClose,
   onConfirm,
@@ -110,22 +119,63 @@ export default function AvulsoLancamentoModal({
   const [capturando, setCapturando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [statusEnvio, setStatusEnvio] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
   const uploadedByLocalIdRef = useRef<Record<string, UploadedCacheEntry>>({});
   const submitLockRef = useRef(false);
 
   const busy = loading || capturando || enviando;
 
   useEffect(() => {
-    if (!visible) return;
-    setIdentificacao("");
-    setQuantidade("1");
-    setFotos([]);
-    setCapturando(false);
-    setEnviando(false);
-    setStatusEnvio(null);
-    uploadedByLocalIdRef.current = {};
-    submitLockRef.current = false;
-  }, [visible]);
+    if (!visible) {
+      setDraftReady(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const draft = permitirFotos ? await loadAvulsoPhotoDraft(source) : null;
+      if (cancelled) return;
+      if (draft && draft.photos.length > 0) {
+        setIdentificacao(draft.identificacao);
+        setQuantidade(draft.quantidade || "1");
+        setFotos(draft.photos.map((p) => ({ id: p.id, uri: p.uri })));
+        const cache: Record<string, UploadedCacheEntry> = {};
+        for (const photo of draft.photos) {
+          if (photo.objectKey && photo.photoId) {
+            cache[photo.id] = { objectKey: photo.objectKey, photoId: photo.photoId };
+          }
+        }
+        uploadedByLocalIdRef.current = cache;
+      } else {
+        setIdentificacao("");
+        setQuantidade("1");
+        setFotos([]);
+        uploadedByLocalIdRef.current = {};
+      }
+      setCapturando(false);
+      setEnviando(false);
+      setStatusEnvio(null);
+      submitLockRef.current = false;
+      setDraftReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, source, permitirFotos]);
+
+  useEffect(() => {
+    if (!visible || !draftReady || !permitirFotos) return;
+    void saveAvulsoPhotoDraft({
+      source,
+      identificacao,
+      quantidade,
+      photos: fotos.map((f) => ({
+        id: f.id,
+        uri: f.uri,
+        objectKey: uploadedByLocalIdRef.current[f.id]?.objectKey,
+        photoId: uploadedByLocalIdRef.current[f.id]?.photoId,
+      })),
+    });
+  }, [visible, draftReady, permitirFotos, source, identificacao, quantidade, fotos]);
 
   const styles = useMemo(
     () =>
@@ -237,19 +287,42 @@ export default function AvulsoLancamentoModal({
     }
     setCapturando(true);
     try {
+      await saveAvulsoPhotoDraft({
+        source,
+        identificacao,
+        quantidade,
+        photos: fotos.map((f) => ({
+          id: f.id,
+          uri: f.uri,
+          objectKey: uploadedByLocalIdRef.current[f.id]?.objectKey,
+          photoId: uploadedByLocalIdRef.current[f.id]?.photoId,
+        })),
+      });
       const picked = await takeDeliveryPhoto();
       if (!picked) return;
       const prepared = await preparePhoto(picked.uri, fotos.length + 1);
-      setFotos((prev) => [
-        ...prev,
-        { id: `local-${Date.now()}-${prev.length}`, uri: prepared.uri },
-      ]);
+      const next = [
+        ...fotos,
+        { id: `local-${Date.now()}-${fotos.length}`, uri: prepared.uri },
+      ];
+      setFotos(next);
+      await saveAvulsoPhotoDraft({
+        source,
+        identificacao,
+        quantidade,
+        photos: next.map((f) => ({
+          id: f.id,
+          uri: f.uri,
+          objectKey: uploadedByLocalIdRef.current[f.id]?.objectKey,
+          photoId: uploadedByLocalIdRef.current[f.id]?.photoId,
+        })),
+      });
     } catch (e) {
       Alert.alert("Erro", e instanceof Error ? e.message : "Não foi possível abrir a câmera.");
     } finally {
       setCapturando(false);
     }
-  }, [fotos.length]);
+  }, [fotos, identificacao, quantidade, source]);
 
   const handleRemoverFoto = useCallback((id: string) => {
     setFotos((prev) => prev.filter((f) => f.id !== id));
@@ -301,6 +374,17 @@ export default function AvulsoLancamentoModal({
         uploadedByLocalIdRef.current[local.id] = { objectKey: key, photoId };
         fotoObjectKeys.push(key);
         photoIds.push(photoId);
+        await saveAvulsoPhotoDraft({
+          source,
+          identificacao,
+          quantidade,
+          photos: fotos.map((f) => ({
+            id: f.id,
+            uri: f.uri,
+            objectKey: uploadedByLocalIdRef.current[f.id]?.objectKey,
+            photoId: uploadedByLocalIdRef.current[f.id]?.photoId,
+          })),
+        });
       }
 
       setStatusEnvio("Concluindo lançamento...");
@@ -311,6 +395,7 @@ export default function AvulsoLancamentoModal({
         photoIds,
       });
       uploadedByLocalIdRef.current = {};
+      await clearAvulsoPhotoDraft();
     } catch (e) {
       const classified = classifyThrownUploadError(
         e,
@@ -324,10 +409,15 @@ export default function AvulsoLancamentoModal({
       setStatusEnvio(null);
       submitLockRef.current = false;
     }
-  }, [identificacao, quantidade, exigeFoto, fotos, onConfirm, permitirFotos]);
+  }, [identificacao, quantidade, exigeFoto, fotos, onConfirm, permitirFotos, source]);
+
+  const handleDescartar = useCallback(() => {
+    void clearAvulsoPhotoDraft();
+    onClose();
+  }, [onClose]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : handleDescartar}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -411,7 +501,7 @@ export default function AvulsoLancamentoModal({
             {statusEnvio ? <Text style={styles.statusEnvio}>{statusEnvio}</Text> : null}
 
             <View style={styles.actions}>
-              <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={busy}>
+              <TouchableOpacity style={styles.btnCancel} onPress={handleDescartar} disabled={busy}>
                 <Text style={styles.btnCancelText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity

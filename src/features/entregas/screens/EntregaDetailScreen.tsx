@@ -132,7 +132,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       }),
     [colors]
   );
-  const { idSaida } = route.params;
+  const { idSaida, resumeKind } = route.params;
   const [entrega, setEntrega] = useState<EntregaListItem | null>(null);
   const [historico, setHistorico] = useState<EntregaHistoricoItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -164,6 +164,13 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const outboxActions = useOutboxStore((s) => s.actions);
+
+  useEffect(() => {
+    if (!resumeKind) return;
+    if (resumeKind === "entregue") setShowEntregueModal(true);
+    if (resumeKind === "ausente") setModalAusente(true);
+    navigation.setParams({ resumeKind: undefined });
+  }, [resumeKind, navigation]);
 
   const findLocalDelivery = useCallback((targetId: number): EntregaListItem | null => {
     const store = useDeliveryStore.getState();

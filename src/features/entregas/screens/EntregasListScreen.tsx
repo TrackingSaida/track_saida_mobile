@@ -69,6 +69,7 @@ import { resolvePendingDeliveryByScan } from "../utils/resolvePendingDeliveryByS
 import { ScanFrameOverlay } from "../../operacao/components/ScanFrameOverlay";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
+import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
 import { getIdsInActiveRoute } from "../utils/routeActiveSync";
 import { runPostFinalizeFeedback } from "../utils/finalizeEntregaFeedback";
 import {
@@ -729,7 +730,8 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   );
   const scanLockedRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const torch = useScannerTorch(scannerVisible && !!cameraPermission?.granted);
+  const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
+  const torch = useScannerTorch(scannerVisible && !!cameraPermission?.granted && !photoCaptureActive);
   const geocodedIdsRef = useRef<Set<number>>(new Set());
   const geocodedCoordsRef = useRef(geocodedCoords);
   geocodedCoordsRef.current = geocodedCoords;
@@ -2144,6 +2146,9 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             <Text style={styles.scannerTitle}>Escanear pedido pendente</Text>
             <Text style={styles.scannerSubtitle}>Aponte para o QR Code da etiqueta</Text>
           </View>
+          {photoCaptureActive ? (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} />
+          ) : (
           <CameraView
             style={StyleSheet.absoluteFill}
             facing="back"
@@ -2152,6 +2157,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             onCameraReady={torch.onCameraReady}
             onBarcodeScanned={scanLockedRef.current ? undefined : handleBarcodeScanned}
           />
+          )}
           <ScannerTorchButton
             mode={torch.mode}
             onPress={torch.cycleMode}

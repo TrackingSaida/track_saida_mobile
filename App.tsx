@@ -70,6 +70,8 @@ import FechamentoDetailScreen from "./src/features/fechamentos/screens/Fechament
 import AvisosScreen from "./src/features/avisos/screens/AvisosScreen";
 import AvisoDetailScreen from "./src/features/avisos/screens/AvisoDetailScreen";
 import UrgentAvisoGate from "./src/features/avisos/components/UrgentAvisoGate";
+import InAppPhotoCaptureModal from "./src/components/InAppPhotoCaptureModal";
+import PhotoDraftResumeGate from "./src/components/PhotoDraftResumeGate";
 import {
   attachPushListeners,
   ensurePushAppStateSync,
@@ -91,8 +93,8 @@ export type RootStackParamList = {
         initialMapMode?: "map";
       }
     | undefined;
-  EntregaDetail: { idSaida: number };
-  Scan: undefined;
+  EntregaDetail: { idSaida: number; resumeKind?: "entregue" | "ausente" };
+  Scan: { resumeAvulso?: boolean } | undefined;
   DeliverScan: undefined;
   PrepareDeliveries: undefined;
   RouteBuilder:
@@ -104,7 +106,7 @@ export type RootStackParamList = {
       }
     | undefined;
   RotasHistorico: undefined;
-  DevolverPacotes: undefined;
+  DevolverPacotes: { resume?: boolean } | undefined;
   LeituraColetas: { baseId?: number; baseNome?: string } | undefined;
   LeiturasColeta: {
     baseId: number;
@@ -451,6 +453,8 @@ export default function App() {
               <MainTabs onLogout={logout} />
             </View>
             <UrgentAvisoGate />
+            <PhotoDraftResumeGate />
+            <InAppPhotoCaptureModal />
             <OperationalToast />
             <DiaRotaConcluidaModal />
             <BackgroundLocationDisclosureModal />

@@ -25,6 +25,7 @@ import { useThemeColors } from "../../../theme/colors";
 import { formatApiError } from "../../../utils/formatApiError";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
+import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
 import {
   isOwnerTipoBase,
   ownerEntityArticle,
@@ -144,6 +145,7 @@ export default function LeituraColetasScreen() {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
+  const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
   const pendingSelectRef = useRef<{ baseId?: number; baseNome?: string } | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [bases, setBases] = useState<BaseItem[]>([]);
@@ -162,6 +164,7 @@ export default function LeituraColetasScreen() {
   const [modoLeitorFisico, setModoLeitorFisico] = useState(false);
   const [modoManual, setModoManual] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
+  const holdScannerCamera = avulsoModalVisible || photoCaptureActive;
   const [configColeta, setConfigColeta] = useState<ColetaOperacionalConfig | null>(null);
   const [quantidadesVisible, setQuantidadesVisible] = useState(false);
   const [quantidadeShopee, setQuantidadeShopee] = useState("0");
@@ -1624,7 +1627,7 @@ export default function LeituraColetasScreen() {
           </View>
         ) : modoLeitorFisico ? (
           <PhysicalScannerInput
-            active={cameraAtiva && modoLeitorFisico && !modoManual && !avulsoModalVisible}
+            active={cameraAtiva && modoLeitorFisico && !modoManual && !holdScannerCamera}
             disabled={loading}
             title="Leitor físico de coletas"
             subtitle={`Base ${base.trim()} · Total nesta sessão: ${resumo.total}`}
@@ -1696,6 +1699,8 @@ export default function LeituraColetasScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
+          ) : holdScannerCamera ? (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} />
           ) : (
             <>
               <CameraView

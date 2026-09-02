@@ -19,6 +19,7 @@ import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { resolvePendingDeliveryByScan } from "../utils/resolvePendingDeliveryByScan";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
+import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
 
 type Props = NativeStackScreenProps<RootStackParamList, "DeliverScan">;
 
@@ -30,7 +31,8 @@ export default function DeliverScanScreen({ navigation }: Props) {
   const [scanEnabled, setScanEnabled] = useState(true);
   const scanLockedRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const torch = useScannerTorch(scanEnabled && !!cameraPermission?.granted);
+  const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
+  const torch = useScannerTorch(scanEnabled && !!cameraPermission?.granted && !photoCaptureActive);
 
   const pendingDeliveries = useDeliveryStore((s) => s.pendingDeliveries);
   const routeDeliveries = useDeliveryStore((s) => s.routeDeliveries);
@@ -180,6 +182,9 @@ export default function DeliverScanScreen({ navigation }: Props) {
         <Text style={styles.scannerSubtitle}>Aponte para o QR Code da etiqueta</Text>
       </View>
 
+      {photoCaptureActive ? (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} />
+      ) : (
       <CameraView
         style={StyleSheet.absoluteFill}
         facing="back"
@@ -188,6 +193,7 @@ export default function DeliverScanScreen({ navigation }: Props) {
         onCameraReady={torch.onCameraReady}
         onBarcodeScanned={scanEnabled ? handleBarcodeScanned : undefined}
       />
+      )}
 
       <ScannerTorchButton
         mode={torch.mode}
