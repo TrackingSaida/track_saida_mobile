@@ -231,6 +231,11 @@ export async function iniciarColetaOperacional(
   return data;
 }
 
+/** Sai da coleta sem volume: base volta a Pendente se ninguém mais estiver nela. */
+export async function liberarParticipacaoColeta(idExecucao: number): Promise<void> {
+  await client.delete(`/coletas/operacionais/execucoes/${idExecucao}/participacao`);
+}
+
 export interface ColetaManualOperacionalPayload {
   base_id: number;
   data_operacao: string;

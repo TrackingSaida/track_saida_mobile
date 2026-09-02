@@ -46,6 +46,7 @@ import {
   consultarSituacaoColetas,
   enviarColetaUnica,
   iniciarColetaOperacional,
+  liberarParticipacaoColeta,
   lancarAvulsoColeta,
   lancarColetaManualOperacional,
   obterConfigColetaOperacional,
@@ -661,6 +662,46 @@ export default function LeituraColetasScreen() {
     return nome ? situacaoPorNome[nome] ?? null : null;
   }, [base, baseSelecionada, situacaoPorBaseId, situacaoPorNome]);
 
+  const situacaoSelecionadaRef = React.useRef(situacaoSelecionada);
+  situacaoSelecionadaRef.current = situacaoSelecionada;
+
+  const limparSelecaoLocal = useCallback(() => {
+    setBase("");
+    setTotaisColeta(TOTAIS_VAZIOS);
+    setUltimaLeitura(null);
+    setCodigosSessao(new Set());
+    setCameraAtiva(false);
+    setModoManual(false);
+    setModoLeitorFisico(false);
+  }, []);
+
+  const liberarParticipacaoVaziaAtual = useCallback(
+    async (situacao?: SituacaoBaseColeta | null) => {
+      const alvo = situacao ?? situacaoSelecionadaRef.current;
+      if (!alvo?.id_execucao || !alvo.participando || !currentUser?.id) return;
+      const meu = alvo.participantes.find(
+        (p) => p.user_id === currentUser.id && p.status === "em_coleta"
+      );
+      if (!meu) return;
+      if ((meu.total ?? 0) > 0 || Boolean(meu.sem_volume)) return;
+      try {
+        await liberarParticipacaoColeta(alvo.id_execucao);
+      } catch {
+        // Melhor esforço: troca de base / sair da tela não deve travar o fluxo.
+      }
+    },
+    [currentUser?.id]
+  );
+
+  const nomesEmColeta = useCallback((situacao?: SituacaoBaseColeta | null) => {
+    if (!situacao || situacao.status !== "em_coleta") return "";
+    return situacao.participantes
+      .filter((p) => p.status === "em_coleta")
+      .map((p) => p.username)
+      .filter(Boolean)
+      .join(", ");
+  }, []);
+
   const aplicarSelecaoPendente = useCallback((lista: BaseItem[]) => {
     const pending = pendingSelectRef.current;
     if (!pending) return null;
@@ -791,25 +832,28 @@ export default function LeituraColetasScreen() {
       void carregarBases();
       void carregarSituacao();
       void carregarConfig();
-      if (baseSelecionada?.id_base) {
-        void carregarResumoBase(baseSelecionada.id_base);
-      }
       if (cameraPausadaPorLeituras.current) {
         cameraPausadaPorLeituras.current = false;
         setCameraAtiva(true);
       }
+      return () => {
+        // Só ao sair da tela: se não houve lançamento, base volta a Pendente.
+        void liberarParticipacaoVaziaAtual();
+      };
     }, [
-      baseSelecionada?.id_base,
       capturarParametroRota,
       carregarBases,
       carregarConfig,
-      carregarResumoBase,
       carregarSituacao,
+      liberarParticipacaoVaziaAtual,
     ])
   );
 
   const selecionarBase = useCallback(
     async (item: BaseItem, opts?: { ajudar?: boolean }) => {
+      const baseAnteriorId = baseSelecionada?.id_base;
+      const situacaoAnterior = situacaoSelecionadaRef.current;
+
       setUltimaLeitura(null);
       setCodigosSessao(new Set());
       setTotaisColeta(TOTAIS_VAZIOS);
@@ -819,6 +863,9 @@ export default function LeituraColetasScreen() {
 
       const situacaoAtual = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
       if (situacaoAtual?.status === "coletado" || situacaoAtual?.status === "sem_volume") {
+        if (baseAnteriorId && baseAnteriorId !== item.id_base) {
+          void liberarParticipacaoVaziaAtual(situacaoAnterior);
+        }
         void carregarSituacao();
         return;
       }
@@ -829,6 +876,11 @@ export default function LeituraColetasScreen() {
 
       const metodo: "codigo" | "coleta_manual" =
         (configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser)) ? "codigo" : "coleta_manual";
+
+      // Troca de base sem lançamento: libera a anterior (backend também cobre no iniciar).
+      if (baseAnteriorId && baseAnteriorId !== item.id_base) {
+        await liberarParticipacaoVaziaAtual(situacaoAnterior);
+      }
 
       try {
         await iniciarColetaOperacional(item.id_base, {
@@ -859,7 +911,15 @@ export default function LeituraColetasScreen() {
             "Base em coleta",
             detailObj.mensagem || `Esta base já está em coleta por ${nomes}. Deseja ajudar?`,
             [
-              { text: "Não", style: "cancel", onPress: () => void carregarSituacao() },
+              {
+                text: "Não",
+                style: "cancel",
+                onPress: () => {
+                  limparSelecaoLocal();
+                  void carregarSituacao();
+                  setModalBaseVisible(true);
+                },
+              },
               {
                 text: "Ajudar",
                 onPress: () => {
@@ -880,15 +940,19 @@ export default function LeituraColetasScreen() {
           void carregarSituacao();
           return;
         }
+        limparSelecaoLocal();
         Alert.alert("Atenção", msg);
         void carregarSituacao();
       }
     },
     [
+      baseSelecionada?.id_base,
       carregarResumoBase,
       carregarSituacao,
       configColeta?.permite_leitura,
       currentUser,
+      liberarParticipacaoVaziaAtual,
+      limparSelecaoLocal,
       situacaoPorBaseId,
       situacaoPorNome,
     ]
@@ -1387,7 +1451,14 @@ export default function LeituraColetasScreen() {
         {baseSelecionadaOk ? (
           <View style={styles.situacaoRow}>
             {situacaoSelecionada ? (
-              <ColetaSituacaoBadge status={situacaoSelecionada.status} />
+              <View style={{ flex: 1, gap: 4 }}>
+                <ColetaSituacaoBadge status={situacaoSelecionada.status} />
+                {nomesEmColeta(situacaoSelecionada) ? (
+                  <Text style={styles.pickerItemSub} numberOfLines={2}>
+                    Em coleta por {nomesEmColeta(situacaoSelecionada)}
+                  </Text>
+                ) : null}
+              </View>
             ) : (
               <View style={styles.baseBadge}>
                 <Text style={styles.baseBadgeText}>{entidadeLabel} selecionad{ownerTipoBase ? "o" : "a"}</Text>
@@ -1787,6 +1858,7 @@ export default function LeituraColetasScreen() {
                 bases.map((item) => {
                   const ativo = base === item.base;
                   const situacao = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
+                  const emColetaPor = nomesEmColeta(situacao);
                   return (
                     <TouchableOpacity
                       key={item.id_base}
@@ -1798,6 +1870,11 @@ export default function LeituraColetasScreen() {
                         <Text style={styles.pickerItemText}>{item.base}</Text>
                         {situacao ? <ColetaSituacaoBadge status={situacao.status} /> : null}
                       </View>
+                      {emColetaPor ? (
+                        <Text style={styles.pickerItemSub} numberOfLines={2}>
+                          Em coleta por {emColetaPor}
+                        </Text>
+                      ) : null}
                       {item.endereco_completo ? (
                         <Text style={styles.pickerItemSub} numberOfLines={2}>
                           {item.endereco_completo}
