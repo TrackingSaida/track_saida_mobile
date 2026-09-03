@@ -43,6 +43,10 @@ export interface SaidaListItem {
   username?: string | null;
   entregador?: string | null;
   is_grande?: boolean;
+  /** Data operacional do pacote (YYYY-MM-DD) */
+  data?: string | null;
+  data_hora_acao?: string;
+  acao?: string;
   tsFmt?: string;
   timestamp?: string;
   [key: string]: unknown;

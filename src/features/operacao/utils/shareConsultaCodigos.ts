@@ -7,6 +7,14 @@ export type ShareConsultaFiltros = Pick<
   "status" | "de" | "ate" | "base" | "entregador" | "servico" | "somente_g" | "sort"
 >;
 
+function isStatusNaBase(status?: string): boolean {
+  const t = String(status || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, " ");
+  return t === "na base";
+}
+
 function labelStatusAmigavel(status?: string): string | null {
   const t = String(status || "")
     .trim()
@@ -41,12 +49,13 @@ function labelPeriodoAmigavel(de?: string, ate?: string): string | null {
   return de || ate || null;
 }
 
+export function formatDateBr(iso: string): string {
+  const [yy, mm, dd] = iso.slice(0, 10).split("-");
+  return yy && mm && dd ? `${dd}/${mm}/${yy}` : iso;
+}
+
 export function buildShareTitle(filtros: ShareConsultaFiltros): string {
-  const st = String(filtros.status || "")
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, " ");
-  if (st === "na base") {
+  if (isStatusNaBase(filtros.status)) {
     return "Pedidos com entrada na base sem saída:";
   }
   const parts: string[] = [];
@@ -72,6 +81,42 @@ export function extractCodigosUnicos(rows: SaidaListItem[]): string[] {
   return out;
 }
 
+function extractPackageDateIso(row: SaidaListItem): string | null {
+  if (typeof row.data === "string" && row.data.trim()) {
+    return row.data.trim().slice(0, 10);
+  }
+  const ts = row.timestamp ?? row.data_hora_acao;
+  if (typeof ts === "string" && ts.length >= 10) {
+    return ts.slice(0, 10);
+  }
+  return null;
+}
+
+export type CodigosPorData = { date: string; codigos: string[] };
+
+/** Agrupa códigos por data do pacote (Saida.data), mais recente primeiro. */
+export function groupCodigosPorData(rows: SaidaListItem[]): CodigosPorData[] {
+  const seen = new Set<string>();
+  const byDate = new Map<string, string[]>();
+
+  for (const row of rows) {
+    const codigo = String(row.codigo || "").trim();
+    if (!codigo) continue;
+    const key = codigo.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const dateIso = extractPackageDateIso(row) || "sem-data";
+    const list = byDate.get(dateIso) ?? [];
+    list.push(codigo);
+    byDate.set(dateIso, list);
+  }
+
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([date, codigos]) => ({ date, codigos }));
+}
+
 export function buildShareMessage(opts: {
   title: string;
   codigos: string[];
@@ -82,6 +127,33 @@ export function buildShareMessage(opts: {
   const lines = [title, "", ...codigos];
   if (total != null && total > codigos.length) {
     lines.push(`… e mais ${total - codigos.length}`);
+  }
+  return lines.join("\n");
+}
+
+export function buildShareMessageGrouped(opts: {
+  title: string;
+  groups: CodigosPorData[];
+  total?: number | null;
+}): string {
+  const { title, groups } = opts;
+  const total = typeof opts.total === "number" && Number.isFinite(opts.total) ? opts.total : null;
+  const listed = groups.reduce((sum, g) => sum + g.codigos.length, 0);
+  const lines = [title, ""];
+
+  for (const group of groups) {
+    const dateLabel = group.date === "sem-data" ? "Sem data" : formatDateBr(group.date);
+    lines.push(`${dateLabel}:`);
+    lines.push(...group.codigos);
+    lines.push("");
+  }
+
+  while (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+
+  if (total != null && total > listed) {
+    lines.push(`… e mais ${total - listed}`);
   }
   return lines.join("\n");
 }
@@ -97,7 +169,8 @@ export async function buildShareConsultaMessage(
     offset: 0,
     sort: filtros.sort || "recentes",
   });
-  const codigos = extractCodigosUnicos(res.rows ?? []);
+  const rows = res.rows ?? [];
+  const codigos = extractCodigosUnicos(rows);
   const total =
     typeof knownTotal === "number" && Number.isFinite(knownTotal)
       ? knownTotal
@@ -105,6 +178,13 @@ export async function buildShareConsultaMessage(
         ? res.total
         : null;
   const title = buildShareTitle(filtros);
+
+  if (isStatusNaBase(filtros.status)) {
+    const groups = groupCodigosPorData(rows);
+    const message = buildShareMessageGrouped({ title, groups, total });
+    return { message, codigosCount: codigos.length, total };
+  }
+
   const message = buildShareMessage({ title, codigos, total });
   return { message, codigosCount: codigos.length, total };
 }
