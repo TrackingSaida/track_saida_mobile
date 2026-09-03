@@ -14,6 +14,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "../store/authStore";
 import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
+import NotificationBellButton from "../components/NotificationBellButton";
+import { navigateToAvisos } from "../navigation/navigateToAvisos";
 import MenuSection from "../components/ui/MenuSection";
 import PressableMenuRow from "../components/ui/PressableMenuRow";
 import { useThemeColors } from "../theme/colors";
@@ -63,6 +65,9 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
           flexDirection: "row",
           alignItems: "center",
           gap: space.sm,
+        },
+        headerBell: {
+          marginLeft: "auto",
         },
         avatar: {
           width: 44,
@@ -129,8 +134,8 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      if (showMotoboyMenu) void refreshUnreadAvisos();
-    }, [showMotoboyMenu, refreshUnreadAvisos])
+      void refreshUnreadAvisos();
+    }, [refreshUnreadAvisos])
   );
 
   const handleSair = () => {
@@ -180,6 +185,11 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
               <Ionicons name="chevron-forward" size={14} color={profile.accent} />
             </Pressable>
           </View>
+          {!showMotoboyMenu ? (
+            <View style={styles.headerBell}>
+              <NotificationBellButton unreadCount={unreadAvisos} onPress={navigateToAvisos} />
+            </View>
+          ) : null}
         </View>
       </LinearGradient>
 

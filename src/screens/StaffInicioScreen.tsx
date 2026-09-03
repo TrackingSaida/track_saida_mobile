@@ -1,11 +1,15 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 import { View, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuthStore } from "../store/authStore";
+import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
 import CompactStaffHeader from "../components/ui/CompactStaffHeader";
 import AppBrandTitleLogo from "../components/AppBrandTitleLogo";
+import NotificationBellButton from "../components/NotificationBellButton";
+import { navigateToAvisos } from "../navigation/navigateToAvisos";
 import MenuSection from "../components/ui/MenuSection";
 import PressableMenuRow from "../components/ui/PressableMenuRow";
 import OperacaoActionCard from "../features/operacao/components/OperacaoActionCard";
@@ -37,6 +41,14 @@ export default function StaffInicioScreen({ navigation }: Props) {
   const mostrarColeta = effectivePodeLerColeta(currentUser);
   const mostrarEntrada = effectiveEntradaObrigatoria(currentUser);
   const mostrarConferencia = effectiveConferenciaSaida(currentUser);
+  const unreadAvisos = useAvisosUnreadStore((s) => s.unreadCount);
+  const refreshUnreadAvisos = useAvisosUnreadStore((s) => s.refresh);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshUnreadAvisos();
+    }, [refreshUnreadAvisos])
+  );
 
   const styles = useMemo(
     () =>
@@ -92,6 +104,9 @@ export default function StaffInicioScreen({ navigation }: Props) {
         titleNode={<AppBrandTitleLogo size="header" />}
         subtitle={`${saudacaoAgora()}, ${nome}`}
         tertiary={subBase || undefined}
+        rightElement={
+          <NotificationBellButton unreadCount={unreadAvisos} onPress={navigateToAvisos} />
+        }
       />
 
       <View style={styles.body}>
