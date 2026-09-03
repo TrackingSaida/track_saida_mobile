@@ -77,8 +77,8 @@ export default function BaseByDayCard({ items, onPressDay }: Props) {
   );
 
   return (
-    <View style={styles.card} accessibilityLabel="Na base por dia">
-      <AppText style={styles.title}>Na base por dia</AppText>
+    <View style={styles.card} accessibilityLabel="Ainda na base, por data do pacote">
+      <AppText style={styles.title}>Ainda na base, por data do pacote</AppText>
       {visible.map((item) => {
         const age = baseDayAge(item.date);
         const barColor =
