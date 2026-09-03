@@ -1,9 +1,10 @@
 import React, { useCallback, useMemo } from "react";
-import { View, StyleSheet, TouchableOpacity, Text } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { View, StyleSheet } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import GradientScreenHeader from "../components/ui/GradientScreenHeader";
 import AppBrandTitleLogo from "../components/AppBrandTitleLogo";
+import NotificationBellButton from "../components/NotificationBellButton";
+import { navigateToAvisos } from "../navigation/navigateToAvisos";
 import { useAuthStore } from "../store/authStore";
 import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
 import { useThemeColors } from "../theme/colors";
@@ -72,27 +73,6 @@ export default function HomeScreen({
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        bellBtn: {
-          width: 42,
-          height: 42,
-          borderRadius: 21,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "rgba(255,255,255,0.18)",
-        },
-        bellBadge: {
-          position: "absolute",
-          top: 2,
-          right: 2,
-          minWidth: 18,
-          height: 18,
-          borderRadius: 9,
-          paddingHorizontal: 4,
-          backgroundColor: "#DC2626",
-          alignItems: "center",
-          justifyContent: "center",
-        },
-        bellBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
       }),
     [colors]
   );
@@ -137,27 +117,7 @@ export default function HomeScreen({
         tertiary={subBase ? `Base: ${subBase}` : undefined}
         paddingBottom={space.md}
         rightElement={
-          <TouchableOpacity
-            style={styles.bellBtn}
-            onPress={onNavigateAvisos}
-            accessibilityLabel={
-              unreadCount > 0 ? `Avisos, ${unreadCount} não lidos` : "Avisos"
-            }
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons
-              name={unreadCount > 0 ? "notifications" : "notifications-outline"}
-              size={22}
-              color={colors.text}
-            />
-            {unreadCount > 0 ? (
-              <View style={styles.bellBadge}>
-                <Text style={styles.bellBadgeText}>
-                  {unreadCount > 99 ? "99+" : String(unreadCount)}
-                </Text>
-              </View>
-            ) : null}
-          </TouchableOpacity>
+          <NotificationBellButton unreadCount={unreadCount} onPress={onNavigateAvisos} />
         }
       />
       <HomePager data={data} callbacks={callbacks} />

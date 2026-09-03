@@ -13,6 +13,7 @@ import {
   type NavigatorScreenParams,
 } from "@react-navigation/native";
 import { rootNavigationRef } from "./src/navigation/rootNavigation";
+import { navigateToAvisos } from "./src/navigation/navigateToAvisos";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -163,13 +164,7 @@ function HomeStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
             onNavigateRotasHistorico={() => navigation.navigate("RotasHistorico")}
             onNavigateMinhasEntregas={() => navigateToMinhasEntregas(navigation)}
             onNavigatePreferencias={() => navigateToConfiguracoes(navigation)}
-            onNavigateAvisos={() => {
-              if (rootNavigationRef.isReady()) {
-                (rootNavigationRef as { navigate: (...args: any[]) => void }).navigate("Mais", {
-                  screen: "Avisos",
-                });
-              }
-            }}
+            onNavigateAvisos={navigateToAvisos}
             onNavigateDevolverPacotes={() => navigation.navigate("DevolverPacotes")}
             onNavigateLeituraColetas={() => navigation.navigate("LeituraColetas")}
             onNavigateConsultarColetas={() => navigation.navigate("ConsultarColetas")}
