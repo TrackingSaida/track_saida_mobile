@@ -84,6 +84,7 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
   const [mpSaidas, setMpSaidas] = useState<DashboardMarketplaceItem[]>([]);
   const [mpEntradas, setMpEntradas] = useState<DashboardMarketplaceItem[]>([]);
   const [mpNaBase, setMpNaBase] = useState<DashboardMarketplaceItem[]>([]);
+  const [mpCancelados, setMpCancelados] = useState<DashboardMarketplaceItem[]>([]);
   const [mpColetas, setMpColetas] = useState<DashboardMarketplaceItem[]>([]);
 
   const styles = useMemo(
@@ -143,12 +144,14 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
           setAindaNaBaseDetalhe(saidas.entrada.ainda_na_base_detalhe || []);
           setMpEntradas(saidas.entrada.por_marketplace || []);
           setMpNaBase(saidas.entrada.ainda_na_base_por_marketplace || []);
+          setMpCancelados(saidas.entrada.cancelados_apos_entrada_por_marketplace || []);
         } else {
           setTotalEntradas(0);
           setAindaNaBase(0);
           setAindaNaBaseDetalhe([]);
           setMpEntradas([]);
           setMpNaBase([]);
+          setMpCancelados([]);
         }
 
         if (mostrarColeta) {
@@ -327,11 +330,13 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
               const e = findMp(mpEntradas, nome);
               const c = findMp(mpColetas, nome);
               const n = findMp(mpNaBase, nome);
+              const canc = findMp(mpCancelados, nome);
               const metrics = [
                 ...(mostrarColeta ? [{ label: "Coletas", value: c?.qty ?? 0 }] : []),
                 ...(mostrarEntrada ? [{ label: "Entradas", value: e?.qty ?? 0 }] : []),
                 { label: "Saídas", value: s?.qty ?? 0 },
                 ...(mostrarEntrada ? [{ label: "Na base", value: n?.qty ?? 0 }] : []),
+                ...(mostrarEntrada ? [{ label: "Cancelados", value: canc?.qty ?? 0 }] : []),
               ];
               return (
                 <ServiceCard

@@ -25,6 +25,8 @@ export interface DashboardSaidasResponse {
     ainda_na_base: number;
     ainda_na_base_detalhe?: Array<{ date: string; qty: number }>;
     ainda_na_base_por_marketplace?: DashboardMarketplaceItem[];
+    cancelados_apos_entrada?: number;
+    cancelados_apos_entrada_por_marketplace?: DashboardMarketplaceItem[];
     total_saidas: number;
     taxa_saida_pct?: number;
     gap_entrada_saida?: number;
