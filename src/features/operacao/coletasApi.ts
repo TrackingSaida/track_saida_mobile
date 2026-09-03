@@ -136,6 +136,8 @@ export interface SituacaoBaseColeta {
   base_id: number;
   base: string;
   endereco_completo?: string | null;
+  /** Dia da coleta (YYYY-MM-DD); útil em períodos multi-dia. */
+  data_operacao?: string | null;
   status: "pendente" | "em_coleta" | "coletado" | "sem_volume";
   id_execucao: number | null;
   modo: "codigo" | "coleta_manual" | "ambos" | null;
@@ -154,6 +156,8 @@ export interface SituacaoBaseColeta {
 
 export interface SituacaoColetasResponse {
   data_operacao: string;
+  data_inicio?: string;
+  data_fim?: string;
   pode_corrigir_quantidades?: boolean;
   resumo: { pendentes: number; em_coleta: number; coletadas: number };
   itens: SituacaoBaseColeta[];
@@ -164,6 +168,146 @@ export async function consultarSituacaoColetas(dataOperacao: string): Promise<Si
     params: { data_operacao: dataOperacao },
   });
   return data;
+}
+
+export interface ExecucaoOperacionalParticipante {
+  id_participante: number;
+  user_id: number;
+  motoboy_id?: number | null;
+  username: string;
+  shopee: number;
+  mercado_livre: number;
+  avulso: number;
+  pacotes_g?: number;
+  g_shopee?: number;
+  g_ml?: number;
+  g_avulso?: number;
+  sem_volume: boolean;
+  status: "em_coleta" | "finalizado" | string;
+  versao: number;
+  total: number;
+  pode_editar?: boolean;
+}
+
+export interface ExecucaoOperacional {
+  id_execucao: number;
+  base_id: number;
+  base: string;
+  data_operacao: string;
+  modo: "codigo" | "coleta_manual" | "ambos" | string;
+  status: "em_coleta" | "coletado" | "sem_volume" | string;
+  total: number;
+  shopee: number;
+  mercado_livre: number;
+  avulso: number;
+  participantes: ExecucaoOperacionalParticipante[];
+}
+
+export async function listarExecucoesOperacionais(params: {
+  dataInicio: string;
+  dataFim: string;
+  somenteMinhas?: boolean;
+}): Promise<ExecucaoOperacional[]> {
+  const { data } = await client.get<ExecucaoOperacional[]>("/coletas/operacionais/", {
+    params: {
+      data_inicio: params.dataInicio,
+      data_fim: params.dataFim,
+      ...(params.somenteMinhas ? { somente_minhas: true } : {}),
+    },
+  });
+  return Array.isArray(data) ? data : [];
+}
+
+function normalizarStatusExecucao(status: string): SituacaoBaseColeta["status"] {
+  if (status === "em_coleta" || status === "coletado" || status === "sem_volume" || status === "pendente") {
+    return status;
+  }
+  return "coletado";
+}
+
+function mapExecucaoParaSituacao(item: ExecucaoOperacional): SituacaoBaseColeta {
+  const dataOp =
+    typeof item.data_operacao === "string"
+      ? item.data_operacao.slice(0, 10)
+      : String(item.data_operacao || "").slice(0, 10);
+  const modo =
+    item.modo === "codigo" || item.modo === "coleta_manual" || item.modo === "ambos" ? item.modo : null;
+  return {
+    base_id: item.base_id,
+    base: item.base,
+    data_operacao: dataOp || null,
+    status: normalizarStatusExecucao(item.status),
+    id_execucao: item.id_execucao,
+    modo,
+    total: Number(item.total || 0),
+    shopee: Number(item.shopee || 0),
+    mercado_livre: Number(item.mercado_livre || 0),
+    avulso: Number(item.avulso || 0),
+    participantes: (item.participantes || []).map((p) => ({
+      id_participante: p.id_participante,
+      user_id: p.user_id,
+      username: p.username,
+      status: p.status === "em_coleta" ? "em_coleta" : "finalizado",
+      total: Number(p.total || 0),
+      shopee: Number(p.shopee || 0),
+      mercado_livre: Number(p.mercado_livre || 0),
+      avulso: Number(p.avulso || 0),
+      versao: Number(p.versao || 1),
+      sem_volume: Boolean(p.sem_volume),
+      pode_editar: Boolean(p.pode_editar),
+      pode_corrigir: false,
+    })),
+    participando: false,
+    pode_ajudar: false,
+    pode_corrigir: false,
+  };
+}
+
+function resumoDeItens(itens: SituacaoBaseColeta[]): SituacaoColetasResponse["resumo"] {
+  let pendentes = 0;
+  let em_coleta = 0;
+  let coletadas = 0;
+  for (const item of itens) {
+    if (item.status === "pendente") pendentes += 1;
+    else if (item.status === "em_coleta") em_coleta += 1;
+    else coletadas += 1;
+  }
+  return { pendentes, em_coleta, coletadas };
+}
+
+/**
+ * Dia único → situação (todas as bases).
+ * Intervalo → listagem de execuções no período.
+ */
+export async function carregarConsultaColetasPorPeriodo(
+  dataInicio: string,
+  dataFim: string
+): Promise<SituacaoColetasResponse> {
+  if (dataInicio === dataFim) {
+    const payload = await consultarSituacaoColetas(dataInicio);
+    const itens = (payload.itens || []).map((item) => ({
+      ...item,
+      data_operacao: item.data_operacao || dataInicio,
+    }));
+    return {
+      ...payload,
+      data_operacao: payload.data_operacao || dataInicio,
+      data_inicio: dataInicio,
+      data_fim: dataFim,
+      itens,
+      resumo: payload.resumo || resumoDeItens(itens),
+    };
+  }
+
+  const rows = await listarExecucoesOperacionais({ dataInicio, dataFim });
+  const itens = rows.map(mapExecucaoParaSituacao);
+  return {
+    data_operacao: dataFim,
+    data_inicio: dataInicio,
+    data_fim: dataFim,
+    itens,
+    resumo: resumoDeItens(itens),
+  };
 }
 
 export interface CorrigirQuantidadesPayload {
