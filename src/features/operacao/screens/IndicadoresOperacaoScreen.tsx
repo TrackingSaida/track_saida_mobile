@@ -48,6 +48,7 @@ const PRESETS: { key: PeriodoPreset; label: string; icon?: "calendar-outline" }[
   { key: "hoje", label: "Hoje" },
   { key: "ontem", label: "Ontem" },
   { key: "quinzena", label: "Quinzena atual" },
+  { key: "quinzena_anterior", label: "Quinzena anterior" },
   { key: "outro", label: "Outro dia", icon: "calendar-outline" },
 ];
 
@@ -218,6 +219,16 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
   const pickerValue = parseYmd(periodo.dataFim) ?? new Date();
   const hintPeriodo = periodo.dataInicio === periodo.dataFim ? "No dia" : "No período";
 
+  const abrirConsultaNaBase = (de: string, ate: string) => {
+    const tabNav = navigation.getParent() as
+      | { navigate: (name: string, params?: Record<string, unknown>) => void }
+      | undefined;
+    tabNav?.navigate("Inicio", {
+      screen: "ConsultaCodigos",
+      params: { status: "NA_BASE", de, ate },
+    });
+  };
+
   return (
     <View style={styles.container}>
       <ScreenHeaderBar
@@ -277,10 +288,15 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
                 <KpiCard
                   title="Ainda na base"
                   value={aindaNaBase}
-                  subtitle="Aguardando saída"
+                  subtitle={hintPeriodo}
                   icon="cube-outline"
                   semantic="route"
                   variant="filledSoft"
+                  onPress={
+                    aindaNaBase > 0
+                      ? () => abrirConsultaNaBase(periodo.dataInicio, periodo.dataFim)
+                      : undefined
+                  }
                 />
               ) : null}
               {mostrarColeta ? (
@@ -296,7 +312,10 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
             </View>
 
             {mostrarEntrada && aindaNaBaseDetalhe.length > 0 ? (
-              <BaseByDayCard items={aindaNaBaseDetalhe} />
+              <BaseByDayCard
+                items={aindaNaBaseDetalhe}
+                onPressDay={(date) => abrirConsultaNaBase(date, date)}
+              />
             ) : null}
 
             <AppText style={styles.sectionTitle}>Por serviço</AppText>

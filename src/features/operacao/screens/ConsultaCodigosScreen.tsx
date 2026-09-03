@@ -15,7 +15,7 @@ import {
   Image,
 } from "react-native";
 import type { AxiosError } from "axios";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { VoiceConsultaModalProps } from "../components/VoiceConsultaModal";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
@@ -29,6 +29,7 @@ import { useThemeColors } from "../../../theme/colors";
 import { useAuthStore } from "../../../store/authStore";
 import { effectivePodeLerSaida, isAdminRole, isMotoboyRole } from "../../../utils/role";
 import { formatApiError } from "../../../utils/formatApiError";
+import type { InicioStackParamList } from "../../../navigation/staffStackTypes";
 import {
   gerarEtiquetaArquivo,
   listSaidas,
@@ -81,7 +82,13 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return out;
 }
 
-function getPeriodRange(period: "none" | "today" | "7d"): { de?: string; ate?: string } {
+type StatusFilterUi = "" | "Saiu para entrega" | "Entregue" | "NA_BASE";
+
+function getPeriodRange(
+  period: "none" | "today" | "7d",
+  forced?: { de: string; ate: string } | null
+): { de?: string; ate?: string } {
+  if (forced?.de && forced?.ate) return { de: forced.de, ate: forced.ate };
   if (period === "none") return {};
   const today = new Date();
   const end = formatYmd(today);
@@ -89,6 +96,17 @@ function getPeriodRange(period: "none" | "today" | "7d"): { de?: string; ate?: s
   const start = new Date(today);
   start.setDate(start.getDate() - 6);
   return { de: formatYmd(start), ate: end };
+}
+
+function normalizeStatusFilter(raw: string | undefined): StatusFilterUi {
+  const t = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (t === "na base") return "NA_BASE";
+  if (t === "entregue") return "Entregue";
+  if (t.includes("saiu") || t === "em rota") return "Saiu para entrega";
+  return "";
 }
 
 /** Resolve id numérico para GET /saidas/{id_saida} */
@@ -121,8 +139,6 @@ function filtrarSaidasPelaSubBaseDoUsuario(
   });
 }
 
-type StatusFilterUi = "" | "Saiu para entrega" | "Entregue";
-
 type ConflitoTroca = {
   codigo: string;
   idSaida: number;
@@ -134,6 +150,7 @@ type ConflitoTroca = {
 
 export default function ConsultaCodigosScreen() {
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<InicioStackParamList, "ConsultaCodigos">>();
   const insets = useSafeAreaInsets();
   const topInsetCamera = Math.max(insets.top, 12);
   const colors = useThemeColors();
@@ -157,9 +174,11 @@ export default function ConsultaCodigosScreen() {
   const lastScanRef = useRef(0);
   const lastCodigoConsultaRef = useRef<string | null>(null);
   const lastRawLeituraRef = useRef<string | null>(null);
+  const lastRouteFilterKeyRef = useRef<string>("");
 
   const [appliedStatus, setAppliedStatus] = useState<StatusFilterUi>("");
   const [appliedPeriod, setAppliedPeriod] = useState<"none" | "today" | "7d">("none");
+  const [forcedRange, setForcedRange] = useState<{ de: string; ate: string } | null>(null);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [draftStatus, setDraftStatus] = useState<StatusFilterUi>("");
   const [draftPeriod, setDraftPeriod] = useState<"none" | "today" | "7d">("none");
@@ -219,9 +238,9 @@ export default function ConsultaCodigosScreen() {
   const filterActiveCount = useMemo(() => {
     let count = 0;
     if (appliedStatus) count += 1;
-    if (appliedPeriod !== "none") count += 1;
+    if (appliedPeriod !== "none" || forcedRange) count += 1;
     return count;
-  }, [appliedStatus, appliedPeriod]);
+  }, [appliedStatus, appliedPeriod, forcedRange]);
 
   const styles = useMemo(
     () =>
@@ -503,14 +522,26 @@ export default function ConsultaCodigosScreen() {
   );
 
   const buildParams = useCallback(
-    (override?: Partial<ListSaidasParams> & { codigoOverride?: string }): ListSaidasParams => {
-      const range = getPeriodRange(appliedPeriod);
-      const { codigoOverride, ...rest } = override ?? {};
+    (
+      override?: Partial<ListSaidasParams> & {
+        codigoOverride?: string;
+        statusOverride?: StatusFilterUi;
+        rangeOverride?: { de?: string; ate?: string } | null;
+      }
+    ): ListSaidasParams => {
+      const { codigoOverride, statusOverride, rangeOverride, ...rest } = override ?? {};
+      const range =
+        rangeOverride === null
+          ? {}
+          : rangeOverride?.de && rangeOverride?.ate
+            ? { de: rangeOverride.de, ate: rangeOverride.ate }
+            : getPeriodRange(appliedPeriod, forcedRange);
       const raw = codigoOverride !== undefined ? codigoOverride : searchInput;
       const parsed = parseCodigoQrRaw(String(raw || ""));
       const codigoTrim = parsed.codigo.trim() || undefined;
+      const statusVal = statusOverride !== undefined ? statusOverride : appliedStatus;
       return {
-        status: appliedStatus || undefined,
+        status: statusVal || undefined,
         de: range.de,
         ate: range.ate,
         limit: 50,
@@ -520,11 +551,19 @@ export default function ConsultaCodigosScreen() {
         codigo: codigoTrim,
       };
     },
-    [searchInput, appliedStatus, appliedPeriod]
+    [searchInput, appliedStatus, appliedPeriod, forcedRange]
   );
 
   const executarBusca = useCallback(
-    async (nextOffset = 0, opts?: { codigoOverride?: string; forceExact?: boolean }) => {
+    async (
+      nextOffset = 0,
+      opts?: {
+        codigoOverride?: string;
+        forceExact?: boolean;
+        statusOverride?: StatusFilterUi;
+        rangeOverride?: { de?: string; ate?: string } | null;
+      }
+    ) => {
       if (!podeLerSaida) {
         Alert.alert("Sem permissão", "Sem permissão para consultar saídas.");
         return;
@@ -536,9 +575,16 @@ export default function ConsultaCodigosScreen() {
       setNotFound(false);
       setPartialHint(null);
       try {
-        const range = getPeriodRange(appliedPeriod);
+        const statusVal =
+          opts?.statusOverride !== undefined ? opts.statusOverride : appliedStatus;
+        const range =
+          opts?.rangeOverride === null
+            ? {}
+            : opts?.rangeOverride?.de && opts?.rangeOverride?.ate
+              ? { de: opts.rangeOverride.de, ate: opts.rangeOverride.ate }
+              : getPeriodRange(appliedPeriod, forcedRange);
         const baseParams: Omit<ListSaidasParams, "codigo" | "codigoExato" | "localizar"> = {
-          status: appliedStatus || undefined,
+          status: statusVal || undefined,
           de: range.de,
           ate: range.ate,
           sort: "recentes",
@@ -548,7 +594,12 @@ export default function ConsultaCodigosScreen() {
         const codigoTrim = parsed.codigo.trim();
 
         if (nextOffset > 0) {
-          const params = buildParams({ offset: nextOffset, codigoOverride: opts?.codigoOverride });
+          const params = buildParams({
+            offset: nextOffset,
+            codigoOverride: opts?.codigoOverride,
+            statusOverride: opts?.statusOverride,
+            rangeOverride: opts?.rangeOverride,
+          });
           const res = await listSaidas(params);
           let rows = filtrarSaidasPelaSubBaseDoUsuario(res.rows ?? [], currentUser?.sub_base);
           setResults((prev) => [...prev, ...rows]);
@@ -559,7 +610,11 @@ export default function ConsultaCodigosScreen() {
         }
 
         if (!codigoTrim) {
-          const params = buildParams({ offset: 0 });
+          const params = buildParams({
+            offset: 0,
+            statusOverride: opts?.statusOverride,
+            rangeOverride: opts?.rangeOverride,
+          });
           const res = await listSaidas(params);
           let rows = filtrarSaidasPelaSubBaseDoUsuario(res.rows ?? [], currentUser?.sub_base);
           setSearchMode("none");
@@ -611,8 +666,40 @@ export default function ConsultaCodigosScreen() {
         setLoadingMore(false);
       }
     },
-    [buildParams, podeLerSaida, currentUser?.sub_base, searchInput, appliedStatus, appliedPeriod]
+    [
+      buildParams,
+      podeLerSaida,
+      currentUser?.sub_base,
+      searchInput,
+      appliedStatus,
+      appliedPeriod,
+      forcedRange,
+    ]
   );
+
+  useEffect(() => {
+    const params = route.params;
+    if (!params) return;
+    const hasFilter = Boolean(params.status || params.de || params.ate);
+    if (!hasFilter) return;
+    const key = `${params.status || ""}|${params.de || ""}|${params.ate || ""}`;
+    if (lastRouteFilterKeyRef.current === key) return;
+    lastRouteFilterKeyRef.current = key;
+    const status = normalizeStatusFilter(params.status);
+    const de = typeof params.de === "string" ? params.de : undefined;
+    const ate = typeof params.ate === "string" ? params.ate : undefined;
+    const range = de && ate ? { de, ate } : null;
+    if (status) setAppliedStatus(status);
+    if (range) {
+      setForcedRange(range);
+      const today = formatYmd(new Date());
+      setAppliedPeriod(range.de === today && range.ate === today ? "today" : "none");
+    }
+    void executarBusca(0, {
+      statusOverride: status || undefined,
+      rangeOverride: range,
+    });
+  }, [route.params, executarBusca]);
 
   const handleVoiceNotice = useCallback((message: string) => {
     setVoiceBanner(message);
@@ -1402,6 +1489,7 @@ export default function ConsultaCodigosScreen() {
               {(
                 [
                   { key: "" as const, label: "Todos" },
+                  { key: "NA_BASE" as const, label: "Na base" },
                   { key: "Saiu para entrega" as const, label: "Em rota" },
                   { key: "Entregue" as const, label: "Entregue" },
                 ] as const
@@ -1452,8 +1540,15 @@ export default function ConsultaCodigosScreen() {
                 onPress={() => {
                   setAppliedStatus(draftStatus);
                   setAppliedPeriod(draftPeriod);
+                  setForcedRange(null);
                   setFilterSheetVisible(false);
-                  void executarBusca(0);
+                  void executarBusca(0, {
+                    statusOverride: draftStatus,
+                    rangeOverride:
+                      draftPeriod === "none"
+                        ? null
+                        : getPeriodRange(draftPeriod, null),
+                  });
                 }}
               >
                 <Text style={styles.btnTextPrimary}>Aplicar</Text>

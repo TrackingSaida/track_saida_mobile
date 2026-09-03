@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
 import { radius, space } from "../../../theme/spacing";
 import { useSemanticTones } from "../../../theme/semantic";
@@ -11,9 +11,10 @@ type DayItem = { date: string; qty: number };
 
 type Props = {
   items: DayItem[];
+  onPressDay?: (date: string) => void;
 };
 
-export default function BaseByDayCard({ items }: Props) {
+export default function BaseByDayCard({ items, onPressDay }: Props) {
   const colors = useThemeColors();
   const tones = useSemanticTones();
   const visible = items.slice(0, 5);
@@ -85,12 +86,8 @@ export default function BaseByDayCard({ items }: Props) {
         const labelColor =
           age === "older" ? tones.route.fg : age === "recent" ? tones.warning.fg : colors.text;
         const qtyLabel = `${formatInteger(item.qty)} pacote(s)`;
-        return (
-          <View
-            key={item.date}
-            style={styles.row}
-            accessibilityLabel={`${formatDateLabel(item.date)}, ${qtyLabel}`}
-          >
+        const content = (
+          <View style={styles.row}>
             <AppText style={[styles.date, { color: labelColor }]}>{formatDateLabel(item.date)}</AppText>
             <View style={styles.barTrack}>
               <View
@@ -107,6 +104,23 @@ export default function BaseByDayCard({ items }: Props) {
               {qtyLabel}
             </AppText>
           </View>
+        );
+        if (!onPressDay) {
+          return (
+            <View key={item.date} accessibilityLabel={`${formatDateLabel(item.date)}, ${qtyLabel}`}>
+              {content}
+            </View>
+          );
+        }
+        return (
+          <Pressable
+            key={item.date}
+            onPress={() => onPressDay(item.date)}
+            accessibilityRole="button"
+            accessibilityLabel={`${formatDateLabel(item.date)}, ${qtyLabel}`}
+          >
+            {content}
+          </Pressable>
         );
       })}
     </View>

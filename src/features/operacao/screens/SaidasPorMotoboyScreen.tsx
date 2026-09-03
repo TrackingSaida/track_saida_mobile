@@ -38,6 +38,7 @@ const PRESETS: { key: PeriodoPreset; label: string }[] = [
   { key: "hoje", label: "Hoje" },
   { key: "ontem", label: "Ontem" },
   { key: "quinzena", label: "Quinzena atual" },
+  { key: "quinzena_anterior", label: "Quinzena anterior" },
   { key: "outro", label: "Outro dia" },
 ];
 
