@@ -2,14 +2,17 @@ import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
@@ -22,7 +25,7 @@ import { ownerEntityLabel, ownerEntityLabelLower } from "../../../utils/ownerLab
 import { isAdminRole } from "../../../utils/role";
 import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import {
-  consultarSituacaoColetas,
+  carregarConsultaColetasPorPeriodo,
   corrigirQuantidadesParticipante,
   type ParticipanteSituacaoColeta,
   type SituacaoBaseColeta,
@@ -36,6 +39,16 @@ import {
   statusColetaNormalizado,
   type ColetaStatusFiltro,
 } from "../utils/coletaSituacaoUi";
+import {
+  buildPeriodo,
+  formatDateLabel,
+  formatYmd,
+  isPeriodoDiaUnico,
+  labelPeriodo,
+  parseYmd,
+  type PeriodoConsulta,
+  type PeriodoPreset,
+} from "../utils/periodoConsulta";
 
 type Filtro = "todos" | ColetaStatusFiltro;
 type Nav = NativeStackNavigationProp<ColetasFluxoParamList, "ConsultarColetas">;
@@ -47,6 +60,14 @@ type CorrecaoCtx = {
   shopee: string;
   avulso: string;
 };
+
+const PRESETS: { key: PeriodoPreset; label: string }[] = [
+  { key: "hoje", label: "Hoje" },
+  { key: "ontem", label: "Ontem" },
+  { key: "quinzena", label: "Quinzena atual" },
+  { key: "quinzena_anterior", label: "Quinzena anterior" },
+  { key: "outro", label: "Outro dia" },
+];
 
 function money(value: number | string | undefined): string {
   const n = Number(value);
@@ -61,6 +82,18 @@ function modoLabel(modo: SituacaoBaseColeta["modo"]): string {
   return "—";
 }
 
+function dataItemColeta(item: SituacaoBaseColeta, periodo: PeriodoConsulta): string {
+  const raw = (item.data_operacao || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return isPeriodoDiaUnico(periodo) ? periodo.dataInicio : "";
+}
+
+function podeRegistrarHoje(item: SituacaoBaseColeta, periodo: PeriodoConsulta): boolean {
+  if (!isColetaPendente(item.status)) return false;
+  const data = dataItemColeta(item, periodo);
+  return data === hojeOperacaoLocal();
+}
+
 export default function ConsultarColetasScreen() {
   const navigation = useNavigation<Nav>();
   const colors = useThemeColors();
@@ -68,6 +101,8 @@ export default function ConsultarColetasScreen() {
   const entidadeLabel = ownerEntityLabel(currentUser);
   const entidadeLabelLower = ownerEntityLabelLower(currentUser);
   const podeCorrigirRole = isAdminRole(currentUser?.role);
+  const [periodo, setPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [itens, setItens] = useState<SituacaoBaseColeta[]>([]);
   const [resumo, setResumo] = useState({ pendentes: 0, em_coleta: 0, coletadas: 0 });
   const [filtro, setFiltro] = useState<Filtro>("todos");
@@ -82,6 +117,27 @@ export default function ConsultarColetasScreen() {
       StyleSheet.create({
         screen: { flex: 1, backgroundColor: colors.background },
         content: { padding: 16, paddingBottom: 40, gap: 12 },
+        fieldLabel: {
+          fontSize: 12,
+          fontWeight: "700",
+          color: colors.textSecondary,
+          marginBottom: 8,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+        },
+        chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+        chip: {
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.backgroundCard,
+        },
+        chipActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
+        chipText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
+        chipTextActive: { color: colors.primary },
+        periodoLabel: { fontSize: 13, color: colors.textSecondary },
         resumo: { flexDirection: "row", gap: 8 },
         kpi: { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, backgroundColor: colors.backgroundCard },
         kpiValue: { fontSize: 23, fontWeight: "900" },
@@ -119,7 +175,7 @@ export default function ConsultarColetasScreen() {
           maxHeight: "88%",
         },
         modalTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
-        fieldLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginBottom: 4 },
+        fieldLabelModal: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginBottom: 4 },
         input: {
           borderWidth: 1,
           borderColor: colors.border,
@@ -165,7 +221,7 @@ export default function ConsultarColetasScreen() {
     setLoading(true);
     setErro("");
     try {
-      const payload = await consultarSituacaoColetas(hojeOperacaoLocal());
+      const payload = await carregarConsultaColetasPorPeriodo(periodo.dataInicio, periodo.dataFim);
       setItens(payload.itens || []);
       setResumo(payload.resumo || { pendentes: 0, em_coleta: 0, coletadas: 0 });
     } catch (error) {
@@ -173,7 +229,7 @@ export default function ConsultarColetasScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [periodo.dataFim, periodo.dataInicio]);
 
   useFocusEffect(
     useCallback(() => {
@@ -181,6 +237,28 @@ export default function ConsultarColetasScreen() {
     }, [carregar])
   );
 
+  const onSelectPreset = (key: PeriodoPreset) => {
+    if (key === "outro") {
+      setShowDatePicker(true);
+      return;
+    }
+    setPeriodo(buildPeriodo(key));
+    setFiltro("todos");
+  };
+
+  const onChangeDate = (event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (Platform.OS === "android") setShowDatePicker(false);
+    if (event.type === "dismissed") {
+      if (Platform.OS === "ios") setShowDatePicker(false);
+      return;
+    }
+    if (!selectedDate) return;
+    setPeriodo(buildPeriodo("outro", formatYmd(selectedDate)));
+    setFiltro("todos");
+    if (Platform.OS === "ios") setShowDatePicker(false);
+  };
+
+  const multiDia = !isPeriodoDiaUnico(periodo);
   const visiveis = filtro === "todos" ? itens : itens.filter((item) => statusColetaNormalizado(item.status) === filtro);
   const totaisServico = useMemo(
     () =>
@@ -197,12 +275,14 @@ export default function ConsultarColetasScreen() {
   );
 
   const abrirLeitura = (item: SituacaoBaseColeta) => {
+    if (!podeRegistrarHoje(item, periodo)) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     navigation.navigate("LeituraColetas", { baseId: item.base_id, baseNome: item.base });
   };
 
   const abrirCorrecao = (item: SituacaoBaseColeta, participante: ParticipanteSituacaoColeta) => {
     if (!podeCorrigirRole || !participante.pode_corrigir) return;
+    if (dataItemColeta(item, periodo) !== hojeOperacaoLocal()) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setErroCorrecao("");
     setCorrecao({
@@ -278,10 +358,32 @@ export default function ConsultarColetasScreen() {
     { key: "coletado", valor: resumo.coletadas, label: "Coletadas", status: "coletado" },
   ];
 
+  const pickerValue = parseYmd(periodo.dataFim) ?? new Date();
+
   return (
     <View style={styles.screen}>
       <ScreenHeaderBar title="Consultar coletas" onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={carregar} />}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void carregar()} />}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.fieldLabel}>Período</Text>
+        <View style={styles.chipsRow}>
+          {PRESETS.map((p) => (
+            <TouchableOpacity
+              key={p.key}
+              style={[styles.chip, periodo.preset === p.key && styles.chipActive]}
+              onPress={() => onSelectPreset(p.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: periodo.preset === p.key }}
+            >
+              <Text style={[styles.chipText, periodo.preset === p.key && styles.chipTextActive]}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={styles.periodoLabel}>{labelPeriodo(periodo)}</Text>
+
         <View style={styles.resumo}>
           {kpis.map((kpi) => {
             const c = situacaoColetaBadgeColors(kpi.status);
@@ -329,54 +431,55 @@ export default function ConsultarColetasScreen() {
           </View>
         ) : null}
         {visiveis.map((item) => {
+          const dataOp = dataItemColeta(item, periodo);
+          const mostrarData = Boolean(dataOp) && (multiDia || periodo.preset !== "hoje");
+          const podeRegistrar = podeRegistrarHoje(item, periodo);
           const pendente = isColetaPendente(item.status);
-          const corrigiveis = (item.participantes || []).filter((p) => p.pode_corrigir && podeCorrigirRole);
+          const corrigiveis = (item.participantes || []).filter(
+            (p) => p.pode_corrigir && podeCorrigirRole && dataOp === hojeOperacaoLocal()
+          );
+          const cardKey = `${item.base_id}-${dataOp || item.id_execucao || "x"}`;
+
+          const cabecalho = (
+            <>
+              <View style={styles.row}>
+                <Text style={styles.title}>{item.base}</Text>
+                <ColetaSituacaoBadge status={item.status} />
+              </View>
+              {mostrarData ? <Text style={styles.muted}>Data: {formatDateLabel(dataOp)}</Text> : null}
+              <Text style={styles.muted}>
+                {item.participantes.length
+                  ? item.participantes.map((p) => `${p.username}${p.status === "em_coleta" ? " (em coleta)" : ""}`).join(" • ")
+                  : "Ninguém iniciou esta coleta"}
+              </Text>
+              <View style={{ marginTop: 10 }}>
+                <ColetaServicoBadges
+                  shopee={item.shopee}
+                  mercadoLivre={item.mercado_livre}
+                  avulso={item.avulso}
+                  total={item.total}
+                />
+              </View>
+            </>
+          );
+
           return (
-            <View key={item.base_id} style={[styles.card, pendente && styles.cardPendente]}>
-              {pendente ? (
+            <View key={cardKey} style={[styles.card, podeRegistrar && styles.cardPendente]}>
+              {podeRegistrar ? (
                 <Pressable
                   onPress={() => abrirLeitura(item)}
                   accessibilityRole="button"
                   accessibilityLabel={`Registrar coleta de ${item.base}`}
                 >
-                  <View style={styles.row}>
-                    <Text style={styles.title}>{item.base}</Text>
-                    <ColetaSituacaoBadge status={item.status} />
-                  </View>
-                  <Text style={styles.muted}>
-                    {item.participantes.length
-                      ? item.participantes.map((p) => `${p.username}${p.status === "em_coleta" ? " (em coleta)" : ""}`).join(" • ")
-                      : "Ninguém iniciou esta coleta"}
-                  </Text>
-                  <View style={{ marginTop: 10 }}>
-                    <ColetaServicoBadges
-                      shopee={item.shopee}
-                      mercadoLivre={item.mercado_livre}
-                      avulso={item.avulso}
-                      total={item.total}
-                    />
-                  </View>
+                  {cabecalho}
                   <Text style={styles.atalho}>Toque para registrar nesta {entidadeLabelLower}</Text>
                 </Pressable>
               ) : (
                 <>
-                  <View style={styles.row}>
-                    <Text style={styles.title}>{item.base}</Text>
-                    <ColetaSituacaoBadge status={item.status} />
-                  </View>
-                  <Text style={styles.muted}>
-                    {item.participantes.length
-                      ? item.participantes.map((p) => `${p.username}${p.status === "em_coleta" ? " (em coleta)" : ""}`).join(" • ")
-                      : "Ninguém iniciou esta coleta"}
-                  </Text>
-                  <View style={{ marginTop: 10 }}>
-                    <ColetaServicoBadges
-                      shopee={item.shopee}
-                      mercadoLivre={item.mercado_livre}
-                      avulso={item.avulso}
-                      total={item.total}
-                    />
-                  </View>
+                  {cabecalho}
+                  {pendente && !podeRegistrar ? (
+                    <Text style={styles.muted}>Registro disponível apenas para o dia de hoje.</Text>
+                  ) : null}
                 </>
               )}
               {corrigiveis.map((p) => (
@@ -395,6 +498,15 @@ export default function ConsultarColetasScreen() {
         })}
       </ScrollView>
 
+      {showDatePicker ? (
+        <DateTimePicker
+          value={pickerValue}
+          mode="date"
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={onChangeDate}
+        />
+      ) : null}
+
       <Modal visible={Boolean(correcao)} animationType="slide" transparent onRequestClose={() => !salvando && setCorrecao(null)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
@@ -405,7 +517,7 @@ export default function ConsultarColetasScreen() {
               </Text>
             ) : null}
             <View>
-              <Text style={styles.fieldLabel}>Flex</Text>
+              <Text style={styles.fieldLabelModal}>Flex</Text>
               <TextInput
                 style={styles.input}
                 keyboardType="number-pad"
@@ -414,7 +526,7 @@ export default function ConsultarColetasScreen() {
               />
             </View>
             <View>
-              <Text style={styles.fieldLabel}>Shopee</Text>
+              <Text style={styles.fieldLabelModal}>Shopee</Text>
               <TextInput
                 style={styles.input}
                 keyboardType="number-pad"
@@ -423,7 +535,7 @@ export default function ConsultarColetasScreen() {
               />
             </View>
             <View>
-              <Text style={styles.fieldLabel}>Avulso</Text>
+              <Text style={styles.fieldLabelModal}>Avulso</Text>
               <TextInput
                 style={styles.input}
                 keyboardType="number-pad"
