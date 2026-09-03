@@ -83,6 +83,7 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
   const [totalColetas, setTotalColetas] = useState(0);
   const [mpSaidas, setMpSaidas] = useState<DashboardMarketplaceItem[]>([]);
   const [mpEntradas, setMpEntradas] = useState<DashboardMarketplaceItem[]>([]);
+  const [mpNaBase, setMpNaBase] = useState<DashboardMarketplaceItem[]>([]);
   const [mpColetas, setMpColetas] = useState<DashboardMarketplaceItem[]>([]);
 
   const styles = useMemo(
@@ -141,11 +142,13 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
           setAindaNaBase(Number(saidas.entrada.ainda_na_base || 0));
           setAindaNaBaseDetalhe(saidas.entrada.ainda_na_base_detalhe || []);
           setMpEntradas(saidas.entrada.por_marketplace || []);
+          setMpNaBase(saidas.entrada.ainda_na_base_por_marketplace || []);
         } else {
           setTotalEntradas(0);
           setAindaNaBase(0);
           setAindaNaBaseDetalhe([]);
           setMpEntradas([]);
+          setMpNaBase([]);
         }
 
         if (mostrarColeta) {
@@ -288,7 +291,7 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
                 <KpiCard
                   title="Ainda na base"
                   value={aindaNaBase}
-                  subtitle={hintPeriodo}
+                  subtitle="Aguardando saída"
                   icon="cube-outline"
                   semantic="route"
                   variant="filledSoft"
@@ -323,10 +326,12 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
               const s = findMp(mpSaidas, nome);
               const e = findMp(mpEntradas, nome);
               const c = findMp(mpColetas, nome);
+              const n = findMp(mpNaBase, nome);
               const metrics = [
                 ...(mostrarColeta ? [{ label: "Coletas", value: c?.qty ?? 0 }] : []),
                 ...(mostrarEntrada ? [{ label: "Entradas", value: e?.qty ?? 0 }] : []),
                 { label: "Saídas", value: s?.qty ?? 0 },
+                ...(mostrarEntrada ? [{ label: "Na base", value: n?.qty ?? 0 }] : []),
               ];
               return (
                 <ServiceCard

@@ -111,7 +111,7 @@ export default function ServiceCard({
   return (
     <View
       style={styles.card}
-      accessibilityLabel={`${name}${taxa != null ? `, taxa de saída ${formatPercent(taxa)}` : ""}`}
+      accessibilityLabel={`${name}${taxa != null ? `, saídas sobre entradas ${formatPercent(taxa)}` : ""}`}
     >
       <View style={styles.header}>
         <View style={styles.iconWrap}>
@@ -130,7 +130,7 @@ export default function ServiceCard({
       {showTaxa ? (
         <View style={styles.taxaWrap}>
           <View style={styles.taxaRow}>
-            <AppText style={styles.taxaLabel}>Taxa saída</AppText>
+            <AppText style={styles.taxaLabel}>Saídas / entradas</AppText>
             <AppText style={styles.taxaValue}>{taxa == null ? "—" : formatPercent(taxa)}</AppText>
           </View>
           <View style={styles.track}>
