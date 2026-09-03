@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Pressable,
   Image,
+  Share,
 } from "react-native";
 import type { AxiosError } from "axios";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
@@ -54,6 +55,7 @@ import ConsultaPacoteDetailModal from "../components/ConsultaPacoteDetailModal";
 import OperacaoEmptyState from "../components/OperacaoEmptyState";
 import { statusAntesDoCancelamento } from "../utils/operacaoHistoricoUtils";
 import { labelStatusOperacional } from "../utils/operacaoStatusUtils";
+import { buildShareConsultaMessage } from "../utils/shareConsultaCodigos";
 
 /** Consulta por câmera: apenas QR (moldura central), como na leitura de coleta. */
 const CONSULTA_BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -167,6 +169,7 @@ export default function ConsultaCodigosScreen() {
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -377,6 +380,26 @@ export default function ConsultaCodigosScreen() {
           marginTop: 8,
         },
         btnOutlineText: { color: colors.primary, fontSize: 15, fontWeight: "600" },
+        shareRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginTop: 12,
+        },
+        shareBtn: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+          borderRadius: 12,
+          borderWidth: 1.5,
+          borderColor: colors.primary,
+          backgroundColor: colors.primarySoft,
+        },
+        shareBtnText: { color: colors.primary, fontSize: 15, fontWeight: "700" },
+        shareBtnDisabled: { opacity: 0.55 },
         resultsHeader: {
           flexDirection: "row",
           justifyContent: "space-between",
@@ -737,6 +760,46 @@ export default function ConsultaCodigosScreen() {
     if (buscaComCodigoExato || !hasMore || loadingMore) return;
     void executarBusca(offset + 50);
   }, [buscaComCodigoExato, hasMore, loadingMore, executarBusca, offset]);
+
+  const handleCompartilharLista = useCallback(async () => {
+    if (!podeLerSaida || sharing || results.length === 0 || buscaComCodigoExato) return;
+    setSharing(true);
+    try {
+      const range = getPeriodRange(appliedPeriod, forcedRange);
+      const { message, codigosCount } = await buildShareConsultaMessage(
+        {
+          status: appliedStatus || undefined,
+          de: range.de,
+          ate: range.ate,
+          sort: "recentes",
+        },
+        total
+      );
+      if (codigosCount <= 0) {
+        Alert.alert("Sem códigos", "Não há códigos para compartilhar com estes filtros.");
+        return;
+      }
+      try {
+        await Share.share({ message });
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch {
+        // Usuário cancelou o sheet — não é erro
+      }
+    } catch (err) {
+      Alert.alert("Erro", formatApiError(err, "Não foi possível montar a lista para compartilhar."));
+    } finally {
+      setSharing(false);
+    }
+  }, [
+    appliedPeriod,
+    appliedStatus,
+    buscaComCodigoExato,
+    forcedRange,
+    podeLerSaida,
+    results.length,
+    sharing,
+    total,
+  ]);
 
   const carregarDetalhe = useCallback(async (idNum: number) => {
     setDetailLoading(true);
@@ -1340,10 +1403,31 @@ export default function ConsultaCodigosScreen() {
             </>
           ) : null}
 
-          {total != null && results.length > 0 && !buscaComCodigoExato ? (
-            <Text style={[styles.resultsHeaderText, { marginTop: 8 }]}>
-              Total aproximado: {total}
-            </Text>
+          {results.length > 0 && !buscaComCodigoExato ? (
+            <View style={styles.shareRow}>
+              {total != null ? (
+                <Text style={[styles.resultsHeaderText, { flex: 1 }]}>
+                  Total aproximado: {total}
+                </Text>
+              ) : (
+                <View style={{ flex: 1 }} />
+              )}
+              <TouchableOpacity
+                style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
+                onPress={() => void handleCompartilharLista()}
+                disabled={sharing || loading}
+                accessibilityLabel="Compartilhar lista de códigos"
+              >
+                {sharing ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : (
+                  <>
+                    <Ionicons name="share-outline" size={20} color={colors.primary} />
+                    <Text style={styles.shareBtnText}>Compartilhar</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           ) : null}
 
           {hasMore && !buscaComCodigoExato ? (
