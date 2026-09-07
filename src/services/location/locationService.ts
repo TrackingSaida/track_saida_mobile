@@ -1,4 +1,5 @@
 import * as Location from "expo-location";
+import { requestBackgroundLocationDisclosure } from "./backgroundLocationDisclosure";
 
 export const LOCATION_TASK_NAME = "background-location-task";
 
@@ -8,9 +9,20 @@ export async function startBackgroundTracking(): Promise<void> {
     throw new Error("Permissão de localização em primeiro plano negada.");
   }
 
-  const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-  if (bgStatus !== "granted") {
-    throw new Error("Permissão de localização em segundo plano negada.");
+  const { status: existingBg } = await Location.getBackgroundPermissionsAsync();
+  if (existingBg !== "granted") {
+    // Play Store: declaração em destaque antes do diálogo de BACKGROUND_LOCATION.
+    const decision = await requestBackgroundLocationDisclosure();
+    if (decision !== "continue") {
+      // Usuário recusou a declaração — rota segue sem tracking em segundo plano.
+      return;
+    }
+
+    const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+    if (bgStatus !== "granted") {
+      // Sem BG: não inicia updates; evita quebrar início/restauração da rota.
+      return;
+    }
   }
 
   const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
@@ -38,4 +50,3 @@ export async function stopBackgroundTracking(): Promise<void> {
   }
   await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
 }
-
