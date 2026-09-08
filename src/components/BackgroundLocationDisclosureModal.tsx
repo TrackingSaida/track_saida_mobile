@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { Modal, View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { useThemeColors } from "../theme/colors";
 import {
   registerBackgroundLocationDisclosureHandler,
@@ -7,12 +7,15 @@ import {
 } from "../services/location/backgroundLocationDisclosure";
 
 const TITLE = "Localização durante a rota";
+
 const BODY =
-  "Durante uma rota ativa, o ROTEVO utiliza sua localização mesmo quando o aplicativo estiver em segundo plano ou com a tela desligada. Isso permite manter a navegação e o andamento da rota. O rastreamento é encerrado ao finalizar ou cancelar a rota.";
+  "O ROTEVO coleta dados de localização para permitir o acompanhamento da rota ativa do entregador, inclusive em segundo plano, quando o app está fechado ou não está em uso.\n\n" +
+  "A localização é utilizada para registrar o trajeto e acompanhar a execução das entregas durante uma rota ativa.\n\n" +
+  "Esses dados não são utilizados para publicidade.";
 
 /**
- * Modal de divulgação destacada (Play Store) antes da permissão de localização em segundo plano.
- * Montar uma vez na árvore autenticada.
+ * Declaração em destaque (Play Store) antes de qualquer prompt de localização
+ * no fluxo de BACKGROUND_LOCATION. Montar uma vez na árvore autenticada.
  */
 export default function BackgroundLocationDisclosureModal() {
   const colors = useThemeColors();
@@ -52,8 +55,14 @@ export default function BackgroundLocationDisclosureModal() {
     >
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: colors.backgroundCard }]}>
-          <Text style={[styles.title, { color: colors.text }]}>{TITLE}</Text>
-          <Text style={[styles.body, { color: colors.textSecondary }]}>{BODY}</Text>
+          <ScrollView
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+          >
+            <Text style={[styles.title, { color: colors.text }]}>{TITLE}</Text>
+            <Text style={[styles.body, { color: colors.textSecondary }]}>{BODY}</Text>
+          </ScrollView>
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.btnSecondary, { borderColor: colors.border }]}
@@ -83,7 +92,7 @@ export default function BackgroundLocationDisclosureModal() {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: "rgba(0,0,0,0.55)",
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
@@ -93,10 +102,15 @@ const styles = StyleSheet.create({
     maxWidth: 360,
     borderRadius: 12,
     padding: 20,
+    maxHeight: "85%",
   },
-  title: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
-  body: { fontSize: 14, lineHeight: 20, marginBottom: 20 },
-  actions: { flexDirection: "row", gap: 10 },
+  scrollContent: {
+    flexGrow: 0,
+    paddingBottom: 4,
+  },
+  title: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
+  body: { fontSize: 15, lineHeight: 22, marginBottom: 16 },
+  actions: { flexDirection: "row", gap: 10, marginTop: 4 },
   btnSecondary: {
     flex: 1,
     borderRadius: 8,

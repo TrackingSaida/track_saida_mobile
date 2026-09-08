@@ -1098,7 +1098,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       let gpsOpts: { fromLat?: number; fromLon?: number } = {};
       try {
         const Location = await import("expo-location");
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        // Não solicitar permissão aqui: só usa GPS se já concedido.
+        const { status } = await Location.getForegroundPermissionsAsync();
         if (status === "granted") {
           const pos = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.Balanced,

@@ -30,7 +30,9 @@ async function getGpsForCity(): Promise<{ latitude: number; longitude: number } 
   }
   try {
     const Location = await import("expo-location");
-    const { status } = await Location.requestForegroundPermissionsAsync();
+    // Não solicitar permissão aqui: só usa GPS se já concedido (evita prompt
+    // antes da declaração em destaque do fluxo de BACKGROUND_LOCATION).
+    const { status } = await Location.getForegroundPermissionsAsync();
     if (status !== "granted") return null;
     const pos = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Low,

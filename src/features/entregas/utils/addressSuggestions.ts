@@ -635,7 +635,9 @@ let cachedSearchGpsAt = 0;
 
 async function getCurrentGps(): Promise<{ latitude: number; longitude: number } | null> {
   try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
+    // Não solicitar permissão aqui: só usa GPS se já concedido (evita prompt
+    // antes da declaração em destaque do fluxo de BACKGROUND_LOCATION).
+    const { status } = await Location.getForegroundPermissionsAsync();
     if (status !== "granted") return null;
     const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
     return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };

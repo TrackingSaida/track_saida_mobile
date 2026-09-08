@@ -82,7 +82,7 @@ export async function runOptimizeRouteWithFeedback(
   beginOptimizeIdempotencyKey();
   const endOpts = resolveEndOpts(opts);
   try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
+    const { status } = await Location.getForegroundPermissionsAsync();
     let result: OptimizeRouteResult;
     if (status !== "granted") {
       result = await optimizeRoute({ ...opts, ...endOpts });
