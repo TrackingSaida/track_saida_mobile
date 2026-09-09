@@ -126,7 +126,15 @@ function outboxKindForSaida(idSaida: number): RouteDeliveryStatus | null {
   }
   return null;
 }
-import { startBackgroundTracking, stopBackgroundTracking } from "../services/location/locationService";
+import {
+  areBackgroundLocationPermissionsGranted,
+  ensureBackgroundLocationPermission,
+  prepareAndStartBackgroundTracking,
+  ROUTE_LOCATION_REQUIRED_MESSAGE,
+  startBackgroundLocationUpdates,
+  stopBackgroundTracking,
+  type BackgroundLocationPermissionResult,
+} from "../services/location/locationService";
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
 import { useRouteDestinationStore } from "./routeDestinationStore";
 import {
@@ -222,6 +230,11 @@ interface DeliveryState {
   activeRouteId: string | null;
   /** Índice 0-based da próxima parada na rota ativa. */
   activeStopIndex: number;
+  /**
+   * Rota em_entrega recuperada sem permissão de localização:
+   * tracking não inicia no bootstrap; exige ação "Continuar rota".
+   */
+  backgroundTrackingNeedsResume: boolean;
 
   /** Localização atual do motoboy (atualizada pelo rastreamento em background quando rota ativa). */
   currentLocation: CurrentLocation | null;
@@ -309,6 +322,11 @@ interface DeliveryState {
 
   /** Inicia rota persistida com routeOrder atual; retorna rota_id. */
   startActiveRoute: () => Promise<string>;
+  /**
+   * Ação explícita (Continuar rota): disclosure + permissões + tracking
+   * quando a rota foi restaurada sem permissão.
+   */
+  resumeActiveRouteTracking: () => Promise<BackgroundLocationPermissionResult>;
   completeStop: () => Promise<void>;
   syncActiveStopIndex: () => void;
   finishRoute: () => Promise<void>;
@@ -424,6 +442,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   routeDeliveryStatus: {},
   activeRouteId: null,
   activeStopIndex: 0,
+  backgroundTrackingNeedsResume: false,
   currentLocation: null,
   routeOptimizationMode: null,
   routeDistanceM: null,
@@ -581,15 +600,35 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   startActiveRoute: async () => {
     const { routeOrder } = get();
     if (routeOrder.length === 0) throw new Error("Nenhuma entrega na rota.");
+
+    // Consentimento + permissões ANTES de criar rota no backend.
+    const perm = await ensureBackgroundLocationPermission();
+    if (!perm.ok) {
+      throw new Error(ROUTE_LOCATION_REQUIRED_MESSAGE);
+    }
+
     const { rota_id } = await postRotasIniciar(routeOrder);
     set({
       activeRouteId: rota_id,
       activeStopIndex: 0,
       routeStarted: true,
+      backgroundTrackingNeedsResume: false,
     });
-    await startBackgroundTracking();
+    await startBackgroundLocationUpdates();
     await get().loadDeliveries();
     return rota_id;
+  },
+
+  resumeActiveRouteTracking: async () => {
+    const { activeRouteId } = get();
+    if (!activeRouteId) {
+      return { ok: false, reason: "disclosure_unavailable" };
+    }
+    const result = await prepareAndStartBackgroundTracking();
+    if (result.ok) {
+      set({ backgroundTrackingNeedsResume: false });
+    }
+    return result;
   },
 
   completeStop: async () => {
@@ -737,7 +776,19 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     if (!reconcile.stillActive) {
       return;
     }
-    await startBackgroundTracking();
+
+    // Restore: só retoma tracking se permissões já existirem (sem prompt no bootstrap).
+    // Se faltar permissão, marca needsResume e exige "Continuar rota".
+    if (await areBackgroundLocationPermissionsGranted()) {
+      try {
+        await startBackgroundLocationUpdates();
+        set({ backgroundTrackingNeedsResume: false });
+      } catch {
+        set({ backgroundTrackingNeedsResume: true });
+      }
+    } else {
+      set({ backgroundTrackingNeedsResume: true });
+    }
   },
 
   suggestRoute: (fromLat?, fromLon?) => {
@@ -998,6 +1049,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       activeRouteId: null,
       activeStopIndex: 0,
       routeStarted: false,
+      backgroundTrackingNeedsResume: false,
       routeDeliveries: [],
       routeOrder: [],
       routeDeliveryStatus: {},

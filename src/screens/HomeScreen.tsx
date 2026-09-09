@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from "react";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, Alert } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import GradientScreenHeader from "../components/ui/GradientScreenHeader";
 import AppBrandTitleLogo from "../components/AppBrandTitleLogo";
@@ -7,6 +7,7 @@ import NotificationBellButton from "../components/NotificationBellButton";
 import { navigateToAvisos } from "../navigation/navigateToAvisos";
 import { useAuthStore } from "../store/authStore";
 import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
+import { useDeliveryStore } from "../store/deliveryStore";
 import { useThemeColors } from "../theme/colors";
 import { space } from "../theme/spacing";
 import { decodeJwtPayload } from "../utils/jwt";
@@ -14,6 +15,7 @@ import { effectivePodeLerColeta } from "../utils/role";
 import type { EntregasListInitialTab } from "../features/entregas/types";
 import HomePager, { type HomePagerCallbacks } from "../features/home/components/HomePager";
 import { useHomeData } from "../features/home/hooks/useHomeData";
+import { ROUTE_LOCATION_REQUIRED_MESSAGE } from "../services/location/locationService";
 
 type Props = {
   onNavigateEntregas: (
@@ -82,7 +84,19 @@ export default function HomeScreen({
     onScanForDeliver: onNavigateDeliverScan,
     onPrepareRoute: onNavigatePrepareRoute,
     onViewPending: () => onNavigateEntregas("pendente"),
-    onContinueRoute: () => onNavigateRouteBuilder(),
+    onContinueRoute: () => {
+      void (async () => {
+        const store = useDeliveryStore.getState();
+        if (store.backgroundTrackingNeedsResume) {
+          const result = await store.resumeActiveRouteTracking();
+          if (!result.ok) {
+            Alert.alert("Localização", ROUTE_LOCATION_REQUIRED_MESSAGE);
+            return;
+          }
+        }
+        onNavigateRouteBuilder();
+      })();
+    },
     onLocatePackage: () => onNavigateRouteBuilder({ openLocatePackage: true }),
     onEditRoute: () => onNavigateRouteBuilder(),
     onRouteHistory: onNavigateRotasHistorico,

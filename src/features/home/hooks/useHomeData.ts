@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { Alert } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { getResumoEntregas, getTodayISO, getEntregas } from "../../entregas/api";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -6,6 +7,7 @@ import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useHomeRouteStore } from "../../../store/homeRouteStore";
 import { getNetworkState } from "../../../services/outbox/networkStatus";
 import type { HomeResumo } from "../utils/homeOperationalState";
+import { ROUTE_LOCATION_REQUIRED_MESSAGE } from "../../../services/location/locationService";
 
 const EMPTY_RESUMO: HomeResumo = {
   pendentes: 0,
@@ -153,6 +155,12 @@ export function useHomeData() {
       await useDeliveryStore.getState().startActiveRoute();
       await loadResumo();
       await syncActiveRoute();
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error && e.message
+          ? e.message
+          : ROUTE_LOCATION_REQUIRED_MESSAGE;
+      Alert.alert("Localização", msg);
     } finally {
       setIniciandoRota(false);
     }

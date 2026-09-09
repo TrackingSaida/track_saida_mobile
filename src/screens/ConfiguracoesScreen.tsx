@@ -249,6 +249,23 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
   };
 
   const handleRoteirizacaoToggle = async (value: boolean) => {
+    if (value && !roteirizacaoHabilitada) {
+      Alert.alert(
+        "Preparação de Rota",
+        "A Preparação de Rota permite organizar, otimizar e acompanhar a execução das entregas.\n\n" +
+          "Durante uma rota ativa, o ROTEVO utiliza sua localização para manter o acompanhamento da rota, inclusive quando o aplicativo está fechado ou não está em uso.\n\n" +
+          "A permissão de localização será solicitada somente quando você iniciar uma rota.",
+        [
+          {
+            text: "Entendi",
+            onPress: () => {
+              void runWithSave(() => setRoteirizacaoHabilitada(true));
+            },
+          },
+        ]
+      );
+      return;
+    }
     await runWithSave(() => setRoteirizacaoHabilitada(value));
   };
 

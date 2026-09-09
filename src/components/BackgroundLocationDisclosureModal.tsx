@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
+import { Modal, View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useThemeColors } from "../theme/colors";
 import {
   registerBackgroundLocationDisclosureHandler,
@@ -9,8 +9,9 @@ import {
 const TITLE = "Localização durante a rota";
 
 const BODY =
-  "O ROTEVO coleta dados de localização para permitir o acompanhamento da rota ativa do entregador, inclusive em segundo plano, quando o app está fechado ou não está em uso.\n\n" +
-  "A localização é utilizada para registrar o trajeto e acompanhar a execução das entregas durante uma rota ativa.\n\n" +
+  "O ROTEVO coleta dados de localização para acompanhar sua rota ativa, mesmo quando o aplicativo está fechado ou não está em uso.\n\n" +
+  "Durante uma rota ativa, sua localização é utilizada para manter o acompanhamento contínuo da execução das entregas.\n\n" +
+  "O acompanhamento é encerrado quando a rota é finalizada ou cancelada.\n\n" +
   "Esses dados não são utilizados para publicidade.";
 
 /**
@@ -55,14 +56,8 @@ export default function BackgroundLocationDisclosureModal() {
     >
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: colors.backgroundCard }]}>
-          <ScrollView
-            bounces={false}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
-          >
-            <Text style={[styles.title, { color: colors.text }]}>{TITLE}</Text>
-            <Text style={[styles.body, { color: colors.textSecondary }]}>{BODY}</Text>
-          </ScrollView>
+          <Text style={[styles.title, { color: colors.text }]}>{TITLE}</Text>
+          <Text style={[styles.body, { color: colors.textSecondary }]}>{BODY}</Text>
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.btnSecondary, { borderColor: colors.border }]}
@@ -102,15 +97,10 @@ const styles = StyleSheet.create({
     maxWidth: 360,
     borderRadius: 12,
     padding: 20,
-    maxHeight: "85%",
-  },
-  scrollContent: {
-    flexGrow: 0,
-    paddingBottom: 4,
   },
   title: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
-  body: { fontSize: 15, lineHeight: 22, marginBottom: 16 },
-  actions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  body: { fontSize: 15, lineHeight: 22, marginBottom: 20 },
+  actions: { flexDirection: "row", gap: 10 },
   btnSecondary: {
     flex: 1,
     borderRadius: 8,

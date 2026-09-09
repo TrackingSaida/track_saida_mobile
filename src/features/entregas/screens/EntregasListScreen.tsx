@@ -1394,7 +1394,22 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         {
           getActiveRouteId: () => useDeliveryStore.getState().activeRouteId,
           reconcileActiveRoute,
-          onContinueRoute: () => navigation.navigate("RouteBuilder"),
+          onContinueRoute: () => {
+            void (async () => {
+              const store = useDeliveryStore.getState();
+              if (store.backgroundTrackingNeedsResume) {
+                const result = await store.resumeActiveRouteTracking();
+                if (!result.ok) {
+                  Alert.alert(
+                    "Localização",
+                    "Para acompanhar a rota, é necessário permitir o uso de localização durante a execução das entregas."
+                  );
+                  return;
+                }
+              }
+              navigation.navigate("RouteBuilder");
+            })();
+          },
         }
       );
     },
