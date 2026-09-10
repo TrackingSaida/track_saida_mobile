@@ -9,6 +9,9 @@ export interface EntradaLerResult {
   codigo?: string;
   servico?: string;
   status?: string;
+  qr_atualizado?: boolean;
+  qr_alerta?: boolean;
+  qr_alerta_mensagem?: string;
 }
 
 export interface EntradaLancarAvulsoResult {

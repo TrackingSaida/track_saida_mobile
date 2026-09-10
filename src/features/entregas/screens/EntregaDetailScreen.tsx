@@ -17,6 +17,8 @@ import type { RootStackParamList } from "../../../../App";
 import { useThemeColors } from "../../../theme/colors";
 import * as ImagePicker from "expo-image-picker";
 import { getEntrega, fetchComprovanteImagesDataUris, getEntregaHistorico, exportComprovante, arrayBufferToBase64 } from "../api";
+import { gerarEtiquetaArquivo } from "../../operacao/saidasApi";
+import { formatApiError } from "../../../utils/formatApiError";
 import type { EntregaListItem, EntregaHistoricoItem } from "../types";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { getNetworkState } from "../../../services/outbox/networkStatus";
@@ -110,6 +112,46 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         btnEntregueText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "700" },
         btnAusenteText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "700" },
         btnNovaTentativaText: { color: colors.primaryContrast, fontSize: 18, fontWeight: "700" },
+        btnEtiqueta: {
+          backgroundColor: colors.primary,
+          paddingVertical: 16,
+          borderRadius: 12,
+          alignItems: "center",
+        },
+        btnEtiquetaOutline: {
+          backgroundColor: "transparent",
+          borderWidth: 1.5,
+          borderColor: colors.primary,
+          paddingVertical: 16,
+          borderRadius: 12,
+          alignItems: "center",
+        },
+        btnEtiquetaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "700" },
+        btnEtiquetaOutlineText: { color: colors.primary, fontSize: 16, fontWeight: "700" },
+        previewOverlay: {
+          flex: 1,
+          backgroundColor: colors.overlay,
+          justifyContent: "center",
+          padding: 16,
+        },
+        previewCard: {
+          backgroundColor: colors.backgroundCard,
+          borderRadius: 14,
+          overflow: "hidden",
+          height: "78%",
+        },
+        previewHeader: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.border,
+        },
+        previewTitle: { flex: 1, fontSize: 15, fontWeight: "700", color: colors.text, paddingRight: 8 },
+        previewClose: { color: colors.textSecondary, fontSize: 15, fontWeight: "600" },
+        previewFooter: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
         modalOverlay: {
           flex: 1,
           backgroundColor: colors.overlay,
@@ -153,6 +195,10 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
   const [comprovanteViewerIndex, setComprovanteViewerIndex] = useState(0);
   const [sharingComprovante, setSharingComprovante] = useState(false);
+  const [gerandoEtiqueta, setGerandoEtiqueta] = useState(false);
+  const [previewEtiquetaVisible, setPreviewEtiquetaVisible] = useState(false);
+  const [etiquetaUri, setEtiquetaUri] = useState<string | null>(null);
+  const [etiquetaCodigo, setEtiquetaCodigo] = useState("");
   const comprovanteViewerRef = useRef<ScrollView>(null);
   const { width: windowWidth } = useWindowDimensions();
   const [showTimelineSheet, setShowTimelineSheet] = useState(false);
@@ -293,6 +339,91 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       setSharingComprovante(false);
     }
   }, [comprovanteViewerIndex, idSaida, sharingComprovante]);
+
+  const isMercadoLivre = useMemo(() => {
+    const s = String(entrega?.servico || "").toLowerCase();
+    return s.includes("mercado") || s.includes("flex") || s === "ml";
+  }, [entrega?.servico]);
+
+  const fecharPreviewEtiqueta = useCallback(() => {
+    setPreviewEtiquetaVisible(false);
+  }, []);
+
+  const executarGerarEtiqueta = useCallback(async () => {
+    const codigo = String(entrega?.codigo ?? "").trim();
+    if (!codigo) {
+      Alert.alert("Código inválido", "Não foi possível identificar o código deste pedido.");
+      return;
+    }
+    const online = await getNetworkState();
+    if (!online.online) {
+      Alert.alert("Sem conexão", "Conecte-se à internet para gerar a etiqueta.");
+      return;
+    }
+    setGerandoEtiqueta(true);
+    try {
+      const resp = await gerarEtiquetaArquivo({
+        codigo,
+        id_saida: idSaida,
+        servico: entrega?.servico ?? undefined,
+        formato: "png",
+      });
+      const dir = FileSystem.cacheDirectory;
+      if (!dir) throw new Error("cache-indisponivel");
+      const safeCodigo = codigo.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const ext = resp.contentType.includes("png") ? "png" : "pdf";
+      const path = `${dir}etiqueta_${safeCodigo}_${Date.now()}.${ext}`;
+      const ab = new ArrayBuffer(resp.bytes.byteLength);
+      new Uint8Array(ab).set(resp.bytes);
+      const base64 = arrayBufferToBase64(ab);
+      await FileSystem.writeAsStringAsync(path, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (etiquetaUri && etiquetaUri !== path) {
+        await FileSystem.deleteAsync(etiquetaUri, { idempotent: true });
+      }
+      setEtiquetaUri(path);
+      setEtiquetaCodigo(codigo);
+      setPreviewEtiquetaVisible(true);
+    } catch (err) {
+      Alert.alert("Erro", formatApiError(err, "Não foi possível gerar a etiqueta."));
+    } finally {
+      setGerandoEtiqueta(false);
+    }
+  }, [entrega?.codigo, entrega?.servico, etiquetaUri, idSaida]);
+
+  const handleGerarEtiqueta = useCallback(() => {
+    if (isMercadoLivre && !entrega?.tem_qr_etiqueta) {
+      Alert.alert(
+        "Etiqueta Mercado Livre",
+        "O QR completo ainda não foi salvo. Bipe o QR do Mercado Livre na leitura para etiqueta completa. Deseja gerar mesmo assim?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Gerar", onPress: () => void executarGerarEtiqueta() },
+        ]
+      );
+      return;
+    }
+    void executarGerarEtiqueta();
+  }, [entrega?.tem_qr_etiqueta, executarGerarEtiqueta, isMercadoLivre]);
+
+  const handleCompartilharEtiqueta = useCallback(async () => {
+    if (!etiquetaUri) return;
+    const available = await Sharing.isAvailableAsync();
+    if (!available) {
+      Alert.alert("Indisponível", "Compartilhamento não está disponível neste dispositivo.");
+      return;
+    }
+    try {
+      const isPng = etiquetaUri.toLowerCase().endsWith(".png");
+      await Sharing.shareAsync(etiquetaUri, {
+        mimeType: isPng ? "image/png" : "application/pdf",
+        dialogTitle: etiquetaCodigo ? `Etiqueta ${etiquetaCodigo}` : "Etiqueta",
+      });
+    } catch (err) {
+      Alert.alert("Erro", formatApiError(err, "Falha ao compartilhar a etiqueta."));
+    }
+  }, [etiquetaCodigo, etiquetaUri]);
 
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
   const handleAbrirAusente = () => setModalAusente(true);
@@ -578,6 +709,18 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         ) : null}
 
         <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.btnEtiquetaOutline, (gerandoEtiqueta || sharingComprovante) && styles.btnDisabled]}
+            onPress={handleGerarEtiqueta}
+            disabled={gerandoEtiqueta || sharingComprovante}
+          >
+            {gerandoEtiqueta ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <Text style={styles.btnEtiquetaOutlineText}>Gerar etiqueta</Text>
+            )}
+          </TouchableOpacity>
+
           {bloqueadoAusencias ? (
             <View style={styles.avisoBloqueio}>
               <Text style={styles.avisoBloqueioText}>
@@ -717,6 +860,38 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
           });
         }}
       />
+
+      <Modal
+        visible={previewEtiquetaVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={fecharPreviewEtiqueta}
+      >
+        <View style={styles.previewOverlay}>
+          <View style={styles.previewCard}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewTitle}>
+                Pré-visualização da etiqueta{etiquetaCodigo ? ` · ${etiquetaCodigo}` : ""}
+              </Text>
+              <TouchableOpacity onPress={fecharPreviewEtiqueta} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={styles.previewClose}>Fechar</Text>
+              </TouchableOpacity>
+            </View>
+            {etiquetaUri ? (
+              <Image source={{ uri: etiquetaUri }} style={{ flex: 1 }} resizeMode="contain" />
+            ) : (
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ color: colors.textSecondary }}>Arquivo não disponível.</Text>
+              </View>
+            )}
+            <View style={styles.previewFooter}>
+              <TouchableOpacity style={styles.btnEtiqueta} onPress={() => void handleCompartilharEtiqueta()}>
+                <Text style={styles.btnEtiquetaText}>Compartilhar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <FormAusenteModal
         visible={modalAusente}

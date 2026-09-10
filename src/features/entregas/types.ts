@@ -30,6 +30,7 @@ export interface EntregaListItem {
   possui_endereco?: boolean;
   tentativa?: number | null;
   tem_comprovante?: boolean;
+  tem_qr_etiqueta?: boolean;
   tipo_recebedor?: string | null;
   nome_recebedor?: string | null;
   tipo_documento?: string | null;

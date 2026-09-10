@@ -309,6 +309,9 @@ export interface ScanSuccess {
   conflito: false;
   ja_existia?: boolean;
   entrega: EntregaListItem;
+  qr_atualizado?: boolean;
+  qr_alerta?: boolean;
+  qr_alerta_mensagem?: string;
 }
 
 export interface ScanConflict {
