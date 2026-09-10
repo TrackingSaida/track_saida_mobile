@@ -515,13 +515,35 @@ export default function LeituraEntradasScreen() {
           qr_payload_raw: classified.qr_payload_raw,
         });
         const servico = labelServicoUi(res.servico, c);
-        appendLeitura({ codigo: c, servico, status: "sucesso" });
-        aplicarResumoLocal(servico);
-        playSound("success");
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        pushFeedback("sucesso", "Entrada registrada", c);
+        if (res.qr_atualizado) {
+          appendLeitura({ codigo: c, servico, status: "sucesso" });
+          playSound("success");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          pushFeedback("sucesso", "QR da etiqueta salvo", c);
+        } else if (res.qr_alerta) {
+          appendLeitura({ codigo: c, servico, status: "sucesso" });
+          if (!res.ja_existia) aplicarResumoLocal(servico);
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback(
+            "duplicado",
+            res.qr_alerta_mensagem || "Bipe de novo o QR do Mercado Livre para a etiqueta",
+            c
+          );
+        } else {
+          appendLeitura({ codigo: c, servico, status: "sucesso" });
+          aplicarResumoLocal(servico);
+          playSound("success");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          pushFeedback("sucesso", "Entrada registrada", c);
+        }
       } catch (err) {
-        const ax = err as { response?: { status?: number; data?: { code?: string } } };
+        const ax = err as {
+          response?: {
+            status?: number;
+            data?: { code?: string; qr_alerta?: boolean; qr_alerta_mensagem?: string };
+          };
+        };
         if (ax.response?.status === 409 || ax.response?.data?.code === "JA_NA_BASE") {
           playSound("warn");
           appendLeitura({
@@ -529,7 +551,14 @@ export default function LeituraEntradasScreen() {
             servico: labelServicoUi(undefined, c),
             status: "duplicado",
           });
-          pushFeedback("duplicado", "Já teve entrada na base", c);
+          pushFeedback(
+            "duplicado",
+            ax.response?.data?.qr_alerta
+              ? ax.response.data.qr_alerta_mensagem ||
+                  "Bipe de novo o QR do Mercado Livre para a etiqueta"
+              : "Já teve entrada na base",
+            c
+          );
         } else {
           playSound("error");
           appendLeitura({

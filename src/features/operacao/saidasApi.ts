@@ -219,6 +219,9 @@ export interface LerSaidaApiRow {
   motoboy_nome?: string | null;
   code?: string;
   message?: string;
+  qr_atualizado?: boolean;
+  qr_alerta?: boolean;
+  qr_alerta_mensagem?: string;
 }
 
 export interface LancarAvulsoBody {

@@ -1262,6 +1262,18 @@ export default function LeituraSaidasScreen() {
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           pushFeedback("nao_coletado", "Código não coletado", c);
+        } else if (res.qr_atualizado) {
+          playSound("success");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          pushFeedback("sucesso", "QR da etiqueta salvo", c);
+        } else if (res.qr_alerta) {
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback(
+            "info",
+            res.qr_alerta_mensagem || "Bipe de novo o QR do Mercado Livre para a etiqueta",
+            c
+          );
         } else {
           playSound("success");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

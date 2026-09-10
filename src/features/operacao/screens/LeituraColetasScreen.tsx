@@ -1250,10 +1250,16 @@ export default function LeituraColetasScreen() {
             qr_payload_raw: classified.qr_payload_raw,
           },
         });
-        setUltimaLeitura({ codigo: codigoNorm, servico, status: "enviado" });
+        const inseridos = Number(result.resumo?.inseridos ?? 0);
+        const soQrAtualizado = Boolean(result.qr_atualizado) && inseridos === 0;
+        setUltimaLeitura({
+          codigo: codigoNorm,
+          servico,
+          status: soQrAtualizado ? "enviado" : "enviado",
+        });
         if (result.totais) {
           aplicarTotais(result.totais);
-        } else {
+        } else if (!soQrAtualizado) {
           setTotaisColeta((prev) => {
             const next = { ...prev };
             if (servico === "Shopee") next.shopee += 1;
@@ -1263,9 +1269,24 @@ export default function LeituraColetasScreen() {
             return next;
           });
         }
-        playSound("success");
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        pushFeedback("sucesso", "Coleta registrada com sucesso.", codigoNorm);
+        if (result.qr_atualizado) {
+          playSound("success");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          pushFeedback("sucesso", "QR da etiqueta salvo.", codigoNorm);
+        } else if (result.qr_alerta) {
+          playSound("warn");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          pushFeedback(
+            "duplicado",
+            result.qr_alerta_mensagem ||
+              "Bipe de novo o QR do Mercado Livre para a etiqueta.",
+            codigoNorm
+          );
+        } else {
+          playSound("success");
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          pushFeedback("sucesso", "Coleta registrada com sucesso.", codigoNorm);
+        }
       } catch (err) {
         const ax = err as {
           response?: { status?: number; data?: { detail?: string } };

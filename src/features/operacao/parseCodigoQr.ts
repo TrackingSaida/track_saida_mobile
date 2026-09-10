@@ -100,10 +100,24 @@ export function parseCodigoQrRaw(rawInput: string): ParseCodigoQrResult {
 
   try {
     if (rawInputStr.startsWith("{") && rawInputStr.trim().endsWith("}")) {
-      const obj = JSON.parse(rawInputStr) as { id?: string; sender_id?: unknown; hash_code?: unknown };
-      if (typeof obj.id === "string" && (obj.sender_id != null || obj.hash_code != null)) {
-        const codigo = String(obj.id).trim();
-        return { codigo, qr_payload_raw: rawInputStr, fonte: "estruturado" };
+      const obj = JSON.parse(rawInputStr) as {
+        id?: string | number;
+        sender_id?: unknown;
+        SENDER_ID?: unknown;
+        hash_code?: unknown;
+        HASH_CODE?: unknown;
+      };
+      const idVal = obj.id;
+      const idStr =
+        typeof idVal === "string" || typeof idVal === "number" ? String(idVal).trim() : "";
+      if (
+        idStr &&
+        (obj.sender_id != null ||
+          obj.SENDER_ID != null ||
+          obj.hash_code != null ||
+          obj.HASH_CODE != null)
+      ) {
+        return { codigo: idStr, qr_payload_raw: rawInputStr, fonte: "estruturado" };
       }
     }
   } catch {

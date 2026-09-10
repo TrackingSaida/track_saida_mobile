@@ -41,10 +41,14 @@ export interface SaidaCriadaLote {
 }
 
 export interface LoteResponse {
-  coleta: ColetaOut;
+  coleta: ColetaOut | null;
   resumo: ResumoLote;
   saidas_criadas: SaidaCriadaLote[];
   totais?: TotaisColetaBase | null;
+  qr_atualizado?: boolean;
+  qr_alerta?: boolean;
+  qr_alerta_mensagem?: string | null;
+  codigos_qr_atualizados?: string[];
 }
 
 export interface TotaisColetaBase {

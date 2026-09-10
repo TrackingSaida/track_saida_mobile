@@ -96,7 +96,10 @@ type ScanConflictLocal = {
 type ScanSuccessLocal = {
   conflito: false;
   ja_existia?: boolean;
-  entrega: { id_saida: number; codigo?: string | null; servico?: string | null };
+  qr_atualizado?: boolean;
+  qr_alerta?: boolean;
+  qr_alerta_mensagem?: string;
+  entrega: EntregaListItem;
 };
 
 interface FeedbackVisual {
@@ -663,6 +666,31 @@ export default function ScanScreen({ navigation, route }: Props) {
           });
         } else if ((result as ScanSuccessLocal).entrega) {
           const sucessoResult = result as ScanSuccessLocal;
+          if (sucessoResult.qr_atualizado) {
+            addLeitura(sucessoResult.entrega);
+            setCodigo("");
+            playSound("success");
+            pushFeedback("sucesso", "QR da etiqueta salvo", c);
+            handlePostScanDelivery(sucessoResult.entrega.id_saida, sucessoResult.entrega);
+            setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_MS);
+            return;
+          }
+          if (sucessoResult.qr_alerta) {
+            if (!sucessoResult.ja_existia) {
+              addLeitura(sucessoResult.entrega);
+              handlePostScanDelivery(sucessoResult.entrega.id_saida, sucessoResult.entrega);
+            }
+            setCodigo("");
+            playSound("warn");
+            pushFeedback(
+              "duplicado",
+              sucessoResult.qr_alerta_mensagem ||
+                "Bipe de novo o QR do Mercado Livre para a etiqueta",
+              c
+            );
+            setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_DUP_MS);
+            return;
+          }
           if (sucessoResult.ja_existia) {
             playSound("warn");
             pushFeedback("duplicado", "Código já registrado anteriormente", c);
