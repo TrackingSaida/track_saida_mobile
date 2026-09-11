@@ -20,9 +20,26 @@ export interface MotoboySelectSubBaseResponse {
 }
 
 export interface UserTokenResponse {
+  access_token?: string;
+  token_type?: string;
+  must_change_password?: boolean;
+  expires_in?: number;
+  needs_sub_base_selection?: boolean;
+  sub_bases?: string[];
+}
+
+export interface RootSelectSubBaseResponse {
   access_token: string;
   token_type: string;
+  expires_in?: number;
   must_change_password?: boolean;
+  ok?: boolean;
+  user?: {
+    id?: number;
+    role?: number;
+    sub_base?: string;
+    must_change_password?: boolean;
+  };
 }
 
 const AUTH_TIMEOUT_MS = 15000;
@@ -174,6 +191,29 @@ export async function motoboySelectSubBase(
         identifier: identifier ?? "",
         password: password ?? "",
         sub_base: subBase ?? "",
+      },
+      { timeout: AUTH_TIMEOUT_MS, headers: { "Content-Type": "application/json" } }
+    );
+    return data;
+  } catch (err: unknown) {
+    throw normalizeAuthError(err, "Não foi possível selecionar a base.");
+  }
+}
+
+export async function rootSelectSubBase(
+  identifier: string,
+  password: string,
+  subBase: string,
+  remember = true
+): Promise<RootSelectSubBaseResponse> {
+  try {
+    const { data } = await axios.post<RootSelectSubBaseResponse>(
+      `${API_BASE_URL}/auth/root-select-subbase`,
+      {
+        identifier: identifier ?? "",
+        password: password ?? "",
+        sub_base: subBase ?? "",
+        remember: !!remember,
       },
       { timeout: AUTH_TIMEOUT_MS, headers: { "Content-Type": "application/json" } }
     );

@@ -8,16 +8,21 @@ import {
   Alert,
   FlatList,
 } from "react-native";
-import { motoboySelectSubBase, normalizeAuthError } from "../api/auth";
+import { motoboySelectSubBase, normalizeAuthError, rootSelectSubBase } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { HeaderBackButton } from "../components/ScreenHeaderBar";
 import { offerBiometricAfterLogin } from "../utils/biometricOffer";
+import { setRootLastSubBase } from "../services/rootSubBase";
+import { saveOrClearCredentials } from "../services/savedCredentials";
+
+type SelectMode = "motoboy" | "root";
 
 type Props = {
   identifier: string;
   password: string;
   subBases: string[];
+  mode?: SelectMode;
   onSuccess: () => void;
   onMustChangePassword?: () => void;
   onBack?: () => void;
@@ -27,6 +32,7 @@ export default function SelectSubBaseScreen({
   identifier,
   password,
   subBases,
+  mode = "motoboy",
   onSuccess,
   onMustChangePassword,
   onBack,
@@ -61,6 +67,23 @@ export default function SelectSubBaseScreen({
   const handleSelect = async (subBase: string) => {
     setLoading(true);
     try {
+      if (mode === "root") {
+        const res = await rootSelectSubBase(identifier, password, subBase, true);
+        if (res.access_token) {
+          await setRootLastSubBase(subBase);
+          await saveOrClearCredentials(identifier, password, true);
+          await setTokens(res.access_token, null);
+          if (res.must_change_password && onMustChangePassword) {
+            onMustChangePassword();
+            return;
+          }
+          await offerBiometricAfterLogin(setBiometricEnabled, onSuccess);
+          return;
+        }
+        Alert.alert("Erro", "Resposta inválida ao selecionar a base. Tente novamente.");
+        return;
+      }
+
       const res = await motoboySelectSubBase(identifier, password, subBase);
       if (res.access_token) {
         await setTokens(res.access_token, res.refresh_token);
