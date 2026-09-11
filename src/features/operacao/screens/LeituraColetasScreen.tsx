@@ -57,7 +57,7 @@ import {
 } from "../coletasApi";
 import { listarBasesAtivas, type BaseItem } from "../basesApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
-import { hojeOperacaoLocal } from "../utils/coletaSituacaoUi";
+import { basesParaSeletorColeta, hojeOperacaoLocal } from "../utils/coletaSituacaoUi";
 import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
@@ -321,6 +321,15 @@ export default function LeituraColetasScreen() {
           maxHeight: "88%",
         },
         pickerTitle: { fontSize: 17, fontWeight: "700", color: colors.text, marginBottom: 12 },
+        pickerGroupTitle: {
+          fontSize: 12,
+          fontWeight: "700",
+          color: colors.textSecondary,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+          marginTop: 8,
+          marginBottom: 8,
+        },
         pickerItem: {
           paddingVertical: 14,
           paddingHorizontal: 14,
@@ -652,6 +661,22 @@ export default function LeituraColetasScreen() {
     () => bases.find((b) => b.base === base) ?? null,
     [bases, base]
   );
+  const basesParaPicker = useMemo(
+    () => basesParaSeletorColeta(bases, situacaoPorBaseId, situacaoPorNome, base),
+    [bases, situacaoPorBaseId, situacaoPorNome, base]
+  );
+  const basesPendentesPicker = useMemo(
+    () => basesParaPicker.filter((item) => item.statusSeletor === "pendente"),
+    [basesParaPicker]
+  );
+  const basesEmColetaPicker = useMemo(
+    () => basesParaPicker.filter((item) => item.statusSeletor === "em_coleta"),
+    [basesParaPicker]
+  );
+  const basesColetadasPicker = useMemo(
+    () => basesParaPicker.filter((item) => item.statusSeletor === "coletado"),
+    [basesParaPicker]
+  );
   const enderecoSelecionado = (baseSelecionada?.endereco_completo || "").trim();
   const navOptions = useMemo(() => getNavigationOptions(), []);
   const situacaoSelecionada = useMemo(() => {
@@ -799,7 +824,6 @@ export default function LeituraColetasScreen() {
       }
       setBase((atual) => {
         if (atual && lista.some((b) => b.base === atual)) return atual;
-        if (lista.length === 1) return lista[0].base;
         return "";
       });
     } catch (e) {
@@ -818,6 +842,14 @@ export default function LeituraColetasScreen() {
     currentUser,
     ownerTipoBase,
   ]);
+
+  React.useEffect(() => {
+    if (base.trim()) return;
+    if (pendingSelectRef.current) return;
+    if (carregandoBases) return;
+    if (basesParaPicker.length !== 1) return;
+    setBase(basesParaPicker[0].base);
+  }, [base, basesParaPicker, carregandoBases]);
 
   const capturarParametroRota = useCallback(() => {
     const params = "params" in route ? (route.params as { baseId?: number; baseNome?: string } | undefined) : undefined;
@@ -1875,40 +1907,115 @@ export default function LeituraColetasScreen() {
                 <Text style={[styles.infoText, { paddingVertical: 16 }]}>
                   Nenhum{ownerTipoBase ? "" : "a"} {entidadeLabelLower} ativ{ownerTipoBase ? "o" : "a"} disponível.
                 </Text>
+              ) : basesParaPicker.length === 0 ? (
+                <Text style={[styles.infoText, { paddingVertical: 16 }]}>
+                  Nenhum{ownerTipoBase ? "" : "a"} {entidadeLabelLower} pendente para coletar hoje.
+                </Text>
               ) : (
-                bases.map((item) => {
-                  const ativo = base === item.base;
-                  const situacao = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
-                  const emColetaPor = nomesEmColeta(situacao);
-                  return (
-                    <TouchableOpacity
-                      key={item.id_base}
-                      style={[styles.pickerItem, ativo && styles.pickerItemActive]}
-                      onPress={() => void selecionarBase(item)}
-                      accessibilityState={{ selected: ativo }}
-                    >
-                      <View style={styles.pickerItemTop}>
-                        <Text style={styles.pickerItemText}>{item.base}</Text>
-                        {situacao ? <ColetaSituacaoBadge status={situacao.status} /> : null}
-                      </View>
-                      {emColetaPor ? (
-                        <Text style={styles.pickerItemSub} numberOfLines={2}>
-                          Em coleta por {emColetaPor}
-                        </Text>
-                      ) : null}
-                      {item.endereco_completo ? (
-                        <Text style={styles.pickerItemSub} numberOfLines={2}>
-                          {item.endereco_completo}
-                        </Text>
-                      ) : null}
-                      {ativo ? (
-                        <Text style={styles.pickerItemSub}>
-                          Selecionad{ownerTipoBase ? "o" : "a"}
-                        </Text>
-                      ) : null}
-                    </TouchableOpacity>
-                  );
-                })
+                <>
+                  {basesPendentesPicker.length > 0 ? (
+                    <>
+                      <Text style={styles.pickerGroupTitle}>Pendentes</Text>
+                      {basesPendentesPicker.map((item) => {
+                        const ativo = base === item.base;
+                        const situacao = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
+                        return (
+                          <TouchableOpacity
+                            key={item.id_base}
+                            style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                            onPress={() => void selecionarBase(item)}
+                            accessibilityState={{ selected: ativo }}
+                          >
+                            <View style={styles.pickerItemTop}>
+                              <Text style={styles.pickerItemText}>{item.base}</Text>
+                              {situacao ? <ColetaSituacaoBadge status={situacao.status} /> : null}
+                            </View>
+                            {item.endereco_completo ? (
+                              <Text style={styles.pickerItemSub} numberOfLines={2}>
+                                {item.endereco_completo}
+                              </Text>
+                            ) : null}
+                            {ativo ? (
+                              <Text style={styles.pickerItemSub}>
+                                Selecionad{ownerTipoBase ? "o" : "a"}
+                              </Text>
+                            ) : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </>
+                  ) : null}
+                  {basesEmColetaPicker.length > 0 ? (
+                    <>
+                      <Text style={styles.pickerGroupTitle}>Em coleta</Text>
+                      {basesEmColetaPicker.map((item) => {
+                        const ativo = base === item.base;
+                        const situacao = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
+                        const emColetaPor = nomesEmColeta(situacao);
+                        return (
+                          <TouchableOpacity
+                            key={item.id_base}
+                            style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                            onPress={() => void selecionarBase(item)}
+                            accessibilityState={{ selected: ativo }}
+                          >
+                            <View style={styles.pickerItemTop}>
+                              <Text style={styles.pickerItemText}>{item.base}</Text>
+                              {situacao ? <ColetaSituacaoBadge status={situacao.status} /> : null}
+                            </View>
+                            {emColetaPor ? (
+                              <Text style={styles.pickerItemSub} numberOfLines={2}>
+                                Em coleta por {emColetaPor}
+                              </Text>
+                            ) : null}
+                            {item.endereco_completo ? (
+                              <Text style={styles.pickerItemSub} numberOfLines={2}>
+                                {item.endereco_completo}
+                              </Text>
+                            ) : null}
+                            {ativo ? (
+                              <Text style={styles.pickerItemSub}>
+                                Selecionad{ownerTipoBase ? "o" : "a"}
+                              </Text>
+                            ) : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </>
+                  ) : null}
+                  {basesColetadasPicker.length > 0 ? (
+                    <>
+                      <Text style={styles.pickerGroupTitle}>Selecionad{ownerTipoBase ? "o" : "a"}</Text>
+                      {basesColetadasPicker.map((item) => {
+                        const ativo = base === item.base;
+                        const situacao = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
+                        return (
+                          <TouchableOpacity
+                            key={item.id_base}
+                            style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                            onPress={() => void selecionarBase(item)}
+                            accessibilityState={{ selected: ativo }}
+                          >
+                            <View style={styles.pickerItemTop}>
+                              <Text style={styles.pickerItemText}>{item.base}</Text>
+                              {situacao ? <ColetaSituacaoBadge status={situacao.status} /> : null}
+                            </View>
+                            {item.endereco_completo ? (
+                              <Text style={styles.pickerItemSub} numberOfLines={2}>
+                                {item.endereco_completo}
+                              </Text>
+                            ) : null}
+                            {ativo ? (
+                              <Text style={styles.pickerItemSub}>
+                                Selecionad{ownerTipoBase ? "o" : "a"}
+                              </Text>
+                            ) : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </>
+                  ) : null}
+                </>
               )}
             </ScrollView>
             <TouchableOpacity style={styles.pickerClose} onPress={() => setModalBaseVisible(false)}>
