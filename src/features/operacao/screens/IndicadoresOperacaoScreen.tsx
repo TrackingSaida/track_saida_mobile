@@ -7,14 +7,15 @@ import {
   ActivityIndicator,
   Platform,
 } from "react-native";
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import AppText from "../../../components/ui/AppText";
 import OperacaoEmptyState from "../components/OperacaoEmptyState";
-import FilterChip from "../components/FilterChip";
+import OperacaoFilterButton from "../components/OperacaoFilterButton";
+import { OperacaoPeriodoFilterSheet } from "../components/OperacaoFilterSheet";
 import KpiCard from "../components/KpiCard";
 import ServiceCard from "../components/ServiceCard";
 import BaseByDayCard from "../components/BaseByDayCard";
@@ -36,21 +37,14 @@ import {
 } from "../indicadoresApi";
 import {
   buildPeriodo,
+  formatYmd,
   labelPeriodo,
-  parseYmd,
+  periodoFiltroAtivoCount,
   type PeriodoConsulta,
   type PeriodoPreset,
 } from "../utils/periodoConsulta";
 
 type Props = NativeStackScreenProps<StaffStackParamList, "IndicadoresOperacao">;
-
-const PRESETS: { key: PeriodoPreset; label: string; icon?: "calendar-outline" }[] = [
-  { key: "hoje", label: "Hoje" },
-  { key: "ontem", label: "Ontem" },
-  { key: "quinzena", label: "Quinzena atual" },
-  { key: "quinzena_anterior", label: "Quinzena anterior" },
-  { key: "outro", label: "Outro dia", icon: "calendar-outline" },
-];
 
 const SERVICE_ICONS = {
   Shopee: "bag-handle-outline",
@@ -72,6 +66,8 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
   const mostrarColeta = effectivePodeLerColeta(currentUser);
 
   const [periodo, setPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [draftPeriodo, setDraftPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -92,15 +88,6 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: space.md, paddingBottom: 40 },
-        fieldLabel: {
-          fontSize: 12,
-          fontWeight: "700",
-          color: colors.textSecondary,
-          marginBottom: 8,
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
-        },
-        chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
         periodoMeta: { fontSize: 13, color: colors.textSecondary, marginBottom: space.md },
         grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 10 },
         sectionTitle: {
@@ -188,12 +175,12 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
     }, [load])
   );
 
-  const onSelectPreset = (key: PeriodoPreset) => {
+  const onSelectDraftPreset = (key: PeriodoPreset) => {
     if (key === "outro") {
       setShowDatePicker(true);
       return;
     }
-    setPeriodo(buildPeriodo(key));
+    setDraftPeriodo(buildPeriodo(key));
   };
 
   const onChangeDate = (event: DateTimePickerEvent, selectedDate?: Date) => {
@@ -203,8 +190,7 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
       return;
     }
     if (!selectedDate) return;
-    const iso = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`;
-    setPeriodo(buildPeriodo("outro", iso));
+    setDraftPeriodo(buildPeriodo("outro", formatYmd(selectedDate)));
     if (Platform.OS === "ios") setShowDatePicker(false);
   };
 
@@ -222,7 +208,6 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
   }
 
   const servicos = ["Shopee", "Mercado Livre", "Avulso"] as const;
-  const pickerValue = parseYmd(periodo.dataFim) ?? new Date();
   const hintPeriodo = periodo.dataInicio === periodo.dataFim ? "No dia" : "No período";
 
   const abrirConsultaNaBase = (de: string, ate: string) => {
@@ -241,24 +226,21 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
         title="Indicadores"
         onBack={() => navigation.goBack()}
         paddingTop={Math.max(12, insets.top)}
+        rightElement={
+          <OperacaoFilterButton
+            activeCount={periodoFiltroAtivoCount(periodo)}
+            onPress={() => {
+              setDraftPeriodo(periodo);
+              setFilterSheetVisible(true);
+            }}
+          />
+        }
       />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} />}
         keyboardShouldPersistTaps="handled"
       >
-        <AppText style={styles.fieldLabel}>Período</AppText>
-        <View style={styles.chipsRow}>
-          {PRESETS.map((p) => (
-            <FilterChip
-              key={p.key}
-              label={p.label}
-              selected={periodo.preset === p.key}
-              onPress={() => onSelectPreset(p.key)}
-              icon={p.icon}
-            />
-          ))}
-        </View>
         <AppText style={styles.periodoMeta}>{labelPeriodo(periodo)}</AppText>
 
         {loading ? (
@@ -355,15 +337,23 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
         )}
       </ScrollView>
 
-      {showDatePicker ? (
-        <DateTimePicker
-          value={pickerValue}
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={onChangeDate}
-          maximumDate={new Date()}
-        />
-      ) : null}
+      <OperacaoPeriodoFilterSheet
+        visible={filterSheetVisible}
+        draft={draftPeriodo}
+        showDatePicker={showDatePicker}
+        onClose={() => {
+          setFilterSheetVisible(false);
+          setShowDatePicker(false);
+        }}
+        onClear={() => setDraftPeriodo(buildPeriodo("hoje"))}
+        onApply={() => {
+          setPeriodo(draftPeriodo);
+          setFilterSheetVisible(false);
+          setShowDatePicker(false);
+        }}
+        onSelectPreset={onSelectDraftPreset}
+        onDateChange={onChangeDate}
+      />
     </View>
   );
 }

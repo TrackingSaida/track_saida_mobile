@@ -9,10 +9,9 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
@@ -32,6 +31,8 @@ import {
 } from "../coletasApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
 import ColetaServicoBadges from "../components/ColetaServicoBadges";
+import OperacaoFilterButton from "../components/OperacaoFilterButton";
+import { OperacaoPeriodoFilterSheet } from "../components/OperacaoFilterSheet";
 import {
   hojeOperacaoLocal,
   isColetaPendente,
@@ -45,7 +46,7 @@ import {
   formatYmd,
   isPeriodoDiaUnico,
   labelPeriodo,
-  parseYmd,
+  periodoFiltroAtivoCount,
   type PeriodoConsulta,
   type PeriodoPreset,
 } from "../utils/periodoConsulta";
@@ -60,14 +61,6 @@ type CorrecaoCtx = {
   shopee: string;
   avulso: string;
 };
-
-const PRESETS: { key: PeriodoPreset; label: string }[] = [
-  { key: "hoje", label: "Hoje" },
-  { key: "ontem", label: "Ontem" },
-  { key: "quinzena", label: "Quinzena atual" },
-  { key: "quinzena_anterior", label: "Quinzena anterior" },
-  { key: "outro", label: "Outro dia" },
-];
 
 function money(value: number | string | undefined): string {
   const n = Number(value);
@@ -102,6 +95,8 @@ export default function ConsultarColetasScreen() {
   const entidadeLabelLower = ownerEntityLabelLower(currentUser);
   const podeCorrigirRole = isAdminRole(currentUser?.role);
   const [periodo, setPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [draftPeriodo, setDraftPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [itens, setItens] = useState<SituacaoBaseColeta[]>([]);
   const [resumo, setResumo] = useState({ pendentes: 0, em_coleta: 0, coletadas: 0 });
@@ -117,26 +112,6 @@ export default function ConsultarColetasScreen() {
       StyleSheet.create({
         screen: { flex: 1, backgroundColor: colors.background },
         content: { padding: 16, paddingBottom: 40, gap: 12 },
-        fieldLabel: {
-          fontSize: 12,
-          fontWeight: "700",
-          color: colors.textSecondary,
-          marginBottom: 8,
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
-        },
-        chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-        chip: {
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.backgroundCard,
-        },
-        chipActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
-        chipText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-        chipTextActive: { color: colors.primary },
         periodoLabel: { fontSize: 13, color: colors.textSecondary },
         resumo: { flexDirection: "row", gap: 8 },
         kpi: { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, backgroundColor: colors.backgroundCard },
@@ -237,13 +212,12 @@ export default function ConsultarColetasScreen() {
     }, [carregar])
   );
 
-  const onSelectPreset = (key: PeriodoPreset) => {
+  const onSelectDraftPreset = (key: PeriodoPreset) => {
     if (key === "outro") {
       setShowDatePicker(true);
       return;
     }
-    setPeriodo(buildPeriodo(key));
-    setFiltro("todos");
+    setDraftPeriodo(buildPeriodo(key));
   };
 
   const onChangeDate = (event: DateTimePickerEvent, selectedDate?: Date) => {
@@ -253,9 +227,19 @@ export default function ConsultarColetasScreen() {
       return;
     }
     if (!selectedDate) return;
-    setPeriodo(buildPeriodo("outro", formatYmd(selectedDate)));
-    setFiltro("todos");
+    setDraftPeriodo(buildPeriodo("outro", formatYmd(selectedDate)));
     if (Platform.OS === "ios") setShowDatePicker(false);
+  };
+
+  const aplicarPeriodo = () => {
+    const mudou =
+      draftPeriodo.preset !== periodo.preset ||
+      draftPeriodo.dataInicio !== periodo.dataInicio ||
+      draftPeriodo.dataFim !== periodo.dataFim;
+    setPeriodo(draftPeriodo);
+    if (mudou) setFiltro("todos");
+    setFilterSheetVisible(false);
+    setShowDatePicker(false);
   };
 
   const multiDia = !isPeriodoDiaUnico(periodo);
@@ -358,30 +342,27 @@ export default function ConsultarColetasScreen() {
     { key: "coletado", valor: resumo.coletadas, label: "Coletadas", status: "coletado" },
   ];
 
-  const pickerValue = parseYmd(periodo.dataFim) ?? new Date();
-
   return (
     <View style={styles.screen}>
-      <ScreenHeaderBar title="Consultar coletas" onBack={() => navigation.goBack()} />
+      <ScreenHeaderBar
+        title="Consultar coletas"
+        onBack={() => navigation.goBack()}
+        rightElement={
+          <OperacaoFilterButton
+            activeCount={periodoFiltroAtivoCount(periodo)}
+            onPress={() => {
+              setDraftPeriodo(periodo);
+              setFilterSheetVisible(true);
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
+          />
+        }
+      />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void carregar()} />}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.fieldLabel}>Período</Text>
-        <View style={styles.chipsRow}>
-          {PRESETS.map((p) => (
-            <TouchableOpacity
-              key={p.key}
-              style={[styles.chip, periodo.preset === p.key && styles.chipActive]}
-              onPress={() => onSelectPreset(p.key)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: periodo.preset === p.key }}
-            >
-              <Text style={[styles.chipText, periodo.preset === p.key && styles.chipTextActive]}>{p.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
         <Text style={styles.periodoLabel}>{labelPeriodo(periodo)}</Text>
 
         <View style={styles.resumo}>
@@ -498,14 +479,19 @@ export default function ConsultarColetasScreen() {
         })}
       </ScrollView>
 
-      {showDatePicker ? (
-        <DateTimePicker
-          value={pickerValue}
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={onChangeDate}
-        />
-      ) : null}
+      <OperacaoPeriodoFilterSheet
+        visible={filterSheetVisible}
+        draft={draftPeriodo}
+        showDatePicker={showDatePicker}
+        onClose={() => {
+          setFilterSheetVisible(false);
+          setShowDatePicker(false);
+        }}
+        onClear={() => setDraftPeriodo(buildPeriodo("hoje"))}
+        onApply={aplicarPeriodo}
+        onSelectPreset={onSelectDraftPreset}
+        onDateChange={onChangeDate}
+      />
 
       <Modal visible={Boolean(correcao)} animationType="slide" transparent onRequestClose={() => !salvando && setCorrecao(null)}>
         <View style={styles.modalBackdrop}>

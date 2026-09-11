@@ -11,13 +11,15 @@ import {
   RefreshControl,
   Platform,
 } from "react-native";
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import OperacaoEmptyState from "../components/OperacaoEmptyState";
+import OperacaoFilterButton from "../components/OperacaoFilterButton";
+import { OperacaoPeriodoFilterSheet } from "../components/OperacaoFilterSheet";
 import { useThemeColors } from "../../../theme/colors";
 import type { StaffStackParamList } from "../../../navigation/staffStackTypes";
 import { getAcompanhamentoSaidasDia } from "../acompanhamentoApi";
@@ -26,21 +28,14 @@ import { normalizeMotoboyList, formatMotoboyNome } from "../utils/motoboyListFor
 import {
   buildPeriodo,
   formatDateLabel,
+  formatYmd,
   labelPeriodo,
-  parseYmd,
+  periodoFiltroAtivoCount,
   type PeriodoConsulta,
   type PeriodoPreset,
 } from "../utils/periodoConsulta";
 
 type Props = NativeStackScreenProps<StaffStackParamList, "SaidasPorMotoboy">;
-
-const PRESETS: { key: PeriodoPreset; label: string }[] = [
-  { key: "hoje", label: "Hoje" },
-  { key: "ontem", label: "Ontem" },
-  { key: "quinzena", label: "Quinzena atual" },
-  { key: "quinzena_anterior", label: "Quinzena anterior" },
-  { key: "outro", label: "Outro dia" },
-];
 
 export default function SaidasPorMotoboyScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -49,6 +44,8 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
   const [motoboys, setMotoboys] = useState<MotoboyItem[]>([]);
   const [motoboy, setMotoboy] = useState<MotoboyItem | null>(null);
   const [periodo, setPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [draftPeriodo, setDraftPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [pickerMotoboyVisible, setPickerMotoboyVisible] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -86,18 +83,6 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
         },
         selectText: { fontSize: 15, fontWeight: "600", color: colors.text, flex: 1, marginRight: 8 },
         selectPlaceholder: { color: colors.textSecondary, fontWeight: "500" },
-        chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
-        chip: {
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: colors.inputBorder,
-          backgroundColor: colors.inputBackground,
-        },
-        chipActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
-        chipText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-        chipTextActive: { color: colors.primary },
         periodoMeta: { fontSize: 13, color: colors.textSecondary, marginBottom: 16 },
         heroCard: {
           backgroundColor: colors.backgroundCard,
@@ -209,12 +194,12 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
     }, [loadDetail])
   );
 
-  const onSelectPreset = (key: PeriodoPreset) => {
+  const onSelectDraftPreset = (key: PeriodoPreset) => {
     if (key === "outro") {
       setShowDatePicker(true);
       return;
     }
-    setPeriodo(buildPeriodo(key));
+    setDraftPeriodo(buildPeriodo(key));
   };
 
   const onChangeDate = (event: DateTimePickerEvent, selectedDate?: Date) => {
@@ -224,8 +209,7 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
       return;
     }
     if (!selectedDate) return;
-    const iso = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`;
-    setPeriodo(buildPeriodo("outro", iso));
+    setDraftPeriodo(buildPeriodo("outro", formatYmd(selectedDate)));
     if (Platform.OS === "ios") setShowDatePicker(false);
   };
 
@@ -235,14 +219,21 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
     { label: "AVULSO", value: detail?.sum_avulso ?? 0, bg: "#6b7280", fg: "#fff" },
   ];
 
-  const pickerValue = parseYmd(periodo.dataFim) ?? new Date();
-
   return (
     <View style={styles.container}>
       <ScreenHeaderBar
         title="Saídas por motoboy"
         onBack={() => navigation.goBack()}
         paddingTop={Math.max(12, insets.top)}
+        rightElement={
+          <OperacaoFilterButton
+            activeCount={periodoFiltroAtivoCount(periodo)}
+            onPress={() => {
+              setDraftPeriodo(periodo);
+              setFilterSheetVisible(true);
+            }}
+          />
+        }
       />
 
       <ScrollView
@@ -270,20 +261,6 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
           <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
 
-        <Text style={styles.fieldLabel}>Período</Text>
-        <View style={styles.chipsRow}>
-          {PRESETS.map((p) => (
-            <TouchableOpacity
-              key={p.key}
-              style={[styles.chip, periodo.preset === p.key && styles.chipActive]}
-              onPress={() => onSelectPreset(p.key)}
-            >
-              <Text style={[styles.chipText, periodo.preset === p.key && styles.chipTextActive]}>
-                {p.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
         <Text style={styles.periodoMeta}>{labelPeriodo(periodo)}</Text>
 
         {!motoboy ? (
@@ -373,15 +350,23 @@ export default function SaidasPorMotoboyScreen({ navigation }: Props) {
         </Pressable>
       </Modal>
 
-      {showDatePicker ? (
-        <DateTimePicker
-          value={pickerValue}
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={onChangeDate}
-          maximumDate={new Date()}
-        />
-      ) : null}
+      <OperacaoPeriodoFilterSheet
+        visible={filterSheetVisible}
+        draft={draftPeriodo}
+        showDatePicker={showDatePicker}
+        onClose={() => {
+          setFilterSheetVisible(false);
+          setShowDatePicker(false);
+        }}
+        onClear={() => setDraftPeriodo(buildPeriodo("hoje"))}
+        onApply={() => {
+          setPeriodo(draftPeriodo);
+          setFilterSheetVisible(false);
+          setShowDatePicker(false);
+        }}
+        onSelectPreset={onSelectDraftPreset}
+        onDateChange={onChangeDate}
+      />
     </View>
   );
 }

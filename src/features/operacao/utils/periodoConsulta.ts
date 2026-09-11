@@ -8,6 +8,18 @@ export type PeriodoConsulta = {
   dataFim: string;
 };
 
+export const PERIOD_PRESETS: { key: PeriodoPreset; label: string; icon?: "calendar-outline" }[] = [
+  { key: "hoje", label: "Hoje" },
+  { key: "ontem", label: "Ontem" },
+  { key: "quinzena", label: "Quinzena atual" },
+  { key: "quinzena_anterior", label: "Quinzena anterior" },
+  { key: "outro", label: "Outro dia", icon: "calendar-outline" },
+];
+
+export function periodoFiltroAtivoCount(p: PeriodoConsulta): number {
+  return p.preset !== "hoje" ? 1 : 0;
+}
+
 export function formatYmd(d: Date): string {
   const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, "0");
