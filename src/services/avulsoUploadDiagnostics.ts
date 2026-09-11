@@ -114,7 +114,11 @@ export function friendlyAvulsoUploadMessage(err: {
     return "Não foi possível enviar a foto (acesso negado ao armazenamento).\nTente novamente ou fale com o suporte.";
   }
   if (err.stage === "avulso_create") {
-    return "A foto foi enviada, mas não foi possível concluir o lançamento.\nTente novamente.";
+    const apiMsg = (err.message || "").trim();
+    if (apiMsg && !/^a foto foi enviada/i.test(apiMsg)) {
+      return apiMsg;
+    }
+    return "Não foi possível concluir o lançamento do avulso.\nTente novamente.";
   }
   if (err.stage === "presign") {
     return "Não foi possível preparar o envio da foto.\nVerifique sua conexão e tente novamente.";
@@ -269,9 +273,13 @@ export function classifyThrownUploadError(
   return new AvulsoUploadError({
     message:
       stage === "avulso_create"
-        ? friendlyAvulsoUploadMessage({ stage: "avulso_create", code: "API_ERROR" })
+        ? friendlyAvulsoUploadMessage({
+            stage: "avulso_create",
+            code: "API_ERROR",
+            message: cleaned,
+          })
         : cleaned && cleaned !== "Falha de rede"
-          ? friendlyAvulsoUploadMessage({ stage, code: "API_ERROR" })
+          ? cleaned
           : friendlyAvulsoUploadMessage({ code: "NETWORK", stage }),
     stage,
     code: "API_ERROR",

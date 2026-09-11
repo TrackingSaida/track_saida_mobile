@@ -34,6 +34,7 @@ import {
   effectivePodeLancarAvulso,
   effectivePodeLerSaida,
   effectiveAvulsoExigeFoto,
+  effectiveAvulsoPermitirFotos,
   isStaffOperacaoRole,
 } from "../../../utils/role";
 import {
@@ -797,6 +798,7 @@ export default function LeituraSaidasScreen() {
     [motoboys, motoboyId]
   );
   const avulsoExigeFoto = effectiveAvulsoExigeFoto(currentUser, motoboySelecionado);
+  const avulsoPermitirFotos = effectiveAvulsoPermitirFotos(currentUser, motoboySelecionado);
   const username = currentUser?.username ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
@@ -2126,6 +2128,7 @@ export default function LeituraSaidasScreen() {
         visible={avulsoModalVisible}
         loading={loading}
         exigeFoto={avulsoExigeFoto}
+        permitirFotos={avulsoPermitirFotos}
         source="saidas"
         onClose={() => setAvulsoModalVisible(false)}
         onConfirm={handleLancarAvulso}

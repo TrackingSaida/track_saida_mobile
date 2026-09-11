@@ -33,6 +33,8 @@ import {
   ownerEntityLabelLower,
 } from "../../../utils/ownerLabels";
 import {
+  effectiveAvulsoExigeFoto,
+  effectiveAvulsoPermitirFotos,
   effectivePodeDigitarCodigoManual,
   effectivePodeLancarAvulso,
   effectivePodeLerColeta,
@@ -1383,6 +1385,8 @@ export default function LeituraColetasScreen() {
           base: baseTrimmed,
           identificacao: payload.identificacao,
           quantidade: payload.quantidade,
+          fotoObjectKeys: payload.fotoObjectKeys,
+          photoIds: payload.photoIds,
         });
         const ultimoCodigo = result.codigos.at(-1) || result.saidas.at(-1)?.codigo || "";
         if (ultimoCodigo) {
@@ -2098,8 +2102,9 @@ export default function LeituraColetasScreen() {
       <AvulsoLancamentoModal
         visible={avulsoModalVisible}
         loading={loading}
-        exigeFoto={false}
-        permitirFotos={false}
+        exigeFoto={effectiveAvulsoExigeFoto(currentUser)}
+        permitirFotos={effectiveAvulsoPermitirFotos(currentUser)}
+        source="coleta"
         onClose={() => setAvulsoModalVisible(false)}
         onConfirm={handleLancarAvulso}
       />

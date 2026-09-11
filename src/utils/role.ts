@@ -103,7 +103,8 @@ export function effectivePodeLancarAvulso(claims: JwtClaims | null | undefined):
 export type AvulsoExigeFotoMotoboy = { avulso_exige_foto?: boolean } | null | undefined;
 
 /**
- * Foto obrigatória no avulso: motoboy segue JWT; staff segue flag do motoboy selecionado (se disponível).
+ * Foto obrigatória no avulso: motoboy segue JWT; staff (não root/admin) segue flag do motoboy selecionado.
+ * Root/admin (0/1) nunca têm obrigação.
  */
 export function effectiveAvulsoExigeFoto(
   claims: JwtClaims | null | undefined,
@@ -111,9 +112,24 @@ export function effectiveAvulsoExigeFoto(
 ): boolean {
   if (!claims) return false;
   const r = asRole(claims.role);
+  if (isAdminRole(r)) return false;
   if (isStaffOperacaoRole(r)) return asExplicitTrue(selectedMotoboy?.avulso_exige_foto);
   if (isMotoboyRole(r)) return asExplicitTrue(claims.avulso_exige_foto);
   return false;
+}
+
+/**
+ * Exibir campo de foto no modal de avulso:
+ * - staff (root/admin/operador/coletador): sempre, como opcional (salvo exigência acima);
+ * - motoboy: só quando a foto for obrigatória.
+ */
+export function effectiveAvulsoPermitirFotos(
+  claims: JwtClaims | null | undefined,
+  selectedMotoboy?: AvulsoExigeFotoMotoboy
+): boolean {
+  if (!claims) return false;
+  if (isStaffOperacaoRole(asRole(claims.role))) return true;
+  return effectiveAvulsoExigeFoto(claims, selectedMotoboy);
 }
 
 /** Owner exige entrada na base antes da saída. */

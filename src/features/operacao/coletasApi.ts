@@ -111,11 +111,19 @@ export async function lancarAvulsoColeta(params: {
   base: string;
   identificacao?: string | null;
   quantidade: number;
+  fotoObjectKeys?: string[];
+  photoIds?: string[];
 }): Promise<ColetaLancarAvulsoResult> {
+  const keys = (params.fotoObjectKeys || []).map((k) => String(k || "").trim()).filter(Boolean);
+  const ids = (params.photoIds || []).map((k) => (k == null ? null : String(k)));
   const { data } = await client.post<ColetaLancarAvulsoResult>("/coletas/lancar-avulso", {
     base: params.base,
     quantidade: params.quantidade,
     ...(params.identificacao ? { identificacao: params.identificacao } : {}),
+    ...(keys[0] ? { foto_object_key: keys[0] } : {}),
+    ...(keys.length ? { foto_object_keys: keys } : {}),
+    ...(ids[0] ? { photo_id: ids[0] } : {}),
+    ...(ids.length ? { photo_ids: ids } : {}),
   });
   return data;
 }

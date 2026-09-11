@@ -22,7 +22,8 @@ import { useThemeColors } from "../../../theme/colors";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
 import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
-import { effectiveEntradaObrigatoria, effectivePodeDigitarCodigoManual } from "../../../utils/role";
+import { effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos, effectiveEntradaObrigatoria, effectivePodeDigitarCodigoManual } from "../../../utils/role";
+import { formatApiError } from "../../../utils/formatApiError";
 import { playSound } from "../../../utils/sound";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
@@ -33,12 +34,7 @@ import {
   mensagemErroEntrada,
   type EntradaResumoDia,
 } from "../entradasApi";
-import {
-  AVULSO_IDENT_AJUDA,
-  AVULSO_IDENT_MAX,
-  AVULSO_QTD_MAX,
-  validarLancamentoAvulso,
-} from "../utils/avulsoLancamento";
+import AvulsoLancamentoModal from "../components/AvulsoLancamentoModal";
 import { useScannerTorch } from "../../entregas/hooks/useScannerTorch";
 import ScannerTorchButton from "../../entregas/components/ScannerTorchButton";
 import PhysicalScannerInput from "../components/PhysicalScannerInput";
@@ -139,8 +135,6 @@ export default function LeituraEntradasScreen() {
   );
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
   const holdScannerCamera = avulsoModalVisible || photoCaptureActive;
-  const [avulsoIdentificacao, setAvulsoIdentificacao] = useState("");
-  const [avulsoQuantidade, setAvulsoQuantidade] = useState("1");
   const [resumoDia, setResumoDia] = useState<EntradaResumoDia>(RESUMO_DIA_VAZIO);
   const [resumoLoading, setResumoLoading] = useState(false);
   const scanLocked = useRef(false);
@@ -591,50 +585,48 @@ export default function LeituraEntradasScreen() {
     [processar]
   );
 
-  const handleLancarAvulso = useCallback(async () => {
-    const validacao = validarLancamentoAvulso(avulsoIdentificacao, avulsoQuantidade);
-    if (!validacao.ok) {
-      pushFeedback("erro", validacao.message);
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await lancarAvulsoEntrada({
-        identificacao: validacao.identificacao,
-        quantidade: validacao.quantidade,
-      });
-      const novos = (res.saidas ?? []).map((s) => ({
-        codigo: String(s.codigo ?? ""),
-        servico: labelServicoUi(s.servico, s.codigo),
-        status: "sucesso" as const,
-      }));
-      if (novos.length) {
-        setLeituras((prev) => {
-          const next = [...prev, ...novos];
-          if (next.length <= LEITURAS_SESSAO_MAX) return next;
-          return next.slice(next.length - LEITURAS_SESSAO_MAX);
+  const handleLancarAvulso = useCallback(
+    async (payload: {
+      identificacao: string | null;
+      quantidade: number;
+      fotoObjectKeys: string[];
+      photoIds: string[];
+    }) => {
+      setLoading(true);
+      try {
+        const res = await lancarAvulsoEntrada({
+          identificacao: payload.identificacao,
+          quantidade: payload.quantidade,
+          fotoObjectKeys: payload.fotoObjectKeys,
+          photoIds: payload.photoIds,
         });
-        aplicarResumoLocal("Avulso", novos.length);
+        const novos = (res.saidas ?? []).map((s) => ({
+          codigo: String(s.codigo ?? ""),
+          servico: labelServicoUi(s.servico, s.codigo),
+          status: "sucesso" as const,
+        }));
+        if (novos.length) {
+          setLeituras((prev) => {
+            const next = [...prev, ...novos];
+            if (next.length <= LEITURAS_SESSAO_MAX) return next;
+            return next.slice(next.length - LEITURAS_SESSAO_MAX);
+          });
+          aplicarResumoLocal("Avulso", novos.length);
+        }
+        pushFeedback("sucesso", res.mensagem || "Avulsos registrados na entrada.");
+        setAvulsoModalVisible(false);
+        setModoManual(false);
+        if (!cameraOpen) void abrirCamera();
+      } catch (err) {
+        const mensagem = mensagemErroEntrada(err) || formatApiError(err, "Não foi possível lançar o avulso.");
+        pushFeedback("erro", mensagem);
+        throw new Error(mensagem);
+      } finally {
+        setLoading(false);
       }
-      pushFeedback("sucesso", res.mensagem || "Avulsos registrados na entrada.");
-      setAvulsoModalVisible(false);
-      setAvulsoIdentificacao("");
-      setAvulsoQuantidade("1");
-      setModoManual(false);
-      if (!cameraOpen) void abrirCamera();
-    } catch (err) {
-      pushFeedback("erro", mensagemErroEntrada(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    abrirCamera,
-    aplicarResumoLocal,
-    avulsoIdentificacao,
-    avulsoQuantidade,
-    cameraOpen,
-    pushFeedback,
-  ]);
+    },
+    [abrirCamera, aplicarResumoLocal, cameraOpen, pushFeedback]
+  );
 
   const renderFeedbackStrip = (variant: "main" | "camera") => {
     if (!feedback) return null;
@@ -929,65 +921,15 @@ export default function LeituraEntradasScreen() {
         )}
       </Modal>
 
-      <Modal
+      <AvulsoLancamentoModal
         visible={avulsoModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setAvulsoModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Lançar Avulso</Text>
-            <Text style={styles.modalMessage}>
-              Cria pacote(s) avulso já com entrada na base. Identificação opcional.
-            </Text>
-            <Text style={styles.modalHelp}>{AVULSO_IDENT_AJUDA}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex.: Cliente João"
-              placeholderTextColor={colors.textSecondary}
-              value={avulsoIdentificacao}
-              onChangeText={setAvulsoIdentificacao}
-              autoCapitalize="words"
-              maxLength={AVULSO_IDENT_MAX}
-              editable={!loading}
-            />
-            <Text style={[styles.modalMessage, { marginTop: 4 }]}>
-              Quantidade (máx. {AVULSO_QTD_MAX})
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="1"
-              placeholderTextColor={colors.textSecondary}
-              value={avulsoQuantidade}
-              onChangeText={setAvulsoQuantidade}
-              keyboardType="number-pad"
-              maxLength={2}
-              editable={!loading}
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalBtnCancel}
-                onPress={() => setAvulsoModalVisible(false)}
-                disabled={loading}
-              >
-                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalBtnPrimary}
-                onPress={() => void handleLancarAvulso()}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color={colors.primaryContrast} />
-                ) : (
-                  <Text style={styles.modalBtnPrimaryText}>Confirmar</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        loading={loading}
+        exigeFoto={effectiveAvulsoExigeFoto(currentUser)}
+        permitirFotos={effectiveAvulsoPermitirFotos(currentUser)}
+        source="entrada"
+        onClose={() => setAvulsoModalVisible(false)}
+        onConfirm={handleLancarAvulso}
+      />
     </View>
   );
 }
