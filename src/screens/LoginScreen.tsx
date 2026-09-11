@@ -27,7 +27,12 @@ import { offerBiometricAfterLogin } from "../utils/biometricOffer";
 type Props = {
   onLoginSuccess: () => void;
   onMustChangePassword?: () => void;
-  onSelectSubBase: (identifier: string, password: string, subBases: string[]) => void;
+  onSelectSubBase: (
+    identifier: string,
+    password: string,
+    subBases: string[],
+    mode?: "motoboy" | "root"
+  ) => void;
 };
 
 export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSelectSubBase }: Props) {
@@ -84,7 +89,7 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
       try {
         const res = await motoboyLogin(id, pwd);
         if (res.multiple_sub_base && res.sub_bases && res.sub_bases.length > 1) {
-          onSelectSubBase(id, pwd, res.sub_bases);
+          onSelectSubBase(id, pwd, res.sub_bases, "motoboy");
         } else if (res.access_token) {
           if (res.must_change_password && onMustChangePassword) {
             await setTokens(res.access_token, res.refresh_token);
@@ -124,6 +129,10 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
           try {
             // remember=true: access longo no backend (mobile + biometria).
             const userRes = await userLogin(id, pwd, true);
+            if (userRes.needs_sub_base_selection && userRes.sub_bases && userRes.sub_bases.length > 0) {
+              onSelectSubBase(id, pwd, userRes.sub_bases, "root");
+              return;
+            }
             if (userRes.access_token) {
               if (userRes.must_change_password && onMustChangePassword) {
                 await setTokens(userRes.access_token, null);

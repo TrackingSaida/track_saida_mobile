@@ -174,6 +174,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
     try {
+      const { clearRootLastSubBase } = await import("../services/rootSubBase");
+      await clearRootLastSubBase();
+    } catch {
+      /* ignore */
+    }
+    try {
       const { useStaffScanSessionStore } = await import("./staffScanSessionStore");
       useStaffScanSessionStore.getState().clearSession();
     } catch {
@@ -245,7 +251,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           const saved = await getSavedCredentials();
           if (saved) {
             try {
-              const { motoboyLogin, userLogin } = await import("../api/auth");
+              const { motoboyLogin, userLogin, rootSelectSubBase } = await import("../api/auth");
               try {
                 const res = await motoboyLogin(saved.identifier, saved.password);
                 if (res.access_token && !res.multiple_sub_base) {
@@ -254,7 +260,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
                 }
               } catch {
                 const userRes = await userLogin(saved.identifier, saved.password, true);
-                if (userRes.access_token) {
+                if (userRes.needs_sub_base_selection) {
+                  const { getRootLastSubBase } = await import("../services/rootSubBase");
+                  const lastSubBase = await getRootLastSubBase();
+                  if (lastSubBase) {
+                    try {
+                      const rootRes = await rootSelectSubBase(
+                        saved.identifier,
+                        saved.password,
+                        lastSubBase,
+                        true
+                      );
+                      if (rootRes.access_token) {
+                        await get().setTokens(rootRes.access_token, null);
+                        renewed = true;
+                      }
+                    } catch {
+                      renewed = false;
+                    }
+                  }
+                } else if (userRes.access_token) {
                   await get().setTokens(userRes.access_token, null);
                   renewed = true;
                 }

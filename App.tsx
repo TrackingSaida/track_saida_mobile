@@ -119,7 +119,12 @@ export type RootStackParamList = {
 
 export type AuthStackParamList = {
   Login: undefined;
-  SelectSubBase: { identifier: string; password: string; subBases: string[] };
+  SelectSubBase: {
+    identifier: string;
+    password: string;
+    subBases: string[];
+    mode?: "motoboy" | "root";
+  };
 };
 
 export type MainTabParamList = {
@@ -462,11 +467,12 @@ export default function App() {
                 <LoginScreen
                   onLoginSuccess={() => {}}
                   onMustChangePassword={() => setPendingChangePassword(true)}
-                  onSelectSubBase={(identifier, password, subBases) =>
+                  onSelectSubBase={(identifier, password, subBases, mode) =>
                     navigation.navigate("SelectSubBase", {
                       identifier,
                       password,
                       subBases,
+                      mode: mode || "motoboy",
                     })
                   }
                 />
@@ -478,6 +484,7 @@ export default function App() {
                   identifier={route.params.identifier}
                   password={route.params.password}
                   subBases={route.params.subBases}
+                  mode={route.params.mode || "motoboy"}
                   onSuccess={() => {}}
                   onMustChangePassword={() => setPendingChangePassword(true)}
                   onBack={() => navigation.goBack()}
