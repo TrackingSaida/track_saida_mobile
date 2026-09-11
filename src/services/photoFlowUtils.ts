@@ -16,7 +16,7 @@ export type PhotoPickResult = {
 };
 
 export type PhotoFlowKind = "entregue" | "ausente" | "avulso" | "devolucao";
-export type AvulsoPhotoSource = "scan" | "saidas";
+export type AvulsoPhotoSource = "scan" | "saidas" | "coleta" | "entrada";
 
 export type EntregueDraftFields = {
   tipoRecebedor: string;
@@ -174,5 +174,6 @@ export function parseTipoDocumento(value: unknown): "RG" | "CPF" {
 }
 
 export function parseAvulsoSource(value: unknown): AvulsoPhotoSource {
-  return value === "saidas" ? "saidas" : "scan";
+  if (value === "saidas" || value === "coleta" || value === "entrada") return value;
+  return "scan";
 }

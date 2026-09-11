@@ -27,7 +27,7 @@ import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeDigitarCodigoManual, effectivePodeLancarAvulso, effectiveAvulsoExigeFoto } from "../../../utils/role";
+import { effectivePodeDigitarCodigoManual, effectivePodeLancarAvulso, effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import type { EntregaListItem } from "../types";
@@ -446,6 +446,7 @@ export default function ScanScreen({ navigation, route }: Props) {
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
   const avulsoExigeFoto = effectiveAvulsoExigeFoto(currentUser);
+  const avulsoPermitirFotos = effectiveAvulsoPermitirFotos(currentUser);
   const [permission, requestPermission] = useCameraPermissions();
   const isFocused = useIsFocused();
   // Desliga tocha e libera hardware enquanto o modal de avulso usa ImagePicker.
@@ -944,6 +945,7 @@ export default function ScanScreen({ navigation, route }: Props) {
       visible={showAvulsoModal}
       loading={loading}
       exigeFoto={avulsoExigeFoto}
+      permitirFotos={avulsoPermitirFotos}
       source="scan"
       onClose={() => setShowAvulsoModal(false)}
       onConfirm={handleLancarAvulso}
