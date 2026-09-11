@@ -50,6 +50,7 @@ import {
 import { parseCodigoQrRaw, inferServicoSaida, classifyCodigoParaOperacao } from "../parseCodigoQr";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import OperacaoFilterButton from "../components/OperacaoFilterButton";
+import OperacaoFilterSheet from "../components/OperacaoFilterSheet";
 import ConsultaCodigoCard from "../components/ConsultaCodigoCard";
 import ConsultaPacoteDetailModal from "../components/ConsultaPacoteDetailModal";
 import OperacaoEmptyState from "../components/OperacaoEmptyState";
@@ -415,19 +416,6 @@ export default function ConsultaCodigosScreen() {
           backgroundColor: colors.inputBackground,
           marginBottom: 8,
         },
-        sheetOverlay: {
-          flex: 1,
-          backgroundColor: "rgba(0,0,0,0.45)",
-          justifyContent: "flex-end",
-        },
-        sheet: {
-          backgroundColor: colors.backgroundCard,
-          borderTopLeftRadius: 18,
-          borderTopRightRadius: 18,
-          padding: 20,
-          paddingBottom: Platform.OS === "ios" ? 32 : 20,
-        },
-        sheetTitle: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 14 },
         pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
         pill: {
           paddingHorizontal: 12,
@@ -439,7 +427,6 @@ export default function ConsultaCodigosScreen() {
         pillActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
         pillText: { fontSize: 14, color: colors.textSecondary },
         pillTextActive: { color: colors.primary, fontWeight: "600" },
-        sheetActions: { flexDirection: "row", gap: 10, marginTop: 16 },
         sheetBtnSecondary: {
           flex: 1,
           paddingVertical: 14,
@@ -1563,84 +1550,66 @@ export default function ConsultaCodigosScreen() {
         </View>
       </Modal>
 
-      <Modal visible={filterSheetVisible} transparent animationType="slide">
-        <View style={styles.sheetOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={() => setFilterSheetVisible(false)} />
-          <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>Filtros</Text>
-            <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 8 }}>Status</Text>
-            <View style={styles.pillRow}>
-              {(
-                [
-                  { key: "" as const, label: "Todos" },
-                  { key: "NA_BASE" as const, label: "Na base" },
-                  { key: "Saiu para entrega" as const, label: "Em rota" },
-                  { key: "Entregue" as const, label: "Entregue" },
-                ] as const
-              ).map((opt) => (
-                <TouchableOpacity
-                  key={opt.key || "all"}
-                  style={[styles.pill, draftStatus === opt.key && styles.pillActive]}
-                  onPress={() => setDraftStatus(opt.key)}
-                >
-                  <Text style={[styles.pillText, draftStatus === opt.key && styles.pillTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 8 }}>Período</Text>
-            <View style={styles.pillRow}>
-              {(
-                [
-                  { key: "none" as const, label: "Qualquer" },
-                  { key: "today" as const, label: "Hoje" },
-                  { key: "7d" as const, label: "Últimos 7 dias" },
-                ] as const
-              ).map((opt) => (
-                <TouchableOpacity
-                  key={opt.key}
-                  style={[styles.pill, draftPeriod === opt.key && styles.pillActive]}
-                  onPress={() => setDraftPeriod(opt.key)}
-                >
-                  <Text style={[styles.pillText, draftPeriod === opt.key && styles.pillTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={styles.sheetActions}>
-              <TouchableOpacity
-                style={styles.sheetBtnSecondary}
-                onPress={() => {
-                  setDraftStatus("");
-                  setDraftPeriod("none");
-                }}
-              >
-                <Text style={{ fontWeight: "600", color: colors.text }}>Limpar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.btnPrimary, { flex: 1 }]}
-                onPress={() => {
-                  setAppliedStatus(draftStatus);
-                  setAppliedPeriod(draftPeriod);
-                  setForcedRange(null);
-                  setFilterSheetVisible(false);
-                  void executarBusca(0, {
-                    statusOverride: draftStatus,
-                    rangeOverride:
-                      draftPeriod === "none"
-                        ? null
-                        : getPeriodRange(draftPeriod, null),
-                  });
-                }}
-              >
-                <Text style={styles.btnTextPrimary}>Aplicar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      <OperacaoFilterSheet
+        visible={filterSheetVisible}
+        onClose={() => setFilterSheetVisible(false)}
+        onClear={() => {
+          setDraftStatus("");
+          setDraftPeriod("none");
+        }}
+        onApply={() => {
+          setAppliedStatus(draftStatus);
+          setAppliedPeriod(draftPeriod);
+          setForcedRange(null);
+          setFilterSheetVisible(false);
+          void executarBusca(0, {
+            statusOverride: draftStatus,
+            rangeOverride: draftPeriod === "none" ? null : getPeriodRange(draftPeriod, null),
+          });
+        }}
+      >
+        <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 8 }}>Status</Text>
+        <View style={styles.pillRow}>
+          {(
+            [
+              { key: "" as const, label: "Todos" },
+              { key: "NA_BASE" as const, label: "Na base" },
+              { key: "Saiu para entrega" as const, label: "Em rota" },
+              { key: "Entregue" as const, label: "Entregue" },
+            ] as const
+          ).map((opt) => (
+            <TouchableOpacity
+              key={opt.key || "all"}
+              style={[styles.pill, draftStatus === opt.key && styles.pillActive]}
+              onPress={() => setDraftStatus(opt.key)}
+            >
+              <Text style={[styles.pillText, draftStatus === opt.key && styles.pillTextActive]}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      </Modal>
+        <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 8 }}>Período</Text>
+        <View style={styles.pillRow}>
+          {(
+            [
+              { key: "none" as const, label: "Qualquer" },
+              { key: "today" as const, label: "Hoje" },
+              { key: "7d" as const, label: "Últimos 7 dias" },
+            ] as const
+          ).map((opt) => (
+            <TouchableOpacity
+              key={opt.key}
+              style={[styles.pill, draftPeriod === opt.key && styles.pillActive]}
+              onPress={() => setDraftPeriod(opt.key)}
+            >
+              <Text style={[styles.pillText, draftPeriod === opt.key && styles.pillTextActive]}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </OperacaoFilterSheet>
 
       <ConsultaPacoteDetailModal
         visible={detailVisible}

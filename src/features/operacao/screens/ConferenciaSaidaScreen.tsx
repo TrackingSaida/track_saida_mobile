@@ -13,19 +13,22 @@ import {
   Platform,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import OperacaoEmptyState from "../components/OperacaoEmptyState";
+import OperacaoFilterButton from "../components/OperacaoFilterButton";
+import { OperacaoPeriodoFilterSheet } from "../components/OperacaoFilterSheet";
 import { useThemeColors } from "../../../theme/colors";
 import type { StaffStackParamList } from "../../../navigation/staffStackTypes";
 import {
   buildPeriodo,
   formatDateLabel,
+  formatYmd,
   labelPeriodo,
-  parseYmd,
+  periodoFiltroAtivoCount,
   type PeriodoConsulta,
   type PeriodoPreset,
 } from "../utils/periodoConsulta";
@@ -43,14 +46,6 @@ import { formatApiError } from "../../../utils/formatApiError";
 import { formatPersonName } from "../../../utils/personName";
 
 type Props = NativeStackScreenProps<StaffStackParamList, "ConferenciaSaida">;
-
-const PRESETS: { key: PeriodoPreset; label: string }[] = [
-  { key: "hoje", label: "Hoje" },
-  { key: "ontem", label: "Ontem" },
-  { key: "quinzena", label: "Quinzena atual" },
-  { key: "quinzena_anterior", label: "Quinzena anterior" },
-  { key: "outro", label: "Outro dia" },
-];
 
 const ABAS: { key: ConferenciaAba; label: string }[] = [
   { key: "pendente", label: "Pendentes" },
@@ -103,6 +98,8 @@ export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
   const colors = useThemeColors();
 
   const [periodo, setPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [draftPeriodo, setDraftPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const initialAba = route.params?.initialAba;
   const highlightMotoboyId = route.params?.motoboyId;
   const [aba, setAba] = useState<ConferenciaAba>(
@@ -150,9 +147,7 @@ export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
           borderColor: colors.inputBorder,
           backgroundColor: colors.backgroundCard,
         },
-        chipActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
         chipText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-        chipTextActive: { color: colors.primary },
         periodoLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 12 },
         search: {
           borderWidth: 1,
@@ -378,46 +373,45 @@ export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
     }
   };
 
-  const onPreset = (key: PeriodoPreset) => {
+  const onSelectDraftPreset = (key: PeriodoPreset) => {
     if (key === "outro") {
       setShowDatePicker(true);
       return;
     }
-    setPeriodo(buildPeriodo(key));
+    setDraftPeriodo(buildPeriodo(key));
   };
 
-  const onDateChange = (_: DateTimePickerEvent, date?: Date) => {
+  const onDateChange = (event: DateTimePickerEvent, date?: Date) => {
     if (Platform.OS === "android") setShowDatePicker(false);
+    if (event.type === "dismissed") {
+      if (Platform.OS === "ios") setShowDatePicker(false);
+      return;
+    }
     if (!date) return;
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const d = String(date.getDate()).padStart(2, "0");
-    setPeriodo(buildPeriodo("outro", `${y}-${m}-${d}`));
+    setDraftPeriodo(buildPeriodo("outro", formatYmd(date)));
     if (Platform.OS === "ios") setShowDatePicker(false);
   };
 
   return (
     <View style={styles.container}>
-      <ScreenHeaderBar title="Conferência de saída" onBack={() => navigation.goBack()} />
+      <ScreenHeaderBar
+        title="Conferência de saída"
+        onBack={() => navigation.goBack()}
+        rightElement={
+          <OperacaoFilterButton
+            activeCount={periodoFiltroAtivoCount(periodo)}
+            onPress={() => {
+              setDraftPeriodo(periodo);
+              setFilterSheetVisible(true);
+            }}
+          />
+        }
+      />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.fieldLabel}>Período</Text>
-        <View style={styles.chipsRow}>
-          {PRESETS.map((p) => (
-            <TouchableOpacity
-              key={p.key}
-              style={[styles.chip, periodo.preset === p.key && styles.chipActive]}
-              onPress={() => onPreset(p.key)}
-            >
-              <Text style={[styles.chipText, periodo.preset === p.key && styles.chipTextActive]}>
-                {p.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
         <Text style={styles.periodoLabel}>
           {labelPeriodo(periodo)} ({formatDateLabel(periodo.dataInicio)}
           {periodo.dataInicio !== periodo.dataFim ? ` – ${formatDateLabel(periodo.dataFim)}` : ""})
@@ -496,14 +490,23 @@ export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
         )}
       </ScrollView>
 
-      {showDatePicker ? (
-        <DateTimePicker
-          value={parseYmd(periodo.dataInicio) || new Date()}
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={onDateChange}
-        />
-      ) : null}
+      <OperacaoPeriodoFilterSheet
+        visible={filterSheetVisible}
+        draft={draftPeriodo}
+        showDatePicker={showDatePicker}
+        onClose={() => {
+          setFilterSheetVisible(false);
+          setShowDatePicker(false);
+        }}
+        onClear={() => setDraftPeriodo(buildPeriodo("hoje"))}
+        onApply={() => {
+          setPeriodo(draftPeriodo);
+          setFilterSheetVisible(false);
+          setShowDatePicker(false);
+        }}
+        onSelectPreset={onSelectDraftPreset}
+        onDateChange={onDateChange}
+      />
 
       <Modal visible={!!detail || detailLoading} transparent animationType="slide" onRequestClose={() => setDetail(null)}>
         <View style={styles.modalOverlay}>
