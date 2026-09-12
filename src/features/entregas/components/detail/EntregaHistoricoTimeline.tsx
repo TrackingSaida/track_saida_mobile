@@ -53,6 +53,14 @@ export default function EntregaHistoricoTimeline({
       .toLowerCase()
       .replace(/\s+/g, "_") === "lancar_avulso";
 
+  const isEventoOrigemAvulso = (evento?: string | null) => {
+    const e = String(evento || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+    return e === "lancar_avulso" || e === "criado_coleta" || e === "entrada_base";
+  };
+
   const lastEntregaIndex = useMemo(
     () => findLastHistoricoIndexByKeys(historico, isEventoEntrega),
     [historico]
@@ -61,10 +69,11 @@ export default function EntregaHistoricoTimeline({
     () => findLastHistoricoIndexByKeys(historico, isEventoAusencia),
     [historico]
   );
-  const lastAvulsoIndex = useMemo(
-    () => findLastHistoricoIndexByKeys(historico, isEventoLancarAvulso),
-    [historico]
-  );
+  const lastAvulsoIndex = useMemo(() => {
+    const pure = findLastHistoricoIndexByKeys(historico, isEventoLancarAvulso);
+    if (pure >= 0) return pure;
+    return findLastHistoricoIndexByKeys(historico, isEventoOrigemAvulso);
+  }, [historico]);
 
   const styles = useMemo(
     () =>
@@ -132,7 +141,7 @@ export default function EntregaHistoricoTimeline({
           onVerComprovante &&
           ((isEventoEntrega(item.evento) && index === lastEntregaIndex) ||
             (isEventoAusencia(item.evento) && index === lastAusenciaIndex) ||
-            (isEventoLancarAvulso(item.evento) && index === lastAvulsoIndex));
+            (isEventoOrigemAvulso(item.evento) && index === lastAvulsoIndex));
 
         return (
           <View key={key} style={styles.step}>
