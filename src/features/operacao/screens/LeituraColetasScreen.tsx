@@ -59,7 +59,8 @@ import {
 } from "../coletasApi";
 import { listarBasesAtivas, type BaseItem } from "../basesApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
-import { basesParaSeletorColeta, hojeOperacaoLocal } from "../utils/coletaSituacaoUi";
+import { basesParaSeletorColeta, hojeOperacaoLocal, labelGrupoSeletorColeta, situacaoColetaBadgeColors } from "../utils/coletaSituacaoUi";
+import type { ColetaStatusFiltro } from "../utils/coletaSituacaoUi";
 import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
@@ -157,6 +158,12 @@ export default function LeituraColetasScreen() {
   const [situacaoPorNome, setSituacaoPorNome] = useState<Record<string, SituacaoBaseColeta>>({});
   const [carregandoBases, setCarregandoBases] = useState(false);
   const [modalBaseVisible, setModalBaseVisible] = useState(false);
+  const [modalNavegarVisible, setModalNavegarVisible] = useState(false);
+  const [gruposExpandidos, setGruposExpandidos] = useState<Record<ColetaStatusFiltro, boolean>>({
+    pendente: true,
+    em_coleta: true,
+    coletado: false,
+  });
   const [codigoInput, setCodigoInput] = useState("");
   const [totaisColeta, setTotaisColeta] = useState<TotaisColetaBase>(TOTAIS_VAZIOS);
   const [ultimaLeitura, setUltimaLeitura] = useState<UltimaLeituraLocal | null>(null);
@@ -261,28 +268,6 @@ export default function LeituraColetasScreen() {
           lineHeight: 20,
           marginBottom: 10,
         },
-        navActionsRow: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 8,
-          marginBottom: 4,
-        },
-        navActionChip: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          paddingVertical: 8,
-          paddingHorizontal: 12,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: colors.inputBorder,
-          backgroundColor: colors.background,
-        },
-        navActionChipText: {
-          fontSize: 13,
-          fontWeight: "600",
-          color: colors.primary,
-        },
         atualizarLink: {
           fontSize: 13,
           color: colors.primary,
@@ -323,14 +308,73 @@ export default function LeituraColetasScreen() {
           maxHeight: "88%",
         },
         pickerTitle: { fontSize: 17, fontWeight: "700", color: colors.text, marginBottom: 12 },
-        pickerGroupTitle: {
+        pickerGroupToggle: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 10,
+          paddingHorizontal: 4,
+          marginTop: 4,
+          marginBottom: 4,
+        },
+        pickerGroupHeading: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          flex: 1,
+        },
+        pickerGroupBadge: {
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 999,
+          borderWidth: 1,
+        },
+        pickerGroupBadgeText: {
           fontSize: 12,
+          fontWeight: "800",
+        },
+        pickerGroupCount: {
+          fontSize: 13,
           fontWeight: "700",
           color: colors.textSecondary,
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
-          marginTop: 8,
+          minWidth: 22,
+          textAlign: "center",
+        },
+        navegarBtn: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.background,
+          marginBottom: 4,
+        },
+        navegarBtnText: {
+          fontSize: 15,
+          fontWeight: "700",
+          color: colors.primary,
+        },
+        navSheetOption: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingVertical: 14,
+          paddingHorizontal: 14,
+          borderRadius: 12,
           marginBottom: 8,
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          backgroundColor: colors.inputBackground,
+        },
+        navSheetOptionText: {
+          fontSize: 16,
+          fontWeight: "600",
+          color: colors.text,
+          flex: 1,
         },
         pickerItem: {
           paddingVertical: 14,
@@ -998,9 +1042,26 @@ export default function LeituraColetasScreen() {
         Alert.alert("Atenção", "Endereço indisponível para este cadastro.");
         return;
       }
+      setModalNavegarVisible(false);
       await openNavigationByAddress(app, enderecoSelecionado);
     },
     [enderecoSelecionado]
+  );
+
+  const toggleGrupoPicker = useCallback((status: ColetaStatusFiltro) => {
+    setGruposExpandidos((prev) => ({ ...prev, [status]: !prev[status] }));
+  }, []);
+
+  const gruposPicker = useMemo(
+    () =>
+      (
+        [
+          { status: "pendente" as const, items: basesPendentesPicker },
+          { status: "em_coleta" as const, items: basesEmColetaPicker },
+          { status: "coletado" as const, items: basesColetadasPicker },
+        ] as const
+      ).filter((g) => g.items.length > 0),
+    [basesPendentesPicker, basesEmColetaPicker, basesColetadasPicker]
   );
 
   const feedbackColors = useCallback((tipo: FeedbackTipo) => {
@@ -1536,35 +1597,22 @@ export default function LeituraColetasScreen() {
         {baseSelecionadaOk && enderecoSelecionado ? (
           <>
             <Text style={styles.enderecoTexto}>{enderecoSelecionado}</Text>
-            <View style={styles.navActionsRow}>
-              {navOptions.map((opt) => (
-                <TouchableOpacity
-                  key={opt.id}
-                  style={styles.navActionChip}
-                  onPress={() => void handleNavEndereco(opt.id)}
-                  accessibilityLabel={opt.label}
-                  accessibilityRole="button"
-                >
-                  <Ionicons
-                    name={
-                      opt.id === "copy"
-                        ? "copy-outline"
-                        : opt.id === "waze"
-                          ? "navigate-outline"
-                          : "map-outline"
-                    }
-                    size={16}
-                    color={colors.primary}
-                  />
-                  <Text style={styles.navActionChipText}>{opt.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <TouchableOpacity
+              style={styles.navegarBtn}
+              onPress={() => setModalNavegarVisible(true)}
+              accessibilityLabel="Navegar até endereço"
+              accessibilityRole="button"
+            >
+              <Ionicons name="navigate-outline" size={18} color={colors.primary} />
+              <Text style={styles.navegarBtnText}>Navegar até endereço</Text>
+              <Ionicons name="chevron-down" size={18} color={colors.primary} />
+            </TouchableOpacity>
           </>
         ) : null}
         <TouchableOpacity
           style={[styles.baseCta, baseSelecionadaOk && enderecoSelecionado ? { marginTop: 12 } : null]}
           onPress={() => {
+            setGruposExpandidos({ pendente: true, em_coleta: true, coletado: false });
             setModalBaseVisible(true);
             void carregarSituacao();
           }}
@@ -1911,118 +1959,130 @@ export default function LeituraColetasScreen() {
                 <Text style={[styles.infoText, { paddingVertical: 16 }]}>
                   Nenhum{ownerTipoBase ? "" : "a"} {entidadeLabelLower} ativ{ownerTipoBase ? "o" : "a"} disponível.
                 </Text>
-              ) : basesParaPicker.length === 0 ? (
-                <Text style={[styles.infoText, { paddingVertical: 16 }]}>
-                  Nenhum{ownerTipoBase ? "" : "a"} {entidadeLabelLower} pendente para coletar hoje.
-                </Text>
               ) : (
                 <>
-                  {basesPendentesPicker.length > 0 ? (
-                    <>
-                      <Text style={styles.pickerGroupTitle}>Pendentes</Text>
-                      {basesPendentesPicker.map((item) => {
-                        const ativo = base === item.base;
-                        const situacao = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
-                        return (
-                          <TouchableOpacity
-                            key={item.id_base}
-                            style={[styles.pickerItem, ativo && styles.pickerItemActive]}
-                            onPress={() => void selecionarBase(item)}
-                            accessibilityState={{ selected: ativo }}
-                          >
-                            <View style={styles.pickerItemTop}>
-                              <Text style={styles.pickerItemText}>{item.base}</Text>
-                              {situacao ? <ColetaSituacaoBadge status={situacao.status} /> : null}
+                  {gruposPicker.map((group) => {
+                    const expanded = Boolean(gruposExpandidos[group.status]);
+                    const label = labelGrupoSeletorColeta(group.status);
+                    const badgeColors = situacaoColetaBadgeColors(group.status);
+                    return (
+                      <View key={group.status}>
+                        <TouchableOpacity
+                          style={styles.pickerGroupToggle}
+                          onPress={() => toggleGrupoPicker(group.status)}
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded }}
+                          accessibilityLabel={`${label}, ${group.items.length}`}
+                        >
+                          <View style={styles.pickerGroupHeading}>
+                            <View
+                              style={[
+                                styles.pickerGroupBadge,
+                                { backgroundColor: badgeColors.bg, borderColor: badgeColors.border },
+                              ]}
+                            >
+                              <Text style={[styles.pickerGroupBadgeText, { color: badgeColors.fg }]}>
+                                {label}
+                              </Text>
                             </View>
-                            {item.endereco_completo ? (
-                              <Text style={styles.pickerItemSub} numberOfLines={2}>
-                                {item.endereco_completo}
-                              </Text>
-                            ) : null}
-                            {ativo ? (
-                              <Text style={styles.pickerItemSub}>
-                                Selecionad{ownerTipoBase ? "o" : "a"}
-                              </Text>
-                            ) : null}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </>
-                  ) : null}
-                  {basesEmColetaPicker.length > 0 ? (
-                    <>
-                      <Text style={styles.pickerGroupTitle}>Em coleta</Text>
-                      {basesEmColetaPicker.map((item) => {
-                        const ativo = base === item.base;
-                        const situacao = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
-                        const emColetaPor = nomesEmColeta(situacao);
-                        return (
-                          <TouchableOpacity
-                            key={item.id_base}
-                            style={[styles.pickerItem, ativo && styles.pickerItemActive]}
-                            onPress={() => void selecionarBase(item)}
-                            accessibilityState={{ selected: ativo }}
-                          >
-                            <View style={styles.pickerItemTop}>
-                              <Text style={styles.pickerItemText}>{item.base}</Text>
-                              {situacao ? <ColetaSituacaoBadge status={situacao.status} /> : null}
-                            </View>
-                            {emColetaPor ? (
-                              <Text style={styles.pickerItemSub} numberOfLines={2}>
-                                Em coleta por {emColetaPor}
-                              </Text>
-                            ) : null}
-                            {item.endereco_completo ? (
-                              <Text style={styles.pickerItemSub} numberOfLines={2}>
-                                {item.endereco_completo}
-                              </Text>
-                            ) : null}
-                            {ativo ? (
-                              <Text style={styles.pickerItemSub}>
-                                Selecionad{ownerTipoBase ? "o" : "a"}
-                              </Text>
-                            ) : null}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </>
-                  ) : null}
-                  {basesColetadasPicker.length > 0 ? (
-                    <>
-                      <Text style={styles.pickerGroupTitle}>Selecionad{ownerTipoBase ? "o" : "a"}</Text>
-                      {basesColetadasPicker.map((item) => {
-                        const ativo = base === item.base;
-                        const situacao = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
-                        return (
-                          <TouchableOpacity
-                            key={item.id_base}
-                            style={[styles.pickerItem, ativo && styles.pickerItemActive]}
-                            onPress={() => void selecionarBase(item)}
-                            accessibilityState={{ selected: ativo }}
-                          >
-                            <View style={styles.pickerItemTop}>
-                              <Text style={styles.pickerItemText}>{item.base}</Text>
-                              {situacao ? <ColetaSituacaoBadge status={situacao.status} /> : null}
-                            </View>
-                            {item.endereco_completo ? (
-                              <Text style={styles.pickerItemSub} numberOfLines={2}>
-                                {item.endereco_completo}
-                              </Text>
-                            ) : null}
-                            {ativo ? (
-                              <Text style={styles.pickerItemSub}>
-                                Selecionad{ownerTipoBase ? "o" : "a"}
-                              </Text>
-                            ) : null}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </>
-                  ) : null}
+                            <Text style={styles.pickerGroupCount}>{group.items.length}</Text>
+                          </View>
+                          <Ionicons
+                            name={expanded ? "chevron-up" : "chevron-down"}
+                            size={20}
+                            color={colors.textSecondary}
+                          />
+                        </TouchableOpacity>
+                        {expanded
+                          ? group.items.map((item) => {
+                              const ativo = base === item.base;
+                              const situacao =
+                                situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
+                              const emColetaPor =
+                                group.status === "em_coleta" ? nomesEmColeta(situacao) : "";
+                              return (
+                                <TouchableOpacity
+                                  key={item.id_base}
+                                  style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                                  onPress={() => void selecionarBase(item)}
+                                  accessibilityState={{ selected: ativo }}
+                                >
+                                  <View style={styles.pickerItemTop}>
+                                    <Text style={styles.pickerItemText}>{item.base}</Text>
+                                    {situacao ? (
+                                      <ColetaSituacaoBadge status={situacao.status} />
+                                    ) : null}
+                                  </View>
+                                  {emColetaPor ? (
+                                    <Text style={styles.pickerItemSub} numberOfLines={2}>
+                                      Em coleta por {emColetaPor}
+                                    </Text>
+                                  ) : null}
+                                  {item.endereco_completo ? (
+                                    <Text style={styles.pickerItemSub} numberOfLines={2}>
+                                      {item.endereco_completo}
+                                    </Text>
+                                  ) : null}
+                                  {ativo ? (
+                                    <Text style={styles.pickerItemSub}>
+                                      Selecionad{ownerTipoBase ? "o" : "a"}
+                                    </Text>
+                                  ) : null}
+                                </TouchableOpacity>
+                              );
+                            })
+                          : null}
+                      </View>
+                    );
+                  })}
                 </>
               )}
             </ScrollView>
             <TouchableOpacity style={styles.pickerClose} onPress={() => setModalBaseVisible(false)}>
+              <Text style={styles.pickerCloseText}>Cancelar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={modalNavegarVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setModalNavegarVisible(false)}
+      >
+        <Pressable style={styles.pickerOverlay} onPress={() => setModalNavegarVisible(false)}>
+          <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.pickerTitle}>Navegar até endereço</Text>
+            {enderecoSelecionado ? (
+              <Text style={[styles.pickerItemSub, { marginBottom: 12 }]} numberOfLines={3}>
+                {enderecoSelecionado}
+              </Text>
+            ) : null}
+            {navOptions.map((opt) => (
+              <TouchableOpacity
+                key={opt.id}
+                style={styles.navSheetOption}
+                onPress={() => void handleNavEndereco(opt.id)}
+                accessibilityLabel={opt.label}
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name={
+                    opt.id === "copy"
+                      ? "copy-outline"
+                      : opt.id === "waze"
+                        ? "navigate-outline"
+                        : "map-outline"
+                  }
+                  size={20}
+                  color={colors.primary}
+                />
+                <Text style={styles.navSheetOptionText}>{opt.label}</Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.pickerClose} onPress={() => setModalNavegarVisible(false)}>
               <Text style={styles.pickerCloseText}>Cancelar</Text>
             </TouchableOpacity>
           </Pressable>
