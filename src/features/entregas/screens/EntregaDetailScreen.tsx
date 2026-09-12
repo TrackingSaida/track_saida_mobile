@@ -393,7 +393,9 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   }, [entrega?.codigo, entrega?.servico, etiquetaUri, idSaida]);
 
   const handleGerarEtiqueta = useCallback(() => {
-    if (isMercadoLivre && !entrega?.tem_qr_etiqueta) {
+    // Só avisa quando o backend confirma ausência explícita do QR.
+    // Campo omitido/undefined não deve gerar alerta falso.
+    if (isMercadoLivre && entrega?.tem_qr_etiqueta === false) {
       Alert.alert(
         "Etiqueta Mercado Livre",
         "O QR completo ainda não foi salvo. Bipe o QR do Mercado Livre na leitura para etiqueta completa. Deseja gerar mesmo assim?",
