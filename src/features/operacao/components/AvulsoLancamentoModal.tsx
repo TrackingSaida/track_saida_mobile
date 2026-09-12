@@ -423,7 +423,7 @@ export default function AvulsoLancamentoModal({
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Text style={styles.title}>Lançar Avulso</Text>
 
-            <Text style={styles.label}>Identificação (opcional)</Text>
+            <Text style={styles.label}>Identificação</Text>
             <Text style={styles.help}>{AVULSO_IDENT_AJUDA}</Text>
             <TextInput
               style={styles.input}
@@ -451,11 +451,13 @@ export default function AvulsoLancamentoModal({
 
             {permitirFotos ? <View style={styles.fotoSection}>
               <View style={styles.fotoHeader}>
-                <Text style={styles.label}>Fotos</Text>
+                <Text style={styles.label}>
+                  Imagem{exigeFoto ? "" : " (opcional)"}
+                </Text>
                 {exigeFoto ? (
                   <Text style={styles.fotoObrigatorio}>Obrigatório</Text>
                 ) : (
-                  <Text style={styles.fotoOpcional}>Opcional · até {MAX_FOTOS_AVULSO}</Text>
+                  <Text style={styles.fotoOpcional}>até {MAX_FOTOS_AVULSO}</Text>
                 )}
               </View>
 
