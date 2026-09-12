@@ -50,16 +50,15 @@ export function statusSeletorDeSituacao(situacao?: SituacaoStatusRef): ColetaSta
 }
 
 /**
- * Lista do seletor de coleta: oculta coletadas (exceto a já selecionada),
- * pendentes primeiro e em coleta no final; A–Z dentro de cada grupo.
+ * Lista do seletor de coleta (estilo web): todas as bases/sellers,
+ * pendentes → em coleta → coletadas; A–Z dentro de cada grupo.
  */
 export function basesParaSeletorColeta<T extends { id_base: number; base: string }>(
   bases: T[],
   situacaoPorBaseId: Record<number, SituacaoStatusRef>,
   situacaoPorNome: Record<string, SituacaoStatusRef>,
-  selecionadaNome?: string | null
+  _selecionadaNome?: string | null
 ): BaseSeletorItem<T>[] {
-  const selecionada = (selecionadaNome || "").trim();
   const rank = (status: ColetaStatusFiltro) => {
     if (status === "pendente") return 0;
     if (status === "em_coleta") return 1;
@@ -72,13 +71,15 @@ export function basesParaSeletorColeta<T extends { id_base: number; base: string
       const statusSeletor = statusSeletorDeSituacao(situacao);
       return { ...item, statusSeletor };
     })
-    .filter((item) => {
-      if (item.statusSeletor !== "coletado") return true;
-      return Boolean(selecionada && item.base === selecionada);
-    })
     .sort((a, b) => {
       const byStatus = rank(a.statusSeletor) - rank(b.statusSeletor);
       if (byStatus !== 0) return byStatus;
       return a.base.localeCompare(b.base, "pt-BR", { sensitivity: "base" });
     });
+}
+
+export function labelGrupoSeletorColeta(status: ColetaStatusFiltro): string {
+  if (status === "em_coleta") return "Em coleta";
+  if (status === "coletado") return "Coletadas";
+  return "Pendentes";
 }
