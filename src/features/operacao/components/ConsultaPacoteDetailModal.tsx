@@ -21,6 +21,7 @@ import {
   fetchComprovanteImagesDataUris,
 } from "../../entregas/api";
 import type { SaidaDetail, SaidaHistoricoItem } from "../saidasApi";
+import { getAvulsoDetalhe } from "../saidasApi";
 import { coresBadgeServico, statusVisualSaida } from "../utils/operacaoStatusUtils";
 import {
   findLastHistoricoIndexByKeys,
@@ -64,6 +65,9 @@ export default function ConsultaPacoteDetailModal({
   const colors = useThemeColors();
   const [comprovanteUris, setComprovanteUris] = useState<string[]>([]);
   const [comprovanteLoading, setComprovanteLoading] = useState(false);
+  const [avulsoCampos, setAvulsoCampos] = useState<Record<string, string>>({});
+  const [avulsoOrigem, setAvulsoOrigem] = useState<string | null>(null);
+  const [avulsoLabel, setAvulsoLabel] = useState<string | null>(null);
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
   const [comprovanteViewerIndex, setComprovanteViewerIndex] = useState(0);
   const [sharingComprovante, setSharingComprovante] = useState(false);
@@ -88,6 +92,9 @@ export default function ConsultaPacoteDetailModal({
       setShowComprovanteViewer(false);
       setComprovanteViewerIndex(0);
       setSharingComprovante(false);
+      setAvulsoCampos({});
+      setAvulsoOrigem(null);
+      setAvulsoLabel(null);
       return;
     }
     if (!precisaComprovante || idSaida == null) {
@@ -117,6 +124,32 @@ export default function ConsultaPacoteDetailModal({
       cancelled = true;
     };
   }, [visible, precisaComprovante, idSaida]);
+
+  useEffect(() => {
+    if (!visible || idSaida == null) return;
+    const serv = String(detail?.servico || "").toLowerCase();
+    const codigo = String(detail?.codigo || "").toUpperCase();
+    if (!serv.includes("avulso") && !codigo.startsWith("AVULSO-")) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const avulso = await getAvulsoDetalhe(idSaida);
+        if (cancelled) return;
+        setAvulsoCampos(avulso.campos || {});
+        setAvulsoOrigem(avulso.origem_label || null);
+        setAvulsoLabel(avulso.label || null);
+      } catch {
+        if (!cancelled) {
+          setAvulsoCampos({});
+          setAvulsoOrigem(null);
+          setAvulsoLabel(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, idSaida, detail?.servico, detail?.codigo]);
 
   const handleVerComprovante = useCallback((index: number) => {
     if (comprovanteUris.length > 0) {
@@ -292,6 +325,21 @@ export default function ConsultaPacoteDetailModal({
                     </Text>
                   </View>
                 </View>
+
+                {avulsoLabel || avulsoOrigem || Object.keys(avulsoCampos).length ? (
+                  <View style={{ marginBottom: 14 }}>
+                    <Text style={[styles.fieldLabel, { marginBottom: 6 }]}>Identificação do avulso</Text>
+                    {avulsoLabel ? <Text style={styles.fieldValue}>{avulsoLabel}</Text> : null}
+                    {avulsoOrigem ? (
+                      <Text style={[styles.fieldValue, { marginTop: 4 }]}>Origem: {avulsoOrigem}</Text>
+                    ) : null}
+                    {Object.entries(avulsoCampos).map(([k, v]) => (
+                      <Text key={k} style={[styles.fieldValue, { marginTop: 4 }]}>
+                        {k}: {v}
+                      </Text>
+                    ))}
+                  </View>
+                ) : null}
 
                 <ConsultaPacoteHistoricoTimeline
                   historico={historico}

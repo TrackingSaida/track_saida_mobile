@@ -35,6 +35,10 @@ import {
   saveAvulsoPhotoDraft,
 } from "../../../services/deliveryPhotoDraft";
 import type { AvulsoPhotoSource } from "../../../services/photoFlowUtils";
+import {
+  schemaCamposAvulso,
+  type AvulsoCampoSchema,
+} from "../saidasApi";
 
 const MAX_FOTOS_AVULSO = 3;
 
@@ -57,12 +61,18 @@ type Props = {
   source?: AvulsoPhotoSource;
   /** Coletas e entradas não utilizam comprovante no lançamento avulso. */
   permitirFotos?: boolean;
+  /** Contexto do schema dinâmico (COLETA_AVULSO | ENTRADA_AVULSO | SAIDA_AVULSO). */
+  contextoCampos?: string;
+  /** Cadastro excepcional na saída (exige motivo). */
+  modoExcepcional?: boolean;
   onClose: () => void;
   onConfirm: (payload: {
     identificacao: string | null;
     quantidade: number;
     fotoObjectKeys: string[];
     photoIds: string[];
+    campos?: Record<string, string>;
+    motivo_excepcional?: string;
   }) => void | Promise<void>;
 };
 
@@ -109,12 +119,17 @@ export default function AvulsoLancamentoModal({
   exigeFoto,
   source = "scan",
   permitirFotos = true,
+  contextoCampos = "SAIDA_AVULSO",
+  modoExcepcional = false,
   onClose,
   onConfirm,
 }: Props) {
   const colors = useThemeColors();
   const [identificacao, setIdentificacao] = useState("");
   const [quantidade, setQuantidade] = useState("1");
+  const [motivo, setMotivo] = useState("");
+  const [camposCfg, setCamposCfg] = useState<AvulsoCampoSchema[]>([]);
+  const [camposValores, setCamposValores] = useState<Record<string, string>>({});
   const [fotos, setFotos] = useState<AvulsoFotoLocal[]>([]);
   const [capturando, setCapturando] = useState(false);
   const [enviando, setEnviando] = useState(false);
@@ -132,6 +147,12 @@ export default function AvulsoLancamentoModal({
     }
     let cancelled = false;
     void (async () => {
+      try {
+        const schema = await schemaCamposAvulso(contextoCampos);
+        if (!cancelled) setCamposCfg(schema);
+      } catch {
+        if (!cancelled) setCamposCfg([]);
+      }
       const draft = permitirFotos ? await loadAvulsoPhotoDraft(source) : null;
       if (cancelled) return;
       if (draft && draft.photos.length > 0) {
@@ -151,6 +172,8 @@ export default function AvulsoLancamentoModal({
         setFotos([]);
         uploadedByLocalIdRef.current = {};
       }
+      setMotivo("");
+      setCamposValores({});
       setCapturando(false);
       setEnviando(false);
       setStatusEnvio(null);
@@ -160,7 +183,7 @@ export default function AvulsoLancamentoModal({
     return () => {
       cancelled = true;
     };
-  }, [visible, source, permitirFotos]);
+  }, [visible, source, permitirFotos, contextoCampos]);
 
   useEffect(() => {
     if (!visible || !draftReady || !permitirFotos) return;
@@ -195,8 +218,26 @@ export default function AvulsoLancamentoModal({
           borderColor: colors.inputBorder,
         },
         title: { fontSize: 18, fontWeight: "800", color: colors.text, marginBottom: 12 },
+        banner: {
+          backgroundColor: "rgba(255,193,7,0.18)",
+          borderRadius: 10,
+          padding: 10,
+          marginBottom: 12,
+        },
+        bannerText: { fontSize: 13, color: colors.text, fontWeight: "600" },
         label: { fontSize: 13, fontWeight: "600", color: colors.text, marginBottom: 4 },
         help: { fontSize: 12, color: colors.textSecondary, marginBottom: 8 },
+        chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
+        chip: {
+          borderWidth: 1,
+          borderColor: colors.inputBorder,
+          borderRadius: 16,
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+        },
+        chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+        chipText: { fontSize: 13, color: colors.text },
+        chipTextOn: { color: colors.primaryContrast, fontWeight: "700" },
         input: {
           backgroundColor: colors.inputBackground,
           borderWidth: 1,
@@ -339,6 +380,17 @@ export default function AvulsoLancamentoModal({
       Alert.alert("Atenção", validacao.message);
       return;
     }
+    if (modoExcepcional && !motivo.trim()) {
+      Alert.alert("Motivo obrigatório", "Informe o motivo do cadastro fora do fluxo normal.");
+      return;
+    }
+    for (const c of camposCfg) {
+      const v = (camposValores[c.chave] || "").trim();
+      if (c.obrigatorio && !v && !(c.chave === "identificacao" && validacao.identificacao)) {
+        Alert.alert("Campo obrigatório", `Preencha: ${c.label}`);
+        return;
+      }
+    }
     if (permitirFotos && exigeFoto && fotos.length === 0) {
       Alert.alert("Foto obrigatória", "Tire ao menos uma foto antes de lançar o avulso.");
       return;
@@ -387,12 +439,20 @@ export default function AvulsoLancamentoModal({
         });
       }
 
+      const camposPayload: Record<string, string> = {};
+      for (const [k, v] of Object.entries(camposValores)) {
+        const t = String(v || "").trim();
+        if (t) camposPayload[k] = t;
+      }
+
       setStatusEnvio("Concluindo lançamento...");
       await onConfirm({
         identificacao: validacao.identificacao,
         quantidade: validacao.quantidade,
         fotoObjectKeys,
         photoIds,
+        ...(Object.keys(camposPayload).length ? { campos: camposPayload } : {}),
+        ...(modoExcepcional ? { motivo_excepcional: motivo.trim() } : {}),
       });
       uploadedByLocalIdRef.current = {};
       await clearAvulsoPhotoDraft();
@@ -409,7 +469,19 @@ export default function AvulsoLancamentoModal({
       setStatusEnvio(null);
       submitLockRef.current = false;
     }
-  }, [identificacao, quantidade, exigeFoto, fotos, onConfirm, permitirFotos, source]);
+  }, [
+    identificacao,
+    quantidade,
+    exigeFoto,
+    fotos,
+    onConfirm,
+    permitirFotos,
+    source,
+    modoExcepcional,
+    motivo,
+    camposCfg,
+    camposValores,
+  ]);
 
   const handleDescartar = useCallback(() => {
     void clearAvulsoPhotoDraft();
@@ -421,7 +493,28 @@ export default function AvulsoLancamentoModal({
       <View style={styles.overlay}>
         <View style={styles.card}>
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <Text style={styles.title}>Lançar Avulso</Text>
+            <Text style={styles.title}>
+              {modoExcepcional ? "Avulso não registrado" : "Lançar Avulso"}
+            </Text>
+
+            {modoExcepcional ? (
+              <>
+                <Text style={[styles.help, { color: colors.warning || "#B45309" }]}>
+                  Fora do fluxo normal. Informe o motivo.
+                </Text>
+                <Text style={styles.label}>Motivo *</Text>
+                <TextInput
+                  style={[styles.input, { minHeight: 64, textAlignVertical: "top" }]}
+                  placeholder="Por que não foi registrado na coleta/entrada?"
+                  placeholderTextColor={colors.placeholder}
+                  value={motivo}
+                  onChangeText={setMotivo}
+                  editable={!busy}
+                  multiline
+                  maxLength={500}
+                />
+              </>
+            ) : null}
 
             <Text style={styles.label}>Identificação</Text>
             <Text style={styles.help}>{AVULSO_IDENT_AJUDA}</Text>
@@ -436,6 +529,28 @@ export default function AvulsoLancamentoModal({
               autoCapitalize="words"
               autoCorrect={false}
             />
+
+            {camposCfg.map((c) => (
+              <View key={c.chave}>
+                <Text style={styles.label}>
+                  {c.label}
+                  {c.obrigatorio ? " *" : ""}
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={c.label}
+                  placeholderTextColor={colors.placeholder}
+                  value={camposValores[c.chave] || ""}
+                  onChangeText={(t) =>
+                    setCamposValores((prev) => ({ ...prev, [c.chave]: t }))
+                  }
+                  editable={!busy}
+                  keyboardType={
+                    c.tipo === "numero" ? "decimal-pad" : c.tipo === "telefone" ? "phone-pad" : "default"
+                  }
+                />
+              </View>
+            ))}
 
             <Text style={styles.label}>Quantidade (máx. {AVULSO_QTD_MAX})</Text>
             <TextInput

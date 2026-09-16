@@ -408,6 +408,8 @@ export async function lancarAvulsoMobile(body: {
   photo_id?: string;
   foto_object_keys?: string[];
   photo_ids?: string[];
+  campos?: Record<string, string>;
+  motivo_excepcional?: string;
 }): Promise<LancarAvulsoResult> {
   const { data } = await client.post<LancarAvulsoResult>("/pedidos/lancar-avulso", body);
   return data;

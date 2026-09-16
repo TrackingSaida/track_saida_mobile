@@ -591,6 +591,7 @@ export default function LeituraEntradasScreen() {
       quantidade: number;
       fotoObjectKeys: string[];
       photoIds: string[];
+      campos?: Record<string, string>;
     }) => {
       setLoading(true);
       try {
@@ -599,6 +600,7 @@ export default function LeituraEntradasScreen() {
           quantidade: payload.quantidade,
           fotoObjectKeys: payload.fotoObjectKeys,
           photoIds: payload.photoIds,
+          campos: payload.campos,
         });
         const novos = (res.saidas ?? []).map((s) => ({
           codigo: String(s.codigo ?? ""),
@@ -927,6 +929,7 @@ export default function LeituraEntradasScreen() {
         exigeFoto={effectiveAvulsoExigeFoto(currentUser)}
         permitirFotos={effectiveAvulsoPermitirFotos(currentUser)}
         source="entrada"
+        contextoCampos="ENTRADA_AVULSO"
         onClose={() => setAvulsoModalVisible(false)}
         onConfirm={handleLancarAvulso}
       />

@@ -1434,6 +1434,7 @@ export default function LeituraColetasScreen() {
       quantidade: number;
       fotoObjectKeys: string[];
       photoIds: string[];
+      campos?: Record<string, string>;
     }) => {
       const baseTrimmed = base.trim();
       if (!baseTrimmed) {
@@ -1448,6 +1449,7 @@ export default function LeituraColetasScreen() {
           quantidade: payload.quantidade,
           fotoObjectKeys: payload.fotoObjectKeys,
           photoIds: payload.photoIds,
+          campos: payload.campos,
         });
         const ultimoCodigo = result.codigos.at(-1) || result.saidas.at(-1)?.codigo || "";
         if (ultimoCodigo) {
@@ -2165,6 +2167,7 @@ export default function LeituraColetasScreen() {
         exigeFoto={effectiveAvulsoExigeFoto(currentUser)}
         permitirFotos={effectiveAvulsoPermitirFotos(currentUser)}
         source="coleta"
+        contextoCampos="COLETA_AVULSO"
         onClose={() => setAvulsoModalVisible(false)}
         onConfirm={handleLancarAvulso}
       />
