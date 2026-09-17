@@ -57,7 +57,10 @@ export function classifyCodigoParaOperacao(rawInput: string): ClassifyCodigoOper
 
   const p = parseCodigoQrRaw(rawInputStr);
   if (p.fonte === "fallback") {
-    return { ok: false, motivo: "Código não reconhecido. Use etiqueta Shopee, Mercado Livre ou avulso válido." };
+    return {
+      ok: false,
+      motivo: "Código não reconhecido. Use etiqueta Shopee, Mercado Livre, envio próprio (RTE) ou avulso válido.",
+    };
   }
 
   const codigo = p.codigo.trim();
@@ -155,6 +158,11 @@ export function parseCodigoQrRaw(rawInput: string): ParseCodigoQrResult {
 
   if (/^AVULSO(-[A-Z0-9-]+)?$/i.test(raw)) {
     return { codigo: raw, fonte: "estruturado" };
+  }
+
+  // Envio próprio ROTEVO (ex.: RTE25082600001) — tratado como Avulso na operação.
+  if (/^RTE[0-9]{11,}$/i.test(raw)) {
+    return { codigo: raw.toUpperCase(), fonte: "estruturado" };
   }
 
   const sh = raw.match(/(?:^|[^A-Z0-9])(BR(?:\d{13}|\d{12}[A-Z]))(?=$|[^A-Z0-9])/i);

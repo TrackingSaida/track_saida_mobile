@@ -22,6 +22,7 @@ function labelStatusAmigavel(status?: string): string | null {
     .replace(/_/g, " ");
   if (!t) return null;
   if (t === "na base") return "Na base";
+  if (t === "etiquetado") return "Etiqueta gerada";
   if (t === "entregue") return "Entregue";
   if (t.includes("saiu") || t === "em rota") return "Em rota";
   return status!.trim();

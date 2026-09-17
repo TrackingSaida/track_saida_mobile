@@ -36,6 +36,7 @@ import {
   effectiveAvulsoExigeFoto,
   effectiveAvulsoPermitirFotos,
   isStaffOperacaoRole,
+  ownerExigeSelecaoAvulso,
 } from "../../../utils/role";
 import {
   lerSaidaAdmin,
@@ -44,6 +45,7 @@ import {
   updateSaidaAdmin,
   confirmarNovaSaidaMesmoEntregadorAdmin,
   type MotoboyItem,
+  type AvulsoPendenteItem,
 } from "../saidasApi";
 import {
   confirmarLeituraStaff,
@@ -52,6 +54,7 @@ import {
 } from "../conferenciaApi";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
 import AvulsoLancamentoModal from "../components/AvulsoLancamentoModal";
+import AvulsoSelecionarModal from "../components/AvulsoSelecionarModal";
 import PhysicalScannerInput from "../components/PhysicalScannerInput";
 import {
   staffSessionTemPendenciaConfirmacao,
@@ -289,7 +292,8 @@ export default function LeituraSaidasScreen() {
   const [modoManual, setModoManual] = useState(false);
   const [modoLeitorFisico, setModoLeitorFisico] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
-  const holdScannerCamera = avulsoModalVisible || photoCaptureActive;
+  const [avulsoSelecionarVisible, setAvulsoSelecionarVisible] = useState(false);
+  const holdScannerCamera = avulsoModalVisible || avulsoSelecionarVisible || photoCaptureActive;
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   /** Resumo confirmado do dia por motoboy (persiste ao trocar e voltar). */
   const [confirmadoPorMotoboy, setConfirmadoPorMotoboy] = useState<
@@ -307,7 +311,11 @@ export default function LeituraSaidasScreen() {
 
   useEffect(() => {
     if (!route.params?.resumeAvulso) return;
-    setAvulsoModalVisible(true);
+    if (ownerExigeSelecaoAvulso(useAuthStore.getState().currentUser)) {
+      setAvulsoSelecionarVisible(true);
+    } else {
+      setAvulsoModalVisible(true);
+    }
     navigation.setParams({ resumeAvulso: undefined } as never);
   }, [route.params?.resumeAvulso, navigation]);
 
@@ -690,6 +698,15 @@ export default function LeituraSaidasScreen() {
           alignItems: "center",
         },
         btnAvulsoFooterText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "600" },
+        btnAvulsoGhost: {
+          backgroundColor: "transparent",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.45)",
+          paddingVertical: 12,
+          borderRadius: 12,
+          alignItems: "center",
+        },
+        btnAvulsoGhostText: { color: "#fff", fontSize: 14, fontWeight: "600" },
         btnConfirmarCamera: {
           backgroundColor: "#198754",
           paddingVertical: 14,
@@ -793,6 +810,7 @@ export default function LeituraSaidasScreen() {
   const podeLerSaida = effectivePodeLerSaida(currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
+  const exigeSelecaoAvulso = ownerExigeSelecaoAvulso(currentUser);
   const motoboySelecionado = useMemo(
     () => motoboys.find((m) => m.id_motoboy === motoboyId) ?? null,
     [motoboys, motoboyId]
@@ -842,6 +860,7 @@ export default function LeituraSaidasScreen() {
   }, [leiturasDoMotoboy]);
 
   const conferenciaHabilitada = effectiveConferenciaSaida(currentUser);
+  const bloquearSaidaSemColeta = currentUser?.bloquear_saida_sem_coleta === true;
   const sessaoConfirmada = useStaffScanSessionStore((s) => s.confirmada);
   const pendenciaConfirmacao =
     conferenciaHabilitada && !sessaoConfirmada && totalValidas > 0;
@@ -1352,20 +1371,64 @@ export default function LeituraSaidasScreen() {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           pushFeedback("erro", "Este pacote ainda não teve entrada na base.", c);
         } else if (status === 422 && code === "NAO_COLETADO") {
-          const srvNc = inferServicoSaida(c);
-          setLeituras((prev) => [
-            ...prev,
-            {
-              codigo: c,
-              servico: srvNc || null,
-              entregador: motoboyNome,
-              motoboyId,
-              status: "nao_coletado",
-            },
-          ]);
+          if (bloquearSaidaSemColeta) {
+            playSound("error");
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            pushFeedback("erro", "Código não coletado. Saída sem coleta bloqueada.", c);
+            return;
+          }
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          pushFeedback("nao_coletado", "Código não coletado", c);
+          Alert.alert(
+            "Código não coletado",
+            `O código ${c} ainda não foi coletado. Deseja registrar mesmo assim?`,
+            [
+              { text: "Cancelar", style: "cancel" },
+              {
+                text: "Registrar",
+                onPress: () => {
+                  void (async () => {
+                    try {
+                      setLoading(true);
+                      const resNc = await lerSaidaAdmin({
+                        motoboy_id: motoboyId,
+                        entregador: motoboyNome,
+                        codigo: c,
+                        servico: cls.servico,
+                        qr_payload_raw: cls.qr_payload_raw,
+                        origem: origem === "leitor" ? "manual" : origem,
+                        registrar_nao_coletado: true,
+                      });
+                      const inferidoNc = inferServicoSaida(c);
+                      const servicoNc =
+                        (resNc.servico != null && String(resNc.servico).trim() !== ""
+                          ? String(resNc.servico).trim()
+                          : null) ||
+                        inferidoNc ||
+                        null;
+                      setLeituras((prev) => [
+                        ...prev,
+                        {
+                          codigo: c,
+                          servico: servicoNc,
+                          entregador: motoboyNome,
+                          motoboyId,
+                          status: "nao_coletado",
+                        },
+                      ]);
+                      playSound("warn");
+                      pushFeedback("nao_coletado", "Registrado como não coletado", c);
+                    } catch (e2) {
+                      playSound("error");
+                      pushFeedback("erro", formatApiError(e2, "Erro ao registrar"), c);
+                    } finally {
+                      setLoading(false);
+                    }
+                  })();
+                },
+              },
+            ]
+          );
         } else if (status === 422 && code === "STATUS_FINALIZADO") {
           const statusAtual = String(body?.status_atual ?? "FINALIZADO");
           playSound("warn");
@@ -1387,7 +1450,7 @@ export default function LeituraSaidasScreen() {
         }, 400);
       }
     },
-    [codigosLidosSessaoMotoboy, leituras, motoboyId, motoboyNome, podeLerSaida, pushFeedback]
+    [codigosLidosSessaoMotoboy, leituras, motoboyId, motoboyNome, podeLerSaida, pushFeedback, bloquearSaidaSemColeta]
   );
 
   const handleRegistrarManual = useCallback(async () => {
@@ -1405,6 +1468,8 @@ export default function LeituraSaidasScreen() {
       quantidade: number;
       fotoObjectKeys: string[];
       photoIds: string[];
+      campos?: Record<string, string>;
+      motivo_excepcional?: string;
     }) => {
       if (!motoboyId || !motoboyNome) {
         pushFeedback("info", "Selecione um motoboy.");
@@ -1416,6 +1481,10 @@ export default function LeituraSaidasScreen() {
           identificacao: payload.identificacao,
           quantidade: payload.quantidade,
           motoboy_id: motoboyId,
+          ...(payload.campos ? { campos: payload.campos } : {}),
+          ...(payload.motivo_excepcional
+            ? { motivo_excepcional: payload.motivo_excepcional }
+            : {}),
           ...(payload.fotoObjectKeys.length
             ? {
                 foto_object_keys: payload.fotoObjectKeys,
@@ -1449,6 +1518,27 @@ export default function LeituraSaidasScreen() {
       }
     },
     [motoboyId, motoboyNome, pushFeedback, abrirCameraExplicito, cameraAtiva]
+  );
+
+  const handleSelecionarAvulso = useCallback(
+    async (item: AvulsoPendenteItem) => {
+      if (!motoboyId || !motoboyNome) {
+        pushFeedback("info", "Selecione um motoboy.");
+        throw new Error("Selecione um motoboy.");
+      }
+      const codigo = String(item.codigo || "").trim();
+      if (!codigo) {
+        throw new Error("Avulso sem código.");
+      }
+      setLoading(true);
+      try {
+        await processarLeitura(codigo, "manual");
+        setAvulsoSelecionarVisible(false);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [motoboyId, motoboyNome, pushFeedback, processarLeitura]
   );
 
   const handleBarcodeScanned = useCallback(
@@ -1897,13 +1987,32 @@ export default function LeituraSaidasScreen() {
             </TouchableOpacity>
             {renderBtnConfirmarLeituraCamera({ marginTop: 12 })}
             {podeLancarAvulso ? (
-              <TouchableOpacity
-                style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
-                onPress={() => setAvulsoModalVisible(true)}
-                disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-              >
-                <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-              </TouchableOpacity>
+              exigeSelecaoAvulso ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
+                    onPress={() => setAvulsoSelecionarVisible(true)}
+                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                  >
+                    <Text style={styles.btnAvulsoFooterText}>Selecionar avulso</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.linkManual, { marginTop: 8 }]}
+                    onPress={() => setAvulsoModalVisible(true)}
+                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                  >
+                    <Text style={styles.linkManualText}>Cadastrar avulso não registrado</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
+                  onPress={() => setAvulsoModalVisible(true)}
+                  disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                >
+                  <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                </TouchableOpacity>
+              )
             ) : null}
             <TouchableOpacity
               style={styles.linkManual}
@@ -1927,13 +2036,32 @@ export default function LeituraSaidasScreen() {
             {feedbackVisual ? renderFeedbackStrip("main") : null}
             {renderBtnConfirmarLeituraCamera()}
             {podeLancarAvulso ? (
-              <TouchableOpacity
-                style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-                onPress={() => setAvulsoModalVisible(true)}
-                disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-              >
-                <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-              </TouchableOpacity>
+              exigeSelecaoAvulso ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+                    onPress={() => setAvulsoSelecionarVisible(true)}
+                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                  >
+                    <Text style={styles.btnAvulsoFooterText}>Selecionar avulso</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.linkManual}
+                    onPress={() => setAvulsoModalVisible(true)}
+                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                  >
+                    <Text style={styles.linkManualText}>Cadastrar avulso não registrado</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+                  onPress={() => setAvulsoModalVisible(true)}
+                  disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                >
+                  <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                </TouchableOpacity>
+              )
             ) : null}
             {podeDigitarManual ? (
               <TouchableOpacity
@@ -1983,13 +2111,32 @@ export default function LeituraSaidasScreen() {
                   <Text style={styles.btnTextPrimary}>Permitir câmera</Text>
                 </TouchableOpacity>
                 {podeLancarAvulso ? (
-                  <TouchableOpacity
-                    style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }, loading && styles.btnDisabled]}
-                    onPress={() => setAvulsoModalVisible(true)}
-                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                  >
-                    <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                  </TouchableOpacity>
+                  exigeSelecaoAvulso ? (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }, loading && styles.btnDisabled]}
+                        onPress={() => setAvulsoSelecionarVisible(true)}
+                        disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                      >
+                        <Text style={styles.btnAvulsoFooterText}>Selecionar avulso</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.linkManualWhite}
+                        onPress={() => setAvulsoModalVisible(true)}
+                        disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                      >
+                        <Text style={styles.linkManualTextWhite}>Cadastrar avulso não registrado</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }, loading && styles.btnDisabled]}
+                      onPress={() => setAvulsoModalVisible(true)}
+                      disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                    >
+                      <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                    </TouchableOpacity>
+                  )
                 ) : null}
                 {podeDigitarManual ? (
                   <TouchableOpacity
@@ -2062,14 +2209,35 @@ export default function LeituraSaidasScreen() {
                   </View>
                   {renderBtnConfirmarLeituraCamera()}
                   {podeLancarAvulso ? (
-                    <TouchableOpacity
-                      style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-                      onPress={() => setAvulsoModalVisible(true)}
-                      disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                      accessibilityLabel="Lançar Avulso"
-                    >
-                      <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                    </TouchableOpacity>
+                    exigeSelecaoAvulso ? (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+                          onPress={() => setAvulsoSelecionarVisible(true)}
+                          disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                          accessibilityLabel="Selecionar avulso"
+                        >
+                          <Text style={styles.btnAvulsoFooterText}>Selecionar avulso</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.linkManualWhite}
+                          onPress={() => setAvulsoModalVisible(true)}
+                          disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                          accessibilityLabel="Cadastrar avulso não registrado"
+                        >
+                          <Text style={styles.linkManualTextWhite}>Cadastrar avulso não registrado</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+                        onPress={() => setAvulsoModalVisible(true)}
+                        disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
+                        accessibilityLabel="Lançar Avulso"
+                      >
+                        <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                      </TouchableOpacity>
+                    )
                   ) : null}
                   {podeDigitarManual ? (
                     <TouchableOpacity
@@ -2130,8 +2298,17 @@ export default function LeituraSaidasScreen() {
         exigeFoto={avulsoExigeFoto}
         permitirFotos={avulsoPermitirFotos}
         source="saidas"
+        contextoCampos="SAIDA_AVULSO"
+        modoExcepcional={exigeSelecaoAvulso}
         onClose={() => setAvulsoModalVisible(false)}
         onConfirm={handleLancarAvulso}
+      />
+
+      <AvulsoSelecionarModal
+        visible={avulsoSelecionarVisible}
+        loading={loading}
+        onClose={() => setAvulsoSelecionarVisible(false)}
+        onSelect={handleSelecionarAvulso}
       />
 
       <Modal visible={!!conflito} transparent animationType="fade" onRequestClose={handleCancelarTroca}>

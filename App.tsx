@@ -1,6 +1,6 @@
 import "./src/services/location/backgroundLocationTask";
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, AppState, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -30,6 +30,7 @@ import PendingSyncBanner from "./src/components/PendingSyncBanner";
 import OperationalToast from "./src/components/OperationalToast";
 import { startSyncEngine } from "./src/services/outbox/syncEngine";
 import { hydrateOutboxStore } from "./src/store/outboxStore";
+import { ensureFreshAccessToken } from "./src/services/apiClient";
 import { recoverRouteState } from "./src/features/entregas/services/routeRecovery";
 import HomeScreen from "./src/screens/HomeScreen";
 import MaisScreen, { type MaisStackParamList } from "./src/screens/MaisScreen";
@@ -396,6 +397,18 @@ export default function App() {
     void hydrateOutboxStore();
     const stopSync = startSyncEngine();
     return () => stopSync();
+  }, [token, currentUser, requiresBiometricUnlock]);
+
+  useEffect(() => {
+    if (!token || requiresBiometricUnlock || !currentUser) return;
+    if (!isMotoboyRole(currentUser.role)) return;
+    void ensureFreshAccessToken();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void ensureFreshAccessToken();
+      }
+    });
+    return () => sub.remove();
   }, [token, currentUser, requiresBiometricUnlock]);
 
   useEffect(() => {

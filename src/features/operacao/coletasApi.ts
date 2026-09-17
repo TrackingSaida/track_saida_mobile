@@ -113,6 +113,7 @@ export async function lancarAvulsoColeta(params: {
   quantidade: number;
   fotoObjectKeys?: string[];
   photoIds?: string[];
+  campos?: Record<string, string>;
 }): Promise<ColetaLancarAvulsoResult> {
   const keys = (params.fotoObjectKeys || []).map((k) => String(k || "").trim()).filter(Boolean);
   const ids = (params.photoIds || []).map((k) => (k == null ? null : String(k)));
@@ -120,6 +121,7 @@ export async function lancarAvulsoColeta(params: {
     base: params.base,
     quantidade: params.quantidade,
     ...(params.identificacao ? { identificacao: params.identificacao } : {}),
+    ...(params.campos && Object.keys(params.campos).length ? { campos: params.campos } : {}),
     ...(keys[0] ? { foto_object_key: keys[0] } : {}),
     ...(keys.length ? { foto_object_keys: keys } : {}),
     ...(ids[0] ? { photo_id: ids[0] } : {}),

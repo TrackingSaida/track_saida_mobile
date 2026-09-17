@@ -13,6 +13,7 @@ export function formatStatusSaidaLabel(status?: string | null): string {
   if (lower === "encerrado sistema" || lower === "encerrado pelo sistema" || lower === "encerrado") {
     return "Encerrado";
   }
+  if (lower === "etiquetado") return "Etiqueta gerada";
   if (lower === "saiu" || lower === "saiu para entrega") return "SAIU PARA ENTREGA";
   return s.toUpperCase();
 }
@@ -32,6 +33,7 @@ export function labelStatusOperacional(status?: string | null): string {
   if (lower.includes("em rota") || lower.includes("saiu")) return "Saiu para entrega";
   if (lower.includes("encerrado")) return "Encerrado";
   if (lower.includes("na base")) return "Na base";
+  if (lower.includes("etiquetado")) return "Etiqueta gerada";
   return formatStatusSaidaLabel(status);
 }
 
@@ -62,6 +64,9 @@ export function statusVisualSaida(s?: string | null): { label: string; bg: strin
       return { label: formatStatusSaidaLabel(s || "Ausente"), bg: "rgba(255,152,0,0.18)", fg: "#ff9800" };
     }
     return { label: formatStatusSaidaLabel(s || "—"), bg: "rgba(220,53,69,0.12)", fg: "#dc3545" };
+  }
+  if (u.includes("etiquetado")) {
+    return { label: "Etiqueta gerada", bg: "rgba(108,117,125,0.18)", fg: "#6c757d" };
   }
   return { label: formatStatusSaidaLabel(s || "—"), bg: "rgba(13,110,253,0.10)", fg: "#0d6efd" };
 }

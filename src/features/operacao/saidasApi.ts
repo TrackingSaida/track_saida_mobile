@@ -234,18 +234,79 @@ export interface LancarAvulsoBody {
   photo_id?: string;
   foto_object_keys?: string[];
   photo_ids?: string[];
+  campos?: Record<string, string>;
+  motivo_excepcional?: string;
 }
 
 export interface LancarAvulsoResult {
   quantidade_criada: number;
   codigos: string[];
+  labels?: string[];
+  lote_id?: number | null;
   saidas: Array<{
     id_saida: number;
     codigo: string;
     servico: string;
     status: string;
+    label?: string;
   }>;
   mensagem: string;
+}
+
+export interface AvulsoCampoSchema {
+  id: number;
+  chave: string;
+  label: string;
+  tipo: string;
+  obrigatorio: boolean;
+  usar_na_identificacao?: boolean;
+  exibir_na_selecao?: boolean;
+  ordem?: number;
+  opcoes?: string[];
+}
+
+export interface AvulsoPendenteItem {
+  id_saida: number;
+  codigo?: string | null;
+  status?: string | null;
+  base?: string | null;
+  label: string;
+  campos?: Record<string, string>;
+  avulso_lote_id?: number | null;
+  avulso_criado_excepcional?: boolean;
+}
+
+export async function schemaCamposAvulso(contexto: string): Promise<AvulsoCampoSchema[]> {
+  const { data } = await client.get<{ campos?: AvulsoCampoSchema[] }>(
+    "/configuracoes/campos-avulso/schema",
+    { params: { contexto } }
+  );
+  return Array.isArray(data?.campos) ? data.campos : [];
+}
+
+export async function listAvulsosPendentes(params?: {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ total: number; items: AvulsoPendenteItem[] }> {
+  const { data } = await client.get<{ total?: number; items?: AvulsoPendenteItem[] }>(
+    "/avulsos/pendentes",
+    { params }
+  );
+  return {
+    total: Number(data?.total) || 0,
+    items: Array.isArray(data?.items) ? data.items : [],
+  };
+}
+
+export async function getAvulsoDetalhe(idSaida: number): Promise<AvulsoPendenteItem & {
+  servico?: string | null;
+  origem?: string | null;
+  origem_label?: string | null;
+  timestamp?: string | null;
+}> {
+  const { data } = await client.get(`/avulsos/${idSaida}`);
+  return data;
 }
 
 /**

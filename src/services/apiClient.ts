@@ -1,10 +1,14 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { API_BASE_URL } from "../config/api";
 import { useAuthStore } from "../store/authStore";
+import { isJwtExpired, secondsUntilJwtExpiry } from "../utils/jwt";
 
 type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 
 let refreshPromise: Promise<boolean> | null = null;
+
+/** Renova access quando faltam menos que este tempo (segundos). */
+const PREVENTIVE_REFRESH_WITHIN_SEC = 15 * 60;
 
 function isNetworkOrTimeoutError(e: unknown): boolean {
   if (!axios.isAxiosError(e)) {
@@ -15,6 +19,20 @@ function isNetworkOrTimeoutError(e: unknown): boolean {
     return true;
   }
   return false;
+}
+
+function headerClaimsStale(headers: unknown): boolean {
+  if (!headers || typeof headers !== "object") return false;
+  const h = headers as Record<string, unknown>;
+  const raw =
+    h["x-claims-stale"] ??
+    h["X-Claims-Stale"] ??
+    (typeof (h as { get?: (k: string) => string }).get === "function"
+      ? (h as { get: (k: string) => string }).get("x-claims-stale")
+      : undefined);
+  if (raw == null) return false;
+  const v = String(raw).trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
 }
 
 async function tryRefreshToken(attempt = 1): Promise<boolean> {
@@ -59,6 +77,28 @@ export function refreshOnce(): Promise<boolean> {
   return refreshPromise;
 }
 
+/**
+ * Refresh silencioso: não dispara SessionExpired se falhar por rede.
+ * Usado para X-Claims-Stale e renovação preventiva (não interrompe bipagem).
+ */
+export function refreshSilently(): Promise<boolean> {
+  return refreshOnce();
+}
+
+/** Renova se o access estiver perto do vencimento (ou já vencido com refresh válido). */
+export async function ensureFreshAccessToken(): Promise<void> {
+  const { token, refreshToken } = useAuthStore.getState();
+  if (!refreshToken) return;
+  if (!token || isJwtExpired(token, 0)) {
+    await refreshSilently();
+    return;
+  }
+  const left = secondsUntilJwtExpiry(token);
+  if (left != null && left <= PREVENTIVE_REFRESH_WITHIN_SEC) {
+    await refreshSilently();
+  }
+}
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -69,7 +109,19 @@ export const apiClient = axios.create({
   timeout: 45_000,
 });
 
-apiClient.interceptors.request.use((config) => {
+apiClient.interceptors.request.use(async (config) => {
+  const url = String(config.url || "");
+  if (
+    !url.includes("/auth/motoboy-refresh") &&
+    !url.includes("/auth/motoboy-login") &&
+    !url.includes("/auth/token")
+  ) {
+    try {
+      await ensureFreshAccessToken();
+    } catch {
+      /* não bloqueia a request; 401 cuida do retry */
+    }
+  }
   const token = useAuthStore.getState().token;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -78,7 +130,12 @@ apiClient.interceptors.request.use((config) => {
 });
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (headerClaimsStale(response.headers)) {
+      void refreshSilently();
+    }
+    return response;
+  },
   async (error: AxiosError) => {
     const status = error.response?.status;
     const config = error.config as RetryConfig | undefined;

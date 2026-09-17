@@ -160,6 +160,7 @@ export default function ConsultaCodigosScreen() {
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeLerSaida = effectivePodeLerSaida(currentUser);
   const role = currentUser?.role as number | undefined;
+  const bloquearSaidaSemColeta = currentUser?.bloquear_saida_sem_coleta === true;
   const podeGerarEtiqueta = role === 0 || role === 1 || role === 2;
   const podeCancelarSaida = isAdminRole(role);
   /** Ditar por voz só no perfil entregador; operador/admin usam texto e câmera. */
@@ -1109,6 +1110,11 @@ export default function ConsultaCodigosScreen() {
           return;
         }
         if (status === 422 && code === "NAO_COLETADO") {
+          if (bloquearSaidaSemColeta) {
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            Alert.alert("Bloqueado", "Código não coletado. A saída sem coleta está bloqueada nesta base.");
+            return;
+          }
           setPendingNaoColetado({
             codigo: c,
             rawScan: opts?.rawScan && opts.rawScan.trim() ? opts.rawScan.trim() : undefined,
@@ -1122,7 +1128,7 @@ export default function ConsultaCodigosScreen() {
         setLerLoading(false);
       }
     },
-    [motoboys, motoboyId, podeLerSaida, executarBusca]
+    [motoboys, motoboyId, podeLerSaida, executarBusca, bloquearSaidaSemColeta]
   );
 
   const handleConfirmarTroca = useCallback(async () => {

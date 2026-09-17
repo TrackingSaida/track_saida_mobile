@@ -27,11 +27,13 @@ import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeDigitarCodigoManual, effectivePodeLancarAvulso, effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos } from "../../../utils/role";
+import { effectivePodeDigitarCodigoManual, effectivePodeLancarAvulso, effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos, ownerExigeSelecaoAvulso } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import type { EntregaListItem } from "../types";
 import AvulsoLancamentoModal from "../../operacao/components/AvulsoLancamentoModal";
+import AvulsoSelecionarModal from "../../operacao/components/AvulsoSelecionarModal";
+import type { AvulsoPendenteItem } from "../../operacao/saidasApi";
 import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Scan">;
@@ -404,12 +406,17 @@ export default function ScanScreen({ navigation, route }: Props) {
   const [modoManual, setModoManual] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [showAvulsoModal, setShowAvulsoModal] = useState(false);
+  const [showAvulsoSelect, setShowAvulsoSelect] = useState(false);
   const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
-  const holdScannerCamera = showAvulsoModal || photoCaptureActive;
+  const holdScannerCamera = showAvulsoModal || showAvulsoSelect || photoCaptureActive;
 
   useEffect(() => {
     if (!route.params?.resumeAvulso) return;
-    setShowAvulsoModal(true);
+    if (ownerExigeSelecaoAvulso(useAuthStore.getState().currentUser)) {
+      setShowAvulsoSelect(true);
+    } else {
+      setShowAvulsoModal(true);
+    }
     navigation.setParams({ resumeAvulso: undefined });
   }, [route.params?.resumeAvulso, navigation]);
   const [loading, setLoading] = useState(false);
@@ -445,6 +452,7 @@ export default function ScanScreen({ navigation, route }: Props) {
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
+  const exigeSelecaoAvulso = ownerExigeSelecaoAvulso(currentUser);
   const avulsoExigeFoto = effectiveAvulsoExigeFoto(currentUser);
   const avulsoPermitirFotos = effectiveAvulsoPermitirFotos(currentUser);
   const [permission, requestPermission] = useCameraPermissions();
@@ -578,6 +586,7 @@ export default function ScanScreen({ navigation, route }: Props) {
     !listaExpandida &&
     !modoManual &&
     !showAvulsoModal &&
+    !showAvulsoSelect &&
     !conflito &&
     !conflitoDiaAnterior &&
     !conflitoEncerrado;
@@ -775,12 +784,16 @@ export default function ScanScreen({ navigation, route }: Props) {
       quantidade: number;
       fotoObjectKeys: string[];
       photoIds: string[];
+      campos?: Record<string, string>;
+      motivo_excepcional?: string;
     }) => {
       setLoading(true);
       try {
         const res = await lancarAvulsoMobile({
           identificacao: payload.identificacao,
           quantidade: payload.quantidade,
+          ...(payload.campos && Object.keys(payload.campos).length ? { campos: payload.campos } : {}),
+          ...(payload.motivo_excepcional ? { motivo_excepcional: payload.motivo_excepcional } : {}),
           ...(payload.fotoObjectKeys.length
             ? {
                 foto_object_keys: payload.fotoObjectKeys,
@@ -806,6 +819,18 @@ export default function ScanScreen({ navigation, route }: Props) {
       }
     },
     [addLeitura, pushFeedback]
+  );
+
+  const handleSelecionarAvulso = useCallback(
+    async (item: AvulsoPendenteItem) => {
+      const codigoSel = String(item.codigo || "").trim();
+      if (!codigoSel) {
+        throw new Error("Avulso sem código.");
+      }
+      setShowAvulsoSelect(false);
+      await processarCodigo(codigoSel, "manual");
+    },
+    [processarCodigo]
   );
 
   const handleAssumir = async () => {
@@ -941,15 +966,25 @@ export default function ScanScreen({ navigation, route }: Props) {
   };
 
   const avulsoModal = (
-    <AvulsoLancamentoModal
-      visible={showAvulsoModal}
-      loading={loading}
-      exigeFoto={avulsoExigeFoto}
-      permitirFotos={avulsoPermitirFotos}
-      source="scan"
-      onClose={() => setShowAvulsoModal(false)}
-      onConfirm={handleLancarAvulso}
-    />
+    <>
+      <AvulsoLancamentoModal
+        visible={showAvulsoModal}
+        loading={loading}
+        exigeFoto={avulsoExigeFoto}
+        permitirFotos={avulsoPermitirFotos}
+        source="scan"
+        contextoCampos="SAIDA_AVULSO"
+        modoExcepcional={exigeSelecaoAvulso}
+        onClose={() => setShowAvulsoModal(false)}
+        onConfirm={handleLancarAvulso}
+      />
+      <AvulsoSelecionarModal
+        visible={showAvulsoSelect}
+        loading={loading}
+        onClose={() => setShowAvulsoSelect(false)}
+        onSelect={handleSelecionarAvulso}
+      />
+    </>
   );
 
   // Modo manual: digitação como opção secundária (somente com permissão)
@@ -1057,13 +1092,32 @@ export default function ScanScreen({ navigation, route }: Props) {
           <Text style={styles.btnScanText}>Permitir câmera</Text>
         </TouchableOpacity>
         {podeLancarAvulso ? (
-          <TouchableOpacity
-            style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
-            onPress={() => setShowAvulsoModal(true)}
-            disabled={loading}
-          >
-            <Text style={styles.btnScanText}>Lançar Avulso</Text>
-          </TouchableOpacity>
+          exigeSelecaoAvulso ? (
+            <>
+              <TouchableOpacity
+                style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
+                onPress={() => setShowAvulsoSelect(true)}
+                disabled={loading}
+              >
+                <Text style={styles.btnScanText}>Selecionar avulso</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10 }]}
+                onPress={() => setShowAvulsoModal(true)}
+                disabled={loading}
+              >
+                <Text style={styles.btnScanText}>Cadastrar avulso não registrado</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
+              onPress={() => setShowAvulsoModal(true)}
+              disabled={loading}
+            >
+              <Text style={styles.btnScanText}>Lançar Avulso</Text>
+            </TouchableOpacity>
+          )
         ) : null}
         {podeDigitarManual ? (
           <TouchableOpacity style={styles.linkManual} onPress={() => setModoManual(true)}>
@@ -1205,14 +1259,35 @@ export default function ScanScreen({ navigation, route }: Props) {
 
         <View style={styles.secondaryActionsRow}>
           {podeLancarAvulso ? (
-            <TouchableOpacity
-              style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
-              onPress={() => setShowAvulsoModal(true)}
-              disabled={cameraBusy || loading}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.secondaryActionBtnText}>Lançar Avulso</Text>
-            </TouchableOpacity>
+            exigeSelecaoAvulso ? (
+              <>
+                <TouchableOpacity
+                  style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+                  onPress={() => setShowAvulsoSelect(true)}
+                  disabled={cameraBusy || loading}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.secondaryActionBtnText}>Selecionar avulso</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+                  onPress={() => setShowAvulsoModal(true)}
+                  disabled={cameraBusy || loading}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.secondaryActionBtnText}>Não registrado</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity
+                style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+                onPress={() => setShowAvulsoModal(true)}
+                disabled={cameraBusy || loading}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.secondaryActionBtnText}>Lançar Avulso</Text>
+              </TouchableOpacity>
+            )
           ) : null}
           {podeDigitarManual ? (
             <TouchableOpacity

@@ -144,6 +144,14 @@ export function effectiveConferenciaSaida(claims: JwtClaims | null | undefined):
   return asExplicitTrue(claims.conferencia_saida_habilitada);
 }
 
+/** Owner exige seleção de avulso na saída (Coleta e/ou Entrada ativos). */
+export function ownerExigeSelecaoAvulso(claims: JwtClaims | null | undefined): boolean {
+  if (!claims) return false;
+  const coletaOn = claims.ignorar_coleta !== true;
+  const entradaOn = asExplicitTrue(claims.entrada_obrigatoria_habilitada);
+  return coletaOn || entradaOn;
+}
+
 /** Rótulo curto para exibição (opcional). */
 export function staffRoleLabel(role: number | undefined): string {
   switch (asRole(role)) {

@@ -23,6 +23,8 @@ export interface JwtClaims {
   entrada_obrigatoria_habilitada?: boolean;
   /** Conferência de saída após Começar Entrega. */
   conferencia_saida_habilitada?: boolean;
+  /** Com coleta ativa: true impede saída sem coleta; false avisa e permite. */
+  bloquear_saida_sem_coleta?: boolean;
   [key: string]: unknown;
 }
 
@@ -50,4 +52,13 @@ export function isJwtExpired(token: string | null | undefined, skewSeconds = 30)
   const exp = claims.exp;
   if (typeof exp !== "number" || !Number.isFinite(exp)) return false;
   return Date.now() >= (exp - skewSeconds) * 1000;
+}
+
+/** Segundos até o exp do JWT; null se sem exp. Negativo se já expirou. */
+export function secondsUntilJwtExpiry(token: string | null | undefined): number | null {
+  if (!token) return null;
+  const claims = decodeJwtPayload(token);
+  const exp = claims.exp;
+  if (typeof exp !== "number" || !Number.isFinite(exp)) return null;
+  return Math.floor(exp - Date.now() / 1000);
 }
