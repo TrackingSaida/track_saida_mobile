@@ -62,15 +62,30 @@ function roundCoord5(n: number): number {
   return Math.round(n * 100000) / 100000;
 }
 
+/** Remove ", {número}" (e o que vier depois) do endereço composto da API. */
+export function streetNameForStopKey(endereco?: string | null, numero?: string | null): string {
+  const raw = (endereco ?? "").trim();
+  const num = (numero ?? "").trim();
+  if (!raw) return "";
+  if (num) {
+    const escaped = num.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const stripped = raw.replace(new RegExp(`,\\s*${escaped}\\b.*$`, "i"), "").trim();
+    if (stripped) return normalizeStreet(stripped);
+  }
+  return normalizeStreet(raw);
+}
+
 function buildAddressKey(parts: AddressKeyParts): string {
-  const rua = normalizeStreet(parts.endereco ?? "");
   const num = normalizeNumero(parts.numero ?? "", parts.endereco ?? "");
+  const rua = streetNameForStopKey(parts.endereco ?? "", num || parts.numero);
+  const bairro = normalizeStreet(parts.bairro ?? "");
   const cidade = normalizeStreet(parts.cidade ?? "");
   const cep = (parts.cep ?? "").toString().replace(/\D/g, "").slice(0, 8);
 
-  if (cep && num) return `cep|${cep}|${num}`;
+  if (rua && num && bairro) return `loc|${rua}|${num}|${bairro}|${cidade}`;
   if (rua && num && cidade) return `loc|${rua}|${num}|${cidade}`;
   if (rua && num) return `loc|${rua}|${num}|`;
+  if (cep && num) return `cep|${cep}|${num}`;
 
   if (parts.latitude != null && parts.longitude != null) {
     const lat = roundCoord5(parts.latitude);
@@ -98,12 +113,13 @@ function toGroupedStop(stopKey: string, deliveries: EntregaListItem[]): GroupedS
   };
 }
 
-/** Chave de parada alinhada ao backend: CEP+número → rua+número+cidade → coord → id. */
+/** Chave de parada alinhada ao backend: rua+número+bairro → CEP+número → coord → id. */
 export function getDeliveryStopKey(d: EntregaListItem): string {
   return buildAddressKey({
     endereco: d.endereco,
     numero: d.numero,
     cep: d.cep,
+    cidade: d.cidade,
     latitude: d.latitude,
     longitude: d.longitude,
     endereco_formatado: d.endereco_formatado,
@@ -129,6 +145,7 @@ export function addressKeyFromValues(vals: {
     endereco: vals.rua,
     numero: vals.numero,
     cep: vals.cep,
+    cidade: vals.cidade,
     bairro: vals.bairro,
   });
 }
