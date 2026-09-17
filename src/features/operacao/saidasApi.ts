@@ -258,6 +258,10 @@ export interface AvulsoCampoSchema {
   chave: string;
   label: string;
   tipo: string;
+  tipo_label?: string;
+  tipo_hint?: string;
+  placeholder?: string;
+  input_mode?: string;
   obrigatorio: boolean;
   usar_na_identificacao?: boolean;
   exibir_na_selecao?: boolean;
@@ -265,15 +269,36 @@ export interface AvulsoCampoSchema {
   opcoes?: string[];
 }
 
+export interface AvulsoCampoBusca {
+  chave: string;
+  label: string;
+  tipo?: string;
+  tipo_label?: string;
+  placeholder?: string;
+  input_mode?: string;
+}
+
 export interface AvulsoPendenteItem {
   id_saida: number;
   codigo?: string | null;
   status?: string | null;
+  status_label?: string | null;
   base?: string | null;
   label: string;
   campos?: Record<string, string>;
   avulso_lote_id?: number | null;
   avulso_criado_excepcional?: boolean;
+  motoboy_id?: number | null;
+  motoboy_nome?: string | null;
+}
+
+export interface AvulsosPendentesResult {
+  total: number;
+  items: AvulsoPendenteItem[];
+  modo?: string;
+  ambiguo?: boolean;
+  mensagem?: string | null;
+  campos_busca?: AvulsoCampoBusca[];
 }
 
 export async function schemaCamposAvulso(contexto: string): Promise<AvulsoCampoSchema[]> {
@@ -286,16 +311,27 @@ export async function schemaCamposAvulso(contexto: string): Promise<AvulsoCampoS
 
 export async function listAvulsosPendentes(params?: {
   q?: string;
+  identificadores?: Record<string, string>;
+  todos_do_dia?: boolean;
   limit?: number;
   offset?: number;
-}): Promise<{ total: number; items: AvulsoPendenteItem[] }> {
-  const { data } = await client.get<{ total?: number; items?: AvulsoPendenteItem[] }>(
-    "/avulsos/pendentes",
-    { params }
-  );
+}): Promise<AvulsosPendentesResult> {
+  const query: Record<string, string | number | boolean> = {};
+  if (params?.q) query.q = params.q;
+  if (params?.identificadores && Object.keys(params.identificadores).length) {
+    query.identificadores = JSON.stringify(params.identificadores);
+  }
+  if (params?.todos_do_dia) query.todos_do_dia = true;
+  if (params?.limit != null) query.limit = params.limit;
+  if (params?.offset != null) query.offset = params.offset;
+  const { data } = await client.get<AvulsosPendentesResult>("/avulsos/pendentes", { params: query });
   return {
     total: Number(data?.total) || 0,
     items: Array.isArray(data?.items) ? data.items : [],
+    modo: data?.modo,
+    ambiguo: !!data?.ambiguo,
+    mensagem: data?.mensagem || null,
+    campos_busca: Array.isArray(data?.campos_busca) ? data.campos_busca : [],
   };
 }
 

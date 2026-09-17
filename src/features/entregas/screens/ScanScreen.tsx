@@ -1091,34 +1091,26 @@ export default function ScanScreen({ navigation, route }: Props) {
         <TouchableOpacity style={styles.btnScan} onPress={requestPermission}>
           <Text style={styles.btnScanText}>Permitir câmera</Text>
         </TouchableOpacity>
-        {podeLancarAvulso ? (
-          exigeSelecaoAvulso ? (
-            <>
-              <TouchableOpacity
-                style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
-                onPress={() => setShowAvulsoSelect(true)}
-                disabled={loading}
-              >
-                <Text style={styles.btnScanText}>Selecionar avulso</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10 }]}
-                onPress={() => setShowAvulsoModal(true)}
-                disabled={loading}
-              >
-                <Text style={styles.btnScanText}>Cadastrar avulso não registrado</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
+        <>
+          <TouchableOpacity
+            style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
+            onPress={() => setShowAvulsoSelect(true)}
+            disabled={loading}
+          >
+            <Text style={styles.btnScanText}>Selecionar avulso</Text>
+          </TouchableOpacity>
+          {podeLancarAvulso ? (
             <TouchableOpacity
-              style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10, backgroundColor: colors.primary }]}
+              style={[styles.btnScan, loading && styles.btnDisabled, { marginTop: 10 }]}
               onPress={() => setShowAvulsoModal(true)}
               disabled={loading}
             >
-              <Text style={styles.btnScanText}>Lançar Avulso</Text>
+              <Text style={styles.btnScanText}>
+                {exigeSelecaoAvulso ? "Cadastrar avulso não registrado" : "Lançar Avulso"}
+              </Text>
             </TouchableOpacity>
-          )
-        ) : null}
+          ) : null}
+        </>
         {podeDigitarManual ? (
           <TouchableOpacity style={styles.linkManual} onPress={() => setModoManual(true)}>
             <Text style={styles.linkManualText}>Digitar código manualmente</Text>
@@ -1258,36 +1250,25 @@ export default function ScanScreen({ navigation, route }: Props) {
         )}
 
         <View style={styles.secondaryActionsRow}>
+          <TouchableOpacity
+            style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+            onPress={() => setShowAvulsoSelect(true)}
+            disabled={cameraBusy || loading}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.secondaryActionBtnText}>Selecionar avulso</Text>
+          </TouchableOpacity>
           {podeLancarAvulso ? (
-            exigeSelecaoAvulso ? (
-              <>
-                <TouchableOpacity
-                  style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
-                  onPress={() => setShowAvulsoSelect(true)}
-                  disabled={cameraBusy || loading}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.secondaryActionBtnText}>Selecionar avulso</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
-                  onPress={() => setShowAvulsoModal(true)}
-                  disabled={cameraBusy || loading}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.secondaryActionBtnText}>Não registrado</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <TouchableOpacity
-                style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
-                onPress={() => setShowAvulsoModal(true)}
-                disabled={cameraBusy || loading}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.secondaryActionBtnText}>Lançar Avulso</Text>
-              </TouchableOpacity>
-            )
+            <TouchableOpacity
+              style={[styles.secondaryActionBtn, (cameraBusy || loading) && styles.secondaryActionBtnDisabled]}
+              onPress={() => setShowAvulsoModal(true)}
+              disabled={cameraBusy || loading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.secondaryActionBtnText}>
+                {exigeSelecaoAvulso ? "Não registrado" : "Lançar Avulso"}
+              </Text>
+            </TouchableOpacity>
           ) : null}
           {podeDigitarManual ? (
             <TouchableOpacity

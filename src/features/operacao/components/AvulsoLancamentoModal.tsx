@@ -538,7 +538,7 @@ export default function AvulsoLancamentoModal({
                 </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder={c.label}
+                  placeholder={c.placeholder || c.label}
                   placeholderTextColor={colors.placeholder}
                   value={camposValores[c.chave] || ""}
                   onChangeText={(t) =>
@@ -546,9 +546,18 @@ export default function AvulsoLancamentoModal({
                   }
                   editable={!busy}
                   keyboardType={
-                    c.tipo === "numero" ? "decimal-pad" : c.tipo === "telefone" ? "phone-pad" : "default"
+                    c.tipo === "numero" || c.tipo === "cep"
+                      ? "number-pad"
+                      : c.tipo === "telefone"
+                        ? "phone-pad"
+                        : "default"
                   }
+                  autoCapitalize={
+                    c.tipo === "primeiro_nome" || c.tipo === "segundo_nome" ? "words" : "none"
+                  }
+                  maxLength={c.tipo === "cep" ? 9 : undefined}
                 />
+                {c.tipo_hint ? <Text style={styles.help}>{c.tipo_hint}</Text> : null}
               </View>
             ))}
 

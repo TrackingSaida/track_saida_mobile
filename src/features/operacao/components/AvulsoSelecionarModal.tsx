@@ -32,6 +32,8 @@ export default function AvulsoSelecionarModal({
   const colors = useThemeColors();
   const [q, setQ] = useState("");
   const [items, setItems] = useState<AvulsoPendenteItem[]>([]);
+  const [mensagem, setMensagem] = useState<string | null>("Digite para buscar os avulsos de hoje.");
+  const [ambiguo, setAmbiguo] = useState(false);
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [selecionando, setSelecionando] = useState(false);
@@ -56,8 +58,8 @@ export default function AvulsoSelecionarModal({
           borderColor: colors.inputBorder,
         },
         title: { fontSize: 18, fontWeight: "800", color: colors.text, marginBottom: 6 },
-        help: { fontSize: 13, color: colors.textSecondary, marginBottom: 12 },
-        row: { flexDirection: "row", gap: 8, marginBottom: 12 },
+        help: { fontSize: 13, color: colors.textSecondary, marginBottom: 12, lineHeight: 18 },
+        row: { flexDirection: "row", gap: 8, marginBottom: 8 },
         input: {
           flex: 1,
           backgroundColor: colors.inputBackground,
@@ -76,6 +78,8 @@ export default function AvulsoSelecionarModal({
           justifyContent: "center",
         },
         btnBuscarText: { color: colors.primaryContrast, fontWeight: "700" },
+        linkTodos: { alignSelf: "flex-start", marginBottom: 12 },
+        linkTodosText: { color: colors.primary, fontWeight: "600", fontSize: 13 },
         item: {
           borderWidth: 1,
           borderColor: colors.inputBorder,
@@ -86,6 +90,7 @@ export default function AvulsoSelecionarModal({
         itemLabel: { fontSize: 15, fontWeight: "700", color: colors.text },
         itemMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
         empty: { fontSize: 13, color: colors.textSecondary, paddingVertical: 16, textAlign: "center" },
+        warn: { fontSize: 13, color: "#B45309", marginBottom: 8 },
         erro: { fontSize: 13, color: "#dc3545", marginBottom: 8 },
         btnCancel: {
           marginTop: 8,
@@ -99,19 +104,32 @@ export default function AvulsoSelecionarModal({
     [colors]
   );
 
-  const carregar = useCallback(async (busca?: string) => {
+  const carregar = useCallback(async (opts?: { q?: string; todosDoDia?: boolean }) => {
+    const buscaQ = (opts?.q ?? q).trim();
+    const todosDoDia = !!opts?.todosDoDia;
+    if (!buscaQ && !todosDoDia) {
+      setItems([]);
+      setAmbiguo(false);
+      setMensagem("Digite para buscar os avulsos de hoje.");
+      return;
+    }
     setBuscando(true);
     setErro(null);
     try {
       const res = await listAvulsosPendentes({
-        q: (busca ?? q).trim() || undefined,
-        limit: 30,
+        q: buscaQ || undefined,
+        todos_do_dia: todosDoDia,
+        limit: 50,
         offset: 0,
       });
+      setAmbiguo(!!res.ambiguo);
+      setMensagem(res.mensagem || null);
       setItems(res.items);
     } catch (err) {
-      setErro(formatApiError(err, "Não foi possível buscar avulsos pendentes."));
+      setErro(formatApiError(err, "Não foi possível buscar avulsos."));
       setItems([]);
+      setAmbiguo(false);
+      setMensagem(null);
     } finally {
       setBuscando(false);
     }
@@ -121,8 +139,11 @@ export default function AvulsoSelecionarModal({
     if (!visible) return;
     setQ("");
     setSelecionando(false);
-    void carregar("");
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+    setErro(null);
+    setItems([]);
+    setAmbiguo(false);
+    setMensagem("Digite para buscar os avulsos de hoje.");
+  }, [visible]);
 
   const handleSelect = useCallback(
     async (item: AvulsoPendenteItem) => {
@@ -142,11 +163,13 @@ export default function AvulsoSelecionarModal({
       <View style={styles.overlay}>
         <View style={styles.card}>
           <Text style={styles.title}>Selecionar avulso</Text>
-          <Text style={styles.help}>Busque pelo código interno ou pelos dados cadastrados.</Text>
+          <Text style={styles.help}>
+            Busca por contém nos avulsos de hoje. Se alguém compartilhou a etiqueta, leia o código na câmera.
+          </Text>
           <View style={styles.row}>
             <TextInput
               style={styles.input}
-              placeholder="Código, pedido, destinatário..."
+              placeholder="Nome, CEP, código..."
               placeholderTextColor={colors.placeholder}
               value={q}
               onChangeText={setQ}
@@ -166,10 +189,18 @@ export default function AvulsoSelecionarModal({
               )}
             </TouchableOpacity>
           </View>
+          <TouchableOpacity
+            style={styles.linkTodos}
+            onPress={() => void carregar({ q: "", todosDoDia: true })}
+            disabled={busy}
+          >
+            <Text style={styles.linkTodosText}>Ver todos de hoje</Text>
+          </TouchableOpacity>
           {erro ? <Text style={styles.erro}>{erro}</Text> : null}
-          <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 360 }}>
-            {items.length === 0 && !buscando ? (
-              <Text style={styles.empty}>Nenhum avulso pendente encontrado.</Text>
+          {ambiguo ? <Text style={styles.warn}>{mensagem}</Text> : null}
+          <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 320 }}>
+            {items.length === 0 && !buscando && !ambiguo ? (
+              <Text style={styles.empty}>{mensagem || "Digite para buscar os avulsos de hoje."}</Text>
             ) : (
               items.map((it) => (
                 <TouchableOpacity
@@ -180,7 +211,13 @@ export default function AvulsoSelecionarModal({
                 >
                   <Text style={styles.itemLabel}>{it.label || it.codigo || "Avulso"}</Text>
                   <Text style={styles.itemMeta}>
-                    {[it.status, it.codigo].filter(Boolean).join(" · ")}
+                    {[
+                      it.status_label || it.status,
+                      it.motoboy_nome ? `Motoboy: ${it.motoboy_nome}` : "Sem motoboy",
+                      it.codigo,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </Text>
                 </TouchableOpacity>
               ))
