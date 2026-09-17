@@ -32,6 +32,21 @@ import { getNotifPrefs, patchNotifPrefs, type NotifPrefs } from "../services/pus
 
 type Props = NativeStackScreenProps<MaisStackParamList, "Configuracoes">;
 
+/** Declaração em destaque (foreground) antes do prompt do sistema. Não usar o texto de BACKGROUND. */
+const FOREGROUND_CITY_DISCLOSURE_TITLE = "Localização da cidade";
+const FOREGROUND_CITY_DISCLOSURE_BODY =
+  "O ROTEVO usa sua localização atual para detectar a cidade da busca de endereço, somente enquanto o aplicativo está aberto.\n\n" +
+  "Esta função não acompanha a rota em segundo plano e esses dados não são utilizados para publicidade.";
+
+function confirmForegroundCityDisclosure(): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert(FOREGROUND_CITY_DISCLOSURE_TITLE, FOREGROUND_CITY_DISCLOSURE_BODY, [
+      { text: "Agora não", style: "cancel", onPress: () => resolve(false) },
+      { text: "Continuar", onPress: () => resolve(true) },
+    ]);
+  });
+}
+
 const APP_VERSION =
   Constants.expoConfig?.version ??
   (typeof Constants.nativeAppVersion === "string" ? Constants.nativeAppVersion : null) ??
@@ -284,17 +299,24 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
   };
 
   const handleUsarLocalizacao = async () => {
+    const Location = await import("expo-location");
+    const { status } = await Location.getForegroundPermissionsAsync();
+    if (status !== "granted") {
+      const accepted = await confirmForegroundCityDisclosure();
+      if (!accepted) return;
+    }
+
     await runWithSave(async () => {
-      await setCidadePadrao("", estadoPadrao || "SP");
       clearSearchCityCaches();
-      const gps = await resolveCityFromGps({ forceRefresh: true });
+      const gps = await resolveCityFromGps({ forceRefresh: true, requestPermission: true });
       if (gps?.cidade) {
+        await setCidadePadrao("", gps.estado || estadoPadrao || "SP");
         setGpsCityLabel(`${gps.cidade}${gps.estado ? `/${gps.estado}` : ""}`);
         setCidadeDraft("");
       } else {
         Alert.alert(
           "Localização",
-          "Não foi possível detectar a cidade. Verifique a permissão de localização do aparelho."
+          "Não foi possível detectar a cidade. Permita o acesso à localização enquanto usa o app e tente de novo."
         );
       }
     });

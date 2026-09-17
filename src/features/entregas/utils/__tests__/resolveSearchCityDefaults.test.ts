@@ -23,3 +23,15 @@ test("pickCityFromExpoPlace ignora nome que parece logradouro", () => {
     null
   );
 });
+
+test("pickCityFromExpoPlace no Android usa subregion quando city vem vazio", () => {
+  const city = pickCityFromExpoPlace({
+    city: "",
+    subregion: "Barueri",
+    district: "Jardim Paulista",
+    region: "São Paulo",
+  });
+  assert.ok(city);
+  assert.equal(city!.cidade, "Barueri");
+  assert.equal(city!.estado, "SP");
+});
