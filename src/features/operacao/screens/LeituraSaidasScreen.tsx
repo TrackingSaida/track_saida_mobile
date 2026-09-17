@@ -817,6 +817,36 @@ export default function LeituraSaidasScreen() {
   );
   const avulsoExigeFoto = effectiveAvulsoExigeFoto(currentUser, motoboySelecionado);
   const avulsoPermitirFotos = effectiveAvulsoPermitirFotos(currentUser, motoboySelecionado);
+  const avulsoAcoesDisabled = loading || !motoboyId || !motoboyNome || !podeLerSaida;
+  const renderAvulsoAcoes = (opts: {
+    selectStyle: object | object[];
+    launchStyle: object | object[];
+    selectTextStyle: object;
+    launchTextStyle: object;
+  }) => (
+    <>
+      <TouchableOpacity
+        style={opts.selectStyle}
+        onPress={() => setAvulsoSelecionarVisible(true)}
+        disabled={avulsoAcoesDisabled}
+        accessibilityLabel="Selecionar avulso"
+      >
+        <Text style={opts.selectTextStyle}>Selecionar avulso</Text>
+      </TouchableOpacity>
+      {podeLancarAvulso ? (
+        <TouchableOpacity
+          style={opts.launchStyle}
+          onPress={() => setAvulsoModalVisible(true)}
+          disabled={avulsoAcoesDisabled}
+          accessibilityLabel={exigeSelecaoAvulso ? "Cadastrar avulso não registrado" : "Lançar Avulso"}
+        >
+          <Text style={opts.launchTextStyle}>
+            {exigeSelecaoAvulso ? "Cadastrar avulso não registrado" : "Lançar Avulso"}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+    </>
+  );
   const username = currentUser?.username ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
@@ -1986,34 +2016,12 @@ export default function LeituraSaidasScreen() {
               )}
             </TouchableOpacity>
             {renderBtnConfirmarLeituraCamera({ marginTop: 12 })}
-            {podeLancarAvulso ? (
-              exigeSelecaoAvulso ? (
-                <>
-                  <TouchableOpacity
-                    style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
-                    onPress={() => setAvulsoSelecionarVisible(true)}
-                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                  >
-                    <Text style={styles.btnAvulsoFooterText}>Selecionar avulso</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.linkManual, { marginTop: 8 }]}
-                    onPress={() => setAvulsoModalVisible(true)}
-                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                  >
-                    <Text style={styles.linkManualText}>Cadastrar avulso não registrado</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
-                  onPress={() => setAvulsoModalVisible(true)}
-                  disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                >
-                  <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                </TouchableOpacity>
-              )
-            ) : null}
+            {renderAvulsoAcoes({
+              selectStyle: [styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled],
+              launchStyle: [styles.linkManual, { marginTop: 8 }],
+              selectTextStyle: styles.btnAvulsoFooterText,
+              launchTextStyle: styles.linkManualText,
+            })}
             <TouchableOpacity
               style={styles.linkManual}
               onPress={() => setModoManual(false)}
@@ -2035,34 +2043,12 @@ export default function LeituraSaidasScreen() {
           >
             {feedbackVisual ? renderFeedbackStrip("main") : null}
             {renderBtnConfirmarLeituraCamera()}
-            {podeLancarAvulso ? (
-              exigeSelecaoAvulso ? (
-                <>
-                  <TouchableOpacity
-                    style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-                    onPress={() => setAvulsoSelecionarVisible(true)}
-                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                  >
-                    <Text style={styles.btnAvulsoFooterText}>Selecionar avulso</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.linkManual}
-                    onPress={() => setAvulsoModalVisible(true)}
-                    disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                  >
-                    <Text style={styles.linkManualText}>Cadastrar avulso não registrado</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-                  onPress={() => setAvulsoModalVisible(true)}
-                  disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                >
-                  <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                </TouchableOpacity>
-              )
-            ) : null}
+            {renderAvulsoAcoes({
+              selectStyle: [styles.btnAvulsoFooter, loading && styles.btnDisabled],
+              launchStyle: styles.linkManual,
+              selectTextStyle: styles.btnAvulsoFooterText,
+              launchTextStyle: styles.linkManualText,
+            })}
             {podeDigitarManual ? (
               <TouchableOpacity
                 style={styles.linkManual}
@@ -2110,34 +2096,12 @@ export default function LeituraSaidasScreen() {
                 <TouchableOpacity style={styles.btnPrimary} onPress={() => void requestPermission()}>
                   <Text style={styles.btnTextPrimary}>Permitir câmera</Text>
                 </TouchableOpacity>
-                {podeLancarAvulso ? (
-                  exigeSelecaoAvulso ? (
-                    <>
-                      <TouchableOpacity
-                        style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }, loading && styles.btnDisabled]}
-                        onPress={() => setAvulsoSelecionarVisible(true)}
-                        disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                      >
-                        <Text style={styles.btnAvulsoFooterText}>Selecionar avulso</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.linkManualWhite}
-                        onPress={() => setAvulsoModalVisible(true)}
-                        disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                      >
-                        <Text style={styles.linkManualTextWhite}>Cadastrar avulso não registrado</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }, loading && styles.btnDisabled]}
-                      onPress={() => setAvulsoModalVisible(true)}
-                      disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                    >
-                      <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                    </TouchableOpacity>
-                  )
-                ) : null}
+                {renderAvulsoAcoes({
+                  selectStyle: [styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }, loading && styles.btnDisabled],
+                  launchStyle: styles.linkManualWhite,
+                  selectTextStyle: styles.btnAvulsoFooterText,
+                  launchTextStyle: styles.linkManualTextWhite,
+                })}
                 {podeDigitarManual ? (
                   <TouchableOpacity
                     style={styles.linkManualWhite}
@@ -2208,37 +2172,12 @@ export default function LeituraSaidasScreen() {
                     )}
                   </View>
                   {renderBtnConfirmarLeituraCamera()}
-                  {podeLancarAvulso ? (
-                    exigeSelecaoAvulso ? (
-                      <>
-                        <TouchableOpacity
-                          style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-                          onPress={() => setAvulsoSelecionarVisible(true)}
-                          disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                          accessibilityLabel="Selecionar avulso"
-                        >
-                          <Text style={styles.btnAvulsoFooterText}>Selecionar avulso</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.linkManualWhite}
-                          onPress={() => setAvulsoModalVisible(true)}
-                          disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                          accessibilityLabel="Cadastrar avulso não registrado"
-                        >
-                          <Text style={styles.linkManualTextWhite}>Cadastrar avulso não registrado</Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <TouchableOpacity
-                        style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-                        onPress={() => setAvulsoModalVisible(true)}
-                        disabled={loading || !motoboySelecionadoOk || !podeLerSaida}
-                        accessibilityLabel="Lançar Avulso"
-                      >
-                        <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                      </TouchableOpacity>
-                    )
-                  ) : null}
+                  {renderAvulsoAcoes({
+                    selectStyle: [styles.btnAvulsoFooter, loading && styles.btnDisabled],
+                    launchStyle: styles.linkManualWhite,
+                    selectTextStyle: styles.btnAvulsoFooterText,
+                    launchTextStyle: styles.linkManualTextWhite,
+                  })}
                   {podeDigitarManual ? (
                     <TouchableOpacity
                       style={styles.linkManualWhite}
