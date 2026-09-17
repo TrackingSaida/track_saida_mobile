@@ -19,7 +19,8 @@ export function valorExtratoPorFiltro(
   const key = String(modo || "grupo_entregue").trim().toLowerCase();
   if (key === "todos") return feitos + cancelados;
   if (key === "cancelados") return cancelados;
-  return feitos - cancelados;
+  // Cancelados já estão fora de feitos; não descontar de novo (sem multa).
+  return feitos;
 }
 
 export function isExtratoCancelado(item: ExtratoPedidoItem): boolean {

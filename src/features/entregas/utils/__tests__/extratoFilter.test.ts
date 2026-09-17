@@ -57,7 +57,7 @@ function extratoBase(statusFiltro: ExtratoFinanceiro["status_filtro"]): ExtratoF
 }
 
 assert.equal(valorExtratoPorFiltro(40, 8, "todos"), 48);
-assert.equal(valorExtratoPorFiltro(40, 8, "grupo_entregue"), 32);
+assert.equal(valorExtratoPorFiltro(40, 8, "grupo_entregue"), 40);
 assert.equal(valorExtratoPorFiltro(40, 8, "cancelados"), 8);
 assert.ok(isExtratoGrupoEntregue(item({ id_saida: 1, status: "ENTREGUE", exibicao: "Entregue" })));
 assert.ok(isExtratoGrupoEntregue(item({ id_saida: 2, status: "EM_ROTA", exibicao: "Pendente" })));
@@ -71,8 +71,8 @@ assert.equal(todosFiltrado.valor_a_receber, "48.00");
 assert.equal(todosFiltrado.dias[0].valor_dia, "48.00");
 
 const entregueFiltrado = filterExtratoByServicos(extratoBase("grupo_entregue"), shopee);
-assert.equal(entregueFiltrado.valor_a_receber, "32.00");
-assert.equal(entregueFiltrado.dias[0].valor_dia, "32.00");
+assert.equal(entregueFiltrado.valor_a_receber, "40.00");
+assert.equal(entregueFiltrado.dias[0].valor_dia, "40.00");
 
 const canceladosFiltrado = filterExtratoByServicos(extratoBase("cancelados"), shopee);
 assert.equal(canceladosFiltrado.valor_a_receber, "8.00");
@@ -101,6 +101,6 @@ const misto: ExtratoFinanceiro = {
 };
 const soShopee = filterExtratoByServicos(misto, shopee);
 assert.equal(soShopee.total_pacotes_filtrados, 10);
-assert.equal(soShopee.valor_a_receber, "32.00");
+assert.equal(soShopee.valor_a_receber, "40.00");
 
 console.log("extratoFilter tests OK");
