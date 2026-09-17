@@ -1037,7 +1037,11 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         if (isRouteActive) {
           await runPartialOptimize();
         } else {
-          const gIdx = groupedStops.findIndex((g) =>
+          const { routeDeliveries, routeOrder } = useDeliveryStore.getState();
+          const groups = groupOrderedByAddress(
+            getOrderedRouteDeliveries(routeDeliveries, routeOrder)
+          );
+          const gIdx = groups.findIndex((g) =>
             g.deliveries.some((d) => d.id_saida === updated.id_saida)
           );
           if (gIdx >= 0) {
@@ -1061,7 +1065,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         Alert.alert("Erro ao salvar", formatApiError(e, "Não foi possível salvar o endereço."));
       }
     },
-    [editDelivery, saveAddress, updateRouteDelivery, runPartialOptimize, isRouteActive, cidadePadrao, estadoPadrao, groupedStops, reoptimizeFromGroupAnchor, refreshActivePolyline, promptPlacementChoice]
+    [editDelivery, saveAddress, updateRouteDelivery, runPartialOptimize, isRouteActive, cidadePadrao, estadoPadrao, reoptimizeFromGroupAnchor, refreshActivePolyline, promptPlacementChoice]
   );
 
   const handleAlterarPosicao = useCallback(

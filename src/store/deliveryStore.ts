@@ -569,13 +569,18 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         const list = state.pendingDeliveries.map((d) => (d.id_saida === idSaida ? merged : d));
         const withAddr = list.filter(withAddress);
         const withoutAddr = list.filter((d) => !withAddress(d));
+        const routeDeliveries = state.routeDeliveries.map((d) =>
+          d.id_saida === idSaida ? mergeEntregaPreservingCampos(d, updated) : d
+        );
+        const routeOrder = state.routeOrder.includes(idSaida)
+          ? clusterRouteOrderByAddress(routeDeliveries, state.routeOrder)
+          : state.routeOrder;
         return {
           pendingDeliveries: list,
           deliveriesWithAddress: withAddr,
           deliveriesWithoutAddress: withoutAddr,
-          routeDeliveries: state.routeDeliveries.map((d) =>
-            d.id_saida === idSaida ? mergeEntregaPreservingCampos(d, updated) : d
-          ),
+          routeDeliveries,
+          routeOrder,
           selectedDelivery:
             state.selectedDelivery?.id_saida === idSaida
               ? mergeEntregaPreservingCampos(state.selectedDelivery, updated)
@@ -1521,6 +1526,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
 
     if (routeOrder.length - fromDeliveryIndex < 2) {
       set({
+        routeOrder: clusterRouteOrderByAddress(routeDeliveries, routeOrder),
         routeManuallyAdjusted: true,
         routeAdjustMode: "recalculate",
         routeLastRecalcAnchor: toGroupIndex + 1,
