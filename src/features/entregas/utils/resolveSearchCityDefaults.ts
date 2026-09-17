@@ -23,24 +23,75 @@ const GPS_CACHE_TTL_MS = 120_000;
 let cachedSearchGps: { latitude: number; longitude: number } | null = null;
 let cachedSearchGpsAt = 0;
 
-async function getGpsForCity(): Promise<{ latitude: number; longitude: number } | null> {
+async function getGpsForCity(options?: {
+  requestPermission?: boolean;
+  forceRefresh?: boolean;
+}): Promise<{ latitude: number; longitude: number } | null> {
   const now = Date.now();
-  if (cachedSearchGps && now - cachedSearchGpsAt < GPS_CACHE_TTL_MS) {
+  if (
+    !options?.forceRefresh &&
+    cachedSearchGps &&
+    now - cachedSearchGpsAt < GPS_CACHE_TTL_MS
+  ) {
     return cachedSearchGps;
   }
   try {
     const Location = await import("expo-location");
-    // Não solicitar permissão aqui: só usa GPS se já concedido (evita prompt
-    // antes da declaração em destaque do fluxo de BACKGROUND_LOCATION).
-    const { status } = await Location.getForegroundPermissionsAsync();
-    if (status !== "granted") return null;
-    const pos = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Low,
-    });
-    cachedSearchGps = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-    cachedSearchGpsAt = now;
-    return cachedSearchGps;
+    let { status } = await Location.getForegroundPermissionsAsync();
+    if (status !== "granted") {
+      // Prompt só depois da declaração em destaque no botão "Usar localização".
+      // Não pedir no load da tela e não solicitar BACKGROUND_LOCATION aqui.
+      if (!options?.requestPermission) return null;
+      const asked = await Location.requestForegroundPermissionsAsync();
+      status = asked.status;
+      if (status !== "granted") return null;
+    }
+
+    const preferCurrent = Boolean(options?.forceRefresh || options?.requestPermission);
+    const last = await Location.getLastKnownPositionAsync();
+    const lastAgeMs = last?.timestamp != null ? now - last.timestamp : Number.POSITIVE_INFINITY;
+    if (!preferCurrent && last && lastAgeMs < 5 * 60_000) {
+      cachedSearchGps = {
+        latitude: last.coords.latitude,
+        longitude: last.coords.longitude,
+      };
+      cachedSearchGpsAt = now;
+      return cachedSearchGps;
+    }
+
+    try {
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      cachedSearchGps = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      cachedSearchGpsAt = now;
+      return cachedSearchGps;
+    } catch {
+      if (last) {
+        cachedSearchGps = {
+          latitude: last.coords.latitude,
+          longitude: last.coords.longitude,
+        };
+        cachedSearchGpsAt = now;
+        return cachedSearchGps;
+      }
+      throw new Error("gps_unavailable");
+    }
   } catch {
+    try {
+      const Location = await import("expo-location");
+      const last = await Location.getLastKnownPositionAsync();
+      if (last) {
+        cachedSearchGps = {
+          latitude: last.coords.latitude,
+          longitude: last.coords.longitude,
+        };
+        cachedSearchGpsAt = Date.now();
+        return cachedSearchGps;
+      }
+    } catch {
+      // ignora
+    }
     return cachedSearchGps;
   }
 }
@@ -80,6 +131,8 @@ export function setCidadesOperacaoFetcher(fetcher: (() => Promise<SearchCity[]>)
 export function clearSearchCityCaches(): void {
   cachedGpsCity = null;
   cachedOperacao = null;
+  cachedSearchGps = null;
+  cachedSearchGpsAt = 0;
 }
 
 function titleCity(raw: string): string {
@@ -107,7 +160,7 @@ export function pickCityFromExpoPlace(place: ReverseGeocodePlace): SearchCity | 
 
 /** Extrai cidade/UF do GPS (reverse geocode nativo). Cache ~10 min. */
 export async function resolveCityFromGps(
-  options?: { forceRefresh?: boolean }
+  options?: { forceRefresh?: boolean; requestPermission?: boolean }
 ): Promise<SearchCity | null> {
   const now = Date.now();
   if (
@@ -118,7 +171,10 @@ export async function resolveCityFromGps(
     return { cidade: cachedGpsCity.cidade, estado: cachedGpsCity.estado };
   }
 
-  const gps = await getGpsForCity();
+  const gps = await getGpsForCity({
+    requestPermission: options?.requestPermission,
+    forceRefresh: options?.forceRefresh,
+  });
   if (!gps) return cachedGpsCity ? { cidade: cachedGpsCity.cidade, estado: cachedGpsCity.estado } : null;
 
   try {
