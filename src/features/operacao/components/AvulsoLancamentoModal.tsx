@@ -139,6 +139,7 @@ export default function AvulsoLancamentoModal({
   const submitLockRef = useRef(false);
 
   const busy = loading || capturando || enviando;
+  const usarLegado = draftReady && camposCfg.length === 0;
 
   useEffect(() => {
     if (!visible) {
@@ -374,8 +375,11 @@ export default function AvulsoLancamentoModal({
 
   const handleConfirmar = useCallback(async () => {
     if (submitLockRef.current) return;
+    if (!draftReady) return;
 
-    const validacao = validarLancamentoAvulso(identificacao, quantidade);
+    const validacao = usarLegado
+      ? validarLancamentoAvulso(identificacao, quantidade)
+      : validarLancamentoAvulso("", "1");
     if (!validacao.ok) {
       Alert.alert("Atenção", validacao.message);
       return;
@@ -386,7 +390,7 @@ export default function AvulsoLancamentoModal({
     }
     for (const c of camposCfg) {
       const v = (camposValores[c.chave] || "").trim();
-      if (c.obrigatorio && !v && !(c.chave === "identificacao" && validacao.identificacao)) {
+      if (c.obrigatorio && !v) {
         Alert.alert("Campo obrigatório", `Preencha: ${c.label}`);
         return;
       }
@@ -481,6 +485,8 @@ export default function AvulsoLancamentoModal({
     motivo,
     camposCfg,
     camposValores,
+    draftReady,
+    usarLegado,
   ]);
 
   const handleDescartar = useCallback(() => {
@@ -516,19 +522,23 @@ export default function AvulsoLancamentoModal({
               </>
             ) : null}
 
-            <Text style={styles.label}>Identificação</Text>
-            <Text style={styles.help}>{AVULSO_IDENT_AJUDA}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex.: Empresa ABC"
-              placeholderTextColor={colors.placeholder}
-              value={identificacao}
-              onChangeText={setIdentificacao}
-              maxLength={AVULSO_IDENT_MAX}
-              editable={!busy}
-              autoCapitalize="words"
-              autoCorrect={false}
-            />
+            {usarLegado ? (
+              <>
+                <Text style={styles.label}>Identificação</Text>
+                <Text style={styles.help}>{AVULSO_IDENT_AJUDA}</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex.: Empresa ABC"
+                  placeholderTextColor={colors.placeholder}
+                  value={identificacao}
+                  onChangeText={setIdentificacao}
+                  maxLength={AVULSO_IDENT_MAX}
+                  editable={!busy}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                />
+              </>
+            ) : null}
 
             {camposCfg.map((c) => (
               <View key={c.chave}>
@@ -561,17 +571,21 @@ export default function AvulsoLancamentoModal({
               </View>
             ))}
 
-            <Text style={styles.label}>Quantidade (máx. {AVULSO_QTD_MAX})</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="1"
-              placeholderTextColor={colors.placeholder}
-              value={quantidade}
-              onChangeText={setQuantidade}
-              keyboardType="number-pad"
-              maxLength={2}
-              editable={!busy}
-            />
+            {usarLegado ? (
+              <>
+                <Text style={styles.label}>Quantidade (máx. {AVULSO_QTD_MAX})</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="1"
+                  placeholderTextColor={colors.placeholder}
+                  value={quantidade}
+                  onChangeText={setQuantidade}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  editable={!busy}
+                />
+              </>
+            ) : null}
 
             {permitirFotos ? <View style={styles.fotoSection}>
               <View style={styles.fotoHeader}>
@@ -631,9 +645,9 @@ export default function AvulsoLancamentoModal({
                 <Text style={styles.btnCancelText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.btnOk, busy && styles.btnDisabled]}
+                style={[styles.btnOk, (busy || !draftReady) && styles.btnDisabled]}
                 onPress={() => void handleConfirmar()}
-                disabled={busy}
+                disabled={busy || !draftReady}
               >
                 {enviando || loading ? (
                   <>
