@@ -125,6 +125,48 @@ export async function searchCodigosCascade(
   };
 }
 
+const EXACT_LIST_CONCURRENCY = 5;
+
+/** Busca exata de vários códigos, na ordem pedida. Códigos sem match são omitidos. */
+export async function searchCodigosExatosLista(
+  baseParams: Omit<ListSaidasParams, "codigo" | "codigoExato" | "localizar">,
+  codigos: string[]
+): Promise<SaidaListItem[]> {
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of codigos) {
+    const code = String(raw || "").trim().toUpperCase();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    unique.push(code);
+  }
+  if (unique.length === 0) return [];
+
+  const found = new Map<string, SaidaListItem>();
+  for (let i = 0; i < unique.length; i += EXACT_LIST_CONCURRENCY) {
+    const chunk = unique.slice(i, i + EXACT_LIST_CONCURRENCY);
+    const parts = await Promise.all(
+      chunk.map(async (codigo) => {
+        const res = await searchCodigosCascade(baseParams, codigo, { forceExact: true });
+        const match = (res.rows ?? []).find(
+          (row) => String(row.codigo || "").trim().toUpperCase() === codigo
+        );
+        return { codigo, match: match ?? res.rows?.[0] ?? null };
+      })
+    );
+    for (const part of parts) {
+      if (part.match) found.set(part.codigo, part.match);
+    }
+  }
+
+  const ordered: SaidaListItem[] = [];
+  for (const codigo of unique) {
+    const row = found.get(codigo);
+    if (row) ordered.push(row);
+  }
+  return ordered;
+}
+
 export async function listSaidas(params: ListSaidasParams): Promise<ListSaidasResult> {
   const limit = Number(params.limit ?? 50);
   const offset = Number(params.offset ?? 0);

@@ -1,5 +1,6 @@
 /** Navega a partir do payload de push (data.type). */
 import { useAuthStore } from "../../store/authStore";
+import { avisoFromPushData, useAvisosCacheStore } from "../../store/avisosCacheStore";
 import { isAdminRole } from "../../utils/role";
 
 function formatYmdLocal(d: Date = new Date()): string {
@@ -34,11 +35,20 @@ export function navigateFromPushData(
       }
       case "aviso_base":
       case "aviso_urgente": {
-        const id = Number(data.aviso_id);
+        const preview = avisoFromPushData(data);
+        if (preview) {
+          useAvisosCacheStore.getState().upsert(preview);
+        }
+        const id = preview?.id ?? Number(data.aviso_id);
         if (Number.isFinite(id) && id > 0) {
           navigation.navigate("Mais", {
             screen: "AvisoDetail",
-            params: { avisoId: id },
+            params: {
+              avisoId: id,
+              titulo: preview?.titulo || undefined,
+              mensagem: preview?.mensagem || undefined,
+              prioridade: preview?.prioridade || undefined,
+            },
           });
         } else {
           navigation.navigate("Mais", { screen: "Avisos" });

@@ -15,6 +15,7 @@ export interface MapLocateButtonProps {
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
+  following?: boolean;
 }
 
 export default function MapLocateButton({
@@ -22,6 +23,7 @@ export default function MapLocateButton({
   onPress,
   disabled = false,
   loading = false,
+  following = false,
 }: MapLocateButtonProps) {
   const colors = useThemeColors();
 
@@ -63,13 +65,15 @@ export default function MapLocateButton({
         onPress={onPress}
         disabled={disabled || loading}
         activeOpacity={0.85}
-        accessibilityLabel="Centralizar na minha localização"
+        accessibilityLabel={
+          following ? "Acompanhando sua posição. Toque para recentralizar" : "Centralizar na minha localização"
+        }
         accessibilityRole="button"
       >
         {loading ? (
           <ActivityIndicator size="small" color={colors.primary} />
         ) : (
-          <Ionicons name="locate" size={22} color={colors.primary} />
+          <Ionicons name={following ? "navigate" : "locate"} size={22} color={colors.primary} />
         )}
       </TouchableOpacity>
     </View>

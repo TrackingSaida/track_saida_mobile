@@ -28,8 +28,6 @@ const DEFAULT_REGION = {
   longitudeDelta: 0.08,
 };
 
-const LOCATE_ZOOM_DELTA = 0.008;
-
 type GroupedMapPoint = {
   paradaIndex: number;
   groupIndex: number;
@@ -81,10 +79,12 @@ export default function DeliveryMap({
   const routeOrder = useDeliveryStore((s) => s.routeOrder);
   const routeDeliveryStatus = useDeliveryStore((s) => s.routeDeliveryStatus);
   const activeRouteId = useDeliveryStore((s) => s.activeRouteId);
-  const activeStopIndex = useDeliveryStore((s) => s.activeStopIndex);
   const currentLocation = useDeliveryStore((s) => s.currentLocation);
   const setCurrentLocation = useDeliveryStore((s) => s.setCurrentLocation);
   const [locating, setLocating] = useState(false);
+  const [followUser, setFollowUser] = useState(false);
+  const followUserRef = useRef(false);
+  followUserRef.current = followUser;
 
   const isRouteActive = activeRouteId != null;
 
@@ -221,6 +221,7 @@ export default function DeliveryMap({
   const prevCountRef = useRef(0);
   useEffect(() => {
     if (withCoords.length === 0) return;
+    if (followUserRef.current && (isRouteActiveProp ?? isRouteActive)) return;
     if (withCoords.length !== prevCountRef.current) {
       prevCountRef.current = withCoords.length;
       mapRef.current?.fitToCoordinates(
@@ -228,13 +229,14 @@ export default function DeliveryMap({
         { edgePadding: { top: 48, right: 24, bottom: 24, left: 24 }, animated: true }
       );
     }
-  }, [withCoords]);
+  }, [withCoords, isRouteActive, isRouteActiveProp]);
 
   const prevCenterIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (centerOnStopId == null) return;
     if (prevCenterIdRef.current === centerOnStopId) return;
     prevCenterIdRef.current = centerOnStopId;
+    setFollowUser(false);
     const groupIndex = groupedStops.findIndex((g) => g.deliveries.some((d) => d.id_saida === centerOnStopId));
     if (groupIndex >= 0) {
       const point = groupedPointsWithCoords.find((p) => p.paradaIndex === groupIndex + 1);
@@ -252,26 +254,98 @@ export default function DeliveryMap({
     }
   }, [centerOnStopId, groupedPointsWithCoords, groupedStops]);
 
+  const animateFollow = useCallback(
+    (latitude: number, longitude: number, heading?: number) => {
+      const camera: {
+        center: { latitude: number; longitude: number };
+        heading?: number;
+        pitch: number;
+        zoom: number;
+      } = {
+        center: { latitude, longitude },
+        pitch: 0,
+        zoom: 16,
+      };
+      if (typeof heading === "number" && Number.isFinite(heading) && heading >= 0) {
+        camera.heading = heading;
+      }
+      mapRef.current?.animateCamera(camera, { duration: 400 });
+    },
+    []
+  );
+
   const prevActiveRouteIdRef = useRef<string | null>(null);
-  const prevActiveStopIndexRef = useRef<number>(0);
   useEffect(() => {
-    if (!currentLocation || !activeRouteId) return;
     const routeJustActivated = prevActiveRouteIdRef.current !== activeRouteId;
-    const stopIndexChanged = prevActiveStopIndexRef.current !== activeStopIndex;
     prevActiveRouteIdRef.current = activeRouteId;
-    prevActiveStopIndexRef.current = activeStopIndex;
-    if (routeJustActivated || stopIndexChanged) {
-      mapRef.current?.animateToRegion(
-        {
-          latitude: currentLocation.latitude,
-          longitude: currentLocation.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        },
-        400
-      );
+    if (routeJustActivated && activeRouteId) {
+      setFollowUser(true);
+    } else if (!activeRouteId) {
+      setFollowUser(false);
     }
-  }, [activeRouteId, activeStopIndex, currentLocation]);
+  }, [activeRouteId]);
+
+  useEffect(() => {
+    const routeActive = isRouteActiveProp ?? Boolean(activeRouteId);
+    if (!routeActive) return;
+    let cancelled = false;
+    let sub: Location.LocationSubscription | null = null;
+
+    void (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted" || cancelled) return;
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled) return;
+        const seed = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          heading:
+            typeof pos.coords.heading === "number" && !Number.isNaN(pos.coords.heading)
+              ? pos.coords.heading
+              : undefined,
+        };
+        setCurrentLocation(seed);
+        if (followUserRef.current) {
+          animateFollow(seed.latitude, seed.longitude, seed.heading);
+        }
+        sub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 1000,
+            distanceInterval: 5,
+          },
+          (loc) => {
+            const next = {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+              heading:
+                typeof loc.coords.heading === "number" && !Number.isNaN(loc.coords.heading)
+                  ? loc.coords.heading
+                  : undefined,
+            };
+            setCurrentLocation(next);
+            if (followUserRef.current) {
+              animateFollow(next.latitude, next.longitude, next.heading);
+            }
+          }
+        );
+        if (cancelled) {
+          sub.remove();
+          sub = null;
+        }
+      } catch {
+        // GPS em primeiro plano é best-effort; a task de background continua.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      sub?.remove();
+    };
+  }, [activeRouteId, isRouteActiveProp, animateFollow, setCurrentLocation]);
 
   const styles = useMemo(
     () =>
@@ -358,25 +432,13 @@ export default function DeliveryMap({
     return `rgba(${r}, ${g}, ${b}, 0.35)`;
   }, [colors.primary]);
 
-  const totalStops = withCoords.length;
   const showEmptyMessage = ordered.length > 0 && withCoords.length === 0;
-
-  const centerOnCoords = useCallback((latitude: number, longitude: number) => {
-    mapRef.current?.animateToRegion(
-      {
-        latitude,
-        longitude,
-        latitudeDelta: LOCATE_ZOOM_DELTA,
-        longitudeDelta: LOCATE_ZOOM_DELTA,
-      },
-      400
-    );
-  }, []);
 
   const handleLocateMe = useCallback(async () => {
     if (locating) return;
+    setFollowUser(true);
     if (currentLocation) {
-      centerOnCoords(currentLocation.latitude, currentLocation.longitude);
+      animateFollow(currentLocation.latitude, currentLocation.longitude, currentLocation.heading);
       return;
     }
     setLocating(true);
@@ -391,18 +453,19 @@ export default function DeliveryMap({
       }
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const { latitude, longitude, heading } = pos.coords;
-      setCurrentLocation({
+      const next = {
         latitude,
         longitude,
         heading: typeof heading === "number" && !Number.isNaN(heading) ? heading : undefined,
-      });
-      centerOnCoords(latitude, longitude);
+      };
+      setCurrentLocation(next);
+      animateFollow(next.latitude, next.longitude, next.heading);
     } catch {
       Alert.alert("Localização", "Não foi possível obter sua posição atual.");
     } finally {
       setLocating(false);
     }
-  }, [locating, currentLocation, centerOnCoords, setCurrentLocation]);
+  }, [locating, currentLocation, animateFollow, setCurrentLocation]);
 
   return (
     <View style={styles.map}>
@@ -412,6 +475,9 @@ export default function DeliveryMap({
         initialRegion={region}
         showsUserLocation
         showsMyLocationButton={false}
+        onPanDrag={() => {
+          if (activeRouteId) setFollowUser(false);
+        }}
       >
         {polylineCoordinates.length >= 2 && (
           <Polyline
@@ -546,6 +612,7 @@ export default function DeliveryMap({
           onPress={handleLocateMe}
           loading={locating}
           disabled={locating}
+          following={followUser && Boolean(activeRouteId)}
         />
       )}
     </View>

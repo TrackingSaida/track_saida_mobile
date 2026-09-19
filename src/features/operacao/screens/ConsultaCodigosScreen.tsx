@@ -35,6 +35,7 @@ import {
   gerarEtiquetaArquivo,
   listSaidas,
   searchCodigosCascade,
+  searchCodigosExatosLista,
   listMotoboysOperacao,
   lerSaidaAdmin,
   updateSaidaAdmin,
@@ -99,6 +100,27 @@ function getPeriodRange(
   const start = new Date(today);
   start.setDate(start.getDate() - 6);
   return { de: formatYmd(start), ate: end };
+}
+
+function fallbackStatusOrigemSessao(origem?: string): string {
+  const t = String(origem || "").toLowerCase();
+  if (t.includes("não colet") || t.includes("nao colet")) return "Não coletado";
+  if (t.includes("troca")) return "Saiu para entrega";
+  if (t.includes("erro")) return "Erro";
+  if (t.includes("confirmado") || t.includes("sucesso")) return "Saiu para entrega";
+  return "—";
+}
+
+function uniqueCodigosUpper(codigos: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of codigos) {
+    const code = String(raw || "").trim().toUpperCase();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push(code);
+  }
+  return out;
 }
 
 function normalizeStatusFilter(raw: string | undefined): StatusFilterUi {
@@ -180,6 +202,8 @@ export default function ConsultaCodigosScreen() {
   const lastCodigoConsultaRef = useRef<string | null>(null);
   const lastRawLeituraRef = useRef<string | null>(null);
   const lastRouteFilterKeyRef = useRef<string>("");
+  const [sessaoOrigem, setSessaoOrigem] = useState<string | null>(null);
+  const [sessaoCodigos, setSessaoCodigos] = useState<string[] | null>(null);
 
   const [appliedStatus, setAppliedStatus] = useState<StatusFilterUi>("");
   const [appliedPeriod, setAppliedPeriod] = useState<"none" | "today" | "7d">("none");
@@ -253,6 +277,16 @@ export default function ConsultaCodigosScreen() {
         container: { flex: 1, backgroundColor: colors.background },
         content: { padding: 20, paddingBottom: 48 },
         hint: { fontSize: 14, color: colors.textSecondary, marginBottom: 14 },
+        sessaoBanner: {
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          borderRadius: 10,
+          backgroundColor: colors.primarySoft,
+          borderWidth: 1,
+          borderColor: colors.primary,
+          marginBottom: 12,
+        },
+        sessaoBannerText: { fontSize: 14, fontWeight: "700", color: colors.primary },
         voiceBanner: {
           flexDirection: "row",
           alignItems: "flex-start",
@@ -688,14 +722,75 @@ export default function ConsultaCodigosScreen() {
     ]
   );
 
+  const buscarCodigosSessao = useCallback(
+    async (codigos: string[], origem?: string) => {
+      if (!podeLerSaida) {
+        Alert.alert("Sem permissão", "Sem permissão para consultar saídas.");
+        return;
+      }
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      setLoading(true);
+      setNotFound(false);
+      setPartialHint(null);
+      setSearchInput("");
+      setAppliedStatus("");
+      setAppliedPeriod("none");
+      setForcedRange(null);
+      try {
+        const unique = uniqueCodigosUpper(codigos);
+        const found = await searchCodigosExatosLista({}, unique);
+        const byCode = new Map(
+          found.map((row) => [String(row.codigo || "").trim().toUpperCase(), row])
+        );
+        const fallbackStatus = fallbackStatusOrigemSessao(origem);
+        const merged: SaidaListItem[] = unique.map((codigo) => {
+          const row = byCode.get(codigo);
+          if (row) return row;
+          return { codigo, status: fallbackStatus };
+        });
+        const tenantRows = filtrarSaidasPelaSubBaseDoUsuario(merged, currentUser?.sub_base);
+        setSearchMode("exact");
+        setSearchTruncated(false);
+        setResults(tenantRows);
+        setNotFound(tenantRows.length === 0);
+        setTotal(tenantRows.length);
+        setHasMore(false);
+        setOffset(0);
+      } catch {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert("Erro", "Falha ao buscar registros.");
+      } finally {
+        inFlightRef.current = false;
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [podeLerSaida, currentUser?.sub_base]
+  );
+
   useEffect(() => {
     const params = route.params;
     if (!params) return;
+    const rawCodigos = Array.isArray(params.codigos) ? params.codigos : [];
+    const origem = typeof params.origemSessao === "string" ? params.origemSessao : undefined;
+    const unique = uniqueCodigosUpper(rawCodigos.map((c) => String(c)));
+    if (unique.length > 0) {
+      const key = `codigos:${unique.join(",")}|${origem || ""}`;
+      if (lastRouteFilterKeyRef.current === key) return;
+      lastRouteFilterKeyRef.current = key;
+      setSessaoOrigem(origem || "Itens desta leitura");
+      setSessaoCodigos(unique);
+      void buscarCodigosSessao(unique, origem);
+      return;
+    }
     const hasFilter = Boolean(params.status || params.de || params.ate);
     if (!hasFilter) return;
     const key = `${params.status || ""}|${params.de || ""}|${params.ate || ""}`;
     if (lastRouteFilterKeyRef.current === key) return;
     lastRouteFilterKeyRef.current = key;
+    setSessaoOrigem(null);
+    setSessaoCodigos(null);
     const status = normalizeStatusFilter(params.status);
     const de = typeof params.de === "string" ? params.de : undefined;
     const ate = typeof params.ate === "string" ? params.ate : undefined;
@@ -710,7 +805,7 @@ export default function ConsultaCodigosScreen() {
       statusOverride: status || undefined,
       rangeOverride: range,
     });
-  }, [route.params, executarBusca]);
+  }, [route.params, executarBusca, buscarCodigosSessao]);
 
   const handleVoiceNotice = useCallback((message: string) => {
     setVoiceBanner(message);
@@ -738,7 +833,11 @@ export default function ConsultaCodigosScreen() {
   const handleSearchInputChange = useCallback((value: string) => {
     lastRawLeituraRef.current = null;
     setSearchInput(value);
-  }, []);
+    if (sessaoCodigos) {
+      setSessaoCodigos(null);
+      setSessaoOrigem(null);
+    }
+  }, [sessaoCodigos]);
 
   const handleSubmitSearch = useCallback(() => {
     void executarBusca(0);
@@ -1235,7 +1334,9 @@ export default function ConsultaCodigosScreen() {
   }, [motoboys, motoboyId, searchInput, processarLer]);
 
   const primeiro = results[0];
-  const multiResultados = results.length > 1 || (searchMode !== "exact" && results.length > 0);
+  const listaSessao = Boolean(sessaoCodigos && sessaoCodigos.length > 0);
+  const multiResultados =
+    listaSessao || results.length > 1 || (searchMode !== "exact" && results.length > 0);
   const restantes = multiResultados ? results : results.length > 1 ? results.slice(1) : [];
   const VoiceModalResolved = voiceModalComp;
 
@@ -1267,11 +1368,20 @@ export default function ConsultaCodigosScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: 48 + insets.bottom }]}
           keyboardShouldPersistTaps="handled"
         >
+          {sessaoOrigem ? (
+            <View style={styles.sessaoBanner}>
+              <Text style={styles.sessaoBannerText}>
+                {sessaoOrigem}
+                {sessaoCodigos?.length ? ` (${sessaoCodigos.length})` : ""}
+              </Text>
+            </View>
+          ) : (
           <Text style={styles.hint}>
             {mostrarVozConsulta
               ? "Digite ou escaneie o código e confirme. Toque no microfone para ditar."
               : "Digite ou escaneie o código e confirme."}
           </Text>
+          )}
 
           {mostrarVozConsulta && voiceBanner ? (
             <View style={styles.voiceBanner}>
@@ -1354,7 +1464,9 @@ export default function ConsultaCodigosScreen() {
             <>
               <View style={styles.resultsHeader}>
                 <Text style={styles.resultsHeaderText}>
-                  Encontrados {results.length} códigos
+                  {listaSessao
+                    ? `${sessaoOrigem || "Itens desta leitura"} · ${results.length}`
+                    : `Encontrados ${results.length} códigos`}
                 </Text>
               </View>
               {searchTruncated ? (
@@ -1396,7 +1508,7 @@ export default function ConsultaCodigosScreen() {
             </>
           ) : null}
 
-          {results.length > 0 && !buscaComCodigoExato ? (
+          {results.length > 0 && !buscaComCodigoExato && !listaSessao ? (
             <View style={styles.shareRow}>
               {total != null ? (
                 <Text style={[styles.resultsHeaderText, { flex: 1 }]}>
@@ -1423,7 +1535,7 @@ export default function ConsultaCodigosScreen() {
             </View>
           ) : null}
 
-          {hasMore && !buscaComCodigoExato ? (
+          {hasMore && !buscaComCodigoExato && !listaSessao ? (
             <View style={styles.loadMoreBtn}>
               <TouchableOpacity onPress={handleCarregarMais} disabled={loadingMore}>
                 {loadingMore ? (

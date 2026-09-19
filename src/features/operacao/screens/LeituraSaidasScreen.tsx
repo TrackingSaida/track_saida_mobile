@@ -82,6 +82,7 @@ type SessaoResumoSnapshot = {
   naoColetado: number;
   erros: number;
   ultima: LeituraSaidaItem | null;
+  itens: LeituraSaidaItem[];
 };
 
 type StatusLeituraSaida = "sucesso" | "nao_coletado" | "erro" | "alterado";
@@ -192,6 +193,31 @@ interface ConflitoLeituraDiaAnterior {
   motoboyNome: string;
   novoEntregador: string;
   motoboyId: number;
+}
+
+function uniqueCodigosLeitura(items: LeituraSaidaItem[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const code = String(item.codigo || "").trim().toUpperCase();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push(code);
+  }
+  return out;
+}
+
+function labelConsultaSessao(status: StatusLeituraSaida): string {
+  switch (status) {
+    case "nao_coletado":
+      return "Não coletados desta leitura";
+    case "alterado":
+      return "Trocas desta leitura";
+    case "erro":
+      return "Erros desta leitura";
+    default:
+      return "Confirmados desta leitura";
+  }
 }
 
 function labelResumoStatus(status: StatusLeituraSaida): string {
@@ -431,6 +457,7 @@ export default function LeituraSaidasScreen() {
         },
         contadorChipText: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
         contadorItemText: { fontSize: 13, color: colors.text, fontWeight: "600", flex: 1 },
+        contadorItemClicavel: { borderWidth: 1, borderColor: colors.inputBorder },
         servicoBadgesRow: {
           flexDirection: "row",
           flexWrap: "wrap",
@@ -1135,6 +1162,7 @@ export default function LeituraSaidasScreen() {
           : leiturasDoMotoboy.length
             ? { ...leiturasDoMotoboy[leiturasDoMotoboy.length - 1] }
             : null,
+        itens: leiturasDoMotoboy.map((item) => ({ ...item })),
       });
       setLeituras([]);
       aplicarResumoConfirmado(motoboyId, res);
@@ -1193,6 +1221,33 @@ export default function LeituraSaidasScreen() {
       ]
     );
   }, [navigation, handleConfirmarLeitura, conferenciaHabilitada]);
+
+  const abrirConsultaSessao = useCallback(
+    (status: StatusLeituraSaida) => {
+      const live = totalValidas > 0 || totalErros > 0;
+      const fonte = live ? leiturasDoMotoboy : sessaoFinalizadaSnap?.itens ?? [];
+      const codigos = uniqueCodigosLeitura(fonte.filter((item) => item.status === status));
+      if (codigos.length === 0) return;
+      const tabNav = navigation.getParent() as
+        | { navigate: (name: string, params?: Record<string, unknown>) => void }
+        | undefined;
+      tabNav?.navigate("Inicio", {
+        screen: "ConsultaCodigos",
+        params: {
+          codigos,
+          origemSessao: labelConsultaSessao(status),
+        },
+      });
+    },
+    [
+      navigation,
+      totalValidas,
+      totalErros,
+      leiturasDoMotoboy,
+      sessaoFinalizadaSnap,
+    ]
+  );
+
   const codigosLidosSessaoMotoboy = useMemo(() => {
     const set = new Set<string>();
     if (!motoboyId) return set;
@@ -1874,29 +1929,69 @@ export default function LeituraSaidasScreen() {
 
           <Text style={[styles.sessaoTitulo, { marginTop: 18 }]}>Nesta sessão</Text>
           <View style={styles.contadoresRow}>
-            <View style={styles.contadorItem}>
+            <Pressable
+              style={[
+                styles.contadorItem,
+                motoboySelecionadoOk && exibirSucesso > 0 ? styles.contadorItemClicavel : null,
+              ]}
+              onPress={() => {
+                if (motoboySelecionadoOk && exibirSucesso > 0) abrirConsultaSessao("sucesso");
+              }}
+              disabled={!motoboySelecionadoOk || exibirSucesso <= 0}
+              accessibilityRole="button"
+              accessibilityLabel={`Confirmados desta leitura: ${exibirSucesso}`}
+            >
               <Ionicons name="checkmark-circle" size={18} color="#198754" />
               <Text style={styles.contadorItemText}>
                 Sucesso: {motoboySelecionadoOk ? exibirSucesso : 0}
               </Text>
-            </View>
-            <View style={styles.contadorItem}>
+              {motoboySelecionadoOk && exibirSucesso > 0 ? (
+                <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+              ) : null}
+            </Pressable>
+            <Pressable
+              style={[
+                styles.contadorItem,
+                motoboySelecionadoOk && exibirTroca > 0 ? styles.contadorItemClicavel : null,
+              ]}
+              onPress={() => {
+                if (motoboySelecionadoOk && exibirTroca > 0) abrirConsultaSessao("alterado");
+              }}
+              disabled={!motoboySelecionadoOk || exibirTroca <= 0}
+              accessibilityRole="button"
+              accessibilityLabel={`Trocas desta leitura: ${exibirTroca}`}
+            >
               <Ionicons name="swap-horizontal" size={18} color="#0d6efd" />
               <Text style={styles.contadorItemText}>
                 Troca: {motoboySelecionadoOk ? exibirTroca : 0}
               </Text>
-            </View>
+              {motoboySelecionadoOk && exibirTroca > 0 ? (
+                <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+              ) : null}
+            </Pressable>
             {exibirNaoColetado > 0 ? (
-              <View style={styles.contadorItem}>
+              <Pressable
+                style={[styles.contadorItem, styles.contadorItemClicavel]}
+                onPress={() => abrirConsultaSessao("nao_coletado")}
+                accessibilityRole="button"
+                accessibilityLabel={`Não coletados desta leitura: ${exibirNaoColetado}`}
+              >
                 <Ionicons name="alert-circle" size={18} color="#856404" />
                 <Text style={styles.contadorItemText}>Não coletado: {exibirNaoColetado}</Text>
-              </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+              </Pressable>
             ) : null}
             {exibirErros > 0 ? (
-              <View style={styles.contadorItem}>
+              <Pressable
+                style={[styles.contadorItem, styles.contadorItemClicavel]}
+                onPress={() => abrirConsultaSessao("erro")}
+                accessibilityRole="button"
+                accessibilityLabel={`Erros desta leitura: ${exibirErros}`}
+              >
                 <Ionicons name="close-circle" size={18} color="#dc3545" />
                 <Text style={styles.contadorItemText}>Erro: {exibirErros}</Text>
-              </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+              </Pressable>
             ) : null}
           </View>
           {motoboySelecionadoOk && totalValidas > 0 ? (

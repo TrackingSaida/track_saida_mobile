@@ -81,6 +81,10 @@ import {
   syncPushRegistration,
 } from "./src/services/push/pushService";
 import { navigateFromPushData } from "./src/services/push/navigationFromPush";
+import {
+  consumePendingPush,
+  enqueuePendingPush,
+} from "./src/services/push/pendingPushNavigation";
 
 import type { EntregasListInitialTab } from "./src/features/entregas/types";
 
@@ -414,16 +418,43 @@ export default function App() {
   useEffect(() => {
     if (!token || requiresBiometricUnlock || !currentUser) return;
     void syncPushRegistration({ attempts: 3 });
+    const canFlushPush = () => {
+      if (!rootNavigationRef.isReady()) return false;
+      const name = rootNavigationRef.getCurrentRoute()?.name ?? "";
+      return name !== "Login" && name !== "SelectSubBase";
+    };
     const detachListeners = attachPushListeners((data) => {
-      navigateFromPushData(rootNavigationRef.isReady() ? rootNavigationRef : null, data);
-    });
-    const detachAppState = ensurePushAppStateSync();
-    void getLastNotificationData().then((data) => {
-      if (data && rootNavigationRef.isReady()) {
+      if (canFlushPush()) {
         navigateFromPushData(rootNavigationRef, data);
+      } else {
+        enqueuePendingPush(data);
       }
     });
+    const detachAppState = ensurePushAppStateSync();
+    const flushPending = () => {
+      if (!canFlushPush()) return;
+      const queued = consumePendingPush();
+      if (queued) navigateFromPushData(rootNavigationRef, queued);
+    };
+    void getLastNotificationData().then((data) => {
+      if (!data) {
+        flushPending();
+        return;
+      }
+      if (canFlushPush()) {
+        navigateFromPushData(rootNavigationRef, data);
+      } else {
+        enqueuePendingPush(data);
+      }
+    });
+    const readyPoll = setInterval(() => {
+      if (canFlushPush()) {
+        clearInterval(readyPoll);
+        flushPending();
+      }
+    }, 250);
     return () => {
+      clearInterval(readyPoll);
       detachListeners();
       detachAppState();
     };
@@ -455,7 +486,16 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer ref={rootNavigationRef} theme={navTheme}>
+        <NavigationContainer
+          ref={rootNavigationRef}
+          theme={navTheme}
+          onReady={() => {
+            const name = rootNavigationRef.getCurrentRoute()?.name ?? "";
+            if (name === "Login" || name === "SelectSubBase") return;
+            const queued = consumePendingPush();
+            if (queued) navigateFromPushData(rootNavigationRef, queued);
+          }}
+        >
         <StatusBar style={theme === "dark" ? "light" : "dark"} />
         {pendingChangePassword ? (
           <ChangePasswordRequiredScreen onDone={() => setPendingChangePassword(false)} />
