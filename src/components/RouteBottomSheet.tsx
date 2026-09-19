@@ -364,6 +364,14 @@ export default function RouteBottomSheet({
     ).length;
   }, [groupedStops, routeDeliveryStatus]);
 
+  const currentStopNumber = activeGroupIndex >= 0 ? activeGroupIndex + 1 : 1;
+  const sheetTotalLabel =
+    isRouteActive && total > 0
+      ? `Parada ${currentStopNumber} de ${total}`
+      : disableDrag && total > 0
+        ? `${completedCount} de ${total} parada${total !== 1 ? "s" : ""}`
+        : `${total} parada${total !== 1 ? "s" : ""}`;
+
   const scrollToActiveGroupRobust = useCallback(
     (animated = true) => {
       if (activeGroupIndex < 0 || collapsed || !disableDrag) return;
@@ -566,9 +574,7 @@ export default function RouteBottomSheet({
             <View style={styles.handleBar} />
             <View style={styles.collapsedMain}>
               <Text style={styles.totalText} numberOfLines={1}>
-                {disableDrag && total > 0
-                  ? `${completedCount} de ${total} parada${total !== 1 ? "s" : ""}`
-                  : `${total} parada${total !== 1 ? "s" : ""}`}
+                {sheetTotalLabel}
               </Text>
               <Text style={styles.expandHint}>Toque para ver a lista da rota</Text>
             </View>
@@ -598,9 +604,7 @@ export default function RouteBottomSheet({
           <View style={styles.header}>
             <View style={{ flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 }}>
               <Text style={styles.totalText} numberOfLines={1} ellipsizeMode="tail">
-                {disableDrag && total > 0
-                  ? `${completedCount} de ${total} parada${total !== 1 ? "s" : ""}`
-                  : `${total} parada${total !== 1 ? "s" : ""}`}
+                {sheetTotalLabel}
               </Text>
             </View>
             {disableDrag && (

@@ -1367,8 +1367,6 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           marginBottom: 8,
           backgroundColor: colors.warning + "30",
         },
-        statsLine: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
-        localizedLine: { fontSize: 12, color: colors.textSecondary, marginBottom: 4 },
         nextStopBlock: {
           flexDirection: "row",
           alignItems: "flex-start",
@@ -1376,10 +1374,11 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           marginBottom: 8,
         },
         nextStopTextWrap: { flex: 1, minWidth: 0 },
-        nextStopLine: { fontSize: 13, color: colors.text, lineHeight: 18 },
+        nextStopLine: { fontSize: 17, fontWeight: "800", color: colors.text, lineHeight: 22 },
         nextStopLineSecondary: { fontSize: 12, color: colors.textSecondary, lineHeight: 17, marginTop: 2 },
         nextStopPedidos: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
         nextStopLabel: { fontSize: 12, fontWeight: "700", color: colors.textSecondary, marginBottom: 2 },
+        currentStopCount: { fontSize: 12, color: colors.textSecondary, marginBottom: 8 },
         navHeaderBtn: {
           paddingHorizontal: 12,
           paddingVertical: 8,
@@ -1670,21 +1669,10 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
             >
               <Text style={styles.secondaryActionBtnText}>{LOCATE_PACKAGE_LABEL}</Text>
             </TouchableOpacity>
-            <Text style={styles.statsLine}>
-              <Text style={styles.statValue}>{headerStats.stopCount}</Text> parada
-              {headerStats.stopCount !== 1 ? "s" : ""}
-              {" · "}
-              <Text style={styles.statValue}>{headerStats.pedidoCount}</Text> pedido
-              {headerStats.pedidoCount !== 1 ? "s" : ""}
-            </Text>
-            <Text style={styles.localizedLine}>
-              Parada atual: <Text style={styles.statValue}>{effectiveCurrentGroupNumber}</Text> de{" "}
-              <Text style={styles.statValue}>{groupedStops.length}</Text>
-            </Text>
             {nextGroup && nextGroupAddressLines && (
               <View style={styles.nextStopBlock}>
                 <View style={styles.nextStopTextWrap}>
-                  <Text style={styles.nextStopLabel}>Próxima:</Text>
+                  <Text style={styles.nextStopLabel}>Indo para</Text>
                   <Text style={styles.nextStopLine} numberOfLines={2}>
                     {nextGroupAddressLines.line1}
                   </Text>
@@ -1710,6 +1698,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
                 )}
               </View>
             )}
+            <Text style={styles.currentStopCount}>
+              Parada {effectiveCurrentGroupNumber} de {groupedStops.length}
+            </Text>
             <View style={styles.sequenceWrap}>
               <RouteSequenceStrip
                 groupedStops={groupedStops}
