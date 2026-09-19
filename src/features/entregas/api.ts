@@ -351,9 +351,11 @@ export interface ScanStatusFinalizado {
  * Envia para /mobile/scan o valor bruto lido do scanner quando disponível.
  * O backend faz normalize_codigo(...) e extrai codigo/servico/qr_payload_raw.
  */
+export type ScanOrigem = "camera" | "manual" | "selecao";
+
 export async function scanCodigo(
   codigoBrutoOuNormalizado: string,
-  origem: "camera" | "manual" = "camera"
+  origem: ScanOrigem = "camera"
 ): Promise<
   ScanSuccess | ScanConflict | ScanLeituraDiaAnterior | ScanLeituraEncerrado | ScanStatusFinalizado
 > {
