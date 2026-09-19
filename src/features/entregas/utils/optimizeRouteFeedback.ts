@@ -5,8 +5,10 @@ import { useRouteDestinationStore } from "../../../store/routeDestinationStore";
 import { formatApiError } from "../../../utils/formatApiError";
 import {
   beginOptimizeIdempotencyKey,
+  endOptimizeIdempotencyKey,
   isOptimizeInFlight,
 } from "./optimizeIdempotency";
+import { decideOptimizeGpsStart } from "./optimizeGpsStart";
 
 type OptimizeFn = (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
 
@@ -80,29 +82,37 @@ export async function runOptimizeRouteWithFeedback(
   }
   // Garante key criada no início do gesto (antes de retries internos).
   beginOptimizeIdempotencyKey();
+  const dest = useRouteDestinationStore.getState();
   const endOpts = resolveEndOpts(opts);
+  const destinationMode =
+    dest.useDestination && endOpts.toLat != null && endOpts.toLon != null;
   try {
     const { status } = await Location.getForegroundPermissionsAsync();
-    let result: OptimizeRouteResult;
-    if (status !== "granted") {
-      result = await optimizeRoute({ ...opts, ...endOpts });
-    } else {
+    let gps: { fromLat: number; fromLon: number } | null = null;
+    if (status === "granted") {
       try {
         const pos = await withTimeout(
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
           GPS_TIMEOUT_MS,
           "Localização GPS"
         );
-        result = await optimizeRoute({
-          ...opts,
-          ...endOpts,
-          fromLat: pos.coords.latitude,
-          fromLon: pos.coords.longitude,
-        });
+        gps = { fromLat: pos.coords.latitude, fromLon: pos.coords.longitude };
       } catch {
-        result = await optimizeRoute({ ...opts, ...endOpts });
+        gps = null;
       }
     }
+    const decision = decideOptimizeGpsStart({ destinationMode, gps });
+    if (decision.action === "block") {
+      if (!silent) {
+        Alert.alert("Localização necessária", decision.message);
+      }
+      return null;
+    }
+    const startOpts =
+      decision.action === "use"
+        ? { fromLat: decision.fromLat, fromLon: decision.fromLon }
+        : {};
+    const result = await optimizeRoute({ ...opts, ...endOpts, ...startOpts });
     if (!result || result.message === "noop") return result;
     if (!silent) showOptimizeAlert(result);
     return result;
@@ -110,5 +120,7 @@ export async function runOptimizeRouteWithFeedback(
     const msg = formatApiError(e, "Não foi possível otimizar a rota. Tente novamente.");
     if (!silent) Alert.alert("Erro ao otimizar", msg);
     return null;
+  } finally {
+    endOptimizeIdempotencyKey();
   }
 }
