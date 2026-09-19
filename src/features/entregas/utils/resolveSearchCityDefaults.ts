@@ -20,8 +20,27 @@ export type ReverseGeocodePlace = {
 };
 
 const GPS_CACHE_TTL_MS = 120_000;
+const GPS_FIX_TIMEOUT_MS = 8_000;
 let cachedSearchGps: { latitude: number; longitude: number } | null = null;
 let cachedSearchGpsAt = 0;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} expirou após ${Math.round(ms / 1000)}s`)),
+      ms
+    );
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
 
 async function getGpsForCity(options?: {
   requestPermission?: boolean;
@@ -60,9 +79,14 @@ async function getGpsForCity(options?: {
     }
 
     try {
-      const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      const pos = await withTimeout(
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Low,
+          mayShowUserSettingsDialog: false,
+        }),
+        GPS_FIX_TIMEOUT_MS,
+        "gps"
+      );
       cachedSearchGps = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
       cachedSearchGpsAt = now;
       return cachedSearchGps;
@@ -179,10 +203,14 @@ export async function resolveCityFromGps(
 
   try {
     const Location = await import("expo-location");
-    const places = await Location.reverseGeocodeAsync({
-      latitude: gps.latitude,
-      longitude: gps.longitude,
-    });
+    const places = await withTimeout(
+      Location.reverseGeocodeAsync({
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+      }),
+      GPS_FIX_TIMEOUT_MS,
+      "reverse_geocode"
+    );
     for (const place of places ?? []) {
       const city = pickCityFromExpoPlace(place);
       if (city) {
