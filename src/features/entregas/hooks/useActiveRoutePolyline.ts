@@ -25,6 +25,17 @@ function concatPolylines(head: RoutePoint[] | null, tail: RoutePoint[] | null): 
   return same ? [...head, ...tail.slice(1)] : [...head, ...tail];
 }
 
+/** Com Google válido, a polyline do backend já é a rota completa — não junta approach/OSRM. */
+export function selectDisplayedPolyline(params: {
+  useBackendGoogle: boolean;
+  isRouteActive: boolean;
+  approachPolyline: RoutePoint[] | null;
+  restPolyline: RoutePoint[] | null;
+}): RoutePoint[] | null {
+  if (params.useBackendGoogle) return params.restPolyline;
+  return concatPolylines(params.isRouteActive ? params.approachPolyline : null, params.restPolyline);
+}
+
 export function useActiveRoutePolyline(params: {
   isRouteActive: boolean;
   groupedStops: GroupedStop[];
@@ -183,7 +194,17 @@ export function useActiveRoutePolyline(params: {
   }, [stopPoints, runFetch, useBackendGoogle, geometryProvider, geometryStatus]);
 
   useEffect(() => {
-    if (!isRouteActive || !currentLocation || !nextStop) {
+    if (!useBackendGoogle) return;
+    setApproachPolyline(null);
+    lastApproachOriginRef.current = null;
+    lastApproachDestHashRef.current = null;
+    if (approachDebounceRef.current) clearTimeout(approachDebounceRef.current);
+    approachAbortRef.current?.abort();
+  }, [useBackendGoogle]);
+
+  useEffect(() => {
+    if (useBackendGoogle || !isRouteActive || !currentLocation || !nextStop) {
+      if (useBackendGoogle) return;
       setApproachPolyline(null);
       lastApproachOriginRef.current = null;
       lastApproachDestHashRef.current = null;
@@ -242,7 +263,7 @@ export function useActiveRoutePolyline(params: {
     return () => {
       if (approachDebounceRef.current) clearTimeout(approachDebounceRef.current);
     };
-  }, [isRouteActive, currentLocation, nextStop]);
+  }, [useBackendGoogle, isRouteActive, currentLocation, nextStop]);
 
   useEffect(() => {
     return () => {
@@ -257,8 +278,14 @@ export function useActiveRoutePolyline(params: {
   }, [stopPoints, runFetch, useBackendGoogle]);
 
   const polyline = useMemo(
-    () => concatPolylines(isRouteActive ? approachPolyline : null, restPolyline),
-    [isRouteActive, approachPolyline, restPolyline]
+    () =>
+      selectDisplayedPolyline({
+        useBackendGoogle,
+        isRouteActive,
+        approachPolyline,
+        restPolyline,
+      }),
+    [useBackendGoogle, isRouteActive, approachPolyline, restPolyline]
   );
 
   const polylineWarning = error && !polyline ? error : error ? error : null;

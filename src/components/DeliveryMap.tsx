@@ -486,7 +486,7 @@ export default function DeliveryMap({
             strokeColor={routeActive ? colors.primary : fadedPolylineColor}
             lineCap="round"
             lineJoin="round"
-            geodesic
+            geodesic={false}
           />
         )}
         {!routeActive && highlightedPolyline.length >= 2 && (
@@ -496,7 +496,7 @@ export default function DeliveryMap({
             strokeColor={colors.primary}
             lineCap="round"
             lineJoin="round"
-            geodesic
+            geodesic={false}
           />
         )}
         {currentLocation && (
