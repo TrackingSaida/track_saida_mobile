@@ -9,30 +9,14 @@ import {
   isOptimizeInFlight,
 } from "./optimizeIdempotency";
 import { decideOptimizeGpsStart } from "./optimizeGpsStart";
+import { resolveGpsPositionCascade } from "./optimizeGpsCascade";
 
 type OptimizeFn = (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
-
-const GPS_TIMEOUT_MS = 8_000;
 
 export type OptimizeRouteFeedbackOptions = OptimizeRouteOptions & {
   /** Não exibe Alert automático (ex.: recálculo parcial na revisão). */
   silent?: boolean;
 };
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} expirou após ${Math.round(ms / 1000)}s`)), ms);
-    promise
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
-}
 
 function resolveEndOpts(opts?: OptimizeRouteFeedbackOptions): OptimizeRouteOptions {
   if (opts?.toLat != null && opts?.toLon != null) {
@@ -87,21 +71,23 @@ export async function runOptimizeRouteWithFeedback(
   const destinationMode =
     dest.useDestination && endOpts.toLat != null && endOpts.toLon != null;
   try {
-    const { status } = await Location.getForegroundPermissionsAsync();
+    let { status } = await Location.getForegroundPermissionsAsync();
+    if (destinationMode && status !== "granted") {
+      const asked = await Location.requestForegroundPermissionsAsync();
+      status = asked.status;
+    }
     let gps: { fromLat: number; fromLon: number } | null = null;
     if (status === "granted") {
-      try {
-        const pos = await withTimeout(
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-          GPS_TIMEOUT_MS,
-          "Localização GPS"
-        );
-        gps = { fromLat: pos.coords.latitude, fromLon: pos.coords.longitude };
-      } catch {
-        gps = null;
+      const pos = await resolveGpsPositionCascade(Location);
+      if (pos) {
+        gps = { fromLat: pos.latitude, fromLon: pos.longitude };
       }
     }
-    const decision = decideOptimizeGpsStart({ destinationMode, gps });
+    const decision = decideOptimizeGpsStart({
+      destinationMode,
+      gps,
+      permissionGranted: status === "granted",
+    });
     if (decision.action === "block") {
       if (!silent) {
         Alert.alert("Localização necessária", decision.message);

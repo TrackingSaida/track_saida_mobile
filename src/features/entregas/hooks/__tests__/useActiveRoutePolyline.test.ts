@@ -46,3 +46,13 @@ test("em planejamento ignora approach mesmo sem Google", () => {
   });
   assert.equal(result, google);
 });
+
+test("Google válido não acrescenta origem nem destino no cliente", () => {
+  const result = selectDisplayedPolyline({
+    useBackendGoogle: true,
+    isRouteActive: false,
+    approachPolyline: approach,
+    restPolyline: google,
+  });
+  assert.deepEqual(result, google);
+});

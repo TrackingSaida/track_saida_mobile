@@ -2,9 +2,7 @@ import React, { useMemo, useRef, useEffect, useState, useCallback } from "react"
 import { View, Text, StyleSheet, Platform, Alert } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import * as Location from "expo-location";
-import { Ionicons } from "@expo/vector-icons";
 import { useDeliveryStore } from "../store/deliveryStore";
-import { useRouteDestinationStore } from "../store/routeDestinationStore";
 import { useThemeColors } from "../theme/colors";
 import MapLocateButton from "./MapLocateButton";
 import {
@@ -83,12 +81,6 @@ export default function DeliveryMap({
   const activeRouteId = useDeliveryStore((s) => s.activeRouteId);
   const currentLocation = useDeliveryStore((s) => s.currentLocation);
   const setCurrentLocation = useDeliveryStore((s) => s.setCurrentLocation);
-  const useDestination = useRouteDestinationStore((s) => s.useDestination);
-  const destEnd = useRouteDestinationStore((s) => s.end);
-  const homeCoord =
-    useDestination && destEnd
-      ? { latitude: destEnd.latitude, longitude: destEnd.longitude }
-      : null;
   const [locating, setLocating] = useState(false);
   const [followUser, setFollowUser] = useState(false);
   const followUserRef = useRef(false);
@@ -132,11 +124,10 @@ export default function DeliveryMap({
   }, [groupedStops, routeDeliveryStatus, geocodedCoords, geocodedMeta, legacyValidationCache]);
 
   const withCoords = groupedPointsWithCoords;
-  const fitCoords = useMemo(() => {
-    const pts = withCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
-    if (homeCoord) pts.push(homeCoord);
-    return pts;
-  }, [withCoords, homeCoord]);
+  const fitCoords = useMemo(
+    () => withCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
+    [withCoords]
+  );
 
   const displayCoordByParada = useMemo(() => {
     const spread = spreadOverlappingStopCoords(
@@ -411,21 +402,6 @@ export default function DeliveryMap({
           shadowRadius: 2,
           elevation: 3,
         },
-        homeFlag: {
-          width: 28,
-          height: 28,
-          borderRadius: 14,
-          backgroundColor: "#6A1B9A",
-          borderWidth: 2,
-          borderColor: "#fff",
-          alignItems: "center",
-          justifyContent: "center",
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.3,
-          shadowRadius: 2,
-          elevation: 4,
-        },
       }),
     []
   );
@@ -535,19 +511,6 @@ export default function DeliveryMap({
             title="Você"
           >
             <View style={styles.motoboyMarker} />
-          </Marker>
-        )}
-        {homeCoord && (
-          <Marker
-            coordinate={homeCoord}
-            anchor={{ x: 0.5, y: 1 }}
-            tracksViewChanges={false}
-            title="Casa"
-            zIndex={0}
-          >
-            <View style={styles.homeFlag}>
-              <Ionicons name="flag" size={14} color="#fff" />
-            </View>
           </Marker>
         )}
         {mapDisplayItems.map((item, idx) => {

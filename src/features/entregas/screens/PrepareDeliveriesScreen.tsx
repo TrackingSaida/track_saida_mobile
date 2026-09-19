@@ -73,6 +73,7 @@ import {
   type PrepSecondaryAction,
 } from "../utils/prepFlowState";
 import { runOptimizeRouteWithFeedback } from "../utils/optimizeRouteFeedback";
+import { warmupOptimizeGps } from "../utils/optimizeGpsCascade";
 import { abandonOptimizeIdempotencyKey } from "../utils/optimizeIdempotency";
 import { deliveryToFreeText } from "../utils/deliveryAddress";
 import { formatAddressSummary } from "../utils/addressSuggestions";
@@ -987,6 +988,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         {
           text: "Sim",
           onPress: () => {
+            warmupOptimizeGps();
             void (async () => {
               try {
                 const home = await fetchMotoboyHomeAddress();
@@ -1048,6 +1050,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para criar a rota.");
         return;
       }
+
+      warmupOptimizeGps();
 
       if (opts?.partial && semEndereco > 0) {
         Alert.alert(

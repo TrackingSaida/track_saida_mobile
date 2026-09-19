@@ -1,5 +1,8 @@
 export const GPS_START_REQUIRED_MESSAGE =
-  "Não foi possível obter sua localização. Ative o GPS e tente gerar a rota de novo.";
+  "Ainda não conseguimos sua localização. Toque em Gerar rota de novo.";
+
+export const GPS_PERMISSION_REQUIRED_MESSAGE =
+  "Permita o acesso à localização e tente gerar a rota de novo.";
 
 export type OptimizeGpsStartDecision =
   | { action: "use"; fromLat: number; fromLon: number }
@@ -9,12 +12,17 @@ export type OptimizeGpsStartDecision =
 export function decideOptimizeGpsStart(params: {
   destinationMode: boolean;
   gps: { fromLat: number; fromLon: number } | null;
+  permissionGranted?: boolean;
 }): OptimizeGpsStartDecision {
   if (params.gps) {
     return { action: "use", fromLat: params.gps.fromLat, fromLon: params.gps.fromLon };
   }
   if (params.destinationMode) {
-    return { action: "block", message: GPS_START_REQUIRED_MESSAGE };
+    const message =
+      params.permissionGranted === false
+        ? GPS_PERMISSION_REQUIRED_MESSAGE
+        : GPS_START_REQUIRED_MESSAGE;
+    return { action: "block", message };
   }
   return { action: "skip" };
 }
