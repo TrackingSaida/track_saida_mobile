@@ -310,9 +310,11 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
       clearSearchCityCaches();
       const gps = await resolveCityFromGps({ forceRefresh: true, requestPermission: true });
       if (gps?.cidade) {
+        const label = `${gps.cidade}${gps.estado ? `/${gps.estado}` : ""}`;
         await setCidadePadrao("", gps.estado || estadoPadrao || "SP");
-        setGpsCityLabel(`${gps.cidade}${gps.estado ? `/${gps.estado}` : ""}`);
+        setGpsCityLabel(label);
         setCidadeDraft("");
+        Alert.alert("Localização", `Cidade detectada: ${label}`);
       } else {
         Alert.alert(
           "Localização",
