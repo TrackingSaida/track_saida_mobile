@@ -73,6 +73,8 @@ import {
   type PrepSecondaryAction,
 } from "../utils/prepFlowState";
 import { runOptimizeRouteWithFeedback } from "../utils/optimizeRouteFeedback";
+import { warmupOptimizeGps } from "../utils/optimizeGpsCascade";
+import { abandonOptimizeIdempotencyKey } from "../utils/optimizeIdempotency";
 import { deliveryToFreeText } from "../utils/deliveryAddress";
 import { formatAddressSummary } from "../utils/addressSuggestions";
 import {
@@ -101,6 +103,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     loading,
     setRouteDeliveries,
     clearActiveRouteState,
+    clearRoute,
     activeRouteId,
     routeOrder,
     routeDeliveries,
@@ -945,12 +948,17 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     setOptimizingLabel("Criando rota...");
     setOptimizing(true);
     try {
+      abandonOptimizeIdempotencyKey();
       clearActiveRouteState();
       setRouteDeliveries(withCoords);
       const result = await runOptimizeRouteWithFeedback(optimizeRoute);
-      if (!result?.ok) return;
+      if (!result?.ok) {
+        clearRoute();
+        return;
+      }
       navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
     } catch (e) {
+      clearRoute();
       Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
     } finally {
       setOptimizing(false);
@@ -958,6 +966,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   }, [
     withCoords,
     clearActiveRouteState,
+    clearRoute,
     setRouteDeliveries,
     optimizeRoute,
     navigation,
@@ -979,6 +988,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         {
           text: "Sim",
           onPress: () => {
+            warmupOptimizeGps();
             void (async () => {
               try {
                 const home = await fetchMotoboyHomeAddress();
@@ -1040,6 +1050,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         Alert.alert("Atenção", "É necessário pelo menos 2 entregas com coordenadas para criar a rota.");
         return;
       }
+
+      warmupOptimizeGps();
 
       if (opts?.partial && semEndereco > 0) {
         Alert.alert(

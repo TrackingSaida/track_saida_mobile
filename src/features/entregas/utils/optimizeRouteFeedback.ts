@@ -5,32 +5,18 @@ import { useRouteDestinationStore } from "../../../store/routeDestinationStore";
 import { formatApiError } from "../../../utils/formatApiError";
 import {
   beginOptimizeIdempotencyKey,
+  endOptimizeIdempotencyKey,
   isOptimizeInFlight,
 } from "./optimizeIdempotency";
+import { decideOptimizeGpsStart } from "./optimizeGpsStart";
+import { resolveGpsPositionCascade } from "./optimizeGpsCascade";
 
 type OptimizeFn = (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
-
-const GPS_TIMEOUT_MS = 8_000;
 
 export type OptimizeRouteFeedbackOptions = OptimizeRouteOptions & {
   /** Não exibe Alert automático (ex.: recálculo parcial na revisão). */
   silent?: boolean;
 };
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} expirou após ${Math.round(ms / 1000)}s`)), ms);
-    promise
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
-}
 
 function resolveEndOpts(opts?: OptimizeRouteFeedbackOptions): OptimizeRouteOptions {
   if (opts?.toLat != null && opts?.toLon != null) {
@@ -80,29 +66,39 @@ export async function runOptimizeRouteWithFeedback(
   }
   // Garante key criada no início do gesto (antes de retries internos).
   beginOptimizeIdempotencyKey();
+  const dest = useRouteDestinationStore.getState();
   const endOpts = resolveEndOpts(opts);
+  const destinationMode =
+    dest.useDestination && endOpts.toLat != null && endOpts.toLon != null;
   try {
-    const { status } = await Location.getForegroundPermissionsAsync();
-    let result: OptimizeRouteResult;
-    if (status !== "granted") {
-      result = await optimizeRoute({ ...opts, ...endOpts });
-    } else {
-      try {
-        const pos = await withTimeout(
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-          GPS_TIMEOUT_MS,
-          "Localização GPS"
-        );
-        result = await optimizeRoute({
-          ...opts,
-          ...endOpts,
-          fromLat: pos.coords.latitude,
-          fromLon: pos.coords.longitude,
-        });
-      } catch {
-        result = await optimizeRoute({ ...opts, ...endOpts });
+    let { status } = await Location.getForegroundPermissionsAsync();
+    if (destinationMode && status !== "granted") {
+      const asked = await Location.requestForegroundPermissionsAsync();
+      status = asked.status;
+    }
+    let gps: { fromLat: number; fromLon: number } | null = null;
+    if (status === "granted") {
+      const pos = await resolveGpsPositionCascade(Location);
+      if (pos) {
+        gps = { fromLat: pos.latitude, fromLon: pos.longitude };
       }
     }
+    const decision = decideOptimizeGpsStart({
+      destinationMode,
+      gps,
+      permissionGranted: status === "granted",
+    });
+    if (decision.action === "block") {
+      if (!silent) {
+        Alert.alert("Localização necessária", decision.message);
+      }
+      return null;
+    }
+    const startOpts =
+      decision.action === "use"
+        ? { fromLat: decision.fromLat, fromLon: decision.fromLon }
+        : {};
+    const result = await optimizeRoute({ ...opts, ...endOpts, ...startOpts });
     if (!result || result.message === "noop") return result;
     if (!silent) showOptimizeAlert(result);
     return result;
@@ -110,5 +106,7 @@ export async function runOptimizeRouteWithFeedback(
     const msg = formatApiError(e, "Não foi possível otimizar a rota. Tente novamente.");
     if (!silent) Alert.alert("Erro ao otimizar", msg);
     return null;
+  } finally {
+    endOptimizeIdempotencyKey();
   }
 }

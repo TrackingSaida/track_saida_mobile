@@ -32,6 +32,7 @@ import {
 import {
   beginOptimizeIdempotencyKey,
   endOptimizeIdempotencyKey,
+  abandonOptimizeIdempotencyKey,
 } from "../features/entregas/utils/optimizeIdempotency";
 import { inferCoordPrecision, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
 import { geocodeAddressStrict } from "../features/entregas/utils/geocodeStrict";
@@ -1094,6 +1095,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
 
     await stopBackgroundTracking().catch(() => undefined);
     await clearPersistedRouteSnapshot().catch(() => undefined);
+    abandonOptimizeIdempotencyKey();
     get().clearRoute();
     get().clearActiveRouteState();
     return { ok: true };

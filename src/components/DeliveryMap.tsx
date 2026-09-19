@@ -124,6 +124,10 @@ export default function DeliveryMap({
   }, [groupedStops, routeDeliveryStatus, geocodedCoords, geocodedMeta, legacyValidationCache]);
 
   const withCoords = groupedPointsWithCoords;
+  const fitCoords = useMemo(
+    () => withCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
+    [withCoords]
+  );
 
   const displayCoordByParada = useMemo(() => {
     const spread = spreadOverlappingStopCoords(
@@ -192,7 +196,7 @@ export default function DeliveryMap({
   const tracksMarkerChanges = !markersReady || markerResnapshotActive;
 
   const region = useMemo(() => {
-    if (withCoords.length === 0) {
+    if (fitCoords.length === 0) {
       if (currentLocation) {
         return {
           latitude: currentLocation.latitude,
@@ -203,8 +207,8 @@ export default function DeliveryMap({
       }
       return DEFAULT_REGION;
     }
-    const lats = withCoords.map((p) => p.latitude);
-    const lons = withCoords.map((p) => p.longitude);
+    const lats = fitCoords.map((p) => p.latitude);
+    const lons = fitCoords.map((p) => p.longitude);
     const minLat = Math.min(...lats);
     const maxLat = Math.max(...lats);
     const minLon = Math.min(...lons);
@@ -216,20 +220,20 @@ export default function DeliveryMap({
       latitudeDelta: Math.max(0.02, maxLat - minLat + pad * 2),
       longitudeDelta: Math.max(0.02, maxLon - minLon + pad * 2),
     };
-  }, [withCoords, currentLocation]);
+  }, [fitCoords, currentLocation]);
 
   const prevCountRef = useRef(0);
   useEffect(() => {
-    if (withCoords.length === 0) return;
+    if (fitCoords.length === 0) return;
     if (followUserRef.current && (isRouteActiveProp ?? isRouteActive)) return;
-    if (withCoords.length !== prevCountRef.current) {
-      prevCountRef.current = withCoords.length;
-      mapRef.current?.fitToCoordinates(
-        withCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
-        { edgePadding: { top: 48, right: 24, bottom: 24, left: 24 }, animated: true }
-      );
+    if (fitCoords.length !== prevCountRef.current) {
+      prevCountRef.current = fitCoords.length;
+      mapRef.current?.fitToCoordinates(fitCoords, {
+        edgePadding: { top: 48, right: 24, bottom: 24, left: 24 },
+        animated: true,
+      });
     }
-  }, [withCoords, isRouteActive, isRouteActiveProp]);
+  }, [fitCoords, isRouteActive, isRouteActiveProp]);
 
   const prevCenterIdRef = useRef<number | null>(null);
   useEffect(() => {
