@@ -1260,7 +1260,7 @@ export default function LeituraSaidasScreen() {
   }, [leituras, motoboyId]);
 
   const processarLeitura = useCallback(
-    async (raw: string, origem: "camera" | "manual" | "leitor") => {
+    async (raw: string, origem: "camera" | "manual" | "leitor" | "selecao") => {
       if (!podeLerSaida) {
         pushFeedback("info", "Sem permissão para leitura de saídas.");
         return;
@@ -1617,7 +1617,7 @@ export default function LeituraSaidasScreen() {
       }
       setLoading(true);
       try {
-        await processarLeitura(codigo, "manual");
+        await processarLeitura(codigo, "selecao");
         setAvulsoSelecionarVisible(false);
       } finally {
         setLoading(false);

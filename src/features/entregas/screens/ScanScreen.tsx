@@ -21,7 +21,8 @@ import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
-import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, confirmarReativacaoEncerrado, lancarAvulsoMobile } from "../api";
+import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, confirmarReativacaoEncerrado, lancarAvulsoMobile, type ScanOrigem } from "../api";
+import { formatApiError } from "../../../utils/formatApiError";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
@@ -592,7 +593,7 @@ export default function ScanScreen({ navigation, route }: Props) {
     !conflitoEncerrado;
 
   const processarCodigo = useCallback(
-    async (raw: string, origem: "camera" | "manual" = "camera") => {
+    async (raw: string, origem: ScanOrigem = "camera") => {
       const rawTrim = String(raw || "").trim();
       if (!rawTrim || scanLocked.current) return;
       const cls = classifyCodigoParaOperacao(rawTrim);
@@ -623,8 +624,8 @@ export default function ScanScreen({ navigation, route }: Props) {
       markScanned(rawTrim);
       scanLocked.current = true;
       // Câmera: não usa loading global (pausava o scanner e cobria a tela).
-      if (origem === "manual") setLoading(true);
-      else setCameraBusy(true);
+      if (origem === "camera") setCameraBusy(true);
+      else setLoading(true);
       setConflito(null);
       setConflitoDiaAnterior(null);
       setConflitoEncerrado(null);
@@ -742,15 +743,14 @@ export default function ScanScreen({ navigation, route }: Props) {
           setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_ERR_MS);
           return;
         }
-        const msg =
-          ax?.response?.data?.detail ?? apiErro.message ?? "Código não encontrado ou erro ao processar.";
+        const msg = formatApiError(e, "Código não encontrado ou erro ao processar.");
         playSound("error");
-        pushFeedback("erro", typeof msg === "string" ? msg : "Erro ao processar leitura", c);
-        Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+        pushFeedback("erro", msg, c);
+        Alert.alert("Erro", msg);
         setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_ERR_MS);
       } finally {
-        if (origem === "manual") setLoading(false);
-        else setCameraBusy(false);
+        if (origem === "camera") setCameraBusy(false);
+        else setLoading(false);
       }
     },
     [addLeitura, codigosLidosSessao, pushFeedback, handlePostScanDelivery]
@@ -828,7 +828,7 @@ export default function ScanScreen({ navigation, route }: Props) {
         throw new Error("Avulso sem código.");
       }
       setShowAvulsoSelect(false);
-      await processarCodigo(codigoSel, "manual");
+      await processarCodigo(codigoSel, "selecao");
     },
     [processarCodigo]
   );
@@ -853,11 +853,10 @@ export default function ScanScreen({ navigation, route }: Props) {
       );
       handlePostScanDelivery(conflito.id_saida, entrega);
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { detail?: string } } };
-      const msg = ax?.response?.data?.detail ?? "Erro ao assumir.";
+      const msg = formatApiError(e, "Erro ao assumir.");
       playSound("error");
-      pushFeedback("erro", typeof msg === "string" ? msg : "Erro ao assumir");
-      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+      pushFeedback("erro", msg);
+      Alert.alert("Erro", msg);
     } finally {
       setAssumindo(false);
     }
@@ -883,11 +882,10 @@ export default function ScanScreen({ navigation, route }: Props) {
       scanLocked.current = false;
       handlePostScanDelivery(idSaida, entrega);
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { detail?: string; message?: string } } };
-      const msg = ax?.response?.data?.detail ?? ax?.response?.data?.message ?? "Erro ao confirmar nova saída.";
+      const msg = formatApiError(e, "Erro ao confirmar nova saída.");
       playSound("error");
-      pushFeedback("erro", typeof msg === "string" ? msg : "Erro ao confirmar nova saída", conflitoDiaAnterior.codigo);
-      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+      pushFeedback("erro", msg, conflitoDiaAnterior.codigo);
+      Alert.alert("Erro", msg);
     } finally {
       setConfirmandoDiaAnterior(false);
     }
@@ -912,16 +910,10 @@ export default function ScanScreen({ navigation, route }: Props) {
       scanLocked.current = false;
       handlePostScanDelivery(idSaida, entrega);
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { detail?: string; message?: string } } };
-      const msg =
-        ax?.response?.data?.detail ?? ax?.response?.data?.message ?? "Erro ao confirmar nova saída.";
+      const msg = formatApiError(e, "Erro ao confirmar nova saída.");
       playSound("error");
-      pushFeedback(
-        "erro",
-        typeof msg === "string" ? msg : "Erro ao confirmar nova saída",
-        conflitoEncerrado.codigo
-      );
-      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+      pushFeedback("erro", msg, conflitoEncerrado.codigo);
+      Alert.alert("Erro", msg);
     } finally {
       setConfirmandoEncerrado(false);
     }
@@ -946,10 +938,9 @@ export default function ScanScreen({ navigation, route }: Props) {
         navigation.navigate("EntregasList");
       }
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { detail?: string } } };
-      const msg = ax?.response?.data?.detail ?? "Erro ao iniciar rota.";
+      const msg = formatApiError(e, "Erro ao iniciar rota.");
       playSound("error");
-      Alert.alert("Erro", typeof msg === "string" ? msg : String(msg));
+      Alert.alert("Erro", msg);
     } finally {
       setIniciandoRota(false);
     }

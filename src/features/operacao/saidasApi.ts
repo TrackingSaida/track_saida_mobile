@@ -244,7 +244,7 @@ export interface LerSaidaAdminBody {
   servico?: string | null;
   registrar_nao_coletado?: boolean;
   qr_payload_raw?: string;
-  origem?: "camera" | "manual";
+  origem?: "camera" | "manual" | "selecao";
 }
 
 export interface LerSaidaApiRow {
