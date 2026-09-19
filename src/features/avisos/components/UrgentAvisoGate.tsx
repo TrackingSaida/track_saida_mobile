@@ -4,6 +4,7 @@ import { useAuthStore } from "../../../store/authStore";
 import { isMotoboyRole } from "../../../utils/role";
 import { listUrgentesPendentes, type AvisoItem } from "../api";
 import { playSound } from "../../../utils/sound";
+import { useAvisosCacheStore } from "../../../store/avisosCacheStore";
 import {
   getCurrentRouteName,
   rootNavigationRef,
@@ -34,6 +35,9 @@ export default function UrgentAvisoGate() {
     }
     try {
       const items = await listUrgentesPendentes();
+      for (const item of items) {
+        useAvisosCacheStore.getState().upsert(item);
+      }
       setQueue(items);
     } catch {
       // ignore
@@ -74,7 +78,12 @@ export default function UrgentAvisoGate() {
       // ParamList raiz não tipado no ref — navegação aninhada via tabs.
       (rootNavigationRef as { navigate: (...args: any[]) => void }).navigate("Mais", {
         screen: "AvisoDetail",
-        params: { avisoId: current.id },
+        params: {
+          avisoId: current.id,
+          titulo: current.titulo,
+          mensagem: current.mensagem,
+          prioridade: current.prioridade,
+        },
       });
     }
     // remove da fila local; ao voltar o refresh confirma lido

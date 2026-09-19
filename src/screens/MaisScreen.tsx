@@ -40,7 +40,12 @@ export type MaisStackParamList = {
   MeusFechamentos: undefined;
   FechamentoDetail: { idFechamento: number };
   Avisos: undefined;
-  AvisoDetail: { avisoId: number };
+  AvisoDetail: {
+    avisoId: number;
+    titulo?: string;
+    mensagem?: string;
+    prioridade?: string;
+  };
 };
 
 type Props = NativeStackScreenProps<MaisStackParamList, "MaisInicio"> & {

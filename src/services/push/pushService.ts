@@ -180,6 +180,21 @@ export async function unregisterPush(): Promise<void> {
 
 export type PushNavHandler = (data: Record<string, unknown>) => void;
 
+function mergeNotificationPayload(
+  content: { title?: string | null; body?: string | null; data?: unknown }
+): Record<string, unknown> {
+  const raw = content.data;
+  const data: Record<string, unknown> =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  if (!data.titulo && content.title) data.titulo = content.title;
+  if (!data.mensagem && content.body) data.mensagem = content.body;
+  if (!data.title && content.title) data.title = content.title;
+  if (!data.body && content.body) data.body = content.body;
+  return data;
+}
+
 export function attachPushListeners(onNavigate: PushNavHandler): () => void {
   if (REMOTE_PUSH_UNSUPPORTED || listenersAttached) {
     return () => undefined;
@@ -195,11 +210,15 @@ export function attachPushListeners(onNavigate: PushNavHandler): () => void {
     }
 
     const received = Notifications.addNotificationReceivedListener((notification) => {
-      const data = (notification.request.content.data || {}) as Record<string, unknown>;
+      const data = mergeNotificationPayload(notification.request.content);
       const tipo = String(data.type || "");
       // Sempre toca no foreground; avisos usam beep operacional
       void playSound(tipo === "aviso_urgente" ? "error" : "warn");
       if (tipo === "aviso_base" || tipo === "aviso_urgente") {
+        void import("../../store/avisosCacheStore").then(({ avisoFromPushData, useAvisosCacheStore }) => {
+          const preview = avisoFromPushData(data);
+          if (preview) useAvisosCacheStore.getState().upsert(preview);
+        });
         void import("../../store/avisosUnreadStore").then(({ useAvisosUnreadStore }) => {
           void useAvisosUnreadStore.getState().refresh({ playOnIncrease: false });
         });
@@ -207,7 +226,7 @@ export function attachPushListeners(onNavigate: PushNavHandler): () => void {
     });
 
     const response = Notifications.addNotificationResponseReceivedListener((resp) => {
-      const data = (resp.notification.request.content.data || {}) as Record<string, unknown>;
+      const data = mergeNotificationPayload(resp.notification.request.content);
       onNavigate(data);
     });
 
@@ -231,5 +250,5 @@ export async function getLastNotificationData(): Promise<Record<string, unknown>
   if (!Notifications) return null;
   const last = await Notifications.getLastNotificationResponseAsync();
   if (!last) return null;
-  return (last.notification.request.content.data || {}) as Record<string, unknown>;
+  return mergeNotificationPayload(last.notification.request.content);
 }

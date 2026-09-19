@@ -3,6 +3,7 @@ import type { GeocodedMetaMap, LegacyValidationCache } from "../utils/deliveryDe
 import {
   buildPendingRoutePoints,
   buildPlanningRoutePoints,
+  haversineDistanceKm,
   type GroupedStop,
   type RouteDeliveryStatus,
   type RoutePoint,
@@ -10,6 +11,19 @@ import {
 import { fetchOsrmRoutePolyline, waypointsHash } from "../utils/osrm";
 
 const DEBOUNCE_MS = 400;
+const APPROACH_MOVE_M = 40;
+
+function concatPolylines(head: RoutePoint[] | null, tail: RoutePoint[] | null): RoutePoint[] | null {
+  if (!head?.length && !tail?.length) return null;
+  if (!head?.length) return tail;
+  if (!tail?.length) return head;
+  const last = head[head.length - 1];
+  const first = tail[0];
+  const same =
+    Math.abs(last.latitude - first.latitude) < 1e-5 &&
+    Math.abs(last.longitude - first.longitude) < 1e-5;
+  return same ? [...head, ...tail.slice(1)] : [...head, ...tail];
+}
 
 export function useActiveRoutePolyline(params: {
   isRouteActive: boolean;
@@ -45,7 +59,8 @@ export function useActiveRoutePolyline(params: {
     !!backendPolylineCoords &&
     backendPolylineCoords.length >= 2;
 
-  const [polyline, setPolyline] = useState<RoutePoint[] | null>(null);
+  const [restPolyline, setRestPolyline] = useState<RoutePoint[] | null>(null);
+  const [approachPolyline, setApproachPolyline] = useState<RoutePoint[] | null>(null);
   const [lastValidPolyline, setLastValidPolyline] = useState<RoutePoint[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,8 +69,12 @@ export function useActiveRoutePolyline(params: {
   const lastValidRef = useRef<RoutePoint[] | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const approachAbortRef = useRef<AbortController | null>(null);
+  const approachDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastApproachOriginRef = useRef<RoutePoint | null>(null);
+  const lastApproachDestHashRef = useRef<string | null>(null);
 
-  const routePoints = useMemo(() => {
+  const stopPoints = useMemo(() => {
     if (isRouteActive) {
       return buildPendingRoutePoints({
         groupedStops,
@@ -64,7 +83,7 @@ export function useActiveRoutePolyline(params: {
         geocodedCoords,
         geocodedMeta,
         legacyCache: legacyValidationCache,
-        currentLocation,
+        currentLocation: null,
       });
     }
     return buildPlanningRoutePoints({
@@ -81,13 +100,14 @@ export function useActiveRoutePolyline(params: {
     geocodedCoords,
     geocodedMeta,
     legacyValidationCache,
-    currentLocation,
   ]);
 
-  // Backend Google geometry: usa coordenadas salvas; não chama OSRM.
+  const nextStop = stopPoints[0] ?? null;
+
+  // Backend Google geometry: usa coordenadas salvas para o trecho entre paradas.
   useEffect(() => {
     if (!useBackendGoogle || !backendPolylineCoords) return;
-    setPolyline(backendPolylineCoords);
+    setRestPolyline(backendPolylineCoords);
     setLastValidPolyline(backendPolylineCoords);
     lastValidRef.current = backendPolylineCoords;
     setError(null);
@@ -98,7 +118,7 @@ export function useActiveRoutePolyline(params: {
   const runFetch = useCallback(async (points: RoutePoint[], force = false) => {
     if (useBackendGoogle) return;
     if (points.length < 2) {
-      setPolyline(null);
+      setRestPolyline(null);
       setError(null);
       return;
     }
@@ -119,19 +139,19 @@ export function useActiveRoutePolyline(params: {
 
       if (result && result.length >= 2) {
         lastHashRef.current = hash;
-        setPolyline(result);
+        setRestPolyline(result);
         setLastValidPolyline(result);
         lastValidRef.current = result;
       } else {
         setError("Não foi possível calcular a rota por ruas.");
         const fallback = lastValidRef.current;
-        setPolyline(fallback);
+        setRestPolyline(fallback);
       }
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") return;
       setError("Não foi possível calcular a rota por ruas.");
       const fallback = lastValidRef.current;
-      setPolyline(fallback);
+      setRestPolyline(fallback);
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
@@ -141,7 +161,7 @@ export function useActiveRoutePolyline(params: {
     if (useBackendGoogle) return;
     if (geometryProvider === "google" && geometryStatus && geometryStatus !== "valid") {
       // stale/failed/missing com provider google: não desenhar OSRM enganoso
-      setPolyline(null);
+      setRestPolyline(null);
       setError(
         geometryStatus === "stale"
           ? "Linha da rota desatualizada. Reotimize ou aguarde o recálculo."
@@ -153,30 +173,103 @@ export function useActiveRoutePolyline(params: {
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      void runFetch(routePoints);
+      void runFetch(stopPoints);
     }, DEBOUNCE_MS);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       abortRef.current?.abort();
     };
-  }, [routePoints, runFetch, useBackendGoogle, geometryProvider, geometryStatus]);
+  }, [stopPoints, runFetch, useBackendGoogle, geometryProvider, geometryStatus]);
+
+  useEffect(() => {
+    if (!isRouteActive || !currentLocation || !nextStop) {
+      setApproachPolyline(null);
+      lastApproachOriginRef.current = null;
+      lastApproachDestHashRef.current = null;
+      return;
+    }
+
+    const destHash = waypointsHash([nextStop]);
+    const origin = lastApproachOriginRef.current;
+    const movedM = origin
+      ? haversineDistanceKm(
+          origin.latitude,
+          origin.longitude,
+          currentLocation.latitude,
+          currentLocation.longitude
+        ) * 1000
+      : Infinity;
+    const destChanged = lastApproachDestHashRef.current !== destHash;
+    if (!destChanged && movedM < APPROACH_MOVE_M) return;
+
+    const originPoint = {
+      latitude: currentLocation.latitude,
+      longitude: currentLocation.longitude,
+    };
+    if (destChanged || !lastApproachOriginRef.current) {
+      setApproachPolyline([originPoint, nextStop]);
+    }
+
+    if (approachDebounceRef.current) clearTimeout(approachDebounceRef.current);
+    approachDebounceRef.current = setTimeout(() => {
+      approachAbortRef.current?.abort();
+      const controller = new AbortController();
+      approachAbortRef.current = controller;
+      const originPoint = {
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+      };
+      void fetchOsrmRoutePolyline([originPoint, nextStop], controller.signal)
+        .then((result) => {
+          if (controller.signal.aborted) return;
+          lastApproachOriginRef.current = originPoint;
+          lastApproachDestHashRef.current = destHash;
+          if (result && result.length >= 2) {
+            setApproachPolyline(result);
+          } else {
+            setApproachPolyline([originPoint, nextStop]);
+          }
+        })
+        .catch((e) => {
+          if (e instanceof Error && e.name === "AbortError") return;
+          lastApproachOriginRef.current = originPoint;
+          lastApproachDestHashRef.current = destHash;
+          setApproachPolyline([originPoint, nextStop]);
+        });
+    }, DEBOUNCE_MS);
+
+    return () => {
+      if (approachDebounceRef.current) clearTimeout(approachDebounceRef.current);
+    };
+  }, [isRouteActive, currentLocation, nextStop]);
+
+  useEffect(() => {
+    return () => {
+      approachAbortRef.current?.abort();
+    };
+  }, []);
 
   const recalcPolyline = useCallback(() => {
     if (useBackendGoogle) return;
     lastHashRef.current = null;
-    void runFetch(routePoints, true);
-  }, [routePoints, runFetch, useBackendGoogle]);
+    void runFetch(stopPoints, true);
+  }, [stopPoints, runFetch, useBackendGoogle]);
+
+  const polyline = useMemo(
+    () => concatPolylines(isRouteActive ? approachPolyline : null, restPolyline),
+    [isRouteActive, approachPolyline, restPolyline]
+  );
 
   const polylineWarning = error && !polyline ? error : error ? error : null;
 
   return {
-    polyline: useBackendGoogle ? backendPolylineCoords : polyline,
+    polyline: polyline,
     lastValidPolyline,
     loading: useBackendGoogle ? false : loading,
     error,
     polylineWarning,
     recalcPolyline,
-    pendingPoints: routePoints,
+    pendingPoints: stopPoints,
   };
 }

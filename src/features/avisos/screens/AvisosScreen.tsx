@@ -16,6 +16,7 @@ import { space } from "../../../theme/spacing";
 import type { MaisStackParamList } from "../../../screens/MaisScreen";
 import { listAvisos, type AvisoItem } from "../api";
 import { useAvisosUnreadStore } from "../../../store/avisosUnreadStore";
+import { useAvisosCacheStore } from "../../../store/avisosCacheStore";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "Avisos">;
 
@@ -31,10 +32,32 @@ export default function AvisosScreen({ navigation }: Props) {
     else setLoading(true);
     try {
       const rows = await listAvisos();
-      setItems(rows);
+      const cached = useAvisosCacheStore.getState().list();
+      const byId = new Map<number, AvisoItem>();
+      for (const row of cached) byId.set(row.id, row);
+      for (const row of rows) {
+        byId.set(row.id, row);
+        useAvisosCacheStore.getState().upsert(row);
+      }
+      setItems(
+        [...byId.values()].sort((a, b) => {
+          const ta = a.criado_em || "";
+          const tb = b.criado_em || "";
+          if (ta !== tb) return tb.localeCompare(ta);
+          return b.id - a.id;
+        })
+      );
       void refreshUnread();
     } catch {
-      setItems([]);
+      const cached = useAvisosCacheStore.getState().list();
+      setItems(
+        [...cached].sort((a, b) => {
+          const ta = a.criado_em || "";
+          const tb = b.criado_em || "";
+          if (ta !== tb) return tb.localeCompare(ta);
+          return b.id - a.id;
+        })
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -91,7 +114,14 @@ export default function AvisosScreen({ navigation }: Props) {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[styles.card, !item.lido && styles.unread]}
-              onPress={() => navigation.navigate("AvisoDetail", { avisoId: item.id })}
+              onPress={() =>
+                navigation.navigate("AvisoDetail", {
+                  avisoId: item.id,
+                  titulo: item.titulo,
+                  mensagem: item.mensagem,
+                  prioridade: item.prioridade,
+                })
+              }
             >
               <Text style={styles.title}>{item.titulo}</Text>
               {item.prioridade === "urgente" ? (

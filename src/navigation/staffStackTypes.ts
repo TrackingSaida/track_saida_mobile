@@ -24,6 +24,10 @@ export type InicioStackParamList = {
         status?: string;
         de?: string;
         ate?: string;
+        /** Códigos da sessão de leitura (lista fechada). */
+        codigos?: string[];
+        /** Rótulo operacional, ex.: "Não coletados desta leitura". */
+        origemSessao?: string;
       }
     | undefined;
 };
