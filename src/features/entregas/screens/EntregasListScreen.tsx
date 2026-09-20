@@ -18,8 +18,10 @@ import MapView, { Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
+import type { CompositeScreenProps } from "@react-navigation/native";
+import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { RootStackParamList } from "../../../../App";
+import type { MotoboyRootStackParamList, MotoboyTabParamList } from "../../../navigation/motoboyStackTypes";
 import { useThemeColors } from "../../../theme/colors";
 import { fetchFinalizadasFiltradas, getEntregas, getTodayISO } from "../api";
 import {
@@ -77,10 +79,12 @@ import {
   openNavigationToStop,
   resolveNavigationTarget,
 } from "../utils/externalNavigation";
-import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
-import AppBrandTitleLogo from "../../../components/AppBrandTitleLogo";
+import CompactStaffHeader from "../../../components/ui/CompactStaffHeader";
 
-type Props = NativeStackScreenProps<RootStackParamList, "EntregasList">;
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<MotoboyTabParamList, "Entregas">,
+  NativeStackScreenProps<MotoboyRootStackParamList>
+>;
 
 type Tab = "pendente" | "finalizadas" | "ausentes";
 
@@ -1726,10 +1730,9 @@ export default function EntregasListScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.container}>
-      <ScreenHeaderBar
-        titleNode={<AppBrandTitleLogo size="header" />}
-        onBack={() => navigation.goBack()}
-        paddingTop={Math.max(12, insets.top)}
+      <CompactStaffHeader
+        gradientColors={[colors.deliveryHeaderGradientStart, colors.deliveryHeaderGradientEnd]}
+        title="Entregas"
         rightElement={
           <TouchableOpacity
             style={styles.headerFilterButton}

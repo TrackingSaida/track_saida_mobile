@@ -8,8 +8,7 @@ import {
   Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useFocusEffect, type NavigationProp, type ParamListBase } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "../store/authStore";
@@ -21,7 +20,10 @@ import PressableMenuRow from "../components/ui/PressableMenuRow";
 import { useThemeColors } from "../theme/colors";
 import { useProfileTheme } from "../theme/profileTheme";
 import { space } from "../theme/spacing";
+import CompactStaffHeader from "../components/ui/CompactStaffHeader";
+import { decodeJwtPayload } from "../utils/jwt";
 import {
+  effectivePodeLerColeta,
   isAdminRole,
   isMotoboyRole,
   staffRoleLabel,
@@ -48,7 +50,8 @@ export type MaisStackParamList = {
   };
 };
 
-type Props = NativeStackScreenProps<MaisStackParamList, "MaisInicio"> & {
+type Props = {
+  navigation: NavigationProp<ParamListBase>;
   onLogout: () => Promise<void>;
 };
 
@@ -57,6 +60,7 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
   const colors = useThemeColors();
   const profile = useProfileTheme();
   const currentUser = useAuthStore((s) => s.currentUser);
+  const token = useAuthStore((s) => s.token);
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -128,6 +132,9 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
   const role = currentUser?.role as number | undefined;
   const labelPerfil = staffRoleLabel(role);
   const showMotoboyMenu = isMotoboyRole(role);
+  const claims = token ? decodeJwtPayload(token) : {};
+  const mostrarColeta = showMotoboyMenu && effectivePodeLerColeta(currentUser);
+  const mostrarDevolver = showMotoboyMenu && claims.devolucao_sub_base_habilitada === true;
   const mostrarEnviarAviso = !showMotoboyMenu && isAdminRole(role);
   const unreadAvisos = useAvisosUnreadStore((s) => s.unreadCount);
   const refreshUnreadAvisos = useAvisosUnreadStore((s) => s.refresh);
@@ -162,41 +169,43 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
-      <LinearGradient
-        colors={[...profile.headerGradient]}
-        locations={[0, 1]}
-        style={[styles.headerGradient, { paddingTop: Math.max(space.md, insets.top) }]}
-      >
-        <View style={styles.headerRow}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{nome.charAt(0).toUpperCase()}</Text>
-          </View>
-          <View style={styles.headerTextCol}>
-            <Text style={styles.nome} numberOfLines={1}>
-              {nome}
-            </Text>
-            {metaLine ? (
-              <Text style={styles.meta} numberOfLines={1}>
-                {metaLine}
+      {showMotoboyMenu ? (
+        <CompactStaffHeader gradientColors={[...profile.headerGradient]} title="Mais" />
+      ) : (
+        <LinearGradient
+          colors={[...profile.headerGradient]}
+          locations={[0, 1]}
+          style={[styles.headerGradient, { paddingTop: Math.max(space.md, insets.top) }]}
+        >
+          <View style={styles.headerRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{nome.charAt(0).toUpperCase()}</Text>
+            </View>
+            <View style={styles.headerTextCol}>
+              <Text style={styles.nome} numberOfLines={1}>
+                {nome}
               </Text>
-            ) : null}
-            <Pressable
-              style={styles.verPerfil}
-              onPress={() => navigation.navigate("MeusDados")}
-              accessibilityRole="button"
-              accessibilityLabel="Ver meu perfil"
-            >
-              <Text style={styles.verPerfilText}>Ver meu perfil</Text>
-              <Ionicons name="chevron-forward" size={14} color={profile.accent} />
-            </Pressable>
-          </View>
-          {!showMotoboyMenu ? (
+              {metaLine ? (
+                <Text style={styles.meta} numberOfLines={1}>
+                  {metaLine}
+                </Text>
+              ) : null}
+              <Pressable
+                style={styles.verPerfil}
+                onPress={() => navigation.navigate("MeusDados")}
+                accessibilityRole="button"
+                accessibilityLabel="Ver meu perfil"
+              >
+                <Text style={styles.verPerfilText}>Ver meu perfil</Text>
+                <Ionicons name="chevron-forward" size={14} color={profile.accent} />
+              </Pressable>
+            </View>
             <View style={styles.headerBell}>
               <NotificationBellButton unreadCount={unreadAvisos} onPress={navigateToAvisos} />
             </View>
-          ) : null}
-        </View>
-      </LinearGradient>
+          </View>
+        </LinearGradient>
+      )}
 
       <View style={styles.body}>
         <MenuSection label="Conta">
@@ -263,10 +272,30 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
             <PressableMenuRow
               icon="list-outline"
               title="Minhas entregas"
+              subtitle="Extrato e histórico"
               onPress={() => navigation.navigate("MinhasEntregas")}
               iconColor={profile.accent}
               iconSoftBg={profile.accentSoft}
             />
+            {mostrarColeta ? (
+              <PressableMenuRow
+                icon="list-outline"
+                title="Consultar coletas"
+                subtitle="Pendentes e andamento"
+                onPress={() => navigation.navigate("ConsultarColetas")}
+                iconColor={profile.accent}
+                iconSoftBg={profile.accentSoft}
+              />
+            ) : null}
+            {mostrarDevolver ? (
+              <PressableMenuRow
+                icon="return-down-back-outline"
+                title="Devolver pacotes"
+                onPress={() => navigation.navigate("DevolverPacotes")}
+                iconColor={profile.accent}
+                iconSoftBg={profile.accentSoft}
+              />
+            ) : null}
             <PressableMenuRow
               icon="document-text-outline"
               title="Meus fechamentos"

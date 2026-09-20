@@ -935,7 +935,7 @@ export default function ScanScreen({ navigation, route }: Props) {
       if (roteirizacaoHabilitada) {
         setShowPrepararRotaModal(true);
       } else {
-        navigation.navigate("EntregasList");
+        navigation.navigate("Tabs", { screen: "Entregas" });
       }
     } catch (e: unknown) {
       const msg = formatApiError(e, "Erro ao iniciar rota.");
@@ -953,7 +953,7 @@ export default function ScanScreen({ navigation, route }: Props) {
 
   const handleIrParaPendentes = () => {
     setShowPrepararRotaModal(false);
-    navigation.navigate("EntregasList");
+    navigation.navigate("Tabs", { screen: "Entregas" });
   };
 
   const avulsoModal = (
