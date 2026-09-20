@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { PhotoPickResult } from "../services/photoFlowUtils";
+import type { PendingCaptureScope, PhotoPickResult } from "../services/photoFlowUtils";
 import { CAMERA_HARDWARE_RELEASE_MS } from "../services/photoFlowUtils";
 
 type PendingCapture = {
@@ -7,6 +7,7 @@ type PendingCapture = {
 };
 
 let pending: PendingCapture | null = null;
+let captureScope: PendingCaptureScope | null = null;
 let releaseTimer: ReturnType<typeof setTimeout> | null = null;
 
 type PhotoCaptureState = {
@@ -14,16 +15,17 @@ type PhotoCaptureState = {
   hardwareBusy: boolean;
   /** Overlay de captura in-app visível. */
   modalVisible: boolean;
-  requestCapture: () => Promise<PhotoPickResult | null>;
+  requestCapture: (scope?: PendingCaptureScope) => Promise<PhotoPickResult | null>;
   complete: (result: PhotoPickResult | null) => void;
   releaseHardware: () => void;
+  getCaptureScope: () => PendingCaptureScope | null;
 };
 
 export const usePhotoCaptureStore = create<PhotoCaptureState>((set) => ({
   hardwareBusy: false,
   modalVisible: false,
 
-  requestCapture: () => {
+  requestCapture: (scope) => {
     if (releaseTimer) {
       clearTimeout(releaseTimer);
       releaseTimer = null;
@@ -33,6 +35,7 @@ export const usePhotoCaptureStore = create<PhotoCaptureState>((set) => ({
       pending = null;
       previous.resolve(null);
     }
+    captureScope = scope ?? null;
     return new Promise<PhotoPickResult | null>((resolve) => {
       pending = { resolve };
       set({ hardwareBusy: true, modalVisible: true });
@@ -42,9 +45,12 @@ export const usePhotoCaptureStore = create<PhotoCaptureState>((set) => ({
   complete: (result) => {
     const current = pending;
     pending = null;
+    captureScope = null;
     set({ modalVisible: false });
     current?.resolve(result);
   },
+
+  getCaptureScope: () => captureScope,
 
   releaseHardware: () => {
     if (releaseTimer) clearTimeout(releaseTimer);

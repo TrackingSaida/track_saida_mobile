@@ -358,7 +358,10 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
         codigo: selected?.codigo ?? undefined,
         photoUri,
       });
-      const picked = await takeDeliveryPhoto();
+      const picked = await takeDeliveryPhoto({
+        kind: "devolucao",
+        idSaida: selected?.id_saida ?? null,
+      });
       if (!picked) return;
       const prepared = await preparePhoto(picked.uri);
       setPhotoUri(prepared.uri);

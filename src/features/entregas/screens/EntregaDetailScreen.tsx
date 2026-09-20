@@ -841,6 +841,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       </Modal>
 
       <FormEntregaConcluida
+        key={`entregue-${idSaida}`}
         visible={showEntregueModal}
         idSaida={idSaida}
         destinatarioPreenchido={entrega?.cliente ?? undefined}
@@ -896,6 +897,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
       </Modal>
 
       <FormAusenteModal
+        key={`ausente-${idSaida}`}
         visible={modalAusente}
         idSaidas={[idSaida]}
         requiredFields={entrega?.campos_obrigatorios_ausente || []}

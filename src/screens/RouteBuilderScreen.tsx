@@ -1927,6 +1927,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       )}
 
       <FormAusenteModal
+        key={`ausente-${pendingAusenteIds[0] ?? 0}`}
         visible={showAusenteModal}
         idSaidas={pendingAusenteIds}
         requiredFields={ausenteRequiredFields}
@@ -1961,6 +1962,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         onClose={() => setNavSheetTarget(null)}
       />
       <FormEntregaConcluida
+        key={`entregue-${pendingEntregueIds?.[0] ?? 0}`}
         visible={pendingEntregueIds != null && pendingEntregueIds.length > 0}
         idSaida={pendingEntregueIds?.[0] ?? 0}
         extraIdSaidas={(pendingEntregueIds ?? []).slice(1)}

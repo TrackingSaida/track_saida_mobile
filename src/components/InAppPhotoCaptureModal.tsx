@@ -65,7 +65,8 @@ export default function InAppPhotoCaptureModal() {
         return;
       }
       const persisted = await persistCapturedPhoto(picture.uri);
-      await savePendingCaptureUri(persisted.uri);
+      const scope = usePhotoCaptureStore.getState().getCaptureScope();
+      await savePendingCaptureUri(persisted.uri, scope);
       complete(persisted);
     } catch (e) {
       console.warn("[InAppPhotoCapture] falha ao capturar", e);
