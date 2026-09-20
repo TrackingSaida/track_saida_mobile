@@ -36,7 +36,7 @@ import {
   effectiveAvulsoExigeFoto,
   effectiveAvulsoPermitirFotos,
   effectivePodeDigitarCodigoManual,
-  effectivePodeLancarAvulso,
+  effectivePodeCriarAvulsoColeta,
   effectivePodeLerColeta,
   isStaffOperacaoRole,
   permiteLeituraColeta,
@@ -1098,7 +1098,7 @@ export default function LeituraColetasScreen() {
   const mostrarManual = configColeta?.permite_manual ?? permiteManualColeta(currentUser);
   const tresAcoes = mostrarLeitura && mostrarManual;
   const podeManual = effectivePodeDigitarCodigoManual(currentUser);
-  const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
+  const podeLancarAvulso = effectivePodeCriarAvulsoColeta(currentUser);
   const subBase = currentUser?.sub_base ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
