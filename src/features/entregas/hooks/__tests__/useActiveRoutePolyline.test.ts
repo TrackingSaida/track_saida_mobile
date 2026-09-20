@@ -13,15 +13,17 @@ const approach: RoutePoint[] = [
   { latitude: -23.55, longitude: -46.63 },
 ];
 
-test("com Google válido não concatena approach na polyline", () => {
+test("com Google válido e rota ativa junta approach GPS até a próxima", () => {
   const result = selectDisplayedPolyline({
     useBackendGoogle: true,
     isRouteActive: true,
     approachPolyline: approach,
     restPolyline: google,
   });
-  assert.equal(result, google);
-  assert.equal(result?.length, 3);
+  assert.ok(result);
+  assert.equal(result!.length, 4);
+  assert.equal(result![0], approach[0]);
+  assert.equal(result![result!.length - 1], google[google.length - 1]);
 });
 
 test("sem Google junta approach com o resto da rota ativa", () => {
