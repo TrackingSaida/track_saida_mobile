@@ -162,11 +162,68 @@ export function pickLatestResumeItem(items: PhotoResumeItem[]): PhotoResumeItem 
   return items.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
 }
 
+export type PendingCaptureScope = {
+  kind: PhotoFlowKind;
+  idSaida?: number | null;
+};
+
+export type PendingCaptureRecord = {
+  uri: string;
+  updatedAt: number;
+  kind?: PhotoFlowKind;
+  idSaida?: number | null;
+};
+
+export function parsePendingCaptureKind(value: unknown): PhotoFlowKind | undefined {
+  if (value === "entregue" || value === "ausente" || value === "avulso" || value === "devolucao") {
+    return value;
+  }
+  return undefined;
+}
+
+export function parsePendingCaptureIdSaida(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  return null;
+}
+
+/**
+ * Pending antigo (sem kind) não entra em outro pedido.
+ * Entregue/ausente só mesclam se o idSaida for o mesmo.
+ */
+export function pendingCaptureMatchesScope(
+  pending: Pick<PendingCaptureRecord, "kind" | "idSaida"> | null | undefined,
+  scope: PendingCaptureScope
+): boolean {
+  if (!pending?.kind) return false;
+  if (pending.kind !== scope.kind) return false;
+  if (scope.kind === "entregue" || scope.kind === "ausente") {
+    const pendingId = parsePendingCaptureIdSaida(pending.idSaida);
+    const scopeId = parsePendingCaptureIdSaida(scope.idSaida);
+    return pendingId != null && pendingId === scopeId;
+  }
+  if (scope.kind === "devolucao") {
+    const pendingId = parsePendingCaptureIdSaida(pending.idSaida);
+    const scopeId = parsePendingCaptureIdSaida(scope.idSaida);
+    if (pendingId != null && scopeId != null) return pendingId === scopeId;
+    return true;
+  }
+  return true;
+}
+
 export function mergePendingCaptureUri(photoUris: string[], pendingUri: string | null): string[] {
   const uri = (pendingUri || "").trim();
   if (!uri) return photoUris;
   if (photoUris.includes(uri)) return photoUris;
   return [...photoUris, uri];
+}
+
+export function mergePendingCaptureUriForScope(
+  photoUris: string[],
+  pendingUri: string | null,
+  matchesScope: boolean
+): string[] {
+  if (!matchesScope) return photoUris;
+  return mergePendingCaptureUri(photoUris, pendingUri);
 }
 
 export function parseTipoDocumento(value: unknown): "RG" | "CPF" {

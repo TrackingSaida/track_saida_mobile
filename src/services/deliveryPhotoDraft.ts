@@ -1,8 +1,11 @@
 import * as FileSystem from "expo-file-system/legacy";
 import {
-  mergePendingCaptureUri,
+  mergePendingCaptureUriForScope,
   parseAvulsoSource,
+  parsePendingCaptureIdSaida,
+  parsePendingCaptureKind,
   parseTipoDocumento,
+  pendingCaptureMatchesScope,
   pickLatestResumeItem,
   toResumeItem,
   type AusenteDraftFields,
@@ -12,6 +15,8 @@ import {
   type DevolucaoPhotoDraft,
   type EntregueDraftFields,
   type EntreguePhotoDraft,
+  type PendingCaptureRecord,
+  type PendingCaptureScope,
   type PhotoFlowDraft,
   type PhotoResumeItem,
 } from "./photoFlowUtils";
@@ -75,26 +80,68 @@ async function existingUris(uris: string[]): Promise<string[]> {
   return existing;
 }
 
-export async function savePendingCaptureUri(uri: string): Promise<void> {
+export async function savePendingCaptureUri(
+  uri: string,
+  scope?: PendingCaptureScope | null
+): Promise<void> {
   const trimmed = uri.trim();
   if (!trimmed) return;
-  await writeJson(PENDING_CAPTURE_PATH, { uri: trimmed, updatedAt: Date.now() });
+  const existing = await loadPendingCaptureRecord();
+  const kind = scope?.kind ?? existing?.kind;
+  const idSaida = parsePendingCaptureIdSaida(scope?.idSaida ?? existing?.idSaida);
+  const payload: PendingCaptureRecord = {
+    uri: trimmed,
+    updatedAt: Date.now(),
+    ...(kind ? { kind } : {}),
+    ...(idSaida != null ? { idSaida } : {}),
+  };
+  await writeJson(PENDING_CAPTURE_PATH, payload);
 }
 
-export async function loadPendingCaptureUri(): Promise<string | null> {
-  const parsed = await readJson<{ uri?: string }>(PENDING_CAPTURE_PATH);
+export async function loadPendingCaptureRecord(): Promise<PendingCaptureRecord | null> {
+  const parsed = await readJson<{
+    uri?: string;
+    updatedAt?: number;
+    kind?: unknown;
+    idSaida?: unknown;
+  }>(PENDING_CAPTURE_PATH);
   const uri = typeof parsed?.uri === "string" ? parsed.uri.trim() : "";
   if (!uri) return null;
   try {
     const info = await FileSystem.getInfoAsync(uri);
-    return info.exists ? uri : null;
+    if (!info.exists) return null;
   } catch {
     return null;
   }
+  return {
+    uri,
+    updatedAt: Number(parsed?.updatedAt) || Date.now(),
+    kind: parsePendingCaptureKind(parsed?.kind),
+    idSaida: parsePendingCaptureIdSaida(parsed?.idSaida),
+  };
+}
+
+export async function loadPendingCaptureUri(): Promise<string | null> {
+  const record = await loadPendingCaptureRecord();
+  return record?.uri ?? null;
 }
 
 export async function clearPendingCaptureUri(): Promise<void> {
   await deleteIfExists(PENDING_CAPTURE_PATH);
+}
+
+export async function clearPendingCaptureIfMatches(scope: PendingCaptureScope): Promise<void> {
+  const pending = await loadPendingCaptureRecord();
+  if (!pendingCaptureMatchesScope(pending, scope)) return;
+  await clearPendingCaptureUri();
+}
+
+async function consumeMatchingPending(
+  scope: PendingCaptureScope,
+  consumed: boolean
+): Promise<void> {
+  if (!consumed) return;
+  await clearPendingCaptureIfMatches(scope);
 }
 
 export async function saveDeliveryPhotoDraft(
@@ -112,10 +159,7 @@ export async function saveDeliveryPhotoDraft(
     ...(fields ? { fields } : {}),
   } as EntreguePhotoDraft | AusentePhotoDraft;
   await writeJson(draftPath(kind, idSaida), payload);
-  const pending = await loadPendingCaptureUri();
-  if (pending && photoUris.includes(pending)) {
-    await clearPendingCaptureUri();
-  }
+  await consumeMatchingPending({ kind, idSaida }, photoUris.length > 0);
 }
 
 export async function loadDeliveryPhotoDraft(
@@ -136,13 +180,18 @@ export async function loadDeliveryPhotoDraftRecord(
     fields?: EntregueDraftFields | AusenteDraftFields;
     updatedAt?: number;
   }>(draftPath(kind, idSaida));
-  if (!parsed) return null;
-  const pendingUri = await loadPendingCaptureUri();
+  const pending = await loadPendingCaptureRecord();
+  const pendingMatches = pendingCaptureMatchesScope(pending, { kind, idSaida });
+  if (!parsed && !pendingMatches) return null;
   const photoUris = await existingUris(
-    mergePendingCaptureUri(Array.isArray(parsed.photoUris) ? parsed.photoUris : [], pendingUri)
+    mergePendingCaptureUriForScope(
+      Array.isArray(parsed?.photoUris) ? parsed.photoUris : [],
+      pending?.uri ?? null,
+      pendingMatches
+    )
   );
   if (kind === "entregue") {
-    const fields = parsed.fields
+    const fields = parsed?.fields
       ? {
           tipoRecebedor: String((parsed.fields as EntregueDraftFields).tipoRecebedor || "Comprador"),
           nomeRecebedor: String((parsed.fields as EntregueDraftFields).nomeRecebedor || ""),
@@ -156,10 +205,10 @@ export async function loadDeliveryPhotoDraftRecord(
       idSaida,
       photoUris,
       fields,
-      updatedAt: Number(parsed.updatedAt) || Date.now(),
+      updatedAt: Number(parsed?.updatedAt) || Date.now(),
     };
   }
-  const fields = parsed.fields
+  const fields = parsed?.fields
     ? {
         motivoId:
           typeof (parsed.fields as AusenteDraftFields).motivoId === "number"
@@ -173,7 +222,7 @@ export async function loadDeliveryPhotoDraftRecord(
     idSaida,
     photoUris,
     fields,
-    updatedAt: Number(parsed.updatedAt) || Date.now(),
+    updatedAt: Number(parsed?.updatedAt) || Date.now(),
   };
 }
 
@@ -183,6 +232,7 @@ export async function clearDeliveryPhotoDraft(
 ): Promise<void> {
   if (idSaida <= 0) return;
   await deleteIfExists(draftPath(kind, idSaida));
+  await clearPendingCaptureIfMatches({ kind, idSaida });
 }
 
 export async function saveAvulsoPhotoDraft(draft: Omit<AvulsoPhotoDraft, "kind" | "updatedAt"> & { updatedAt?: number }): Promise<void> {
@@ -195,10 +245,7 @@ export async function saveAvulsoPhotoDraft(draft: Omit<AvulsoPhotoDraft, "kind" 
     updatedAt: draft.updatedAt ?? Date.now(),
   };
   await writeJson(AVULSO_PATH, payload);
-  const pending = await loadPendingCaptureUri();
-  if (pending && payload.photos.some((p) => p.uri === pending)) {
-    await clearPendingCaptureUri();
-  }
+  await consumeMatchingPending({ kind: "avulso" }, payload.photos.length > 0);
 }
 
 export async function loadAvulsoPhotoDraft(
@@ -231,15 +278,20 @@ export async function loadAvulsoPhotoDraft(
     updatedAt: Number(parsed.updatedAt) || Date.now(),
   };
   if (source && draft.source !== source) return null;
-  const pendingUri = await loadPendingCaptureUri();
-  if (pendingUri && !draft.photos.some((p) => p.uri === pendingUri)) {
-    draft.photos.push({ id: `pending-${Date.now()}`, uri: pendingUri });
+  const pending = await loadPendingCaptureRecord();
+  if (
+    pendingCaptureMatchesScope(pending, { kind: "avulso" }) &&
+    pending?.uri &&
+    !draft.photos.some((p) => p.uri === pending.uri)
+  ) {
+    draft.photos.push({ id: `pending-${Date.now()}`, uri: pending.uri });
   }
   return draft;
 }
 
 export async function clearAvulsoPhotoDraft(): Promise<void> {
   await deleteIfExists(AVULSO_PATH);
+  await clearPendingCaptureIfMatches({ kind: "avulso" });
 }
 
 export async function saveDevolucaoPhotoDraft(draft: {
@@ -255,10 +307,10 @@ export async function saveDevolucaoPhotoDraft(draft: {
     updatedAt: Date.now(),
   };
   await writeJson(DEVOLUCAO_PATH, payload);
-  const pending = await loadPendingCaptureUri();
-  if (pending && payload.photoUri === pending) {
-    await clearPendingCaptureUri();
-  }
+  await consumeMatchingPending(
+    { kind: "devolucao", idSaida: draft.idSaida },
+    !!payload.photoUri
+  );
 }
 
 export async function loadDevolucaoPhotoDraft(): Promise<DevolucaoPhotoDraft | null> {
@@ -273,17 +325,26 @@ export async function loadDevolucaoPhotoDraft(): Promise<DevolucaoPhotoDraft | n
       photoUri = null;
     }
   }
+  const idSaida = typeof parsed.idSaida === "number" ? parsed.idSaida : null;
+  const pending = await loadPendingCaptureRecord();
+  if (
+    !photoUri &&
+    pendingCaptureMatchesScope(pending, { kind: "devolucao", idSaida })
+  ) {
+    photoUri = pending?.uri ?? null;
+  }
   return {
     kind: "devolucao",
-    idSaida: typeof parsed.idSaida === "number" ? parsed.idSaida : null,
+    idSaida,
     codigo: typeof parsed.codigo === "string" ? parsed.codigo : undefined,
-    photoUri: photoUri || (await loadPendingCaptureUri()),
+    photoUri,
     updatedAt: Number(parsed.updatedAt) || Date.now(),
   };
 }
 
 export async function clearDevolucaoPhotoDraft(): Promise<void> {
   await deleteIfExists(DEVOLUCAO_PATH);
+  await clearPendingCaptureIfMatches({ kind: "devolucao" });
 }
 
 async function listDeliveryKindDrafts(): Promise<PhotoFlowDraft[]> {

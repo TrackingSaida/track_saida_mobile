@@ -8,6 +8,7 @@ import { usePhotoCaptureStore } from "../store/photoCaptureStore";
 import {
   PREPARE_MAX_WIDTH,
   shouldSkipImageResize,
+  type PendingCaptureScope,
   type PhotoPickResult,
 } from "./photoFlowUtils";
 import {
@@ -68,9 +69,11 @@ export async function selectOrTakePhoto(): Promise<PhotoPickResult | null> {
 }
 
 /** Captura in-app (não abre a câmera do sistema) e persiste o JPEG em disco. */
-export async function takeDeliveryPhoto(): Promise<PhotoPickResult | null> {
+export async function takeDeliveryPhoto(
+  scope?: PendingCaptureScope
+): Promise<PhotoPickResult | null> {
   try {
-    const captured = await usePhotoCaptureStore.getState().requestCapture();
+    const captured = await usePhotoCaptureStore.getState().requestCapture(scope);
     if (!captured) return null;
     return await preparePhoto(captured.uri);
   } finally {

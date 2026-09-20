@@ -340,7 +340,7 @@ export default function AvulsoLancamentoModal({
           photoId: uploadedByLocalIdRef.current[f.id]?.photoId,
         })),
       });
-      const picked = await takeDeliveryPhoto();
+      const picked = await takeDeliveryPhoto({ kind: "avulso" });
       if (!picked) return;
       const prepared = await preparePhoto(picked.uri, fotos.length + 1);
       const next = [

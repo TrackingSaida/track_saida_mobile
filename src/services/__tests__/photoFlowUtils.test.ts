@@ -7,8 +7,10 @@ import {
   isDraftFresh,
   isResumeWorthyDraft,
   mergePendingCaptureUri,
+  mergePendingCaptureUriForScope,
   parseAvulsoSource,
   parseTipoDocumento,
+  pendingCaptureMatchesScope,
   pickLatestResumeItem,
   PHOTO_DRAFT_MAX_AGE_MS,
   resumeCopyForKind,
@@ -69,6 +71,33 @@ check("mergePendingCaptureUri não duplica", () => {
   assert.deepEqual(mergePendingCaptureUri(["a"], "b"), ["a", "b"]);
   assert.deepEqual(mergePendingCaptureUri(["a"], "a"), ["a"]);
   assert.deepEqual(mergePendingCaptureUri(["a"], null), ["a"]);
+});
+
+check("pending de outro pedido não mescla", () => {
+  assert.equal(
+    pendingCaptureMatchesScope({ kind: "entregue", idSaida: 10 }, { kind: "entregue", idSaida: 11 }),
+    false
+  );
+  assert.equal(
+    pendingCaptureMatchesScope({ kind: "entregue", idSaida: 10 }, { kind: "ausente", idSaida: 10 }),
+    false
+  );
+  assert.equal(
+    pendingCaptureMatchesScope({ kind: "entregue", idSaida: 10 }, { kind: "entregue", idSaida: 10 }),
+    true
+  );
+  assert.equal(
+    pendingCaptureMatchesScope({ kind: undefined, idSaida: 10 }, { kind: "entregue", idSaida: 10 }),
+    false
+  );
+  assert.deepEqual(
+    mergePendingCaptureUriForScope(["a"], "pending.jpg", false),
+    ["a"]
+  );
+  assert.deepEqual(
+    mergePendingCaptureUriForScope(["a"], "pending.jpg", true),
+    ["a", "pending.jpg"]
+  );
 });
 
 check("toResumeItem e copy amigável", () => {

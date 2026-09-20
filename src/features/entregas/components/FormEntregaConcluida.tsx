@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -286,15 +286,40 @@ export default function FormEntregaConcluida({
   type PhotoItem = { uri: string };
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [draftReady, setDraftReady] = useState(false);
+  const loadedIdSaidaRef = useRef<number | null>(null);
+  const formSessionKey = visible ? `open:${idSaida}` : "closed";
+  const [activeFormSession, setActiveFormSession] = useState(formSessionKey);
+  if (activeFormSession !== formSessionKey) {
+    setActiveFormSession(formSessionKey);
+    loadedIdSaidaRef.current = null;
+    setPhotos([]);
+    setTipoRecebedor("Comprador");
+    setNomeRecebedor(visible ? destinatarioPreenchido?.trim() || "" : "");
+    setTipoDocumento("RG");
+    setNumeroDocumento("");
+    setObservacao("");
+    setError(null);
+    setMissingKeys(new Set());
+    setDraftReady(false);
+    setSaving(false);
+  }
 
   useEffect(() => {
     if (!visible) {
       setDraftReady(false);
+      loadedIdSaidaRef.current = null;
       return;
     }
     setError(null);
     setMissingKeys(new Set());
+    setPhotos([]);
+    setTipoRecebedor("Comprador");
+    setNomeRecebedor(destinatarioPreenchido?.trim() || "");
+    setTipoDocumento("RG");
+    setNumeroDocumento("");
+    setObservacao("");
     setDraftReady(false);
+    loadedIdSaidaRef.current = null;
     let cancelled = false;
     void (async () => {
       const draft = await loadDeliveryPhotoDraftRecord("entregue", idSaida);
@@ -306,16 +331,19 @@ export default function FormEntregaConcluida({
       setTipoDocumento(fields?.tipoDocumento || "RG");
       setNumeroDocumento(fields?.numeroDocumento || "");
       setObservacao(fields?.observacao || "");
+      loadedIdSaidaRef.current = idSaida;
       setDraftReady(true);
     })();
     return () => {
       cancelled = true;
+      loadedIdSaidaRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset só quando abre (visible) ou troca o pedido (idSaida)
   }, [visible, idSaida]);
 
   useEffect(() => {
     if (!visible || !draftReady) return;
+    if (loadedIdSaidaRef.current !== idSaida) return;
     void saveDeliveryPhotoDraft(
       "entregue",
       idSaida,
@@ -401,7 +429,8 @@ export default function FormEntregaConcluida({
     }
   };
 
-  const addPhotoFromCamera = () => addPhotoFromSource(takeDeliveryPhoto);
+  const addPhotoFromCamera = () =>
+    addPhotoFromSource(() => takeDeliveryPhoto({ kind: "entregue", idSaida }));
   const addPhotoFromGallery = () => addPhotoFromSource(pickDeliveryPhotoFromGallery);
 
   const removePhoto = (index: number) => {

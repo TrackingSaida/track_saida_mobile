@@ -79,7 +79,20 @@ export default function FormAusenteModal({
   const [saving, setSaving] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const draftMotivoRef = useRef<number | null>(null);
+  const loadedIdSaidaRef = useRef<number | null>(null);
   const primaryIdSaida = idSaidas.find((id) => id > 0) ?? 0;
+  const formSessionKey = visible ? `open:${primaryIdSaida}` : "closed";
+  const [activeFormSession, setActiveFormSession] = useState(formSessionKey);
+  if (activeFormSession !== formSessionKey) {
+    setActiveFormSession(formSessionKey);
+    loadedIdSaidaRef.current = null;
+    setPhotos([]);
+    setObservacao("");
+    setMotivoId(null);
+    setDraftReady(false);
+    setSaving(false);
+    draftMotivoRef.current = null;
+  }
   const [resolvedRequiredFields, setResolvedRequiredFields] = useState<string[]>(
     () => unionCamposObrigatorios(requiredFields)
   );
@@ -136,11 +149,14 @@ export default function FormAusenteModal({
   useEffect(() => {
     if (!visible) {
       setDraftReady(false);
+      loadedIdSaidaRef.current = null;
       return;
     }
     setObservacao("");
     setMotivoId(null);
+    setPhotos([]);
     setDraftReady(false);
+    loadedIdSaidaRef.current = null;
     draftMotivoRef.current = null;
     let cancelled = false;
     void (async () => {
@@ -151,6 +167,7 @@ export default function FormAusenteModal({
       setObservacao(fields?.observacao || "");
       draftMotivoRef.current = fields?.motivoId ?? null;
       if (fields?.motivoId) setMotivoId(fields.motivoId);
+      loadedIdSaidaRef.current = primaryIdSaida;
       setDraftReady(true);
     })();
     getMotivosAusencia()
@@ -166,11 +183,13 @@ export default function FormAusenteModal({
       .catch(() => setMotivos([]));
     return () => {
       cancelled = true;
+      loadedIdSaidaRef.current = null;
     };
   }, [visible, primaryIdSaida]);
 
   useEffect(() => {
     if (!visible || !draftReady || primaryIdSaida <= 0) return;
+    if (loadedIdSaidaRef.current !== primaryIdSaida) return;
     void saveDeliveryPhotoDraft(
       "ausente",
       primaryIdSaida,
@@ -305,8 +324,8 @@ export default function FormAusenteModal({
   );
 
   const addPhotoFromCamera = useCallback(
-    () => addPhotoFromSource(takeDeliveryPhoto),
-    [addPhotoFromSource]
+    () => addPhotoFromSource(() => takeDeliveryPhoto({ kind: "ausente", idSaida: primaryIdSaida })),
+    [addPhotoFromSource, primaryIdSaida]
   );
 
   const addPhotoFromGallery = useCallback(
