@@ -174,7 +174,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   useFocusEffect(
     useCallback(() => {
       if (!roteirizacaoHabilitada) {
-        navigation.replace("EntregasList");
+        navigation.navigate("Tabs", { screen: "Entregas" });
       }
     }, [roteirizacaoHabilitada, navigation])
   );
@@ -707,7 +707,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
                   Alert.alert("Erro", result.error);
                   return;
                 }
-                navigation.navigate("EntregasList", { initialTab: "pendente" });
+                navigation.navigate("Tabs", { screen: "Entregas", params: { initialTab: "pendente" } });
               } finally {
                 setRouteActionLoading(false);
               }
@@ -737,7 +737,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
                     result.message
                   );
                   if (result.reason === "no_pending") {
-                    navigation.navigate("EntregasList", { initialTab: "pendente" });
+                    navigation.navigate("Tabs", { screen: "Entregas", params: { initialTab: "pendente" } });
                   }
                   return;
                 }

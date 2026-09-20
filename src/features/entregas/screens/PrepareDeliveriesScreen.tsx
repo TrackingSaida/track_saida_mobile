@@ -380,7 +380,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   useFocusEffect(
     useCallback(() => {
       if (!roteirizacaoHabilitada) {
-        navigation.replace("EntregasList");
+        navigation.navigate("Tabs", { screen: "Entregas" });
         return;
       }
       void loadDeliveries({ onlyToday: somenteHojePendentes });

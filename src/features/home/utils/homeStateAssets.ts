@@ -46,8 +46,6 @@ export const HOME_STATE_ASSETS: Record<HomeHeroState, HomeStateVisual> = {
   },
 };
 
-export const HOME_PAGE_LABELS = ["Agora", "Resumo", "Atalhos"] as const;
-
 export function resolveHomeStateIconColor(
   visual: HomeStateVisual,
   colors: { primary: string; success: string; warning: string }

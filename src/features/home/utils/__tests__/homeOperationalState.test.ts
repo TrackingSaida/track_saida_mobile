@@ -10,7 +10,7 @@ import {
   deliveryNeedsAddressForRoute,
   resolvePostScanRouteContext,
 } from "../../../entregas/utils/postScanRouteFlowCore";
-import type { EntregaListItem } from "../../entregas/types";
+import type { EntregaListItem } from "../../../entregas/types";
 
 const baseInput: HomeOperationalInput = {
   roteirizacaoHabilitada: true,
@@ -48,7 +48,7 @@ test("deriveHomeCtas inclui scan_insert em route_ready, route_active e route_com
     ...baseInput,
     routeOrder: [],
     routeDeliveries: [],
-    ephemeralCompleted: { rotaId: "x", paradas: 2, pedidos: 3, finalizadoEm: "" },
+    ephemeralCompleted: { rotaId: "x", paradas: 2, pedidos: 3, completedAt: "" },
   });
   assert.equal(completedView.heroState, "route_completed");
   assert.equal(hasScanInsert(deriveHomeCtas(completedView, true)), true);

@@ -1,5 +1,11 @@
 import { CommonActions, StackActions } from "@react-navigation/native";
 import type { NavigationProp, ParamListBase } from "@react-navigation/native";
+import { useAuthStore } from "../../../store/authStore";
+import { isMotoboyRole } from "../../../utils/role";
+
+function isMotoboyNav(): boolean {
+  return isMotoboyRole(useAuthStore.getState().currentUser?.role as number | undefined);
+}
 
 function getTabNavigator(navigation: NavigationProp<ParamListBase>) {
   let nav: NavigationProp<ParamListBase> | undefined = navigation;
@@ -12,13 +18,20 @@ function getTabNavigator(navigation: NavigationProp<ParamListBase>) {
 }
 
 function dispatchToEntregasList(navigation: NavigationProp<ParamListBase>): void {
+  if (isMotoboyNav()) {
+    navigation.navigate("Tabs", {
+      screen: "Entregas",
+      params: { initialTab: "pendente" },
+    });
+    return;
+  }
+
   const state = navigation.getState?.();
   const routes = state?.routes ?? [];
   const routeNames = state?.routeNames ?? [];
   const hasListInStack = routes.some((r) => r.name === "EntregasList");
   const listRegistered = routeNames.includes("EntregasList");
 
-  // Sempre a tela geral com abas (Pendentes | Ausentes | Finalizadas).
   if (hasListInStack) {
     navigation.dispatch(StackActions.popTo("EntregasList", { initialTab: "pendente" }));
     return;
@@ -26,16 +39,6 @@ function dispatchToEntregasList(navigation: NavigationProp<ParamListBase>): void
 
   if (listRegistered) {
     navigation.dispatch(StackActions.replace("EntregasList", { initialTab: "pendente" }));
-    return;
-  }
-
-  // Detalhe aberto por outro stack (ex.: Mais): abre a lista no Home.
-  const tabNav = getTabNavigator(navigation);
-  if (tabNav?.navigate) {
-    tabNav.navigate("Home", {
-      screen: "EntregasList",
-      params: { initialTab: "pendente" },
-    });
     return;
   }
 
@@ -49,7 +52,6 @@ function dispatchToEntregasList(navigation: NavigationProp<ParamListBase>): void
  * (Pendentes | Ausentes | Finalizadas), mesmo com sync ainda em andamento.
  */
 export function navigateToEntregasPendentes(navigation: NavigationProp<ParamListBase>): void {
-  // Modal nativo pode engolir navigate síncrono; próximo frame é mais confiável.
   requestAnimationFrame(() => {
     try {
       dispatchToEntregasList(navigation);
@@ -59,35 +61,31 @@ export function navigateToEntregasPendentes(navigation: NavigationProp<ParamList
   });
 }
 
-/** Volta à Home (tab Home + stack HomeInicio). */
+/** Volta à Home / Início. */
 export function navigateToHomeInicio(navigation: NavigationProp<ParamListBase>): void {
+  if (isMotoboyNav()) {
+    navigation.navigate("Tabs", { screen: "Inicio" });
+    return;
+  }
   const tabNav = getTabNavigator(navigation);
-  if (tabNav?.dispatch) {
-    tabNav.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [
-          {
-            name: "Home",
-            state: {
-              routes: [{ name: "HomeInicio" }],
-            },
-          },
-        ],
-      })
-    );
+  if (tabNav?.navigate) {
+    tabNav.navigate("Inicio", { screen: "StaffInicio" });
     return;
   }
   navigation.dispatch(
     CommonActions.reset({
       index: 0,
-      routes: [{ name: "HomeInicio" }],
+      routes: [{ name: "Inicio" }],
     })
   );
 }
 
-/** Abre Minhas Entregas (tab Mais) com período filtrado para hoje. */
+/** Abre Minhas Entregas (extrato) com período filtrado para hoje. */
 export function navigateToMinhasEntregasHoje(navigation: NavigationProp<ParamListBase>): void {
+  if (isMotoboyNav()) {
+    navigation.navigate("MinhasEntregas", { presetPeriodoHoje: true });
+    return;
+  }
   const tabNav = getTabNavigator(navigation);
   if (tabNav?.navigate) {
     tabNav.navigate("Mais", {
@@ -99,8 +97,12 @@ export function navigateToMinhasEntregasHoje(navigation: NavigationProp<ParamLis
   navigation.navigate("MinhasEntregas", { presetPeriodoHoje: true });
 }
 
-/** Abre Minhas Entregas (tab Mais). */
+/** Abre Minhas Entregas (extrato). */
 export function navigateToMinhasEntregas(navigation: NavigationProp<ParamListBase>): void {
+  if (isMotoboyNav()) {
+    navigation.navigate("MinhasEntregas");
+    return;
+  }
   const tabNav = getTabNavigator(navigation);
   if (tabNav?.navigate) {
     tabNav.navigate("Mais", { screen: "MinhasEntregas" });
@@ -109,8 +111,12 @@ export function navigateToMinhasEntregas(navigation: NavigationProp<ParamListBas
   navigation.navigate("MinhasEntregas");
 }
 
-/** Abre Preferências (tab Mais). */
+/** Abre Preferências. */
 export function navigateToConfiguracoes(navigation: NavigationProp<ParamListBase>): void {
+  if (isMotoboyNav()) {
+    navigation.navigate("Configuracoes");
+    return;
+  }
   const tabNav = getTabNavigator(navigation);
   if (tabNav?.navigate) {
     tabNav.navigate("Mais", { screen: "Configuracoes" });
