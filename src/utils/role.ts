@@ -91,12 +91,31 @@ export function effectivePodeDigitarCodigoManual(claims: JwtClaims | null | unde
 
 /**
  * Lançar avulso: staff (0–3) sempre pode; motoboy liberado por padrão (opt-out).
+ * Legado: `pode_lancar_avulso`. Novo: flags por fluxo.
  */
 export function effectivePodeLancarAvulso(claims: JwtClaims | null | undefined): boolean {
+  return effectivePodeCriarAvulsoColeta(claims) || effectivePodeCriarAvulsoSaida(claims);
+}
+
+export function effectivePodeCriarAvulsoColeta(claims: JwtClaims | null | undefined): boolean {
   if (!claims) return false;
   const r = asRole(claims.role);
   if (isStaffOperacaoRole(r)) return true;
-  if (isMotoboyRole(r)) return asDefaultTrue(claims.pode_lancar_avulso);
+  if (isMotoboyRole(r)) {
+    if (claims.pode_criar_avulso_coleta !== undefined) return asDefaultTrue(claims.pode_criar_avulso_coleta);
+    return asDefaultTrue(claims.pode_lancar_avulso);
+  }
+  return false;
+}
+
+export function effectivePodeCriarAvulsoSaida(claims: JwtClaims | null | undefined): boolean {
+  if (!claims) return false;
+  const r = asRole(claims.role);
+  if (isStaffOperacaoRole(r)) return true;
+  if (isMotoboyRole(r)) {
+    if (claims.pode_criar_avulso_saida !== undefined) return asDefaultTrue(claims.pode_criar_avulso_saida);
+    return asDefaultTrue(claims.pode_lancar_avulso);
+  }
   return false;
 }
 

@@ -13,8 +13,10 @@ export interface JwtClaims {
   pode_ler_coleta?: boolean;
   pode_ler_saida?: boolean;
   pode_digitar_codigo_manual?: boolean;
-  /** Motoboy pode lançar avulso (default true / opt-out). */
+  /** Motoboy pode lançar avulso (legado = coleta OR saída). */
   pode_lancar_avulso?: boolean;
+  pode_criar_avulso_coleta?: boolean;
+  pode_criar_avulso_saida?: boolean;
   /** Motoboy deve enviar foto ao lançar avulso. */
   avulso_exige_foto?: boolean;
   /** Owner habilitou devolução de pacotes à sub_base pelo app. */

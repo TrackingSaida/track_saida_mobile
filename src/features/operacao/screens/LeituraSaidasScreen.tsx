@@ -31,7 +31,7 @@ import { formatApiError } from "../../../utils/formatApiError";
 import {
   effectiveConferenciaSaida,
   effectivePodeDigitarCodigoManual,
-  effectivePodeLancarAvulso,
+  effectivePodeCriarAvulsoSaida,
   effectivePodeLerSaida,
   effectiveAvulsoExigeFoto,
   effectiveAvulsoPermitirFotos,
@@ -836,7 +836,7 @@ export default function LeituraSaidasScreen() {
 
   const podeLerSaida = effectivePodeLerSaida(currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
-  const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
+  const podeLancarAvulso = effectivePodeCriarAvulsoSaida(currentUser);
   const exigeSelecaoAvulso = ownerExigeSelecaoAvulso(currentUser);
   const motoboySelecionado = useMemo(
     () => motoboys.find((m) => m.id_motoboy === motoboyId) ?? null,

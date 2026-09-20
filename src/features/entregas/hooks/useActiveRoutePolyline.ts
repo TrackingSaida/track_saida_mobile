@@ -25,14 +25,14 @@ function concatPolylines(head: RoutePoint[] | null, tail: RoutePoint[] | null): 
   return same ? [...head, ...tail.slice(1)] : [...head, ...tail];
 }
 
-/** Com Google válido, a polyline do backend já é a rota completa — não junta approach/OSRM. */
+/** Google 1→N do backend; em rota ativa junta approach GPS→próxima. */
 export function selectDisplayedPolyline(params: {
   useBackendGoogle: boolean;
   isRouteActive: boolean;
   approachPolyline: RoutePoint[] | null;
   restPolyline: RoutePoint[] | null;
 }): RoutePoint[] | null {
-  if (params.useBackendGoogle) return params.restPolyline;
+  if (params.useBackendGoogle && !params.isRouteActive) return params.restPolyline;
   return concatPolylines(params.isRouteActive ? params.approachPolyline : null, params.restPolyline);
 }
 
@@ -194,20 +194,12 @@ export function useActiveRoutePolyline(params: {
   }, [stopPoints, runFetch, useBackendGoogle, geometryProvider, geometryStatus]);
 
   useEffect(() => {
-    if (!useBackendGoogle) return;
-    setApproachPolyline(null);
-    lastApproachOriginRef.current = null;
-    lastApproachDestHashRef.current = null;
-    if (approachDebounceRef.current) clearTimeout(approachDebounceRef.current);
-    approachAbortRef.current?.abort();
-  }, [useBackendGoogle]);
-
-  useEffect(() => {
-    if (useBackendGoogle || !isRouteActive || !currentLocation || !nextStop) {
-      if (useBackendGoogle) return;
+    if (!isRouteActive || !currentLocation || !nextStop) {
       setApproachPolyline(null);
       lastApproachOriginRef.current = null;
       lastApproachDestHashRef.current = null;
+      if (approachDebounceRef.current) clearTimeout(approachDebounceRef.current);
+      approachAbortRef.current?.abort();
       return;
     }
 
@@ -263,7 +255,7 @@ export function useActiveRoutePolyline(params: {
     return () => {
       if (approachDebounceRef.current) clearTimeout(approachDebounceRef.current);
     };
-  }, [useBackendGoogle, isRouteActive, currentLocation, nextStop]);
+  }, [isRouteActive, currentLocation, nextStop]);
 
   useEffect(() => {
     return () => {

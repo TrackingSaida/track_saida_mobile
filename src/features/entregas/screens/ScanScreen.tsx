@@ -28,7 +28,7 @@ import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeDigitarCodigoManual, effectivePodeLancarAvulso, effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos, ownerExigeSelecaoAvulso } from "../../../utils/role";
+import { effectivePodeDigitarCodigoManual, effectivePodeCriarAvulsoSaida, effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos, ownerExigeSelecaoAvulso } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import type { EntregaListItem } from "../types";
@@ -452,7 +452,7 @@ export default function ScanScreen({ navigation, route }: Props) {
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
-  const podeLancarAvulso = effectivePodeLancarAvulso(currentUser);
+  const podeLancarAvulso = effectivePodeCriarAvulsoSaida(currentUser);
   const exigeSelecaoAvulso = ownerExigeSelecaoAvulso(currentUser);
   const avulsoExigeFoto = effectiveAvulsoExigeFoto(currentUser);
   const avulsoPermitirFotos = effectiveAvulsoPermitirFotos(currentUser);
