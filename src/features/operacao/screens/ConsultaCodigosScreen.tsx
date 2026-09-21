@@ -86,7 +86,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return out;
 }
 
-type StatusFilterUi = "" | "Saiu para entrega" | "Entregue" | "NA_BASE";
+type StatusFilterUi = "" | "Saiu para entrega" | "Entregue" | "NA_BASE" | "ainda_na_base";
 
 function getPeriodRange(
   period: "none" | "today" | "7d",
@@ -128,6 +128,15 @@ function normalizeStatusFilter(raw: string | undefined): StatusFilterUi {
     .trim()
     .toLowerCase()
     .replace(/_/g, " ");
+  // Estoque unificado do card "Ainda na base" (NA_BASE + coletado)
+  if (
+    t === "ainda na base" ||
+    t === "na base,coletado" ||
+    t === "coletado,na base" ||
+    t.includes("ainda na base")
+  ) {
+    return "ainda_na_base";
+  }
   if (t === "na base") return "NA_BASE";
   if (t === "entregue") return "Entregue";
   if (t.includes("saiu") || t === "em rota") return "Saiu para entrega";
@@ -1691,7 +1700,7 @@ export default function ConsultaCodigosScreen() {
           {(
             [
               { key: "" as const, label: "Todos" },
-              { key: "NA_BASE" as const, label: "Na base" },
+              { key: "ainda_na_base" as const, label: "Na base" },
               { key: "Saiu para entrega" as const, label: "Em rota" },
               { key: "Entregue" as const, label: "Entregue" },
             ] as const
