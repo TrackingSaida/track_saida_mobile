@@ -26,6 +26,7 @@ import BackgroundLocationDisclosureModal from "./src/components/BackgroundLocati
 import DiaRotaConcluidaModal from "./src/features/entregas/components/DiaRotaConcluidaModal";
 import { isMotoboyRole } from "./src/utils/role";
 import UrgentAvisoGate from "./src/features/avisos/components/UrgentAvisoGate";
+import BirthdayGreetingGate from "./src/features/aniversario/BirthdayGreetingGate";
 import InAppPhotoCaptureModal from "./src/components/InAppPhotoCaptureModal";
 import PhotoDraftResumeGate from "./src/components/PhotoDraftResumeGate";
 import {
@@ -228,6 +229,7 @@ export default function App() {
                   <StaffNavigator onLogout={logout} />
                 )}
               </View>
+              <BirthdayGreetingGate />
               <UrgentAvisoGate />
               <PhotoDraftResumeGate />
               <InAppPhotoCaptureModal />
