@@ -193,7 +193,9 @@ export default function ConsultaCodigosScreen() {
   const role = currentUser?.role as number | undefined;
   const bloquearSaidaSemColeta = currentUser?.bloquear_saida_sem_coleta === true;
   const podeGerarEtiqueta = role === 0 || role === 1 || role === 2;
-  const podeCancelarSaida = isAdminRole(role);
+  // Alinha à web (canEditG): operador também cancela na consulta.
+  const podeCancelarSaida = role === 0 || role === 1 || role === 2;
+  const podeReverterCancelamento = isAdminRole(role);
   /** Ditar por voz só no perfil entregador; operador/admin usam texto e câmera. */
   const mostrarVozConsulta = isMotoboyRole(currentUser?.role as number | undefined);
 
@@ -1033,7 +1035,7 @@ export default function ConsultaCodigosScreen() {
 
   const handleCancelarSaida = useCallback(() => {
     if (!podeCancelarSaida) {
-      Alert.alert("Sem permissão", "Apenas admin pode cancelar um registro.");
+      Alert.alert("Sem permissão", "Você não pode cancelar este registro.");
       return;
     }
     if (!selectedDetailId) {
@@ -1094,7 +1096,7 @@ export default function ConsultaCodigosScreen() {
   }, [carregarDetalhe, executarBusca, selectedDetail?.codigo, selectedDetailId, selectedHistorico]);
 
   const handleReverterStatus = useCallback(() => {
-    if (!podeCancelarSaida) {
+    if (!podeReverterCancelamento) {
       Alert.alert("Sem permissão", "Apenas root ou admin podem reverter um pedido cancelado.");
       return;
     }
@@ -1117,7 +1119,7 @@ export default function ConsultaCodigosScreen() {
         },
       ]
     );
-  }, [podeCancelarSaida, performReverterStatus, selectedDetailId, selectedHistorico]);
+  }, [podeReverterCancelamento, performReverterStatus, selectedDetailId, selectedHistorico]);
 
   const parseLerError = (err: unknown) => {
     const ax = err as AxiosError<{
@@ -1746,6 +1748,7 @@ export default function ConsultaCodigosScreen() {
         idSaida={selectedDetailId}
         podeGerarEtiqueta={podeGerarEtiqueta}
         podeCancelarSaida={podeCancelarSaida}
+        podeReverterCancelamento={podeReverterCancelamento}
         gerandoEtiqueta={gerandoEtiqueta}
         cancelandoSaida={cancelandoSaida}
         onClose={handleFecharDetalhe}
