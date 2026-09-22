@@ -7,12 +7,18 @@ export type ShareConsultaFiltros = Pick<
   "status" | "de" | "ate" | "base" | "entregador" | "servico" | "somente_g" | "sort"
 >;
 
-function isStatusNaBase(status?: string): boolean {
+function isStatusAindaNaBase(status?: string): boolean {
   const t = String(status || "")
     .trim()
     .toLowerCase()
     .replace(/_/g, " ");
-  return t === "na base";
+  return (
+    t === "na base" ||
+    t === "ainda na base" ||
+    t === "na base,coletado" ||
+    t === "coletado,na base" ||
+    t.includes("ainda na base")
+  );
 }
 
 function labelStatusAmigavel(status?: string): string | null {
@@ -21,7 +27,7 @@ function labelStatusAmigavel(status?: string): string | null {
     .toLowerCase()
     .replace(/_/g, " ");
   if (!t) return null;
-  if (t === "na base") return "Na base";
+  if (isStatusAindaNaBase(status)) return "Na base";
   if (t === "etiquetado") return "Etiqueta gerada";
   if (t === "entregue") return "Entregue";
   if (t.includes("saiu") || t === "em rota") return "Em rota";
@@ -56,8 +62,8 @@ export function formatDateBr(iso: string): string {
 }
 
 export function buildShareTitle(filtros: ShareConsultaFiltros): string {
-  if (isStatusNaBase(filtros.status)) {
-    return "Pedidos com entrada na base sem saída:";
+  if (isStatusAindaNaBase(filtros.status)) {
+    return "Pedidos ainda na base sem saída:";
   }
   const parts: string[] = [];
   const statusLabel = labelStatusAmigavel(filtros.status);

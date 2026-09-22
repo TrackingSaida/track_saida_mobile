@@ -216,7 +216,8 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
       | undefined;
     tabNav?.navigate("Inicio", {
       screen: "ConsultaCodigos",
-      params: { status: "NA_BASE", de, ate },
+      // Alias backend: NA_BASE + coletado (estoque unificado do card)
+      params: { status: "ainda_na_base", de, ate },
     });
   };
 
