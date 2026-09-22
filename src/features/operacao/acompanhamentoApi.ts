@@ -36,6 +36,19 @@ export interface AcompanhamentoDiaResponse {
   data_fim?: string | null;
 }
 
+export interface AcompanhamentoServicoBreakdown {
+  total: number;
+  pendentes: number;
+  entregues: number;
+  ausentes: number;
+}
+
+export interface AcompanhamentoPorServico {
+  shopee: AcompanhamentoServicoBreakdown;
+  mercado_livre: AcompanhamentoServicoBreakdown;
+  avulso: AcompanhamentoServicoBreakdown;
+}
+
 export interface AcompanhamentoSaidasDiaResponse {
   data: string;
   motoboy_id: number;
@@ -46,6 +59,10 @@ export interface AcompanhamentoSaidasDiaResponse {
   sum_avulso: number;
   data_inicio?: string | null;
   data_fim?: string | null;
+  por_servico?: AcompanhamentoPorServico | null;
+  total_hoje?: number | null;
+  entregues_hoje?: number | null;
+  ausentes_hoje?: number | null;
 }
 
 export type PeriodoParams = {

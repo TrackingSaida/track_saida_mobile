@@ -15,7 +15,10 @@ import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import OperacaoEmptyState from "../components/OperacaoEmptyState";
 import { useThemeColors } from "../../../theme/colors";
 import type { StaffStackParamList } from "../../../navigation/staffStackTypes";
-import { getAcompanhamentoSaidasDia } from "../acompanhamentoApi";
+import {
+  getAcompanhamentoSaidasDia,
+  type AcompanhamentoServicoBreakdown,
+} from "../acompanhamentoApi";
 import { fmtSLA } from "../utils/acompanhamentoOperational";
 
 type Props = NativeStackScreenProps<StaffStackParamList, "AcompanharMotoboyDia">;
@@ -30,6 +33,13 @@ function pctOf(part: number, total: number): number {
   if (!total) return 0;
   return Math.min(100, Math.round((part / total) * 1000) / 10);
 }
+
+const EMPTY_BREAKDOWN: AcompanhamentoServicoBreakdown = {
+  total: 0,
+  pendentes: 0,
+  entregues: 0,
+  ausentes: 0,
+};
 
 export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -92,12 +102,16 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
           borderLeftWidth: 4,
+        },
+        serviceHeader: {
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",
+          marginBottom: 6,
         },
         serviceTitle: { fontSize: 15, fontWeight: "700", color: colors.text },
         serviceCount: { fontSize: 22, fontWeight: "800", color: colors.text },
+        serviceBreakdown: { fontSize: 12, color: colors.textSecondary, lineHeight: 18 },
         resumoText: { fontSize: 14, color: colors.text, lineHeight: 21 },
         retryBtn: {
           marginTop: 12,
@@ -114,7 +128,7 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
     setLoading(true);
     setError(null);
     try {
-      const res = await getAcompanhamentoSaidasDia(motoboyId, data);
+      const res = await getAcompanhamentoSaidasDia(motoboyId, { data, modo: "saidas" });
       setDetail(res);
     } catch {
       setError("Não foi possível carregar o detalhe do motoboy.");
@@ -133,11 +147,32 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
   const totalEntregues = entregues ?? 0;
   const progressPct = pctOf(totalEntregues, totalPedidos);
 
+  const por = detail?.por_servico;
   const servicos = [
-    { label: "Shopee", value: detail?.sum_shopee ?? 0, accent: "#ee4d2d" },
-    { label: "Mercado Livre", value: detail?.sum_mercado ?? 0, accent: "#c9a227" },
-    { label: "Avulso", value: detail?.sum_avulso ?? 0, accent: "#6c757d" },
+    {
+      label: "Shopee",
+      accent: "#ee4d2d",
+      fallbackTotal: detail?.sum_shopee ?? 0,
+      breakdown: por?.shopee ?? EMPTY_BREAKDOWN,
+    },
+    {
+      label: "Mercado Livre",
+      accent: "#c9a227",
+      fallbackTotal: detail?.sum_mercado ?? 0,
+      breakdown: por?.mercado_livre ?? EMPTY_BREAKDOWN,
+    },
+    {
+      label: "Avulso",
+      accent: "#6c757d",
+      fallbackTotal: detail?.sum_avulso ?? 0,
+      breakdown: por?.avulso ?? EMPTY_BREAKDOWN,
+    },
   ];
+
+  const totalHoje = detail?.total_hoje ?? detail?.pendentes_hoje ?? 0;
+  const pendentesHoje = detail?.pendentes_hoje ?? 0;
+  const entreguesHoje = detail?.entregues_hoje ?? 0;
+  const ausentesHoje = detail?.ausentes_hoje ?? 0;
 
   return (
     <View style={styles.container}>
@@ -194,19 +229,33 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
           </>
         ) : (
           <>
-            {servicos.map((s) => (
-              <View key={s.label} style={[styles.serviceCard, { borderLeftColor: s.accent }]}>
-                <Text style={styles.serviceTitle}>{s.label}</Text>
-                <Text style={styles.serviceCount}>{s.value}</Text>
-              </View>
-            ))}
+            {servicos.map((s) => {
+              const total = por ? s.breakdown.total : s.fallbackTotal;
+              const bd = s.breakdown;
+              return (
+                <View key={s.label} style={[styles.serviceCard, { borderLeftColor: s.accent }]}>
+                  <View style={styles.serviceHeader}>
+                    <Text style={styles.serviceTitle}>{s.label}</Text>
+                    <Text style={styles.serviceCount}>{total}</Text>
+                  </View>
+                  {por ? (
+                    <Text style={styles.serviceBreakdown}>
+                      Pendentes {bd.pendentes} · Entregues {bd.entregues} · Ausentes {bd.ausentes}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })}
 
             <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Resumo operacional</Text>
             <View style={styles.summaryCard}>
               <Text style={styles.resumoText}>
-                {detail?.pendentes_hoje ?? 0} pedido
-                {(detail?.pendentes_hoje ?? 0) !== 1 ? "s" : ""} ainda em andamento neste dia,
-                somando todos os serviços.
+                {totalHoje} pedido{totalHoje !== 1 ? "s" : ""} neste dia
+                {por
+                  ? `: ${pendentesHoje} pendente${pendentesHoje !== 1 ? "s" : ""}, ${entreguesHoje} entregue${
+                      entreguesHoje !== 1 ? "s" : ""
+                    }, ${ausentesHoje} ausente${ausentesHoje !== 1 ? "s" : ""}.`
+                  : ", somando todos os serviços."}
               </Text>
             </View>
           </>
