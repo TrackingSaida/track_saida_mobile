@@ -38,6 +38,8 @@ type Props = {
   idSaida: number | null;
   podeGerarEtiqueta: boolean;
   podeCancelarSaida: boolean;
+  /** Reverter cancelamento: só root/admin (alinhado ao backend). */
+  podeReverterCancelamento: boolean;
   gerandoEtiqueta: boolean;
   cancelandoSaida: boolean;
   onClose: () => void;
@@ -54,6 +56,7 @@ export default function ConsultaPacoteDetailModal({
   idSaida,
   podeGerarEtiqueta,
   podeCancelarSaida,
+  podeReverterCancelamento,
   gerandoEtiqueta,
   cancelandoSaida,
   onClose,
@@ -394,7 +397,7 @@ export default function ConsultaPacoteDetailModal({
                   </>
                 ) : null}
 
-                {podeCancelarSaida && detalheCancelado ? (
+                {podeReverterCancelamento && detalheCancelado ? (
                   <>
                     <Text style={styles.sectionLabel}>Mais ações</Text>
                     <TouchableOpacity
