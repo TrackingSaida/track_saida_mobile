@@ -26,6 +26,7 @@ import BackgroundLocationDisclosureModal from "./src/components/BackgroundLocati
 import DiaRotaConcluidaModal from "./src/features/entregas/components/DiaRotaConcluidaModal";
 import { isMotoboyRole } from "./src/utils/role";
 import UrgentAvisoGate from "./src/features/avisos/components/UrgentAvisoGate";
+import ForceUpdateGate from "./src/components/ForceUpdateGate";
 import BirthdayGreetingGate from "./src/features/aniversario/BirthdayGreetingGate";
 import InAppPhotoCaptureModal from "./src/components/InAppPhotoCaptureModal";
 import PhotoDraftResumeGate from "./src/components/PhotoDraftResumeGate";
@@ -179,11 +180,14 @@ export default function App() {
     };
   }, [token, currentUser, requiresBiometricUnlock]);
 
-  if (isLoading) {
-    const loadingColors = getColors(theme);
-    return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
+  const showMainApp = token != null && !requiresBiometricUnlock;
+  const motoboy = isMotoboyRole(currentUser?.role);
+  const loadingColors = getColors(theme);
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        {isLoading ? (
           <SafeAreaView
             style={{
               flex: 1,
@@ -195,17 +199,7 @@ export default function App() {
           >
             <ActivityIndicator size="large" color={loadingColors.primary} />
           </SafeAreaView>
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
-    );
-  }
-
-  const showMainApp = token != null && !requiresBiometricUnlock;
-  const motoboy = isMotoboyRole(currentUser?.role);
-
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
+        ) : (
         <NavigationContainer
           ref={rootNavigationRef}
           theme={navTheme}
@@ -272,6 +266,8 @@ export default function App() {
             </AuthStack.Navigator>
           )}
         </NavigationContainer>
+        )}
+        <ForceUpdateGate />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
