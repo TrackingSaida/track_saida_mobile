@@ -23,6 +23,42 @@ type Props = {
   onSelect: (item: AvulsoPendenteItem) => void | Promise<void>;
 };
 
+function normalizeStatus(raw?: string | null): string {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "_");
+}
+
+/** Ainda na base: sem motoboy ou status coleta/entrada. */
+function isAindaNaBase(it: AvulsoPendenteItem): boolean {
+  const st = normalizeStatus(it.status);
+  if (st === "coletado" || st === "na_base" || st === "entrada") return true;
+  if (!it.motoboy_id) return true;
+  return false;
+}
+
+function labelSemCodigoDuplicado(it: AvulsoPendenteItem): string {
+  const label = (it.label || "").trim();
+  const codigo = (it.codigo || "").trim();
+  if (label) return label;
+  return codigo || "Avulso";
+}
+
+function statusAmigavel(it: AvulsoPendenteItem): string {
+  return (it.status_label || it.status || "—").trim();
+}
+
+function codigoExtra(it: AvulsoPendenteItem): string | null {
+  const label = (it.label || "").trim();
+  const codigo = (it.codigo || "").trim();
+  if (!codigo) return null;
+  if (label && label.includes(codigo)) return null;
+  return codigo;
+}
+
 export default function AvulsoSelecionarModal({
   visible,
   loading = false,
@@ -37,8 +73,20 @@ export default function AvulsoSelecionarModal({
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [selecionando, setSelecionando] = useState(false);
+  const [grupoNaBaseAberto, setGrupoNaBaseAberto] = useState(true);
+  const [grupoSairamAberto, setGrupoSairamAberto] = useState(false);
 
   const busy = loading || buscando || selecionando;
+
+  const { naBase, jaSairam } = useMemo(() => {
+    const a: AvulsoPendenteItem[] = [];
+    const b: AvulsoPendenteItem[] = [];
+    for (const it of items) {
+      if (isAindaNaBase(it)) a.push(it);
+      else b.push(it);
+    }
+    return { naBase: a, jaSairam: b };
+  }, [items]);
 
   const styles = useMemo(
     () =>
@@ -80,6 +128,16 @@ export default function AvulsoSelecionarModal({
         btnBuscarText: { color: colors.primaryContrast, fontWeight: "700" },
         linkTodos: { alignSelf: "flex-start", marginBottom: 12 },
         linkTodosText: { color: colors.primary, fontWeight: "600", fontSize: 13 },
+        groupHeader: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 10,
+          paddingHorizontal: 4,
+          marginTop: 4,
+        },
+        groupHeaderText: { fontSize: 14, fontWeight: "800", color: colors.text },
+        groupChevron: { fontSize: 12, color: colors.textSecondary, fontWeight: "700" },
         item: {
           borderWidth: 1,
           borderColor: colors.inputBorder,
@@ -88,7 +146,19 @@ export default function AvulsoSelecionarModal({
           marginBottom: 8,
         },
         itemLabel: { fontSize: 15, fontWeight: "700", color: colors.text },
-        itemMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
+        itemStatus: {
+          marginTop: 6,
+          alignSelf: "flex-start",
+          fontSize: 12,
+          fontWeight: "700",
+          color: colors.primary,
+          backgroundColor: colors.inputBackground,
+          overflow: "hidden",
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+          borderRadius: 8,
+        },
+        itemMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 6 },
         empty: { fontSize: 13, color: colors.textSecondary, paddingVertical: 16, textAlign: "center" },
         warn: { fontSize: 13, color: "#B45309", marginBottom: 8 },
         erro: { fontSize: 13, color: "#dc3545", marginBottom: 8 },
@@ -104,36 +174,41 @@ export default function AvulsoSelecionarModal({
     [colors]
   );
 
-  const carregar = useCallback(async (opts?: { q?: string; todosDoDia?: boolean }) => {
-    const buscaQ = (opts?.q ?? q).trim();
-    const todosDoDia = !!opts?.todosDoDia;
-    if (!buscaQ && !todosDoDia) {
-      setItems([]);
-      setAmbiguo(false);
-      setMensagem("Digite para buscar os avulsos de hoje.");
-      return;
-    }
-    setBuscando(true);
-    setErro(null);
-    try {
-      const res = await listAvulsosPendentes({
-        q: buscaQ || undefined,
-        todos_do_dia: todosDoDia,
-        limit: 50,
-        offset: 0,
-      });
-      setAmbiguo(!!res.ambiguo);
-      setMensagem(res.mensagem || null);
-      setItems(res.items);
-    } catch (err) {
-      setErro(formatApiError(err, "Não foi possível buscar avulsos."));
-      setItems([]);
-      setAmbiguo(false);
-      setMensagem(null);
-    } finally {
-      setBuscando(false);
-    }
-  }, [q]);
+  const carregar = useCallback(
+    async (opts?: { q?: string; todosDoDia?: boolean }) => {
+      const buscaQ = (opts?.q ?? q).trim();
+      const todosDoDia = !!opts?.todosDoDia;
+      if (!buscaQ && !todosDoDia) {
+        setItems([]);
+        setAmbiguo(false);
+        setMensagem("Digite para buscar os avulsos de hoje.");
+        return;
+      }
+      setBuscando(true);
+      setErro(null);
+      try {
+        const res = await listAvulsosPendentes({
+          q: buscaQ || undefined,
+          todos_do_dia: todosDoDia,
+          limit: 50,
+          offset: 0,
+        });
+        setAmbiguo(!!res.ambiguo);
+        setMensagem(res.mensagem || null);
+        setItems(res.items);
+        setGrupoNaBaseAberto(true);
+        setGrupoSairamAberto(false);
+      } catch (err) {
+        setErro(formatApiError(err, "Não foi possível buscar avulsos."));
+        setItems([]);
+        setAmbiguo(false);
+        setMensagem(null);
+      } finally {
+        setBuscando(false);
+      }
+    },
+    [q]
+  );
 
   useEffect(() => {
     if (!visible) return;
@@ -143,6 +218,8 @@ export default function AvulsoSelecionarModal({
     setItems([]);
     setAmbiguo(false);
     setMensagem("Digite para buscar os avulsos de hoje.");
+    setGrupoNaBaseAberto(true);
+    setGrupoSairamAberto(false);
   }, [visible]);
 
   const handleSelect = useCallback(
@@ -158,13 +235,55 @@ export default function AvulsoSelecionarModal({
     [busy, onSelect]
   );
 
+  const renderItem = (it: AvulsoPendenteItem) => {
+    const extraCodigo = codigoExtra(it);
+    const motoboyLine = it.motoboy_nome ? `Motoboy: ${it.motoboy_nome}` : null;
+    return (
+      <TouchableOpacity
+        key={it.id_saida}
+        style={styles.item}
+        onPress={() => void handleSelect(it)}
+        disabled={busy}
+      >
+        <Text style={styles.itemLabel}>{labelSemCodigoDuplicado(it)}</Text>
+        <Text style={styles.itemStatus}>{statusAmigavel(it)}</Text>
+        {motoboyLine || extraCodigo ? (
+          <Text style={styles.itemMeta}>
+            {[motoboyLine, extraCodigo].filter(Boolean).join(" · ")}
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderGrupo = (
+    titulo: string,
+    lista: AvulsoPendenteItem[],
+    aberto: boolean,
+    onToggle: () => void
+  ) => {
+    if (lista.length === 0) return null;
+    return (
+      <View>
+        <TouchableOpacity style={styles.groupHeader} onPress={onToggle} disabled={busy}>
+          <Text style={styles.groupHeaderText}>
+            {titulo} ({lista.length})
+          </Text>
+          <Text style={styles.groupChevron}>{aberto ? "▼" : "▶"}</Text>
+        </TouchableOpacity>
+        {aberto ? lista.map(renderItem) : null}
+      </View>
+    );
+  };
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <Text style={styles.title}>Selecionar avulso</Text>
           <Text style={styles.help}>
-            Busca por contém nos avulsos de hoje. Se alguém compartilhou a etiqueta, leia o código na câmera.
+            Busca nos avulsos de hoje. Priorize os que ainda estão na base. Se alguém compartilhou a
+            etiqueta, leia o código na câmera.
           </Text>
           <View style={styles.row}>
             <TextInput
@@ -202,25 +321,14 @@ export default function AvulsoSelecionarModal({
             {items.length === 0 && !buscando && !ambiguo ? (
               <Text style={styles.empty}>{mensagem || "Digite para buscar os avulsos de hoje."}</Text>
             ) : (
-              items.map((it) => (
-                <TouchableOpacity
-                  key={it.id_saida}
-                  style={styles.item}
-                  onPress={() => void handleSelect(it)}
-                  disabled={busy}
-                >
-                  <Text style={styles.itemLabel}>{it.label || it.codigo || "Avulso"}</Text>
-                  <Text style={styles.itemMeta}>
-                    {[
-                      it.status_label || it.status,
-                      it.motoboy_nome ? `Motoboy: ${it.motoboy_nome}` : "Sem motoboy",
-                      it.codigo,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </Text>
-                </TouchableOpacity>
-              ))
+              <>
+                {renderGrupo("Ainda na base", naBase, grupoNaBaseAberto, () =>
+                  setGrupoNaBaseAberto((v) => !v)
+                )}
+                {renderGrupo("Já saíram", jaSairam, grupoSairamAberto, () =>
+                  setGrupoSairamAberto((v) => !v)
+                )}
+              </>
             )}
           </ScrollView>
           <TouchableOpacity style={styles.btnCancel} onPress={onClose} disabled={busy}>
