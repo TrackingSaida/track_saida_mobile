@@ -684,7 +684,11 @@ export default function ConsultaCodigosScreen() {
         }
 
         lastCodigoConsultaRef.current = codigoTrim;
-        const cascade = await searchCodigosCascade(baseParams, codigoTrim, {
+        // Digitação: usa o texto original (nome/CEP com máscara) em modo contém.
+        // Câmera/leitor: forceExact só após extrair código de etiqueta (cascade ignora CEP/nome).
+        const searchTerm =
+          opts?.forceExact === true ? codigoTrim : String(raw || "").trim() || codigoTrim;
+        const cascade = await searchCodigosCascade(baseParams, searchTerm, {
           forceExact: opts?.forceExact,
         });
         let rows = filtrarSaidasPelaSubBaseDoUsuario(cascade.rows ?? [], currentUser?.sub_base);
@@ -1291,7 +1295,13 @@ export default function ConsultaCodigosScreen() {
       setCameraAtiva(false);
       lastRawLeituraRef.current = rawScan;
       setSearchInput(t);
-      void executarBusca(0, { codigoOverride: t, forceExact: true });
+      const digits = t.replace(/\D+/g, "");
+      const looksLikeCep =
+        /^\d{5}-\d{3}$/.test(t) ||
+        (/^\d{7,8}$/.test(digits) && !/^4[5-9]\d{9,}$/.test(digits));
+      const looksLikeName = /[A-Za-zÀ-ÿ]/.test(t) && !/^AVULSO-/i.test(t) && !/^RTE[0-9]/i.test(t);
+      const forceExact = parsed.fonte === "estruturado" && !looksLikeCep && !looksLikeName;
+      void executarBusca(0, { codigoOverride: t, forceExact });
     },
     [loading, lerLoading, executarBusca]
   );
