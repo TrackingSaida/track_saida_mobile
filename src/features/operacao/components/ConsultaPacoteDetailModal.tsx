@@ -69,6 +69,9 @@ export default function ConsultaPacoteDetailModal({
   const [comprovanteUris, setComprovanteUris] = useState<string[]>([]);
   const [comprovanteLoading, setComprovanteLoading] = useState(false);
   const [avulsoCampos, setAvulsoCampos] = useState<Record<string, string>>({});
+  const [avulsoCamposExibicao, setAvulsoCamposExibicao] = useState<
+    Array<{ chave: string; label: string; valor: string }>
+  >([]);
   const [avulsoOrigem, setAvulsoOrigem] = useState<string | null>(null);
   const [avulsoLabel, setAvulsoLabel] = useState<string | null>(null);
   const [showComprovanteViewer, setShowComprovanteViewer] = useState(false);
@@ -96,6 +99,7 @@ export default function ConsultaPacoteDetailModal({
       setComprovanteViewerIndex(0);
       setSharingComprovante(false);
       setAvulsoCampos({});
+      setAvulsoCamposExibicao([]);
       setAvulsoOrigem(null);
       setAvulsoLabel(null);
       return;
@@ -139,11 +143,15 @@ export default function ConsultaPacoteDetailModal({
         const avulso = await getAvulsoDetalhe(idSaida);
         if (cancelled) return;
         setAvulsoCampos(avulso.campos || {});
+        setAvulsoCamposExibicao(
+          Array.isArray(avulso.campos_exibicao) ? avulso.campos_exibicao : []
+        );
         setAvulsoOrigem(avulso.origem_label || null);
         setAvulsoLabel(avulso.label || null);
       } catch {
         if (!cancelled) {
           setAvulsoCampos({});
+          setAvulsoCamposExibicao([]);
           setAvulsoOrigem(null);
           setAvulsoLabel(null);
         }
@@ -329,18 +337,25 @@ export default function ConsultaPacoteDetailModal({
                   </View>
                 </View>
 
-                {avulsoLabel || avulsoOrigem || Object.keys(avulsoCampos).length ? (
+                {avulsoLabel || avulsoOrigem || avulsoCamposExibicao.length || Object.keys(avulsoCampos).length ? (
                   <View style={{ marginBottom: 14 }}>
                     <Text style={[styles.fieldLabel, { marginBottom: 6 }]}>Identificação do avulso</Text>
-                    {avulsoLabel ? <Text style={styles.fieldValue}>{avulsoLabel}</Text> : null}
                     {avulsoOrigem ? (
-                      <Text style={[styles.fieldValue, { marginTop: 4 }]}>Origem: {avulsoOrigem}</Text>
+                      <Text style={[styles.fieldValue, { marginBottom: 4 }]}>Origem: {avulsoOrigem}</Text>
                     ) : null}
-                    {Object.entries(avulsoCampos).map(([k, v]) => (
-                      <Text key={k} style={[styles.fieldValue, { marginTop: 4 }]}>
-                        {k}: {v}
-                      </Text>
-                    ))}
+                    {avulsoCamposExibicao.length
+                      ? avulsoCamposExibicao.map((c) => (
+                          <Text key={c.chave} style={[styles.fieldValue, { marginTop: 4 }]}>
+                            {c.label}: {c.valor}
+                          </Text>
+                        ))
+                      : avulsoLabel
+                        ? <Text style={styles.fieldValue}>{avulsoLabel}</Text>
+                        : Object.entries(avulsoCampos).map(([k, v]) => (
+                            <Text key={k} style={[styles.fieldValue, { marginTop: 4 }]}>
+                              {k}: {v}
+                            </Text>
+                          ))}
                   </View>
                 ) : null}
 
