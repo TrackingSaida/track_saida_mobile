@@ -87,7 +87,15 @@ export async function searchCodigosCascade(
   delete rest.de;
   delete rest.ate;
 
-  if (options?.forceExact) {
+  // Nome / CEP / identificação → sempre contém (nunca exact).
+  const looksLikeCep =
+    /^\d{5}-\d{3}$/.test(term) ||
+    (/^\d{7,8}$/.test(term.replace(/\D+/g, "")) && !/^4[5-9]\d{9,}$/.test(term.replace(/\D+/g, "")));
+  const looksLikeName = /[A-Za-zÀ-ÿ]/.test(term) && !/^AVULSO-/i.test(term) && !/^RTE[0-9]/i.test(term) && !/^BR\d/i.test(term);
+  const forceExact =
+    !!options?.forceExact && !looksLikeCep && !looksLikeName;
+
+  if (forceExact) {
     const exact = await listSaidas({
       ...rest,
       codigo: upper,
