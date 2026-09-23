@@ -11,7 +11,15 @@ import {
 test("título Na base", () => {
   assert.equal(
     buildShareTitle({ status: "NA_BASE" }),
-    "Pedidos com entrada na base sem saída:"
+    "Pedidos ainda na base sem saída:"
+  );
+  assert.equal(
+    buildShareTitle({ status: "ainda_na_base" }),
+    "Pedidos ainda na base sem saída:"
+  );
+  assert.equal(
+    buildShareTitle({ status: "coletado" }),
+    "Pedidos ainda na base sem saída:"
   );
 });
 

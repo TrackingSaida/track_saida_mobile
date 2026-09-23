@@ -15,6 +15,8 @@ function isStatusAindaNaBase(status?: string): boolean {
   return (
     t === "na base" ||
     t === "ainda na base" ||
+    t === "coletado" ||
+    t === "coletada" ||
     t === "na base,coletado" ||
     t === "coletado,na base" ||
     t.includes("ainda na base")
@@ -186,7 +188,7 @@ export async function buildShareConsultaMessage(
         : null;
   const title = buildShareTitle(filtros);
 
-  if (isStatusNaBase(filtros.status)) {
+  if (isStatusAindaNaBase(filtros.status)) {
     const groups = groupCodigosPorData(rows);
     const message = buildShareMessageGrouped({ title, groups, total });
     return { message, codigosCount: codigos.length, total };
