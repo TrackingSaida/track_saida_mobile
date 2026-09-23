@@ -76,17 +76,20 @@ export interface EnviarColetaParams {
   base: string;
   item: ColetaItemPayload;
   entregadorId?: number | null;
+  dataOperacao?: string | null;
 }
 
 export async function enviarColetaUnica({
   base,
   item,
   entregadorId,
+  dataOperacao,
 }: EnviarColetaParams): Promise<LoteResponse> {
   const body: {
     base: string;
     itens: ColetaItemPayload[];
     entregador_id?: number;
+    data_operacao?: string;
   } = {
     base,
     itens: [
@@ -102,6 +105,9 @@ export async function enviarColetaUnica({
   if (typeof entregadorId === "number") {
     body.entregador_id = entregadorId;
   }
+  if (dataOperacao) {
+    body.data_operacao = dataOperacao;
+  }
 
   const { data } = await client.post<LoteResponse>("/coletas/lote", body);
   return data;
@@ -114,6 +120,7 @@ export async function lancarAvulsoColeta(params: {
   fotoObjectKeys?: string[];
   photoIds?: string[];
   campos?: Record<string, string>;
+  dataOperacao?: string | null;
 }): Promise<ColetaLancarAvulsoResult> {
   const keys = (params.fotoObjectKeys || []).map((k) => String(k || "").trim()).filter(Boolean);
   const ids = (params.photoIds || []).map((k) => (k == null ? null : String(k)));
@@ -126,6 +133,7 @@ export async function lancarAvulsoColeta(params: {
     ...(keys.length ? { foto_object_keys: keys } : {}),
     ...(ids[0] ? { photo_id: ids[0] } : {}),
     ...(ids.length ? { photo_ids: ids } : {}),
+    ...(params.dataOperacao ? { data_operacao: params.dataOperacao } : {}),
   });
   return data;
 }
@@ -375,6 +383,7 @@ export async function obterConfigColetaOperacional(): Promise<ColetaOperacionalC
 export interface IniciarColetaOperacionalPayload {
   metodo: "codigo" | "coleta_manual";
   ajudar?: boolean;
+  data_operacao?: string;
 }
 
 /** Marca a base como Em coleta para o dia (visível aos demais usuários). */
@@ -385,6 +394,7 @@ export async function iniciarColetaOperacional(
   const { data } = await client.post(`/coletas/operacionais/bases/${baseId}/iniciar`, {
     metodo: payload.metodo,
     ajudar: Boolean(payload.ajudar),
+    ...(payload.data_operacao ? { data_operacao: payload.data_operacao } : {}),
   });
   return data;
 }
@@ -402,6 +412,8 @@ export interface ColetaManualOperacionalPayload {
   avulso: number;
   sem_volume: boolean;
   origem_cliente: "mobile";
+  /** Soma ao volume já lançado (retroativo). */
+  acrescentar?: boolean;
 }
 
 export async function lancarColetaManualOperacional(

@@ -34,7 +34,14 @@ export type InicioStackParamList = {
 
 /** Rotas compartilhadas do fluxo de coletas (Home motoboy + Operação staff). */
 export type ColetasFluxoParamList = {
-  LeituraColetas: { baseId?: number; baseNome?: string } | undefined;
+  LeituraColetas:
+    | {
+        baseId?: number;
+        baseNome?: string;
+        /** YYYY-MM-DD; omitido = dia atual. Retroativo: admin/operador. */
+        dataOperacao?: string;
+      }
+    | undefined;
   LeiturasColeta: {
     baseId: number;
     baseNome: string;
