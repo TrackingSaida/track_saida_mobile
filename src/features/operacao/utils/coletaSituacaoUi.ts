@@ -13,6 +13,13 @@ export function hojeOperacaoLocal(): string {
   return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}-${String(data.getDate()).padStart(2, "0")}`;
 }
 
+/** Ontem no fuso local do aparelho (YYYY-MM-DD). */
+export function ontemOperacaoLocal(): string {
+  const data = new Date();
+  data.setDate(data.getDate() - 1);
+  return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}-${String(data.getDate()).padStart(2, "0")}`;
+}
+
 export function statusColetaNormalizado(status: SituacaoBaseColeta["status"]): ColetaStatusFiltro {
   return status === "sem_volume" ? "coletado" : status;
 }

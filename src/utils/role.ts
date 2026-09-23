@@ -28,6 +28,12 @@ export function isAdminRole(role: number | undefined): boolean {
   return r === 0 || r === 1;
 }
 
+/** Root, admin ou operador (lançamento retroativo / correções sensíveis). */
+export function isAdminOperadorRole(role: number | undefined): boolean {
+  const r = asRole(role);
+  return r === 0 || r === 1 || r === 2;
+}
+
 /**
  * Leitura de saídas / consulta: staff (0–3) sempre pode na UI; motoboy segue flag do token.
  */

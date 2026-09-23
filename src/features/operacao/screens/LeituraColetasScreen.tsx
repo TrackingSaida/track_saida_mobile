@@ -38,6 +38,7 @@ import {
   effectivePodeDigitarCodigoManual,
   effectivePodeCriarAvulsoColeta,
   effectivePodeLerColeta,
+  isAdminOperadorRole,
   isStaffOperacaoRole,
   permiteLeituraColeta,
   permiteManualColeta,
@@ -59,7 +60,7 @@ import {
 } from "../coletasApi";
 import { listarBasesAtivas, type BaseItem } from "../basesApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
-import { basesParaSeletorColeta, hojeOperacaoLocal, labelGrupoSeletorColeta, situacaoColetaBadgeColors } from "../utils/coletaSituacaoUi";
+import { basesParaSeletorColeta, hojeOperacaoLocal, ontemOperacaoLocal, labelGrupoSeletorColeta, situacaoColetaBadgeColors } from "../utils/coletaSituacaoUi";
 import type { ColetaStatusFiltro } from "../utils/coletaSituacaoUi";
 import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import * as Haptics from "expo-haptics";
@@ -72,6 +73,7 @@ import {
   openNavigationByAddress,
   type NavigationApp,
 } from "../../entregas/utils/externalNavigation";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 
 type StatusLeitura = "pendente" | "enviado" | "duplicado" | "erro";
 
@@ -154,6 +156,25 @@ export default function LeituraColetasScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [bases, setBases] = useState<BaseItem[]>([]);
   const [base, setBase] = useState("");
+  const routeParamsIniciais =
+    "params" in route
+      ? (route.params as { baseId?: number; baseNome?: string; dataOperacao?: string } | undefined)
+      : undefined;
+  const dataOpParam = (routeParamsIniciais?.dataOperacao || "").slice(0, 10);
+  const [dataOperacao, setDataOperacao] = useState(() => {
+    const hoje = hojeOperacaoLocal();
+    if (dataOpParam && dataOpParam < hoje) return dataOpParam;
+    return hoje;
+  });
+  const isRetroativo = dataOperacao < hojeOperacaoLocal();
+  const [manualAcrescentar, setManualAcrescentar] = useState(false);
+  const [modalRetroativoVisible, setModalRetroativoVisible] = useState(false);
+  const [retroativoDataDraft, setRetroativoDataDraft] = useState(() => {
+    const [y, m, d] = ontemOperacaoLocal().split("-").map(Number);
+    return new Date(y, m - 1, d);
+  });
+  const [showRetroativoDatePicker, setShowRetroativoDatePicker] = useState(Platform.OS === "ios");
+  const [retroativoBaseId, setRetroativoBaseId] = useState<number | null>(null);
   const [situacaoPorBaseId, setSituacaoPorBaseId] = useState<Record<number, SituacaoBaseColeta>>({});
   const [situacaoPorNome, setSituacaoPorNome] = useState<Record<string, SituacaoBaseColeta>>({});
   const [carregandoBases, setCarregandoBases] = useState(false);
@@ -796,7 +817,7 @@ export default function LeituraColetasScreen() {
 
   const carregarSituacao = useCallback(async () => {
     try {
-      const payload = await consultarSituacaoColetas(hojeOperacaoLocal());
+      const payload = await consultarSituacaoColetas(dataOperacao);
       const porId: Record<number, SituacaoBaseColeta> = {};
       const porNome: Record<string, SituacaoBaseColeta> = {};
       (payload.itens || []).forEach((item) => {
@@ -809,7 +830,7 @@ export default function LeituraColetasScreen() {
       setSituacaoPorBaseId({});
       setSituacaoPorNome({});
     }
-  }, []);
+  }, [dataOperacao]);
 
   const aplicarTotais = useCallback((totais?: TotaisColetaBase | null) => {
     if (!totais) return;
@@ -825,7 +846,7 @@ export default function LeituraColetasScreen() {
     async (baseId: number) => {
       setResumoLoading(true);
       try {
-        const resumo = await consultarResumoBaseColeta(baseId, hojeOperacaoLocal());
+        const resumo = await consultarResumoBaseColeta(baseId, dataOperacao);
         aplicarTotais({
           total: resumo.total,
           shopee: resumo.shopee,
@@ -838,13 +859,13 @@ export default function LeituraColetasScreen() {
         setResumoLoading(false);
       }
     },
-    [aplicarTotais]
+    [aplicarTotais, dataOperacao]
   );
 
   React.useEffect(() => {
     if (!baseSelecionada?.id_base) return;
     void carregarResumoBase(baseSelecionada.id_base);
-  }, [baseSelecionada?.id_base, carregarResumoBase]);
+  }, [baseSelecionada?.id_base, carregarResumoBase, dataOperacao]);
 
   const carregarBases = useCallback(async () => {
     setCarregandoBases(true);
@@ -860,7 +881,11 @@ export default function LeituraColetasScreen() {
           const metodo: "codigo" | "coleta_manual" =
             (configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser)) ? "codigo" : "coleta_manual";
           try {
-            await iniciarColetaOperacional(item.id_base, { metodo, ajudar: false });
+            await iniciarColetaOperacional(item.id_base, {
+              metodo,
+              ajudar: isRetroativo,
+              ...(isRetroativo ? { data_operacao: dataOperacao } : {}),
+            });
           } catch {
             // Já coletada / outro usuário: só atualiza situação.
           }
@@ -886,6 +911,8 @@ export default function LeituraColetasScreen() {
     carregarSituacao,
     configColeta?.permite_leitura,
     currentUser,
+    dataOperacao,
+    isRetroativo,
     ownerTipoBase,
   ]);
 
@@ -898,11 +925,18 @@ export default function LeituraColetasScreen() {
   }, [base, basesParaPicker, carregandoBases]);
 
   const capturarParametroRota = useCallback(() => {
-    const params = "params" in route ? (route.params as { baseId?: number; baseNome?: string } | undefined) : undefined;
+    const params =
+      "params" in route
+        ? (route.params as { baseId?: number; baseNome?: string; dataOperacao?: string } | undefined)
+        : undefined;
     if (params?.baseId || params?.baseNome) {
       pendingSelectRef.current = { baseId: params.baseId, baseNome: params.baseNome };
     }
-  }, [route]);
+    const dataParam = (params?.dataOperacao || "").slice(0, 10);
+    if (dataParam && dataParam < hojeOperacaoLocal() && isAdminOperadorRole(currentUser?.role)) {
+      setDataOperacao(dataParam);
+    }
+  }, [currentUser?.role, route]);
 
   useFocusEffect(
     useCallback(() => {
@@ -940,7 +974,10 @@ export default function LeituraColetasScreen() {
       void carregarResumoBase(item.id_base);
 
       const situacaoAtual = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
-      if (situacaoAtual?.status === "coletado" || situacaoAtual?.status === "sem_volume") {
+      if (
+        (situacaoAtual?.status === "coletado" || situacaoAtual?.status === "sem_volume") &&
+        dataOperacao >= hojeOperacaoLocal()
+      ) {
         if (baseAnteriorId && baseAnteriorId !== item.id_base) {
           void liberarParticipacaoVaziaAtual(situacaoAnterior);
         }
@@ -963,7 +1000,8 @@ export default function LeituraColetasScreen() {
       try {
         await iniciarColetaOperacional(item.id_base, {
           metodo,
-          ajudar: Boolean(opts?.ajudar),
+          ajudar: Boolean(opts?.ajudar) || isRetroativo,
+          ...(isRetroativo ? { data_operacao: dataOperacao } : {}),
         });
         await carregarSituacao();
       } catch (error: unknown) {
@@ -983,7 +1021,7 @@ export default function LeituraColetasScreen() {
             }
           : null;
 
-        if (status === 409 && detailObj?.pode_ajudar) {
+        if (status === 409 && detailObj?.pode_ajudar && !isRetroativo) {
           const nomes = detailObj.participantes.join(", ") || "outro usuário";
           Alert.alert(
             "Base em coleta",
@@ -1029,6 +1067,8 @@ export default function LeituraColetasScreen() {
       carregarSituacao,
       configColeta?.permite_leitura,
       currentUser,
+      dataOperacao,
+      isRetroativo,
       liberarParticipacaoVaziaAtual,
       limparSelecaoLocal,
       situacaoPorBaseId,
@@ -1113,12 +1153,17 @@ export default function LeituraColetasScreen() {
       situacaoSelecionada?.status === "sem_volume" ||
       situacaoSelecionada?.status === "em_coleta"
     ) {
-      return true;
+      if (!isRetroativo) return true;
+      // Retroativo: garante reabertura da participação mesmo se já coletada.
     }
     const metodo: "codigo" | "coleta_manual" =
       (configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser)) ? "codigo" : "coleta_manual";
     try {
-      await iniciarColetaOperacional(baseSelecionada.id_base, { metodo, ajudar: false });
+      await iniciarColetaOperacional(baseSelecionada.id_base, {
+        metodo,
+        ajudar: isRetroativo,
+        ...(isRetroativo ? { data_operacao: dataOperacao } : {}),
+      });
       await carregarSituacao();
     } catch {
       void carregarSituacao();
@@ -1129,6 +1174,8 @@ export default function LeituraColetasScreen() {
     carregarSituacao,
     configColeta?.permite_leitura,
     currentUser,
+    dataOperacao,
+    isRetroativo,
     situacaoSelecionada?.participando,
     situacaoSelecionada?.status,
   ]);
@@ -1201,8 +1248,21 @@ export default function LeituraColetasScreen() {
       return;
     }
     await garantirColetaIniciada();
+    if (!manualAcrescentar) {
+      setManualAcrescentar(isRetroativo && totaisColeta.total > 0);
+    }
     setQuantidadesVisible(true);
-  }, [baseSelecionada, entidadeArticle, entidadeLabel, entidadeLabelLower, garantirColetaIniciada, ownerTipoBase]);
+  }, [
+    baseSelecionada,
+    entidadeArticle,
+    entidadeLabel,
+    entidadeLabelLower,
+    garantirColetaIniciada,
+    isRetroativo,
+    manualAcrescentar,
+    ownerTipoBase,
+    totaisColeta.total,
+  ]);
 
   const salvarQuantidades = useCallback(async () => {
     if (!baseSelecionada) return;
@@ -1210,30 +1270,42 @@ export default function LeituraColetasScreen() {
       const n = Number.parseInt(String(value || "0").replace(/\D/g, ""), 10);
       return Number.isFinite(n) && n > 0 ? n : 0;
     };
+    const acrescentar = manualAcrescentar || (isRetroativo && totaisColeta.total > 0);
+    if (acrescentar && semVolume) {
+      Alert.alert("Atenção", "No acréscimo, informe a quantidade a somar (não use Sem volume).");
+      return;
+    }
     const valores = semVolume
       ? { shopee: 0, mercado_livre: 0, avulso: 0 }
       : { shopee: numero(quantidadeShopee), mercado_livre: numero(quantidadeFlex), avulso: numero(quantidadeAvulso) };
     if (!semVolume && valores.shopee + valores.mercado_livre + valores.avulso === 0) {
-      Alert.alert("Informe as quantidades", "Preencha ao menos uma quantidade ou marque Sem volume.");
+      Alert.alert(
+        acrescentar ? "Informe o acréscimo" : "Informe as quantidades",
+        acrescentar
+          ? "Preencha ao menos uma quantidade a somar."
+          : "Preencha ao menos uma quantidade ou marque Sem volume."
+      );
       return;
     }
     setLoading(true);
     try {
       await lancarColetaManualOperacional({
         base_id: baseSelecionada.id_base,
-        data_operacao: hojeOperacaoLocal(),
+        data_operacao: dataOperacao,
         ...valores,
         sem_volume: semVolume,
         origem_cliente: "mobile",
+        ...(acrescentar ? { acrescentar: true } : {}),
       });
       setQuantidadesVisible(false);
       setQuantidadeShopee("0");
       setQuantidadeFlex("0");
       setQuantidadeAvulso("0");
       setSemVolume(false);
+      setManualAcrescentar(false);
       playSound("success");
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      pushFeedback("sucesso", "Quantidades registradas com sucesso.");
+      pushFeedback("sucesso", acrescentar ? "Quantidades acrescentadas." : "Quantidades registradas com sucesso.");
       void carregarSituacao();
       if (baseSelecionada?.id_base) {
         void carregarResumoBase(baseSelecionada.id_base);
@@ -1247,11 +1319,15 @@ export default function LeituraColetasScreen() {
     baseSelecionada,
     carregarResumoBase,
     carregarSituacao,
+    dataOperacao,
+    isRetroativo,
+    manualAcrescentar,
     quantidadeAvulso,
     quantidadeFlex,
     quantidadeShopee,
     pushFeedback,
     semVolume,
+    totaisColeta.total,
   ]);
 
   const processarLeitura = useCallback(
@@ -1344,6 +1420,7 @@ export default function LeituraColetasScreen() {
             servico,
             qr_payload_raw: classified.qr_payload_raw,
           },
+          ...(isRetroativo ? { dataOperacao } : {}),
         });
         const inseridos = Number(result.resumo?.inseridos ?? 0);
         const soQrAtualizado = Boolean(result.qr_atualizado) && inseridos === 0;
@@ -1416,7 +1493,7 @@ export default function LeituraColetasScreen() {
         }, 400);
       }
     },
-    [aplicarTotais, base, codigosLidosSessao, entidadeLabel, entidadeLabelLower, entidadeArticle, ignorarColeta, ownerTipoBase, podeLerColeta, pushFeedback]
+    [aplicarTotais, base, codigosLidosSessao, dataOperacao, entidadeLabel, entidadeLabelLower, entidadeArticle, ignorarColeta, isRetroativo, ownerTipoBase, podeLerColeta, pushFeedback]
   );
 
   const handleRegistrarManual = useCallback(async () => {
@@ -1450,6 +1527,7 @@ export default function LeituraColetasScreen() {
           fotoObjectKeys: payload.fotoObjectKeys,
           photoIds: payload.photoIds,
           campos: payload.campos,
+          ...(isRetroativo ? { dataOperacao } : {}),
         });
         const ultimoCodigo = result.codigos.at(-1) || result.saidas.at(-1)?.codigo || "";
         if (ultimoCodigo) {
@@ -1484,8 +1562,10 @@ export default function LeituraColetasScreen() {
       base,
       baseSelecionada?.id_base,
       carregarResumoBase,
+      dataOperacao,
       entidadeLabelLower,
       entidadeArticle,
+      isRetroativo,
       pushFeedback,
     ]
   );
@@ -1519,17 +1599,215 @@ export default function LeituraColetasScreen() {
     navigation.navigate("LeiturasColeta", {
       baseId: baseSelecionada.id_base,
       baseNome: baseSelecionada.base,
-      dataOperacao: hojeOperacaoLocal(),
+      dataOperacao,
     });
   }, [
     baseSelecionada,
     cameraAtiva,
+    dataOperacao,
     entidadeArticle,
     entidadeLabel,
     entidadeLabelLower,
     navigation,
     ownerTipoBase,
   ]);
+
+  const podeRetroativo = isAdminOperadorRole(currentUser?.role);
+
+  const formatarDataBr = useCallback((iso: string) => {
+    const [y, m, d] = String(iso || "").split("-");
+    if (!y || !m || !d) return iso;
+    return `${d}/${m}/${y}`;
+  }, []);
+
+  const dataToIsoLocal = useCallback((d: Date) => {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  const onChangeRetroativoDate = useCallback(
+    (event: DateTimePickerEvent, selectedDate?: Date) => {
+      if (Platform.OS === "android") setShowRetroativoDatePicker(false);
+      if (event.type === "dismissed" || !selectedDate) return;
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+      const max = new Date(hoje);
+      max.setDate(max.getDate() - 1);
+      const picked = new Date(selectedDate);
+      picked.setHours(0, 0, 0, 0);
+      if (picked > max) {
+        Alert.alert("Data inválida", "Use uma data anterior a hoje.");
+        return;
+      }
+      setRetroativoDataDraft(picked);
+    },
+    []
+  );
+
+  const escolherModoAposDataBase = useCallback(
+    async (dataOp: string, item: BaseItem, totalExistente: number) => {
+      const acrescentar = totalExistente > 0;
+      const permiteLeitura = configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser);
+      const permiteManual = configColeta?.permite_manual ?? permiteManualColeta(currentUser);
+
+      const ativarLeitura = async () => {
+        setDataOperacao(dataOp);
+        setManualAcrescentar(acrescentar);
+        setModalRetroativoVisible(false);
+        setUltimaLeitura(null);
+        setCodigosSessao(new Set());
+        setTotaisColeta(TOTAIS_VAZIOS);
+        setBase(item.base);
+        try {
+          await iniciarColetaOperacional(item.id_base, {
+            metodo: "codigo",
+            ajudar: true,
+            data_operacao: dataOp,
+          });
+        } catch {
+          // segue; scans e resumo usam dataOperacao no estado
+        }
+        void carregarSituacao();
+        void carregarResumoBase(item.id_base);
+        pushFeedback("info", `Modo outra data: ${formatarDataBr(dataOp)}. Escaneie ou digite os códigos.`);
+      };
+
+      const ativarManual = async () => {
+        setDataOperacao(dataOp);
+        setManualAcrescentar(acrescentar);
+        setModalRetroativoVisible(false);
+        setBase(item.base);
+        setQuantidadeShopee("0");
+        setQuantidadeFlex("0");
+        setQuantidadeAvulso("0");
+        setSemVolume(false);
+        try {
+          await iniciarColetaOperacional(item.id_base, {
+            metodo: "coleta_manual",
+            ajudar: true,
+            data_operacao: dataOp,
+          });
+        } catch {
+          // segue para o formulário; o POST manual valida fechamento
+        }
+        void carregarSituacao();
+        void carregarResumoBase(item.id_base);
+        setQuantidadesVisible(true);
+      };
+
+      if (permiteLeitura && !permiteManual) {
+        await ativarLeitura();
+        return;
+      }
+      if (!permiteLeitura && permiteManual) {
+        await ativarManual();
+        return;
+      }
+
+      Alert.alert(
+        acrescentar ? "Como deseja acrescentar?" : "Como deseja registrar?",
+        acrescentar
+          ? `Já há ${totalExistente} pacote(s) em ${item.base} nesta data.`
+          : `Nenhum lançamento em ${item.base} nesta data.`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Leitura / câmera",
+            onPress: () => {
+              void ativarLeitura();
+            },
+          },
+          {
+            text: "Manual",
+            onPress: () => {
+              void ativarManual();
+            },
+          },
+        ]
+      );
+    },
+    [
+      carregarResumoBase,
+      carregarSituacao,
+      configColeta?.permite_leitura,
+      configColeta?.permite_manual,
+      currentUser,
+      formatarDataBr,
+      pushFeedback,
+    ]
+  );
+
+  const confirmarFluxoRetroativo = useCallback(async () => {
+    if (!podeRetroativo) {
+      Alert.alert("Sem permissão", "Somente admin ou operador pode lançar em outra data.");
+      return;
+    }
+    const dataOp = dataToIsoLocal(retroativoDataDraft);
+    if (dataOp >= hojeOperacaoLocal()) {
+      Alert.alert("Data inválida", "Use uma data anterior a hoje.");
+      return;
+    }
+    if (retroativoBaseId == null) {
+      Alert.alert("Atenção", `Selecione ${entidadeArticle} ${entidadeLabelLower}.`);
+      return;
+    }
+    const item = bases.find((b) => b.id_base === retroativoBaseId);
+    if (!item) {
+      Alert.alert("Atenção", `${entidadeLabel} não encontrada.`);
+      return;
+    }
+    setLoading(true);
+    try {
+      const resumo = await consultarResumoBaseColeta(item.id_base, dataOp);
+      const total = Number(resumo.total) || 0;
+      if (total > 0) {
+        Alert.alert(
+          "Já existe quantidade lançada",
+          `Em ${item.base} na data selecionada já há ${total} pacote(s). Deseja acrescentar mais?`,
+          [
+            { text: "Não", style: "cancel" },
+            {
+              text: "Sim, acrescentar",
+              onPress: () => {
+                void escolherModoAposDataBase(dataOp, item, total);
+              },
+            },
+          ]
+        );
+      } else {
+        await escolherModoAposDataBase(dataOp, item, 0);
+      }
+    } catch (error) {
+      Alert.alert("Não foi possível continuar", formatApiError(error, "Tente novamente."));
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    bases,
+    dataToIsoLocal,
+    entidadeArticle,
+    entidadeLabel,
+    entidadeLabelLower,
+    escolherModoAposDataBase,
+    podeRetroativo,
+    retroativoBaseId,
+    retroativoDataDraft,
+  ]);
+
+  const sairModoRetroativo = useCallback(() => {
+    setDataOperacao(hojeOperacaoLocal());
+    setManualAcrescentar(false);
+    pushFeedback("info", "Voltou ao dia de hoje.");
+    void carregarSituacao();
+    if (baseSelecionada?.id_base) void carregarResumoBase(baseSelecionada.id_base);
+  }, [baseSelecionada?.id_base, carregarResumoBase, carregarSituacao, pushFeedback]);
+
+  const abrirModalRetroativo = useCallback(() => {
+    const [y, m, d] = ontemOperacaoLocal().split("-").map(Number);
+    setRetroativoDataDraft(new Date(y, m - 1, d));
+    setRetroativoBaseId(baseSelecionada?.id_base ?? null);
+    setShowRetroativoDatePicker(Platform.OS === "ios");
+    setModalRetroativoVisible(true);
+  }, [baseSelecionada?.id_base]);
 
   return (
     <>
@@ -1562,6 +1840,37 @@ export default function LeituraColetasScreen() {
               <Text style={styles.badgeText}>Coletas desativadas para este owner</Text>
             </View>
           ) : null}
+        </View>
+      ) : null}
+
+      {podeRetroativo ? (
+        <TouchableOpacity
+          style={[styles.baseCta, { marginBottom: 12, backgroundColor: "rgba(245, 158, 11, 0.12)", borderColor: "#F59E0B" }]}
+          onPress={abrirModalRetroativo}
+          accessibilityRole="button"
+          accessibilityLabel="Lançar coleta em outra data"
+        >
+          <Text style={[styles.baseCtaText, { color: "#B45309" }]}>Lançar em outra data</Text>
+          <Ionicons name="calendar-outline" size={20} color="#B45309" />
+        </TouchableOpacity>
+      ) : null}
+
+      {isRetroativo ? (
+        <View
+          style={[
+            styles.feedbackStrip,
+            { backgroundColor: "rgba(245, 158, 11, 0.14)", borderColor: "rgba(245, 158, 11, 0.45)", marginBottom: 14 },
+          ]}
+        >
+          <Text style={[styles.feedbackTitulo, { color: "#B45309" }]}>
+            Lançamento em {formatarDataBr(dataOperacao)}
+          </Text>
+          <Text style={[styles.feedbackCodigo, { color: "#92400E" }]}>
+            {base ? `${entidadeLabel}: ${base}` : "Selecione a base e registre"}
+          </Text>
+          <TouchableOpacity onPress={sairModoRetroativo} style={{ marginTop: 8 }}>
+            <Text style={{ color: "#B45309", fontWeight: "700" }}>Voltar ao dia de hoje</Text>
+          </TouchableOpacity>
         </View>
       ) : null}
 
@@ -1705,7 +2014,11 @@ export default function LeituraColetasScreen() {
           {resumoLoading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
         </View>
         <Text style={styles.totalGigante}>{resumo.total}</Text>
-        <Text style={styles.totalLegenda}>Pacotes registrados na coleta atual</Text>
+        <Text style={styles.totalLegenda}>
+          {isRetroativo
+            ? `Pacotes em ${formatarDataBr(dataOperacao)}`
+            : "Pacotes registrados na coleta atual"}
+        </Text>
         <View style={styles.resumoRow}>
           <View style={[styles.resumoBadge, styles.resumoShopee]}>
             <Text style={styles.resumoNum}>{resumo.shopee}</Text>
@@ -2111,14 +2424,24 @@ export default function LeituraColetasScreen() {
                 showsVerticalScrollIndicator={false}
               >
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <Text style={styles.pickerTitle}>Informar quantidades</Text>
+                  <Text style={styles.pickerTitle}>
+                    {manualAcrescentar || (isRetroativo && totaisColeta.total > 0)
+                      ? "Acrescentar quantidades"
+                      : "Informar quantidades"}
+                  </Text>
                   <TouchableOpacity onPress={() => setQuantidadesVisible(false)} hitSlop={12}>
                     <Ionicons name="close" size={25} color={colors.text} />
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.infoText}>
                   {entidadeLabel}: {baseSelecionada?.base || "—"}
+                  {isRetroativo ? ` · ${formatarDataBr(dataOperacao)}` : ""}
                 </Text>
+                {(manualAcrescentar || (isRetroativo && totaisColeta.total > 0)) ? (
+                  <Text style={[styles.infoText, { marginBottom: 8 }]}>
+                    Informe só a quantidade a somar ao que já está lançado.
+                  </Text>
+                ) : null}
                 <View style={styles.quantityRow}>
                   {(
                     [
@@ -2140,10 +2463,12 @@ export default function LeituraColetasScreen() {
                     </View>
                   ))}
                 </View>
-                <View style={styles.quantitySwitch}>
-                  <Text style={styles.infoTitle}>Sem volume</Text>
-                  <Switch value={semVolume} onValueChange={setSemVolume} disabled={loading} />
-                </View>
+                {!(manualAcrescentar || (isRetroativo && totaisColeta.total > 0)) ? (
+                  <View style={styles.quantitySwitch}>
+                    <Text style={styles.infoTitle}>Sem volume</Text>
+                    <Switch value={semVolume} onValueChange={setSemVolume} disabled={loading} />
+                  </View>
+                ) : null}
                 <TouchableOpacity
                   style={[styles.btnPrimary, { marginTop: 18 }]}
                   onPress={() => void salvarQuantidades()}
@@ -2152,13 +2477,90 @@ export default function LeituraColetasScreen() {
                   {loading ? (
                     <ActivityIndicator color={colors.primaryContrast} />
                   ) : (
-                    <Text style={styles.btnTextPrimary}>Salvar</Text>
+                    <Text style={styles.btnTextPrimary}>
+                      {manualAcrescentar || (isRetroativo && totaisColeta.total > 0) ? "Acrescentar" : "Salvar"}
+                    </Text>
                   )}
                 </TouchableOpacity>
               </ScrollView>
             </Pressable>
           </Pressable>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={modalRetroativoVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setModalRetroativoVisible(false)}
+      >
+        <Pressable style={styles.pickerOverlay} onPress={() => setModalRetroativoVisible(false)}>
+          <Pressable style={styles.pickerSheet} onPress={(event) => event.stopPropagation()}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={styles.pickerTitle}>Lançar em outra data</Text>
+              <TouchableOpacity onPress={() => setModalRetroativoVisible(false)} hitSlop={12}>
+                <Ionicons name="close" size={25} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.baseLabel}>Data</Text>
+            <TouchableOpacity
+              style={[styles.baseCta, { marginBottom: 12 }]}
+              onPress={() => setShowRetroativoDatePicker(true)}
+            >
+              <Text style={styles.baseCtaText}>{formatarDataBr(dataToIsoLocal(retroativoDataDraft))}</Text>
+              <Ionicons name="calendar-outline" size={20} color="#0F766E" />
+            </TouchableOpacity>
+            {showRetroativoDatePicker ? (
+              <DateTimePicker
+                value={retroativoDataDraft}
+                mode="date"
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                maximumDate={(() => {
+                  const d = new Date();
+                  d.setHours(0, 0, 0, 0);
+                  d.setDate(d.getDate() - 1);
+                  return d;
+                })()}
+                onChange={onChangeRetroativoDate}
+              />
+            ) : null}
+            <Text style={styles.baseLabel}>{entidadeLabel}</Text>
+            <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
+              {bases.map((item) => {
+                const selected = retroativoBaseId === item.id_base;
+                return (
+                  <TouchableOpacity
+                    key={item.id_base}
+                    style={[
+                      styles.baseCta,
+                      {
+                        marginBottom: 8,
+                        backgroundColor: selected ? "rgba(20, 184, 166, 0.18)" : colors.backgroundCard,
+                      },
+                    ]}
+                    onPress={() => setRetroativoBaseId(item.id_base)}
+                  >
+                    <Text style={styles.baseCtaText} numberOfLines={1}>
+                      {item.base}
+                    </Text>
+                    {selected ? <Ionicons name="checkmark-circle" size={20} color="#0F766E" /> : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              style={[styles.btnPrimary, { marginTop: 16 }]}
+              onPress={() => void confirmarFluxoRetroativo()}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={colors.primaryContrast} />
+              ) : (
+                <Text style={styles.btnTextPrimary}>Continuar</Text>
+              )}
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <AvulsoLancamentoModal
