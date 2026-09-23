@@ -109,17 +109,11 @@ export async function searchCodigosCascade(
     limit: PARTIAL_SEARCH_LIMIT,
     offset: 0,
   });
-  const needle = term.toLowerCase();
-  const rows = containsRes.rows.filter((r) =>
-    String(r.codigo || "")
-      .trim()
-      .toLowerCase()
-      .includes(needle)
-  );
+  const rows = containsRes.rows ?? [];
 
   return {
     rows,
-    total: rows.length,
+    total: containsRes.total ?? rows.length,
     mode: rows.length > 0 ? "contains" : "none",
     truncated: containsRes.hasMore || rows.length >= PARTIAL_SEARCH_LIMIT,
   };
@@ -377,11 +371,18 @@ export async function listAvulsosPendentes(params?: {
   };
 }
 
+export interface AvulsoCampoExibicao {
+  chave: string;
+  label: string;
+  valor: string;
+}
+
 export async function getAvulsoDetalhe(idSaida: number): Promise<AvulsoPendenteItem & {
   servico?: string | null;
   origem?: string | null;
   origem_label?: string | null;
   timestamp?: string | null;
+  campos_exibicao?: AvulsoCampoExibicao[];
 }> {
   const { data } = await client.get(`/avulsos/${idSaida}`);
   return data;

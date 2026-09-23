@@ -168,7 +168,10 @@ export default function ConsultaPacoteHistoricoTimeline({
         ) : null}
       </View>
       <View style={styles.track}>
-        {historico.map((item, index) => {
+        {[...historico]
+          .map((item, index) => ({ item, index }))
+          .reverse()
+          .map(({ item, index }) => {
           const key = String(item.id ?? `${item.evento}-${item.timestamp}-${index}`);
           const palette = coresEventoHistorico(item.evento);
           const label = labelEventoHistorico(item.evento, item.acao_label);
