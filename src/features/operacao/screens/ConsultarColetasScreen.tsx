@@ -99,7 +99,7 @@ export default function ConsultarColetasScreen() {
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [itens, setItens] = useState<SituacaoBaseColeta[]>([]);
-  const [resumo, setResumo] = useState({ pendentes: 0, em_coleta: 0, coletadas: 0 });
+  const [resumo, setResumo] = useState({ pendentes: 0, em_coleta: 0, sem_volume: 0, coletadas: 0 });
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
@@ -113,8 +113,16 @@ export default function ConsultarColetasScreen() {
         screen: { flex: 1, backgroundColor: colors.background },
         content: { padding: 16, paddingBottom: 40, gap: 12 },
         periodoLabel: { fontSize: 13, color: colors.textSecondary },
-        resumo: { flexDirection: "row", gap: 8 },
-        kpi: { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, backgroundColor: colors.backgroundCard },
+        resumo: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+        kpi: {
+          flexGrow: 1,
+          flexBasis: "47%",
+          minWidth: 140,
+          padding: 12,
+          borderRadius: 12,
+          borderWidth: 1,
+          backgroundColor: colors.backgroundCard,
+        },
         kpiValue: { fontSize: 23, fontWeight: "900" },
         kpiLabel: { fontSize: 11, marginTop: 3, fontWeight: "700" },
         filtros: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
@@ -198,7 +206,7 @@ export default function ConsultarColetasScreen() {
     try {
       const payload = await carregarConsultaColetasPorPeriodo(periodo.dataInicio, periodo.dataFim);
       setItens(payload.itens || []);
-      setResumo(payload.resumo || { pendentes: 0, em_coleta: 0, coletadas: 0 });
+      setResumo(payload.resumo || { pendentes: 0, em_coleta: 0, sem_volume: 0, coletadas: 0 });
     } catch (error) {
       setErro(formatApiError(error, "Não foi possível consultar as coletas."));
     } finally {
@@ -339,6 +347,7 @@ export default function ConsultarColetasScreen() {
   const kpis: Array<{ key: ColetaStatusFiltro; valor: number; label: string; status: SituacaoBaseColeta["status"] }> = [
     { key: "pendente", valor: resumo.pendentes, label: "Pendentes", status: "pendente" },
     { key: "em_coleta", valor: resumo.em_coleta, label: "Em coleta", status: "em_coleta" },
+    { key: "sem_volume", valor: resumo.sem_volume ?? 0, label: "Sem volume", status: "sem_volume" },
     { key: "coletado", valor: resumo.coletadas, label: "Coletadas", status: "coletado" },
   ];
 
@@ -390,8 +399,15 @@ export default function ConsultarColetasScreen() {
           total={totaisServico.total}
         />
         <View style={styles.filtros}>
-          {([["todos", "Todas"], ["pendente", "Pendentes"], ["em_coleta", "Em coleta"], ["coletado", "Coletadas"]] as const).map(
-            ([valor, label]) => (
+          {(
+            [
+              ["todos", "Todas"],
+              ["pendente", "Pendentes"],
+              ["em_coleta", "Em coleta"],
+              ["sem_volume", "Sem volume"],
+              ["coletado", "Coletadas"],
+            ] as const
+          ).map(([valor, label]) => (
               <Pressable key={valor} style={[styles.filtro, filtro === valor && styles.filtroAtivo]} onPress={() => setFiltro(valor)}>
                 <Text style={[styles.filtroText, filtro === valor && styles.filtroTextAtivo]}>{label}</Text>
               </Pressable>
@@ -428,10 +444,21 @@ export default function ConsultarColetasScreen() {
                 <ColetaSituacaoBadge status={item.status} />
               </View>
               {mostrarData ? <Text style={styles.muted}>Data: {formatDateLabel(dataOp)}</Text> : null}
+              {item.status === "sem_volume" ? (
+                <Text style={styles.muted}>Confirmado: não houve coleta neste dia</Text>
+              ) : null}
               <Text style={styles.muted}>
                 {item.participantes.length
-                  ? item.participantes.map((p) => `${p.username}${p.status === "em_coleta" ? " (em coleta)" : ""}`).join(" • ")
-                  : "Ninguém iniciou esta coleta"}
+                  ? item.participantes
+                      .map((p) => {
+                        if (p.status === "em_coleta") return `${p.username} (em coleta)`;
+                        if (p.sem_volume) return `${p.username} (sem volume)`;
+                        return p.username;
+                      })
+                      .join(" • ")
+                  : item.status === "sem_volume"
+                    ? "Marcado como sem volume"
+                    : "Ninguém iniciou esta coleta"}
               </Text>
               <View style={{ marginTop: 10 }}>
                 <ColetaServicoBadges
