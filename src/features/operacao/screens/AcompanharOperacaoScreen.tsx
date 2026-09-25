@@ -300,16 +300,16 @@ export default function AcompanharOperacaoScreen({ navigation }: Props) {
 
             {totais.entrada_habilitada ? (
               <MetricTrioCard
-                title="Entrada na base × saídas"
+                title="Volume do dia × saídas"
                 items={[
                   {
-                    label: "Entradas",
+                    label: "Total que entrou",
                     value: totais.entradas ?? 0,
                     semantic: "primary",
                     icon: "download-outline",
                   },
                   {
-                    label: "Já saíram",
+                    label: "Saídas",
                     value: totais.saidas ?? 0,
                     semantic: "success",
                     icon: "arrow-up-circle-outline",
