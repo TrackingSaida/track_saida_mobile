@@ -1,6 +1,7 @@
 import type { SituacaoBaseColeta } from "../coletasApi";
 
-export type ColetaStatusFiltro = "pendente" | "em_coleta" | "coletado";
+/** Status visíveis no seletor de coleta (PRD-003: Sem volume é próprio). */
+export type ColetaStatusFiltro = "pendente" | "em_coleta" | "sem_volume" | "coletado";
 
 export type SituacaoStatusRef = Pick<SituacaoBaseColeta, "status"> | null | undefined;
 
@@ -21,12 +22,16 @@ export function ontemOperacaoLocal(): string {
 }
 
 export function statusColetaNormalizado(status: SituacaoBaseColeta["status"]): ColetaStatusFiltro {
-  return status === "sem_volume" ? "coletado" : status;
+  if (status === "em_coleta") return "em_coleta";
+  if (status === "sem_volume") return "sem_volume";
+  if (status === "coletado") return "coletado";
+  return "pendente";
 }
 
 export function statusColetaLabel(status: SituacaoBaseColeta["status"]): string {
   const normal = statusColetaNormalizado(status);
   if (normal === "em_coleta") return "Em coleta";
+  if (normal === "sem_volume") return "Sem volume";
   if (normal === "coletado") return "Coletada";
   return "Pendente";
 }
@@ -44,6 +49,9 @@ export function situacaoColetaBadgeColors(status: SituacaoBaseColeta["status"]):
   if (normal === "em_coleta") {
     return { bg: "rgba(13,110,253,0.14)", fg: "#0d6efd", border: "rgba(13,110,253,0.35)" };
   }
+  if (normal === "sem_volume") {
+    return { bg: "rgba(108,117,125,0.18)", fg: "#adb5bd", border: "rgba(108,117,125,0.45)" };
+  }
   if (normal === "coletado") {
     return { bg: "rgba(25,135,84,0.14)", fg: "#198754", border: "rgba(25,135,84,0.35)" };
   }
@@ -58,7 +66,7 @@ export function statusSeletorDeSituacao(situacao?: SituacaoStatusRef): ColetaSta
 
 /**
  * Lista do seletor de coleta (estilo web): todas as bases/sellers,
- * pendentes → em coleta → coletadas; A–Z dentro de cada grupo.
+ * pendentes → em coleta → sem volume → coletadas; A–Z dentro de cada grupo.
  */
 export function basesParaSeletorColeta<T extends { id_base: number; base: string }>(
   bases: T[],
@@ -69,7 +77,8 @@ export function basesParaSeletorColeta<T extends { id_base: number; base: string
   const rank = (status: ColetaStatusFiltro) => {
     if (status === "pendente") return 0;
     if (status === "em_coleta") return 1;
-    return 2;
+    if (status === "sem_volume") return 2;
+    return 3;
   };
 
   return bases
@@ -87,6 +96,7 @@ export function basesParaSeletorColeta<T extends { id_base: number; base: string
 
 export function labelGrupoSeletorColeta(status: ColetaStatusFiltro): string {
   if (status === "em_coleta") return "Em coleta";
+  if (status === "sem_volume") return "Sem volume";
   if (status === "coletado") return "Coletadas";
   return "Pendentes";
 }

@@ -11,7 +11,6 @@ import {
   Modal,
   Pressable,
   Platform,
-  Switch,
   KeyboardAvoidingView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -50,6 +49,7 @@ import {
   enviarColetaUnica,
   iniciarColetaOperacional,
   liberarParticipacaoColeta,
+  finalizarColetaOperacional,
   lancarAvulsoColeta,
   lancarColetaManualOperacional,
   obterConfigColetaOperacional,
@@ -183,6 +183,7 @@ export default function LeituraColetasScreen() {
   const [gruposExpandidos, setGruposExpandidos] = useState<Record<ColetaStatusFiltro, boolean>>({
     pendente: true,
     em_coleta: true,
+    sem_volume: true,
     coletado: false,
   });
   const [codigoInput, setCodigoInput] = useState("");
@@ -466,6 +467,45 @@ export default function LeituraColetasScreen() {
         },
         cameraCtaText: { color: colors.primaryContrast, fontSize: 16, fontWeight: "700", textAlign: "center" },
         cameraCtaTextCompact: { fontSize: 12, lineHeight: 14 },
+        registrarPacotesBlock: { marginBottom: 14, gap: 10 },
+        sectionTitleHome: {
+          color: colors.textSecondary,
+          fontSize: 12,
+          fontWeight: "800",
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+          marginBottom: 4,
+        },
+        scanChoicePrimary: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          backgroundColor: colors.primary,
+          borderRadius: 14,
+          paddingVertical: 16,
+          paddingHorizontal: 16,
+        },
+        scanChoiceRowSecondary: { flexDirection: "row", gap: 10 },
+        scanChoiceHalf: { flex: 1, minHeight: 56 },
+        outrasAcoesCard: {
+          backgroundColor: colors.backgroundCard,
+          borderRadius: 16,
+          padding: 14,
+          marginBottom: 14,
+          borderWidth: 1,
+          borderColor: colors.border,
+          gap: 4,
+        },
+        outrasAcoesRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 12,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.border,
+        },
+        outrasAcoesTitle: { color: colors.text, fontSize: 15, fontWeight: "700" },
+        outrasAcoesSub: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
         scanChoiceRow: { flexDirection: "row", alignItems: "stretch", gap: 10, marginBottom: 16 },
         scanChoiceRowCompact: { gap: 6 },
         scanChoice: {
@@ -738,6 +778,10 @@ export default function LeituraColetasScreen() {
   );
   const basesEmColetaPicker = useMemo(
     () => basesParaPicker.filter((item) => item.statusSeletor === "em_coleta"),
+    [basesParaPicker]
+  );
+  const basesSemVolumePicker = useMemo(
+    () => basesParaPicker.filter((item) => item.statusSeletor === "sem_volume"),
     [basesParaPicker]
   );
   const basesColetadasPicker = useMemo(
@@ -1098,10 +1142,11 @@ export default function LeituraColetasScreen() {
         [
           { status: "pendente" as const, items: basesPendentesPicker },
           { status: "em_coleta" as const, items: basesEmColetaPicker },
+          { status: "sem_volume" as const, items: basesSemVolumePicker },
           { status: "coletado" as const, items: basesColetadasPicker },
         ] as const
       ).filter((g) => g.items.length > 0),
-    [basesPendentesPicker, basesEmColetaPicker, basesColetadasPicker]
+    [basesPendentesPicker, basesEmColetaPicker, basesSemVolumePicker, basesColetadasPicker]
   );
 
   const feedbackColors = useCallback((tipo: FeedbackTipo) => {
@@ -1136,9 +1181,9 @@ export default function LeituraColetasScreen() {
   const ignorarColeta = Boolean(currentUser?.ignorar_coleta);
   const mostrarLeitura = (configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser)) && podeLerColeta;
   const mostrarManual = configColeta?.permite_manual ?? permiteManualColeta(currentUser);
-  const tresAcoes = mostrarLeitura && mostrarManual;
   const podeManual = effectivePodeDigitarCodigoManual(currentUser);
   const podeLancarAvulso = effectivePodeCriarAvulsoColeta(currentUser);
+  const podeMarcarSemVolume = isAdminOperadorRole(currentUser?.role);
   const subBase = currentUser?.sub_base ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
@@ -1283,7 +1328,7 @@ export default function LeituraColetasScreen() {
         acrescentar ? "Informe o acréscimo" : "Informe as quantidades",
         acrescentar
           ? "Preencha ao menos uma quantidade a somar."
-          : "Preencha ao menos uma quantidade ou marque Sem volume."
+          : "Preencha ao menos uma quantidade."
       );
       return;
     }
@@ -1329,6 +1374,128 @@ export default function LeituraColetasScreen() {
     semVolume,
     totaisColeta.total,
   ]);
+
+  const handleMarcarSemVolume = useCallback(() => {
+    if (!baseSelecionada) {
+      Alert.alert("Selecione a base", `Selecione ${entidadeArticle} ${entidadeLabelLower} antes.`);
+      return;
+    }
+    if (!podeMarcarSemVolume) {
+      Alert.alert("Sem permissão", "Somente root, admin ou operador pode marcar sem volume.");
+      return;
+    }
+    Alert.alert(
+      "Marcar sem volume",
+      `Confirma que não houve coleta nesta ${entidadeLabelLower} hoje?`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Confirmar",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setLoading(true);
+              try {
+                await lancarColetaManualOperacional({
+                  base_id: baseSelecionada.id_base,
+                  data_operacao: dataOperacao,
+                  shopee: 0,
+                  mercado_livre: 0,
+                  avulso: 0,
+                  sem_volume: true,
+                  origem_cliente: "mobile",
+                });
+                playSound("success");
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                pushFeedback("sucesso", "Base marcada como sem volume.");
+                void carregarSituacao();
+                void carregarResumoBase(baseSelecionada.id_base);
+              } catch (error) {
+                Alert.alert("Não foi possível marcar", formatApiError(error, "Tente novamente."));
+              } finally {
+                setLoading(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, [
+    baseSelecionada,
+    carregarResumoBase,
+    carregarSituacao,
+    dataOperacao,
+    entidadeArticle,
+    entidadeLabelLower,
+    podeMarcarSemVolume,
+    pushFeedback,
+  ]);
+
+  const handleFinalizarColeta = useCallback(async () => {
+    const idExecucao = situacaoSelecionada?.id_execucao;
+    if (!idExecucao) {
+      Alert.alert("Finalize depois", "Registre ao menos um pacote antes de finalizar.");
+      return;
+    }
+    if ((totaisColeta.total ?? 0) <= 0 && situacaoSelecionada?.status !== "sem_volume") {
+      const meu = situacaoSelecionada?.participantes?.find((p) => p.user_id === currentUser?.id);
+      if (!meu || ((meu.total ?? 0) <= 0 && !meu.sem_volume)) {
+        Alert.alert("Finalize depois", "Registre ao menos um pacote ou marque sem volume antes de finalizar.");
+        return;
+      }
+    }
+    setLoading(true);
+    try {
+      await finalizarColetaOperacional(idExecucao);
+      playSound("success");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      pushFeedback("sucesso", "Coleta finalizada.");
+      setCameraAtiva(false);
+      setModoManual(false);
+      setModoLeitorFisico(false);
+      void carregarSituacao();
+      if (baseSelecionada?.id_base) void carregarResumoBase(baseSelecionada.id_base);
+    } catch (error) {
+      Alert.alert("Não foi possível finalizar", formatApiError(error, "Tente novamente."));
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    baseSelecionada?.id_base,
+    carregarResumoBase,
+    carregarSituacao,
+    currentUser?.id,
+    pushFeedback,
+    situacaoSelecionada,
+    totaisColeta.total,
+  ]);
+
+  const handleVoltarComPendencia = useCallback(() => {
+    const emColetaComVolume =
+      situacaoSelecionada?.status === "em_coleta" &&
+      ((totaisColeta.total ?? 0) > 0 ||
+        Boolean(
+          situacaoSelecionada?.participantes?.some(
+            (p) => p.user_id === currentUser?.id && ((p.total ?? 0) > 0 || p.sem_volume)
+          )
+        ));
+    if (!emColetaComVolume) {
+      setCameraAtiva(false);
+      return;
+    }
+    Alert.alert("Sair sem finalizar?", "Há leituras nesta base ainda não finalizadas.", [
+      { text: "Continuar lendo", style: "cancel" },
+      {
+        text: "Sair sem finalizar",
+        style: "destructive",
+        onPress: () => setCameraAtiva(false),
+      },
+      {
+        text: "Finalizar agora",
+        onPress: () => void handleFinalizarColeta(),
+      },
+    ]);
+  }, [currentUser?.id, handleFinalizarColeta, situacaoSelecionada, totaisColeta.total]);
 
   const processarLeitura = useCallback(
     async (raw: string, origem: "camera" | "manual" | "leitor") => {
@@ -1814,7 +1981,29 @@ export default function LeituraColetasScreen() {
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <ScreenHeaderBar
           title="Leitura de coletas"
-          onBack={() => navigation.goBack()}
+          onBack={() => {
+            if (cameraAtiva) {
+              handleVoltarComPendencia();
+              return;
+            }
+            const emColetaComVolume =
+              situacaoSelecionada?.status === "em_coleta" &&
+              ((totaisColeta.total ?? 0) > 0 ||
+                Boolean(
+                  situacaoSelecionada?.participantes?.some(
+                    (p) => p.user_id === currentUser?.id && ((p.total ?? 0) > 0 || p.sem_volume)
+                  )
+                ));
+            if (!emColetaComVolume) {
+              navigation.goBack();
+              return;
+            }
+            Alert.alert("Sair sem finalizar?", "Há leituras nesta base ainda não finalizadas.", [
+              { text: "Continuar", style: "cancel" },
+              { text: "Sair sem finalizar", style: "destructive", onPress: () => navigation.goBack() },
+              { text: "Finalizar agora", onPress: () => void handleFinalizarColeta() },
+            ]);
+          }}
           paddingTop={Math.max(12, insets.top)}
         />
     <ScrollView
@@ -1923,7 +2112,7 @@ export default function LeituraColetasScreen() {
         <TouchableOpacity
           style={[styles.baseCta, baseSelecionadaOk && enderecoSelecionado ? { marginTop: 12 } : null]}
           onPress={() => {
-            setGruposExpandidos({ pendente: true, em_coleta: true, coletado: false });
+            setGruposExpandidos({ pendente: true, em_coleta: true, sem_volume: true, coletado: false });
             setModalBaseVisible(true);
             void carregarSituacao();
           }}
@@ -1950,59 +2139,107 @@ export default function LeituraColetasScreen() {
       </View>
 
       {baseSelecionadaOk && (mostrarLeitura || mostrarManual) && !ignorarColeta ? (
-        <View style={[styles.scanChoiceRow, tresAcoes && styles.scanChoiceRowCompact]}>
+        <View style={styles.registrarPacotesBlock}>
+          <Text style={styles.sectionTitleHome}>Registrar pacotes</Text>
           {mostrarLeitura ? (
             <TouchableOpacity
-              style={[styles.scanChoice, tresAcoes && styles.scanChoiceCompact]}
+              style={styles.scanChoicePrimary}
               onPress={ensurePermissionAndOpenCamera}
               disabled={loading}
               activeOpacity={0.85}
-              accessibilityLabel="Usar câmera para registrar coletas"
+              accessibilityLabel="Ler com câmera"
             >
-              <Ionicons name="camera-outline" size={tresAcoes ? 20 : 24} color={colors.primaryContrast} />
-              <Text
-                style={[styles.cameraCtaText, tresAcoes && styles.cameraCtaTextCompact]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                Câmera
-              </Text>
+              <Ionicons name="camera-outline" size={22} color={colors.primaryContrast} />
+              <Text style={styles.cameraCtaText}>Ler com câmera</Text>
+              <Ionicons name="chevron-forward" size={20} color={colors.primaryContrast} />
             </TouchableOpacity>
           ) : null}
-          {mostrarLeitura ? (
-            <TouchableOpacity
-              style={[styles.scanChoice, styles.scanChoiceOutline, tresAcoes && styles.scanChoiceCompact]}
-              onPress={openPhysicalScanner}
-              disabled={loading}
-              activeOpacity={0.85}
-              accessibilityLabel="Usar leitor físico para registrar coletas"
-            >
-              <Ionicons name="barcode-outline" size={tresAcoes ? 20 : 24} color={colors.primary} />
-              <Text
-                style={[styles.scanChoiceOutlineText, tresAcoes && styles.scanChoiceOutlineTextCompact]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
+          <View style={styles.scanChoiceRowSecondary}>
+            {mostrarLeitura ? (
+              <TouchableOpacity
+                style={[styles.scanChoice, styles.scanChoiceOutline, styles.scanChoiceHalf]}
+                onPress={openPhysicalScanner}
+                disabled={loading}
+                activeOpacity={0.85}
+                accessibilityLabel="Usar leitor físico"
               >
-                {tresAcoes ? "Leitor" : "Leitor físico"}
-              </Text>
+                <Ionicons name="barcode-outline" size={20} color={colors.primary} />
+                <Text style={styles.scanChoiceOutlineText} numberOfLines={1}>
+                  Leitor
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {podeManual && mostrarLeitura ? (
+              <TouchableOpacity
+                style={[styles.scanChoice, styles.scanChoiceOutline, styles.scanChoiceHalf]}
+                onPress={() => {
+                  void (async () => {
+                    const ok = await garantirColetaIniciada();
+                    if (!ok) return;
+                    setModoLeitorFisico(false);
+                    setModoManual(true);
+                    setCameraAtiva(true);
+                  })();
+                }}
+                disabled={loading}
+                activeOpacity={0.85}
+                accessibilityLabel="Digitar código"
+              >
+                <Ionicons name="keypad-outline" size={20} color={colors.primary} />
+                <Text style={styles.scanChoiceOutlineText} numberOfLines={1}>
+                  Digitar código
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {mostrarManual ? (
+              <TouchableOpacity
+                style={[styles.scanChoice, styles.scanChoiceOutline, styles.scanChoiceHalf]}
+                onPress={abrirQuantidades}
+                disabled={loading}
+                activeOpacity={0.85}
+                accessibilityLabel="Informar quantidades"
+              >
+                <Ionicons name="create-outline" size={20} color={colors.primary} />
+                <Text style={styles.scanChoiceOutlineText} numberOfLines={1}>
+                  Quantidades
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
+      {baseSelecionadaOk && !ignorarColeta && (podeLancarAvulso || podeMarcarSemVolume) ? (
+        <View style={styles.outrasAcoesCard}>
+          <Text style={styles.sectionTitleHome}>Outras ações nesta base</Text>
+          {podeLancarAvulso ? (
+            <TouchableOpacity
+              style={styles.outrasAcoesRow}
+              onPress={() => setAvulsoModalVisible(true)}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel="Lançar avulso"
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.outrasAcoesTitle}>Lançar avulso</Text>
+                <Text style={styles.outrasAcoesSub}>Registrar item sem código de barras</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
           ) : null}
-          {mostrarManual ? (
+          {podeMarcarSemVolume ? (
             <TouchableOpacity
-              style={[styles.scanChoice, styles.scanChoiceOutline, tresAcoes && styles.scanChoiceCompact]}
-              onPress={abrirQuantidades}
+              style={styles.outrasAcoesRow}
+              onPress={handleMarcarSemVolume}
               disabled={loading}
-              activeOpacity={0.85}
-              accessibilityLabel="Informar quantidades da coleta"
+              accessibilityRole="button"
+              accessibilityLabel="Marcar sem volume"
             >
-              <Ionicons name="create-outline" size={tresAcoes ? 20 : 24} color={colors.primary} />
-              <Text
-                style={[styles.scanChoiceOutlineText, tresAcoes && styles.scanChoiceOutlineTextCompact]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                Manual
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.outrasAcoesTitle}>Marcar sem volume</Text>
+                <Text style={styles.outrasAcoesSub}>Quando não houve coleta nesta base hoje</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
           ) : null}
         </View>
@@ -2076,7 +2313,7 @@ export default function LeituraColetasScreen() {
         </View>
       )}
 
-      <Modal visible={cameraAtiva} animationType="slide" onRequestClose={() => setCameraAtiva(false)}>
+      <Modal visible={cameraAtiva} animationType="slide" onRequestClose={handleVoltarComPendencia}>
         {modoManual && podeManual ? (
           <View style={styles.modoManualWrap}>
             <TouchableOpacity onPress={() => setModoManual(false)} disabled={loading}>
@@ -2112,15 +2349,15 @@ export default function LeituraColetasScreen() {
                 <Text style={styles.btnTextPrimary}>Registrar coleta</Text>
               )}
             </TouchableOpacity>
-            {podeLancarAvulso ? (
-              <TouchableOpacity
-                style={[styles.btnOutline, { marginTop: 12 }]}
-                onPress={() => setAvulsoModalVisible(true)}
-                disabled={loading}
-              >
-                <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
-              </TouchableOpacity>
-            ) : null}
+            <TouchableOpacity
+              style={[styles.btnPrimary, { marginTop: 12, backgroundColor: "#198754" }]}
+              onPress={() => void handleFinalizarColeta()}
+              disabled={loading}
+              accessibilityLabel="Finalizar coleta"
+            >
+              <Text style={styles.btnTextPrimary}>Finalizar</Text>
+            </TouchableOpacity>
+
           </View>
         ) : modoLeitorFisico ? (
           <PhysicalScannerInput
@@ -2128,19 +2365,11 @@ export default function LeituraColetasScreen() {
             disabled={loading}
             title="Leitor físico de coletas"
             subtitle={`Base ${base.trim()} · Total nesta sessão: ${resumo.total}`}
-            onClose={() => setCameraAtiva(false)}
+            onClose={handleVoltarComPendencia}
             onScan={(codigo) => processarLeitura(codigo, "leitor")}
           >
             {feedbackVisual ? renderFeedbackStrip("main") : null}
-            {podeLancarAvulso ? (
-              <TouchableOpacity
-                style={styles.btnOutline}
-                onPress={() => setAvulsoModalVisible(true)}
-                disabled={loading}
-              >
-                <Text style={styles.btnTextOutline}>Lançar Avulso</Text>
-              </TouchableOpacity>
-            ) : null}
+
             {podeManual ? (
               <TouchableOpacity
                 style={styles.btnOutline}
@@ -2150,11 +2379,19 @@ export default function LeituraColetasScreen() {
                 <Text style={styles.btnTextOutline}>Digitar código manualmente</Text>
               </TouchableOpacity>
             ) : null}
+            <TouchableOpacity
+              style={[styles.btnPrimary, { marginTop: 8, backgroundColor: "#198754" }]}
+              onPress={() => void handleFinalizarColeta()}
+              disabled={loading}
+              accessibilityLabel="Finalizar coleta"
+            >
+              <Text style={styles.btnTextPrimary}>Finalizar</Text>
+            </TouchableOpacity>
           </PhysicalScannerInput>
         ) : (
         <View style={styles.cameraModalOverlay}>
           <View style={styles.cameraHeader}>
-            <TouchableOpacity onPress={() => setCameraAtiva(false)}>
+            <TouchableOpacity onPress={handleVoltarComPendencia}>
               <Text style={styles.cameraBackText}>← Voltar</Text>
             </TouchableOpacity>
             <Text style={styles.cameraTitle}>Escanear código de coleta</Text>
@@ -2181,15 +2418,7 @@ export default function LeituraColetasScreen() {
               >
                 <Text style={styles.btnTextPrimary}>Permitir câmera</Text>
               </TouchableOpacity>
-              {podeLancarAvulso ? (
-                <TouchableOpacity
-                  style={styles.scannerAction}
-                  onPress={() => setAvulsoModalVisible(true)}
-                  disabled={loading}
-                >
-                  <Text style={styles.scannerActionText}>Lançar Avulso</Text>
-                </TouchableOpacity>
-              ) : null}
+
               {podeManual ? (
                 <TouchableOpacity style={styles.scannerAction} onPress={() => setModoManual(true)}>
                   <Text style={styles.scannerActionText}>Digitar código manualmente</Text>
@@ -2233,15 +2462,7 @@ export default function LeituraColetasScreen() {
                     <Text style={styles.resumoLabel}>Avulso</Text>
                   </View>
                 </View>
-                {podeLancarAvulso ? (
-                  <TouchableOpacity
-                    style={styles.scannerAction}
-                    onPress={() => setAvulsoModalVisible(true)}
-                    disabled={loading}
-                  >
-                    <Text style={styles.scannerActionText}>Lançar Avulso</Text>
-                  </TouchableOpacity>
-                ) : null}
+
                 {podeManual ? (
                   <TouchableOpacity
                     style={styles.scannerAction}
@@ -2251,6 +2472,14 @@ export default function LeituraColetasScreen() {
                     <Text style={styles.scannerActionText}>Digitar código manualmente</Text>
                   </TouchableOpacity>
                 ) : null}
+                <TouchableOpacity
+                  style={[styles.btnPrimary, { marginTop: 10, backgroundColor: "#198754" }]}
+                  onPress={() => void handleFinalizarColeta()}
+                  disabled={loading}
+                  accessibilityLabel="Finalizar coleta"
+                >
+                  <Text style={styles.btnTextPrimary}>Finalizar</Text>
+                </TouchableOpacity>
               </View>
             </>
           )}
@@ -2457,18 +2686,12 @@ export default function LeituraColetasScreen() {
                         value={value}
                         onChangeText={setter}
                         keyboardType="number-pad"
-                        editable={!semVolume && !loading}
+                        editable={!loading}
                         selectTextOnFocus
                       />
                     </View>
                   ))}
                 </View>
-                {!(manualAcrescentar || (isRetroativo && totaisColeta.total > 0)) ? (
-                  <View style={styles.quantitySwitch}>
-                    <Text style={styles.infoTitle}>Sem volume</Text>
-                    <Switch value={semVolume} onValueChange={setSemVolume} disabled={loading} />
-                  </View>
-                ) : null}
                 <TouchableOpacity
                   style={[styles.btnPrimary, { marginTop: 18 }]}
                   onPress={() => void salvarQuantidades()}

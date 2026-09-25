@@ -181,7 +181,7 @@ export interface SituacaoColetasResponse {
   data_inicio?: string;
   data_fim?: string;
   pode_corrigir_quantidades?: boolean;
-  resumo: { pendentes: number; em_coleta: number; coletadas: number };
+  resumo: { pendentes: number; em_coleta: number; sem_volume?: number; coletadas: number };
   itens: SituacaoBaseColeta[];
 }
 
@@ -288,13 +288,15 @@ function mapExecucaoParaSituacao(item: ExecucaoOperacional): SituacaoBaseColeta 
 function resumoDeItens(itens: SituacaoBaseColeta[]): SituacaoColetasResponse["resumo"] {
   let pendentes = 0;
   let em_coleta = 0;
+  let sem_volume = 0;
   let coletadas = 0;
   for (const item of itens) {
     if (item.status === "pendente") pendentes += 1;
     else if (item.status === "em_coleta") em_coleta += 1;
+    else if (item.status === "sem_volume") sem_volume += 1;
     else coletadas += 1;
   }
-  return { pendentes, em_coleta, coletadas };
+  return { pendentes, em_coleta, sem_volume, coletadas };
 }
 
 /**
@@ -402,6 +404,12 @@ export async function iniciarColetaOperacional(
 /** Sai da coleta sem volume: base volta a Pendente se ninguém mais estiver nela. */
 export async function liberarParticipacaoColeta(idExecucao: number): Promise<void> {
   await client.delete(`/coletas/operacionais/execucoes/${idExecucao}/participacao`);
+}
+
+/** Finaliza a participação/execução da coleta (status → Coletado ou Sem volume). */
+export async function finalizarColetaOperacional(idExecucao: number): Promise<unknown> {
+  const { data } = await client.post(`/coletas/operacionais/execucoes/${idExecucao}/finalizar`);
+  return data;
 }
 
 export interface ColetaManualOperacionalPayload {
