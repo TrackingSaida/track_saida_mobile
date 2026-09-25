@@ -43,6 +43,10 @@ import {
   type PeriodoConsulta,
   type PeriodoPreset,
 } from "../utils/periodoConsulta";
+import {
+  subtituloVolumeQueEntrou,
+  volumeQueEntrouAprox,
+} from "../utils/volumeQueEntrou";
 
 type Props = NativeStackScreenProps<StaffStackParamList, "IndicadoresOperacao">;
 
@@ -77,6 +81,7 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
   const [aindaNaBase, setAindaNaBase] = useState(0);
   const [aindaNaBaseDetalhe, setAindaNaBaseDetalhe] = useState<Array<{ date: string; qty: number }>>([]);
   const [totalColetas, setTotalColetas] = useState(0);
+  const [volumeQueEntrou, setVolumeQueEntrou] = useState(0);
   const [mpSaidas, setMpSaidas] = useState<DashboardMarketplaceItem[]>([]);
   const [mpEntradas, setMpEntradas] = useState<DashboardMarketplaceItem[]>([]);
   const [mpNaBase, setMpNaBase] = useState<DashboardMarketplaceItem[]>([]);
@@ -132,6 +137,12 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
           setMpEntradas(saidas.entrada.por_marketplace || []);
           setMpNaBase(saidas.entrada.ainda_na_base_por_marketplace || []);
           setMpCancelados(saidas.entrada.cancelados_apos_entrada_por_marketplace || []);
+          if (saidas.entrada.volume_que_entrou != null) {
+            setVolumeQueEntrou(Number(saidas.entrada.volume_que_entrou || 0));
+          }
+          if (saidas.entrada.total_coletas != null && !mostrarColeta) {
+            setTotalColetas(Number(saidas.entrada.total_coletas || 0));
+          }
         } else {
           setTotalEntradas(0);
           setAindaNaBase(0);
@@ -139,25 +150,43 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
           setMpEntradas([]);
           setMpNaBase([]);
           setMpCancelados([]);
+          if (!mostrarColeta) setVolumeQueEntrou(0);
         }
 
         if (mostrarColeta) {
           try {
             const coletas = await getDashboardColetasPeriodo(periodo.dataInicio, periodo.dataFim);
-            setTotalColetas(Number(coletas?.cards?.total_coletas || 0));
+            const coletasTotal = Number(coletas?.cards?.total_coletas || 0);
+            setTotalColetas(coletasTotal);
             const fromCards: DashboardMarketplaceItem[] = [
               { nome: "Shopee", qty: Number(coletas?.cards?.shopee || 0) },
               { nome: "Mercado Livre", qty: Number(coletas?.cards?.mercado_livre || 0) },
               { nome: "Avulso", qty: Number(coletas?.cards?.avulso || 0) },
             ];
             setMpColetas(coletas?.por_marketplace?.length ? coletas.por_marketplace : fromCards);
+            const entradasTotal =
+              mostrarEntrada && saidas?.entrada_habilitada && saidas.entrada
+                ? Number(saidas.entrada.total_entradas || 0)
+                : 0;
+            if (saidas?.entrada?.volume_que_entrou != null) {
+              setVolumeQueEntrou(Number(saidas.entrada.volume_que_entrou || 0));
+            } else {
+              setVolumeQueEntrou(volumeQueEntrouAprox(coletasTotal, entradasTotal));
+            }
           } catch {
             setTotalColetas(0);
             setMpColetas([]);
+            if (!mostrarEntrada) setVolumeQueEntrou(0);
           }
         } else {
-          setTotalColetas(0);
           setMpColetas([]);
+          if (mostrarEntrada && saidas?.entrada?.volume_que_entrou == null) {
+            setVolumeQueEntrou(Number(saidas?.entrada?.total_entradas || 0));
+          }
+          if (!mostrarEntrada) {
+            setTotalColetas(0);
+            setVolumeQueEntrou(0);
+          }
         }
       } catch (err) {
         setError(formatApiError(err, "Não foi possível carregar os indicadores."));
@@ -209,6 +238,11 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
 
   const servicos = ["Shopee", "Mercado Livre", "Avulso"] as const;
   const hintPeriodo = periodo.dataInicio === periodo.dataFim ? "No dia" : "No período";
+  const mostrarVolumeEntrou = mostrarColeta || mostrarEntrada;
+  const subVolume =
+    mostrarColeta && mostrarEntrada
+      ? subtituloVolumeQueEntrou(totalColetas, totalEntradas)
+      : hintPeriodo;
 
   const abrirConsultaNaBase = (de: string, ate: string) => {
     const tabNav = navigation.getParent() as
@@ -263,13 +297,13 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
                 semantic="primary"
                 variant="filledSoft"
               />
-              {mostrarEntrada ? (
+              {mostrarVolumeEntrou ? (
                 <KpiCard
-                  title="Entradas"
-                  value={totalEntradas}
-                  subtitle={hintPeriodo}
+                  title="Total que entrou"
+                  value={volumeQueEntrou}
+                  subtitle={subVolume}
                   icon="download-outline"
-                  semantic="success"
+                  semantic="collection"
                   variant="filledSoft"
                 />
               ) : null}
@@ -288,16 +322,6 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
                   }
                 />
               ) : null}
-              {mostrarColeta ? (
-                <KpiCard
-                  title="Coletas"
-                  value={totalColetas}
-                  subtitle={hintPeriodo}
-                  icon="bag-handle-outline"
-                  semantic="collection"
-                  variant="filledSoft"
-                />
-              ) : null}
             </View>
 
             {mostrarEntrada && aindaNaBaseDetalhe.length > 0 ? (
@@ -314,9 +338,11 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
               const c = findMp(mpColetas, nome);
               const n = findMp(mpNaBase, nome);
               const canc = findMp(mpCancelados, nome);
+              const coletasQty = mostrarColeta ? c?.qty ?? 0 : 0;
+              const entradasQty = mostrarEntrada ? e?.qty ?? 0 : 0;
+              const entrouQty = volumeQueEntrouAprox(coletasQty, entradasQty);
               const metrics = [
-                ...(mostrarColeta ? [{ label: "Coletas", value: c?.qty ?? 0 }] : []),
-                ...(mostrarEntrada ? [{ label: "Entradas", value: e?.qty ?? 0 }] : []),
+                ...(mostrarVolumeEntrou ? [{ label: "Entrou", value: entrouQty }] : []),
                 { label: "Saídas", value: s?.qty ?? 0 },
                 ...(mostrarEntrada ? [{ label: "Na base", value: n?.qty ?? 0 }] : []),
                 ...(mostrarEntrada ? [{ label: "Cancelados", value: canc?.qty ?? 0 }] : []),
@@ -329,8 +355,8 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
                   semantic={serviceSemanticKey(nome)}
                   metrics={metrics}
                   saidas={s?.qty ?? 0}
-                  entradas={e?.qty ?? 0}
-                  showTaxa={mostrarEntrada}
+                  entradas={entrouQty}
+                  showTaxa={mostrarVolumeEntrou}
                 />
               );
             })}
