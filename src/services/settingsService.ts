@@ -95,6 +95,26 @@ export async function getMotoboyPrefs(userKey: string | null): Promise<StoredMot
   }
 }
 
+export function buildExportDirKey(userKey: string | null): string | null {
+  return userKey ? `export_dir_uri_${userKey}` : null;
+}
+
+export async function getExportDirUri(userKey: string | null): Promise<string | null> {
+  const key = buildExportDirKey(userKey);
+  if (!key) return null;
+  return SecureStore.getItemAsync(key);
+}
+
+export async function setExportDirUri(userKey: string | null, uri: string | null): Promise<void> {
+  const key = buildExportDirKey(userKey);
+  if (!key) return;
+  if (uri) {
+    await SecureStore.setItemAsync(key, uri);
+  } else {
+    await SecureStore.deleteItemAsync(key).catch(() => undefined);
+  }
+}
+
 export async function setMotoboyPrefs(
   userKey: string | null,
   prefs: StoredMotoboyPrefs

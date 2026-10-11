@@ -82,6 +82,9 @@ import {
   setCidadesOperacaoFetcher,
 } from "../utils/resolveSearchCityDefaults";
 import ConfirmRouteDestinationModal from "../components/ConfirmRouteDestinationModal";
+import PrepExportSheet from "../components/PrepExportSheet";
+import { exportEnderecosXlsx, shareExportedFile } from "../utils/exportEnderecos";
+import { buildEnderecoRows } from "../utils/exportEnderecosRows";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
@@ -259,6 +262,12 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           marginBottom: 8,
         },
         linkBtnText: { fontSize: 13, color: colors.textSecondary, fontWeight: "600" },
+        headerMenuBtn: {
+          width: 44,
+          height: 44,
+          alignItems: "center",
+          justifyContent: "center",
+        },
         btn: {
           marginHorizontal: 20,
           backgroundColor: colors.primary,
@@ -1141,6 +1150,46 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     setShowAdvancedForm(true);
   }, [refreshQueue]);
 
+  const [showExportSheet, setShowExportSheet] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const exportCount = useMemo(
+    () => buildEnderecoRows(deliveriesWithAddress).length,
+    [deliveriesWithAddress]
+  );
+
+  const handleExportEnderecos = useCallback(async () => {
+    if (exporting || exportCount === 0) return;
+    setExporting(true);
+    try {
+      const result = await exportEnderecosXlsx(deliveriesWithAddress);
+      if (result.status === "cancelled") return;
+      setShowExportSheet(false);
+      if (result.status === "empty") {
+        Alert.alert("Exportar endereços", "Nenhum endereço pronto para exportar.");
+      } else if (result.status === "saved") {
+        const { cacheUri, fileName, folderLabel } = result;
+        Alert.alert("Arquivo salvo", `Arquivo salvo em ${folderLabel}: ${fileName}`, [
+          { text: "OK", style: "cancel" },
+          {
+            text: "Compartilhar",
+            onPress: () => {
+              shareExportedFile(cacheUri).catch((err) =>
+                Alert.alert("Compartilhar", formatApiError(err, "Não foi possível compartilhar o arquivo."))
+              );
+            },
+          },
+        ]);
+      }
+    } catch (err) {
+      Alert.alert(
+        "Exportar endereços",
+        formatApiError(err, "Não foi possível exportar os endereços. Tente novamente.")
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, exportCount, deliveriesWithAddress]);
+
   const handlePrimaryAction = useCallback(() => {
     switch (prepFlow.primaryAction) {
       case "scan":
@@ -1231,6 +1280,31 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         title="Preparar Rota"
         onBack={() => navigation.goBack()}
         paddingTop={Math.max(12, insets.top)}
+        rightElement={
+          roteirizacaoHabilitada ? (
+            <TouchableOpacity
+              style={styles.headerMenuBtn}
+              onPress={() => setShowExportSheet(true)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Mais opções"
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={22} color={colors.text} />
+            </TouchableOpacity>
+          ) : null
+        }
+      />
+
+      <PrepExportSheet
+        visible={showExportSheet}
+        onClose={() => {
+          if (!exporting) setShowExportSheet(false);
+        }}
+        onExport={handleExportEnderecos}
+        exportCount={exportCount}
+        semEnderecoCount={semEndereco}
+        exporting={exporting}
       />
 
       <View style={styles.card}>
