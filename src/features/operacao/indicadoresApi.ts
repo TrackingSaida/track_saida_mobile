@@ -31,9 +31,12 @@ export interface DashboardSaidasResponse {
     taxa_saida_pct?: number;
     gap_entrada_saida?: number;
     por_marketplace: DashboardMarketplaceItem[];
-    /** Coletas ∪ Entradas — card unificado / Acompanhamento. */
+    /** Pacotes lidos: Entradas ∪ Coletas por leitura, sem coleta manual. */
     volume_que_entrou?: number;
     total_coletas?: number;
+    /** Coletados por leitura sem entrada: somado a total_entradas dá volume_que_entrou. */
+    coletas_sem_entrada?: number;
+    volume_que_entrou_por_marketplace?: DashboardMarketplaceItem[];
   } | null;
 }
 

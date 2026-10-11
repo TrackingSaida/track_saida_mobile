@@ -82,6 +82,8 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
   const [aindaNaBaseDetalhe, setAindaNaBaseDetalhe] = useState<Array<{ date: string; qty: number }>>([]);
   const [totalColetas, setTotalColetas] = useState(0);
   const [volumeQueEntrou, setVolumeQueEntrou] = useState(0);
+  const [coletasSemEntrada, setColetasSemEntrada] = useState<number | null>(null);
+  const [mpVolumeEntrou, setMpVolumeEntrou] = useState<DashboardMarketplaceItem[] | null>(null);
   const [mpSaidas, setMpSaidas] = useState<DashboardMarketplaceItem[]>([]);
   const [mpEntradas, setMpEntradas] = useState<DashboardMarketplaceItem[]>([]);
   const [mpNaBase, setMpNaBase] = useState<DashboardMarketplaceItem[]>([]);
@@ -143,7 +145,13 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
           if (saidas.entrada.total_coletas != null && !mostrarColeta) {
             setTotalColetas(Number(saidas.entrada.total_coletas || 0));
           }
+          setColetasSemEntrada(
+            saidas.entrada.coletas_sem_entrada != null ? Number(saidas.entrada.coletas_sem_entrada || 0) : null
+          );
+          setMpVolumeEntrou(saidas.entrada.volume_que_entrou_por_marketplace ?? null);
         } else {
+          setColetasSemEntrada(null);
+          setMpVolumeEntrou(null);
           setTotalEntradas(0);
           setAindaNaBase(0);
           setAindaNaBaseDetalhe([]);
@@ -241,7 +249,7 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
   const mostrarVolumeEntrou = mostrarColeta || mostrarEntrada;
   const subVolume =
     mostrarColeta && mostrarEntrada
-      ? subtituloVolumeQueEntrou(totalColetas, totalEntradas)
+      ? subtituloVolumeQueEntrou(coletasSemEntrada ?? totalColetas, totalEntradas)
       : hintPeriodo;
 
   const abrirConsultaNaBase = (de: string, ate: string) => {
@@ -340,7 +348,9 @@ export default function IndicadoresOperacaoScreen({ navigation }: Props) {
               const canc = findMp(mpCancelados, nome);
               const coletasQty = mostrarColeta ? c?.qty ?? 0 : 0;
               const entradasQty = mostrarEntrada ? e?.qty ?? 0 : 0;
-              const entrouQty = volumeQueEntrouAprox(coletasQty, entradasQty);
+              const entrouQty = mpVolumeEntrou
+                ? findMp(mpVolumeEntrou, nome)?.qty ?? 0
+                : volumeQueEntrouAprox(coletasQty, entradasQty);
               const metrics = [
                 ...(mostrarVolumeEntrou ? [{ label: "Entrou", value: entrouQty }] : []),
                 { label: "Saídas", value: s?.qty ?? 0 },
