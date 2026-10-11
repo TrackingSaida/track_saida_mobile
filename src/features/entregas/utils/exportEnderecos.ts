@@ -4,6 +4,7 @@ import * as Sharing from "expo-sharing";
 import * as XLSX from "xlsx";
 import type { EntregaListItem } from "../types";
 import { buildEnderecoRows, buildExportFileName } from "./exportEnderecosRows";
+import { canSaveToDownloads, saveBase64ToDownloads } from "../../../../modules/export-downloads";
 import { useAuthStore } from "../../../store/authStore";
 import {
   buildMotoboyPrefsKey,
@@ -98,6 +99,17 @@ export async function exportEnderecosXlsx(
   await FileSystem.writeAsStringAsync(cacheUri, base64, {
     encoding: FileSystem.EncodingType.Base64,
   });
+
+  if (Platform.OS === "android" && canSaveToDownloads()) {
+    const saved = await saveBase64ToDownloads(base64, fileName, XLSX_MIME);
+    return {
+      status: "saved",
+      fileName: saved.fileName,
+      folderLabel: "Downloads",
+      cacheUri,
+      total: rows.length,
+    };
+  }
 
   if (Platform.OS === "android") {
     const saved = await downloadXlsxAndroid(base64, fileName);

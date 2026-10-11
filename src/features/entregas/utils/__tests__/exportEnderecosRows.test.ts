@@ -29,6 +29,21 @@ test("buildEnderecoRows ignora pacote sem rua e mantém campos vazios", () => {
   assert.deepEqual(rows, [{ "endereço": "Rua Catita", numero: "", cep: "" }]);
 });
 
+test("buildEnderecoRows tira o número do campo endereço", () => {
+  const rows = buildEnderecoRows([
+    { endereco: "Alameda Sabiá, 25", numero: "25", cep: "06428110" },
+    { endereco: "Rua Luis Tavares, 300, Edi Vista Norte Blc B", numero: "300", cep: "2050020" },
+    { endereco: "Rua 25 de Março, 25", numero: "25", cep: "01021000" },
+    { endereco: "Rua Sem Numero, Fundos", numero: null, cep: "01001000" },
+  ]);
+  assert.deepEqual(rows, [
+    { "endereço": "Alameda Sabiá", numero: "25", cep: "06428110" },
+    { "endereço": "Rua Luis Tavares Edi Vista Norte Blc B", numero: "300", cep: "02050020" },
+    { "endereço": "Rua 25 de Março", numero: "25", cep: "01021000" },
+    { "endereço": "Rua Sem Numero, Fundos", numero: "", cep: "01001000" },
+  ]);
+});
+
 test("buildExportFileName usa data local", () => {
   assert.equal(buildExportFileName(new Date(2026, 9, 11)), "enderecos-rota-2026-10-11.xlsx");
 });

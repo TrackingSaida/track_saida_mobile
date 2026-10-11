@@ -17,15 +17,32 @@ export function normalizeCepExport(value: string | null | undefined): string {
   return digits.padStart(8, "0");
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** `endereco` vem do backend como "rua, numero, complemento"; a planilha quer o número em coluna própria. */
+export function splitEnderecoSemNumero(endereco: string, numero: string): string {
+  if (!numero) return endereco;
+  const match = endereco.match(
+    new RegExp(`^(.*?)\\s*,\\s*${escapeRegExp(numero)}\\s*(?:,\\s*(.*))?$`, "i")
+  );
+  if (!match) return endereco;
+  const rua = cleanText(match[1]);
+  const complemento = cleanText(match[2]);
+  if (!rua) return endereco;
+  return complemento ? `${rua} ${complemento}` : rua;
+}
+
 export function buildEnderecoRows(
   items: Array<Pick<EntregaListItem, "endereco" | "numero" | "cep">>
 ): EnderecoExportRow[] {
   const seen = new Set<string>();
   const rows: EnderecoExportRow[] = [];
   for (const item of items) {
-    const endereco = cleanText(item.endereco);
-    if (!endereco) continue;
     const numero = cleanText(item.numero);
+    const endereco = splitEnderecoSemNumero(cleanText(item.endereco), numero);
+    if (!endereco) continue;
     const cep = normalizeCepExport(item.cep);
     const key = `${endereco.toLocaleLowerCase("pt-BR")}|${numero.toLowerCase()}|${cep}`;
     if (seen.has(key)) continue;
