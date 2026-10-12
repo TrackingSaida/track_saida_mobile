@@ -28,7 +28,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { useThemeColors } from "../../../theme/colors";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeLerSaida, isAdminRole, isMotoboyRole } from "../../../utils/role";
+import { effectivePodeLerSaida, isAdminOperadorRole, isAdminRole, isMotoboyRole } from "../../../utils/role";
 import { formatApiError } from "../../../utils/formatApiError";
 import type { InicioStackParamList } from "../../../navigation/staffStackTypes";
 import {
@@ -54,6 +54,7 @@ import OperacaoFilterButton from "../components/OperacaoFilterButton";
 import OperacaoFilterSheet from "../components/OperacaoFilterSheet";
 import ConsultaCodigoCard from "../components/ConsultaCodigoCard";
 import ConsultaPacoteDetailModal from "../components/ConsultaPacoteDetailModal";
+import type { TamanhoPacoteResult } from "../pacoteGApi";
 import OperacaoEmptyState from "../components/OperacaoEmptyState";
 import { statusAntesDoCancelamento } from "../utils/operacaoHistoricoUtils";
 import { labelStatusOperacional } from "../utils/operacaoStatusUtils";
@@ -935,6 +936,24 @@ export default function ConsultaCodigosScreen() {
     [carregarDetalhe]
   );
 
+  const handleTamanhoAlterado = useCallback(
+    (res: TamanhoPacoteResult) => {
+      const idSaida = selectedDetailId;
+      const patch = {
+        is_grande: res.categoria_g_id != null,
+        categoria_g_id: res.categoria_g_id,
+        categoria_g_nome: res.categoria_g_nome,
+      };
+      setSelectedDetail((prev) =>
+        prev ? { ...prev, ...patch, categoria_g_atualizado_por: currentUser?.username ?? null } : prev
+      );
+      if (idSaida != null) {
+        setResults((prev) => prev.map((r) => (getIdSaidaFromItem(r) === idSaida ? { ...r, ...patch } : r)));
+      }
+    },
+    [selectedDetailId, currentUser?.username]
+  );
+
   const handleFecharDetalhe = useCallback(() => {
     setDetailVisible(false);
     setSelectedDetail(null);
@@ -1765,6 +1784,8 @@ export default function ConsultaCodigosScreen() {
         onGerarEtiqueta={() => void handleGerarEtiqueta()}
         onCancelarSaida={handleCancelarSaida}
         onReverterStatus={handleReverterStatus}
+        podeDefinirTamanho={isAdminOperadorRole(role)}
+        onTamanhoAlterado={handleTamanhoAlterado}
       />
 
       <Modal

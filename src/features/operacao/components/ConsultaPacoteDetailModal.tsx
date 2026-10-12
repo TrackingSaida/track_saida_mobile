@@ -29,6 +29,9 @@ import {
   isEventoEntrega,
 } from "../utils/operacaoHistoricoUtils";
 import ConsultaPacoteHistoricoTimeline from "./ConsultaPacoteHistoricoTimeline";
+import ChipTamanhoG from "./ChipTamanhoG";
+import TamanhoPacoteSheet from "./TamanhoPacoteSheet";
+import type { TamanhoPacoteResult } from "../pacoteGApi";
 
 type Props = {
   visible: boolean;
@@ -46,6 +49,9 @@ type Props = {
   onGerarEtiqueta: () => void;
   onCancelarSaida: () => void;
   onReverterStatus: () => void;
+  /** Root/admin/operador definem o tamanho (pacote G). */
+  podeDefinirTamanho?: boolean;
+  onTamanhoAlterado?: (result: TamanhoPacoteResult) => void;
 };
 
 export default function ConsultaPacoteDetailModal({
@@ -63,7 +69,10 @@ export default function ConsultaPacoteDetailModal({
   onGerarEtiqueta,
   onCancelarSaida,
   onReverterStatus,
+  podeDefinirTamanho = false,
+  onTamanhoAlterado,
 }: Props) {
+  const [tamanhoVisible, setTamanhoVisible] = useState(false);
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const [comprovanteUris, setComprovanteUris] = useState<string[]>([]);
@@ -83,6 +92,11 @@ export default function ConsultaPacoteDetailModal({
   const detalheCancelado = String(detail?.status ?? "")
     .toLowerCase()
     .includes("cancelad");
+  const detalheEntregue = String(detail?.status ?? "")
+    .toLowerCase()
+    .includes("entregue");
+  const categoriaGNome = detail?.is_grande === false ? null : detail?.categoria_g_nome ?? null;
+  const mostrarTamanho = podeDefinirTamanho && idSaida != null && !detalheCancelado && !detalheEntregue;
 
   const precisaComprovante = useMemo(() => {
     if (!visible || loading || historico.length === 0) return false;
@@ -93,6 +107,7 @@ export default function ConsultaPacoteDetailModal({
 
   useEffect(() => {
     if (!visible) {
+      setTamanhoVisible(false);
       setComprovanteUris([]);
       setComprovanteLoading(false);
       setShowComprovanteViewer(false);
@@ -317,11 +332,19 @@ export default function ConsultaPacoteDetailModal({
             ) : (
               <ScrollView keyboardShouldPersistTaps="handled">
                 <Text style={styles.title}>{detail?.codigo || "Detalhe"}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: statusVisual.bg }]}>
-                  <Text style={{ fontSize: 12, fontWeight: "700", color: statusVisual.fg }}>
-                    {statusVisual.label}
-                  </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View style={[styles.statusBadge, { backgroundColor: statusVisual.bg }]}>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: statusVisual.fg }}>
+                      {statusVisual.label}
+                    </Text>
+                  </View>
+                  <ChipTamanhoG nome={categoriaGNome} style={{ marginTop: 4 }} />
                 </View>
+                {categoriaGNome && detail?.categoria_g_atualizado_por ? (
+                  <Text style={[styles.fieldLabel, { marginTop: 2 }]}>
+                    Pacote grande marcado por {String(detail.categoria_g_atualizado_por)}
+                  </Text>
+                ) : null}
 
                 <View style={{ marginBottom: 14, marginTop: 4 }}>
                   <Text style={styles.fieldLabel}>Entregador</Text>
@@ -381,6 +404,19 @@ export default function ConsultaPacoteDetailModal({
                   </TouchableOpacity>
                 ) : null}
 
+                {mostrarTamanho ? (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.actionOutline]}
+                    onPress={() => setTamanhoVisible(true)}
+                    disabled={gerandoEtiqueta || cancelandoSaida || sharingComprovante}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.actionOutlineText}>
+                      Tamanho do pacote{categoriaGNome ? ` · ${categoriaGNome}` : " · Normal"}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+
                 {comprovanteUris.length > 0 ? (
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.actionOutline]}
@@ -435,6 +471,17 @@ export default function ConsultaPacoteDetailModal({
             </TouchableOpacity>
           </View>
         </View>
+        <TamanhoPacoteSheet
+          visible={tamanhoVisible}
+          idSaida={idSaida}
+          codigo={detail?.codigo}
+          categoriaAtualId={categoriaGNome ? (detail?.categoria_g_id as number | null | undefined) ?? null : null}
+          onClose={() => setTamanhoVisible(false)}
+          onSaved={(res) => {
+            setTamanhoVisible(false);
+            onTamanhoAlterado?.(res);
+          }}
+        />
       </Modal>
 
       <Modal
