@@ -103,4 +103,24 @@ const soShopee = filterExtratoByServicos(misto, shopee);
 assert.equal(soShopee.total_pacotes_filtrados, 10);
 assert.equal(soShopee.valor_a_receber, "40.00");
 
+const soCanceladoNoDia: ExtratoFinanceiro = {
+  ...extratoBase("grupo_entregue"),
+  total_pacotes_filtrados: 0,
+  dias: [
+    {
+      data: "2026-08-21",
+      total_pacotes_associados: 0,
+      total_pacotes_filtrados: 0,
+      valor_dia: "0",
+      itens: [],
+      itens_cancelados: cancelados,
+    },
+  ],
+};
+const diaCancelado = filterExtratoByServicos(soCanceladoNoDia, shopee);
+assert.equal(diaCancelado.dias.length, 1);
+assert.equal(diaCancelado.dias[0].valor_dia, "0.00");
+assert.equal(diaCancelado.dias[0].valor_cancelados, "8.00");
+assert.equal(diaCancelado.valor_a_receber, "0.00");
+
 console.log("extratoFilter tests OK");

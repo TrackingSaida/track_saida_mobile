@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useThemeColors } from "../../../theme/colors";
+import { useSemanticTones, type SemanticKey } from "../../../theme/semantic";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import EntregaCodigoHeader from "../components/EntregaCodigoHeader";
 import { useScannerTorch } from "../hooks/useScannerTorch";
@@ -30,6 +31,7 @@ import type { ExtratoFinanceiro, ExtratoPedidoItem, ExtratoStatusFiltro } from "
 import { formatCurrencyBRL } from "../utils/currency";
 import {
   filterExtratoByServicos,
+  isExtratoCancelado,
   normalizeExtratoServico,
   type ServicoExtrato,
 } from "../utils/extratoFilter";
@@ -45,6 +47,17 @@ import type { MaisStackParamList } from "../../../screens/MaisScreen";
 type Props = NativeStackScreenProps<MaisStackParamList, "MinhasEntregas">;
 
 const SERVICOS: ServicoExtrato[] = ["Shopee", "Flex", "Avulso"];
+
+const SERVICO_TONE: Record<ServicoExtrato, SemanticKey> = {
+  Shopee: "marketplaceShopee",
+  Flex: "marketplaceML",
+  Avulso: "marketplaceAvulso",
+};
+
+function parseValor(v?: string | number | null): number {
+  const n = Number.parseFloat(String(v ?? "0").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
 
 function parseIsoDate(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
@@ -94,6 +107,7 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
   const { width: windowWidth } = useWindowDimensions();
   const compactHeader = windowWidth < 360;
   const colors = useThemeColors();
+  const tones = useSemanticTones();
   const quinzena = useMemo(() => getQuinzenaAtualIntervalo(), []);
   const scanLockedRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -133,7 +147,29 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
         },
         topLabel: { color: colors.textSecondary, fontSize: 12, marginBottom: 6 },
         topValue: { color: colors.text, fontSize: 19, fontWeight: "800" },
-        topPeriod: { marginTop: 10, color: colors.textSecondary, fontSize: 12 },
+        topPeriodRow: {
+          marginTop: 10,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+        },
+        topPeriod: { color: colors.textSecondary, fontSize: 12, flexShrink: 1 },
+        situacaoChip: { borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 },
+        situacaoChipText: { fontSize: 11, fontWeight: "700" },
+        canceladoLinha: {
+          marginTop: 10,
+          paddingTop: 10,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.separator,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        },
+        canceladoLabel: { color: colors.textSecondary, fontSize: 13, flexShrink: 1, paddingRight: 8 },
+        canceladoValor: { fontSize: 14, fontWeight: "800" },
+        dayCanceladoText: { fontSize: 12, fontWeight: "700", marginTop: 8 },
+        itensSubtitulo: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginTop: 8, marginBottom: 2 },
         searchRow: {
           flexDirection: "row",
           alignItems: "center",
@@ -355,6 +391,7 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
     const map = new Map<number, string>();
     extratoFiltrado?.dias.forEach((dia) => {
       dia.itens.forEach((it) => map.set(it.id_saida, dia.data));
+      dia.itens_cancelados?.forEach((it) => map.set(it.id_saida, dia.data));
     });
     return map;
   }, [extratoFiltrado]);
@@ -499,13 +536,31 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
   }, [cameraPermission?.granted, requestCameraPermission]);
 
   const serviceBadgeStyle = useCallback(
-    (servico: ServicoExtrato) => {
-      if (servico === "Shopee") return { bg: "rgba(238,77,45,0.16)", fg: "#ee4d2d" };
-      if (servico === "Flex") return { bg: "rgba(255,224,102,0.28)", fg: "#6a5a00" };
-      return { bg: "rgba(99,102,241,0.16)", fg: "#6366f1" };
-    },
-    []
+    (servico: ServicoExtrato) => tones[SERVICO_TONE[servico]],
+    [tones]
   );
+
+  const modoExtrato = extratoFiltrado?.status_filtro ?? statusFiltro;
+  const situacao = extratoFiltrado?.situacao_fechamento ?? "sem_fechamento";
+  const valorCanceladosPeriodo = parseValor(extratoFiltrado?.valor_cancelados);
+  const qtdCanceladosPeriodo = (extratoFiltrado?.dias ?? []).reduce(
+    (acc, dia) => acc + dia.itens.filter(isExtratoCancelado).length + (dia.itens_cancelados?.length ?? 0),
+    0
+  );
+  const tituloValor =
+    modoExtrato === "cancelados"
+      ? "Cancelados"
+      : modoExtrato === "todos"
+        ? "Entregas + cancelados"
+        : situacao === "pago"
+          ? "Recebido"
+          : "Previsão a receber";
+  const situacaoChip =
+    situacao === "pago"
+      ? { label: "Fechamento pago", tone: tones.success }
+      : situacao === "gerado"
+        ? { label: "Fechamento gerado", tone: tones.primary }
+        : { label: "Ainda sem fechamento", tone: tones.warning };
 
   if (loading) {
     return (
@@ -537,8 +592,14 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
         <View style={styles.topBar}>
           <View style={styles.topBarRow}>
             <View style={styles.topCard}>
-              <Text style={styles.topLabel}>Valor total</Text>
-              <Text style={styles.topValue}>
+              <Text style={styles.topLabel}>{tituloValor}</Text>
+              <Text
+                style={[
+                  styles.topValue,
+                  modoExtrato === "cancelados" && valorCanceladosPeriodo > 0 && { color: tones.danger.fg },
+                ]}
+              >
+                {modoExtrato === "cancelados" && valorCanceladosPeriodo > 0 ? "-" : ""}
                 {formatCurrencyBRL(extratoFiltrado?.valor_a_receber ?? "0")}
               </Text>
             </View>
@@ -547,10 +608,28 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
               <Text style={styles.topValue}>{extratoFiltrado?.total_pacotes_filtrados ?? 0}</Text>
             </View>
           </View>
-          <Text style={styles.topPeriod}>
-            Período: {extratoFiltrado?.periodo_inicio ?? dataInicio} até{" "}
-            {extratoFiltrado?.periodo_fim ?? dataFim}
-          </Text>
+          {modoExtrato !== "cancelados" && valorCanceladosPeriodo > 0 ? (
+            <View style={styles.canceladoLinha}>
+              <Text style={styles.canceladoLabel}>
+                Não entra no pagamento · {qtdCanceladosPeriodo} cancelado
+                {qtdCanceladosPeriodo === 1 ? "" : "s"}
+              </Text>
+              <Text style={[styles.canceladoValor, { color: tones.danger.fg }]}>
+                -{formatCurrencyBRL(String(valorCanceladosPeriodo))}
+              </Text>
+            </View>
+          ) : null}
+          <View style={styles.topPeriodRow}>
+            <Text style={styles.topPeriod}>
+              {formatDateBR(extratoFiltrado?.periodo_inicio ?? dataInicio)} a{" "}
+              {formatDateBR(extratoFiltrado?.periodo_fim ?? dataFim)}
+            </Text>
+            <View style={[styles.situacaoChip, { backgroundColor: situacaoChip.tone.bg }]}>
+              <Text style={[styles.situacaoChipText, { color: situacaoChip.tone.fg }]}>
+                {situacaoChip.label}
+              </Text>
+            </View>
+          </View>
         </View>
       </View>
 
@@ -615,20 +694,27 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
             const t = normalizeExtratoServico(it.servico);
             byServico[t] += 1;
           });
+          const canceladosOcultos = item.itens_cancelados ?? [];
+          const qtdCanceladosDia = item.itens.filter(isExtratoCancelado).length + canceladosOcultos.length;
+          const valorCanceladosDia = parseValor(item.valor_cancelados);
 
           return (
             <View style={styles.dayCard}>
               <TouchableOpacity style={styles.dayHeader} onPress={() => toggleDia(item.data)} activeOpacity={0.8}>
                 <Text style={styles.dayTitle}>{formatarDiaParaExibicao(item.data)}</Text>
                 <View style={styles.dayBadgesRow}>
-                  <View style={styles.dayValorBadge}>
-                    <Text style={styles.dayTotalText}>
-                      {formatCurrencyBRL(getDiaValorDisplay(item))}
-                    </Text>
-                  </View>
-                  <View style={styles.dayTotalBadge}>
-                    <Text style={styles.dayTotalText}>{item.total_pacotes_filtrados} pedidos</Text>
-                  </View>
+                  {item.itens.length > 0 ? (
+                    <View style={styles.dayValorBadge}>
+                      <Text style={styles.dayTotalText}>
+                        {formatCurrencyBRL(getDiaValorDisplay(item))}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {item.total_pacotes_filtrados > 0 ? (
+                    <View style={styles.dayTotalBadge}>
+                      <Text style={styles.dayTotalText}>{item.total_pacotes_filtrados} pedidos</Text>
+                    </View>
+                  ) : null}
                   <Ionicons
                     name={expanded ? "chevron-up-outline" : "chevron-down-outline"}
                     size={16}
@@ -651,6 +737,13 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
                 })}
               </View>
 
+              {qtdCanceladosDia > 0 && modoExtrato !== "cancelados" ? (
+                <Text style={[styles.dayCanceladoText, { color: tones.danger.fg }]}>
+                  {qtdCanceladosDia} cancelado{qtdCanceladosDia === 1 ? "" : "s"} · não entra no pagamento
+                  {valorCanceladosDia > 0 ? ` · -${formatCurrencyBRL(String(valorCanceladosDia))}` : ""}
+                </Text>
+              ) : null}
+
               {expanded ? (
                 <View style={styles.itensWrap}>
                   {item.itens.map((it) => {
@@ -672,6 +765,25 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
                       </TouchableOpacity>
                     );
                   })}
+                  {canceladosOcultos.length > 0 ? (
+                    <Text style={styles.itensSubtitulo}>Cancelados · não entram no pagamento</Text>
+                  ) : null}
+                  {canceladosOcultos.map((it) => (
+                    <TouchableOpacity
+                      key={`${item.data}-canc-${it.id_saida}`}
+                      style={styles.itemRow}
+                      activeOpacity={0.7}
+                      onPress={() => abrirDetalhe(it)}
+                    >
+                      <EntregaCodigoHeader
+                        codigo={it.codigo}
+                        servico={it.servico}
+                        exibicao={formatRealStatus(it.status, it.exibicao)}
+                        data={item.data}
+                        compact
+                      />
+                    </TouchableOpacity>
+                  ))}
                 </View>
               ) : null}
             </View>

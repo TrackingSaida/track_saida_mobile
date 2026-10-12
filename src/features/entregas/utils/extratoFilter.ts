@@ -90,11 +90,12 @@ export function filterExtratoByServicos(
 
   for (const dia of extrato.dias) {
     const itens = filterByServico(dia.itens, servicosAtivos);
-    if (itens.length === 0) continue;
+    const canceladosDiaVisiveis = filterByServico(dia.itens_cancelados, servicosAtivos);
+    if (itens.length === 0 && canceladosDiaVisiveis.length === 0) continue;
 
     const feitosDia = sumValorItens(itens.filter(isExtratoGrupoEntregue));
     const canceladosDiaLista = sumValorItens(itens.filter(isExtratoCancelado));
-    const canceladosDiaOcultos = sumValorItens(filterByServico(dia.itens_cancelados, servicosAtivos));
+    const canceladosDiaOcultos = sumValorItens(canceladosDiaVisiveis);
     const canceladosDia = canceladosDiaLista + canceladosDiaOcultos;
     const valorDia = valorExtratoPorFiltro(feitosDia, canceladosDia, modo);
 
@@ -106,7 +107,7 @@ export function filterExtratoByServicos(
     dias.push({
       ...dia,
       itens,
-      itens_cancelados: filterByServico(dia.itens_cancelados, servicosAtivos),
+      itens_cancelados: canceladosDiaVisiveis,
       total_pacotes_filtrados: itens.length,
       valor_dia: formatValorSum(valorDia),
       valor_feitos: formatValorSum(feitosDia),

@@ -147,6 +147,8 @@ export interface FinalizarLoteResponse {
 
 export type ExtratoStatusFiltro = "todos" | "grupo_entregue" | "cancelados";
 
+export type ExtratoSituacaoFechamento = "sem_fechamento" | "gerado" | "pago";
+
 export interface ExtratoPedidoItem {
   id_saida: number;
   codigo: string | null;
@@ -184,6 +186,8 @@ export interface ExtratoFinanceiro {
   };
   dias: ExtratoDiaItem[];
   itens_cancelados?: ExtratoPedidoItem[];
+  /** Ausente em backend antigo: tratar como sem fechamento. */
+  situacao_fechamento?: ExtratoSituacaoFechamento;
 }
 
 export interface ScanConflito {

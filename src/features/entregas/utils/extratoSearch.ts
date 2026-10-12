@@ -3,7 +3,7 @@ import type { ExtratoDiaItem, ExtratoFinanceiro, ExtratoPedidoItem } from "../ty
 
 export function flattenExtratoItens(extrato: ExtratoFinanceiro | null): ExtratoPedidoItem[] {
   if (!extrato) return [];
-  return extrato.dias.flatMap((dia) => dia.itens);
+  return extrato.dias.flatMap((dia) => [...dia.itens, ...(dia.itens_cancelados ?? [])]);
 }
 
 export function searchExtratoByCodigo(
