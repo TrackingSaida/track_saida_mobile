@@ -43,6 +43,8 @@ export interface SaidaListItem {
   username?: string | null;
   entregador?: string | null;
   is_grande?: boolean;
+  categoria_g_id?: number | null;
+  categoria_g_nome?: string | null;
   /** Data operacional do pacote (YYYY-MM-DD) */
   data?: string | null;
   data_hora_acao?: string;
@@ -420,6 +422,7 @@ export interface UpdateSaidaBody {
   motoboy_id?: number;
   entregador?: string;
   is_grande?: boolean;
+  categoria_g_id?: number | null;
   reverter_cancelamento?: boolean;
 }
 
@@ -488,6 +491,11 @@ export interface SaidaDetail {
   username?: string | null;
   entregador?: string | null;
   data_hora_entrega?: string | null;
+  is_grande?: boolean;
+  categoria_g_id?: number | null;
+  categoria_g_nome?: string | null;
+  categoria_g_atualizado_em?: string | null;
+  categoria_g_atualizado_por?: string | null;
   detail?: SaidaDetailNested | null;
   [key: string]: unknown;
 }

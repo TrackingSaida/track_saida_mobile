@@ -65,6 +65,8 @@ import type { ColetaStatusFiltro } from "../utils/coletaSituacaoUi";
 import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
+import TamanhoUltimaLeitura from "../components/TamanhoUltimaLeitura";
+import { listarCategoriasG, type CategoriaG } from "../pacoteGApi";
 import AvulsoLancamentoModal from "../components/AvulsoLancamentoModal";
 import PhysicalScannerInput from "../components/PhysicalScannerInput";
 import { classifyCodigoParaOperacao, type ClassifyCodigoOperacaoResult } from "../parseCodigoQr";
@@ -81,6 +83,9 @@ interface UltimaLeituraLocal {
   codigo: string;
   servico: ServicoColeta;
   status: StatusLeitura;
+  idSaida?: number | null;
+  categoriaGId?: number | null;
+  categoriaGNome?: string | null;
 }
 
 const TOTAIS_VAZIOS: TotaisColetaBase = { total: 0, shopee: 0, mercado_livre: 0, avulso: 0 };
@@ -197,8 +202,12 @@ export default function LeituraColetasScreen() {
   const [modoManual, setModoManual] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
   const holdScannerCamera = avulsoModalVisible || photoCaptureActive;
+  const [tamanhoAberto, setTamanhoAberto] = useState(false);
   const [configColeta, setConfigColeta] = useState<ColetaOperacionalConfig | null>(null);
   const [quantidadesVisible, setQuantidadesVisible] = useState(false);
+  const [categoriasG, setCategoriasG] = useState<CategoriaG[]>([]);
+  const [gQtd, setGQtd] = useState<Record<string, string>>({});
+  const [gAberto, setGAberto] = useState(false);
   const [quantidadeShopee, setQuantidadeShopee] = useState("0");
   const [quantidadeFlex, setQuantidadeFlex] = useState("0");
   const [quantidadeAvulso, setQuantidadeAvulso] = useState("0");
@@ -545,6 +554,17 @@ export default function LeituraColetasScreen() {
           textAlign: "center",
           fontSize: 17,
         },
+        gToggle: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 10,
+        },
+        gToggleText: { fontSize: 15, fontWeight: "700", color: colors.text },
+        gLinha: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+        gNome: { width: 56, fontSize: 14, fontWeight: "700", color: colors.text },
+        gInput: { flex: 1, padding: 8, fontSize: 15 },
+        gColuna: { flex: 1, textAlign: "center", fontSize: 12, color: colors.textSecondary },
         quantitySwitch: {
           flexDirection: "row",
           alignItems: "center",
@@ -709,6 +729,14 @@ export default function LeituraColetasScreen() {
           right: 16,
           zIndex: 10,
         },
+        cameraUltimaLeitura: {
+          marginBottom: 8,
+          paddingVertical: 8,
+          paddingHorizontal: 12,
+          borderRadius: 12,
+          backgroundColor: "rgba(0,0,0,0.6)",
+        },
+        cameraUltimaCodigo: { fontSize: 15, fontWeight: "700", color: "#fff" },
         permissionText: {
           fontSize: 16,
           color: colors.text,
@@ -1184,6 +1212,25 @@ export default function LeituraColetasScreen() {
   const podeManual = effectivePodeDigitarCodigoManual(currentUser);
   const podeLancarAvulso = effectivePodeCriarAvulsoColeta(currentUser);
   const podeMarcarSemVolume = isAdminOperadorRole(currentUser?.role);
+  const podeDefinirTamanho = isAdminOperadorRole(currentUser?.role);
+  const renderTamanhoUltimaLeitura = (escuro: boolean) =>
+    podeDefinirTamanho && ultimaLeitura?.idSaida != null ? (
+      <TamanhoUltimaLeitura
+        idSaida={ultimaLeitura.idSaida}
+        codigo={ultimaLeitura.codigo}
+        categoriaId={ultimaLeitura.categoriaGId}
+        categoriaNome={ultimaLeitura.categoriaGNome}
+        escuro={escuro}
+        onAbertoChange={setTamanhoAberto}
+        onAlterado={(res) =>
+          setUltimaLeitura((prev) =>
+            prev && prev.idSaida === ultimaLeitura.idSaida
+              ? { ...prev, categoriaGId: res.categoria_g_id, categoriaGNome: res.categoria_g_nome }
+              : prev
+          )
+        }
+      />
+    ) : null;
   const subBase = currentUser?.sub_base ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
@@ -1296,7 +1343,14 @@ export default function LeituraColetasScreen() {
     if (!manualAcrescentar) {
       setManualAcrescentar(isRetroativo && totaisColeta.total > 0);
     }
+    setGQtd({});
+    setGAberto(false);
     setQuantidadesVisible(true);
+    if (podeDefinirTamanho) {
+      listarCategoriasG()
+        .then(setCategoriasG)
+        .catch(() => setCategoriasG([]));
+    }
   }, [
     baseSelecionada,
     entidadeArticle,
@@ -1306,6 +1360,7 @@ export default function LeituraColetasScreen() {
     isRetroativo,
     manualAcrescentar,
     ownerTipoBase,
+    podeDefinirTamanho,
     totaisColeta.total,
   ]);
 
@@ -1332,6 +1387,32 @@ export default function LeituraColetasScreen() {
       );
       return;
     }
+    const gCategorias = semVolume
+      ? []
+      : categoriasG
+          .map((c) => ({
+            categoria_g_id: c.id,
+            shopee: numero(gQtd[`${c.id}:shopee`] ?? ""),
+            ml: numero(gQtd[`${c.id}:ml`] ?? ""),
+            avulso: numero(gQtd[`${c.id}:avulso`] ?? ""),
+          }))
+          .filter((g) => g.shopee + g.ml + g.avulso > 0);
+    const somaG = (k: "shopee" | "ml" | "avulso") => gCategorias.reduce((s, g) => s + g[k], 0);
+    const excedido = (
+      [
+        ["Shopee", somaG("shopee"), valores.shopee],
+        ["Flex", somaG("ml"), valores.mercado_livre],
+        ["Avulso", somaG("avulso"), valores.avulso],
+      ] as const
+    ).find(([, g, total]) => g > total);
+    if (excedido) {
+      const [rotulo, g, total] = excedido;
+      Alert.alert(
+        "Pacotes grandes",
+        `${rotulo}: ${g} ${g === 1 ? "pacote grande" : "pacotes grandes"}, mas só ${total} no total.`
+      );
+      return;
+    }
     setLoading(true);
     try {
       await lancarColetaManualOperacional({
@@ -1341,6 +1422,7 @@ export default function LeituraColetasScreen() {
         sem_volume: semVolume,
         origem_cliente: "mobile",
         ...(acrescentar ? { acrescentar: true } : {}),
+        ...(gCategorias.length ? { g_categorias: gCategorias } : {}),
       });
       setQuantidadesVisible(false);
       setQuantidadeShopee("0");
@@ -1364,7 +1446,9 @@ export default function LeituraColetasScreen() {
     baseSelecionada,
     carregarResumoBase,
     carregarSituacao,
+    categoriasG,
     dataOperacao,
+    gQtd,
     isRetroativo,
     manualAcrescentar,
     quantidadeAvulso,
@@ -1591,10 +1675,14 @@ export default function LeituraColetasScreen() {
         });
         const inseridos = Number(result.resumo?.inseridos ?? 0);
         const soQrAtualizado = Boolean(result.qr_atualizado) && inseridos === 0;
+        const criada =
+          result.saidas_criadas?.find((s) => String(s.codigo).toUpperCase() === codigoNorm.toUpperCase()) ??
+          result.saidas_criadas?.[0];
         setUltimaLeitura({
           codigo: codigoNorm,
           servico,
           status: soQrAtualizado ? "enviado" : "enviado",
+          idSaida: criada?.id_saida ?? null,
         });
         if (result.totais) {
           aplicarTotais(result.totais);
@@ -1698,7 +1786,12 @@ export default function LeituraColetasScreen() {
         });
         const ultimoCodigo = result.codigos.at(-1) || result.saidas.at(-1)?.codigo || "";
         if (ultimoCodigo) {
-          setUltimaLeitura({ codigo: ultimoCodigo, servico: "Avulso", status: "enviado" });
+          setUltimaLeitura({
+            codigo: ultimoCodigo,
+            servico: "Avulso",
+            status: "enviado",
+            idSaida: result.saidas.find((s) => s.codigo === ultimoCodigo)?.id_saida ?? null,
+          });
           setCodigosSessao((prev) => {
             const next = new Set(prev);
             result.codigos.forEach((c) => next.add(String(c).toUpperCase()));
@@ -2287,6 +2380,7 @@ export default function LeituraColetasScreen() {
                         ? " · Enviando"
                         : ""}
               </Text>
+              {renderTamanhoUltimaLeitura(false)}
             </>
           ) : (
             <Text style={styles.ultimaLeituraSub}>Aguardando leitura nesta base</Text>
@@ -2361,7 +2455,7 @@ export default function LeituraColetasScreen() {
           </View>
         ) : modoLeitorFisico ? (
           <PhysicalScannerInput
-            active={cameraAtiva && modoLeitorFisico && !modoManual && !holdScannerCamera}
+            active={cameraAtiva && modoLeitorFisico && !modoManual && !holdScannerCamera && !tamanhoAberto}
             disabled={loading}
             title="Leitor físico de coletas"
             subtitle={`Base ${base.trim()} · Total nesta sessão: ${resumo.total}`}
@@ -2435,7 +2529,7 @@ export default function LeituraColetasScreen() {
                 barcodeScannerSettings={{
                   barcodeTypes: BARCODE_TYPES,
                 }}
-                onBarcodeScanned={loading ? undefined : handleBarcodeScanned}
+                onBarcodeScanned={loading || tamanhoAberto ? undefined : handleBarcodeScanned}
               />
               <View
                 style={{
@@ -2448,6 +2542,14 @@ export default function LeituraColetasScreen() {
                 <ScanFrameOverlay wrapStyle={{}} />
               </View>
               <View style={styles.cameraFooter}>
+                {ultimaLeitura && podeDefinirTamanho && ultimaLeitura.idSaida != null ? (
+                  <View style={styles.cameraUltimaLeitura}>
+                    <Text style={styles.cameraUltimaCodigo} numberOfLines={1}>
+                      {ultimaLeitura.codigo}
+                    </Text>
+                    {renderTamanhoUltimaLeitura(true)}
+                  </View>
+                ) : null}
                 <View style={styles.resumoRow}>
                   <View style={[styles.resumoBadge, styles.resumoShopee]}>
                     <Text style={styles.resumoNum}>{resumo.shopee}</Text>
@@ -2692,6 +2794,60 @@ export default function LeituraColetasScreen() {
                     </View>
                   ))}
                 </View>
+                {podeDefinirTamanho && categoriasG.length ? (
+                  <View style={{ marginTop: 14 }}>
+                    <TouchableOpacity
+                      style={styles.gToggle}
+                      onPress={() => setGAberto((v) => !v)}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: gAberto }}
+                    >
+                      <Text style={styles.gToggleText}>Pacotes grandes (opcional)</Text>
+                      <Ionicons name={gAberto ? "chevron-up" : "chevron-down"} size={18} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                    {gAberto ? (
+                      <>
+                        <Text style={[styles.infoText, { marginBottom: 6 }]}>
+                          Quantos dos pacotes acima são grandes, por tamanho.
+                        </Text>
+                        <View style={styles.gLinha}>
+                          <Text style={styles.gNome} />
+                          {["Flex", "Shopee", "Avulso"].map((r) => (
+                            <Text key={r} style={styles.gColuna}>
+                              {r}
+                            </Text>
+                          ))}
+                        </View>
+                        {categoriasG.map((cat) => (
+                          <View key={cat.id} style={styles.gLinha}>
+                            <Text style={styles.gNome} numberOfLines={1}>
+                              {cat.nome}
+                            </Text>
+                            {(
+                              [
+                                ["ml", "Flex"],
+                                ["shopee", "Shopee"],
+                                ["avulso", "Avulso"],
+                              ] as const
+                            ).map(([chave, rotulo]) => (
+                              <TextInput
+                                key={chave}
+                                style={[styles.quantityInput, styles.gInput]}
+                                value={gQtd[`${cat.id}:${chave}`] ?? ""}
+                                onChangeText={(t) => setGQtd((prev) => ({ ...prev, [`${cat.id}:${chave}`]: t }))}
+                                keyboardType="number-pad"
+                                placeholder="0"
+                                placeholderTextColor={colors.textSecondary}
+                                editable={!loading && !semVolume}
+                                accessibilityLabel={`${cat.nome} ${rotulo}`}
+                              />
+                            ))}
+                          </View>
+                        ))}
+                      </>
+                    ) : null}
+                  </View>
+                ) : null}
                 <TouchableOpacity
                   style={[styles.btnPrimary, { marginTop: 18 }]}
                   onPress={() => void salvarQuantidades()}

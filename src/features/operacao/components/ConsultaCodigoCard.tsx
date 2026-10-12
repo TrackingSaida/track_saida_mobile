@@ -5,6 +5,7 @@ import { useThemeColors } from "../../../theme/colors";
 import EntregaCodigoHeader from "../../entregas/components/EntregaCodigoHeader";
 import type { SaidaListItem } from "../saidasApi";
 import { statusVisualSaida } from "../utils/operacaoStatusUtils";
+import ChipTamanhoG from "./ChipTamanhoG";
 
 type Props = {
   item: SaidaListItem;
@@ -53,6 +54,9 @@ export default function ConsultaCodigoCard({ item, onPress, compact = false }: P
         statusBadgeFg={sv.fg}
         style={{ marginBottom: compact ? 8 : 10 }}
       />
+      {item.is_grande && item.categoria_g_nome ? (
+        <ChipTamanhoG nome={item.categoria_g_nome} style={{ marginBottom: 6 }} />
+      ) : null}
       {item.entregador ? <Text style={styles.meta}>Entregador: {item.entregador}</Text> : null}
       {!compact ? (
         <View style={styles.footer}>

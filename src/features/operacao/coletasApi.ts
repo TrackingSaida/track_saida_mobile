@@ -422,6 +422,8 @@ export interface ColetaManualOperacionalPayload {
   origem_cliente: "mobile";
   /** Soma ao volume já lançado (retroativo). */
   acrescentar?: boolean;
+  /** Pacotes grandes por categoria e serviço (ml = Mercado Livre/Flex). */
+  g_categorias?: Array<{ categoria_g_id: number; shopee: number; ml: number; avulso: number }>;
 }
 
 export async function lancarColetaManualOperacional(
