@@ -65,7 +65,6 @@ import type { ColetaStatusFiltro } from "../utils/coletaSituacaoUi";
 import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
-import TamanhoUltimaLeitura from "../components/TamanhoUltimaLeitura";
 import { listarCategoriasG, type CategoriaG } from "../pacoteGApi";
 import AvulsoLancamentoModal from "../components/AvulsoLancamentoModal";
 import PhysicalScannerInput from "../components/PhysicalScannerInput";
@@ -83,9 +82,6 @@ interface UltimaLeituraLocal {
   codigo: string;
   servico: ServicoColeta;
   status: StatusLeitura;
-  idSaida?: number | null;
-  categoriaGId?: number | null;
-  categoriaGNome?: string | null;
 }
 
 const TOTAIS_VAZIOS: TotaisColetaBase = { total: 0, shopee: 0, mercado_livre: 0, avulso: 0 };
@@ -202,7 +198,6 @@ export default function LeituraColetasScreen() {
   const [modoManual, setModoManual] = useState(false);
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
   const holdScannerCamera = avulsoModalVisible || photoCaptureActive;
-  const [tamanhoAberto, setTamanhoAberto] = useState(false);
   const [configColeta, setConfigColeta] = useState<ColetaOperacionalConfig | null>(null);
   const [quantidadesVisible, setQuantidadesVisible] = useState(false);
   const [categoriasG, setCategoriasG] = useState<CategoriaG[]>([]);
@@ -729,14 +724,6 @@ export default function LeituraColetasScreen() {
           right: 16,
           zIndex: 10,
         },
-        cameraUltimaLeitura: {
-          marginBottom: 8,
-          paddingVertical: 8,
-          paddingHorizontal: 12,
-          borderRadius: 12,
-          backgroundColor: "rgba(0,0,0,0.6)",
-        },
-        cameraUltimaCodigo: { fontSize: 15, fontWeight: "700", color: "#fff" },
         permissionText: {
           fontSize: 16,
           color: colors.text,
@@ -1213,24 +1200,6 @@ export default function LeituraColetasScreen() {
   const podeLancarAvulso = effectivePodeCriarAvulsoColeta(currentUser);
   const podeMarcarSemVolume = isAdminOperadorRole(currentUser?.role);
   const podeDefinirTamanho = isAdminOperadorRole(currentUser?.role);
-  const renderTamanhoUltimaLeitura = (escuro: boolean) =>
-    podeDefinirTamanho && ultimaLeitura?.idSaida != null ? (
-      <TamanhoUltimaLeitura
-        idSaida={ultimaLeitura.idSaida}
-        codigo={ultimaLeitura.codigo}
-        categoriaId={ultimaLeitura.categoriaGId}
-        categoriaNome={ultimaLeitura.categoriaGNome}
-        escuro={escuro}
-        onAbertoChange={setTamanhoAberto}
-        onAlterado={(res) =>
-          setUltimaLeitura((prev) =>
-            prev && prev.idSaida === ultimaLeitura.idSaida
-              ? { ...prev, categoriaGId: res.categoria_g_id, categoriaGNome: res.categoria_g_nome }
-              : prev
-          )
-        }
-      />
-    ) : null;
   const subBase = currentUser?.sub_base ?? "";
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
@@ -1675,14 +1644,10 @@ export default function LeituraColetasScreen() {
         });
         const inseridos = Number(result.resumo?.inseridos ?? 0);
         const soQrAtualizado = Boolean(result.qr_atualizado) && inseridos === 0;
-        const criada =
-          result.saidas_criadas?.find((s) => String(s.codigo).toUpperCase() === codigoNorm.toUpperCase()) ??
-          result.saidas_criadas?.[0];
         setUltimaLeitura({
           codigo: codigoNorm,
           servico,
           status: soQrAtualizado ? "enviado" : "enviado",
-          idSaida: criada?.id_saida ?? null,
         });
         if (result.totais) {
           aplicarTotais(result.totais);
@@ -1790,7 +1755,6 @@ export default function LeituraColetasScreen() {
             codigo: ultimoCodigo,
             servico: "Avulso",
             status: "enviado",
-            idSaida: result.saidas.find((s) => s.codigo === ultimoCodigo)?.id_saida ?? null,
           });
           setCodigosSessao((prev) => {
             const next = new Set(prev);
@@ -2380,7 +2344,6 @@ export default function LeituraColetasScreen() {
                         ? " · Enviando"
                         : ""}
               </Text>
-              {renderTamanhoUltimaLeitura(false)}
             </>
           ) : (
             <Text style={styles.ultimaLeituraSub}>Aguardando leitura nesta base</Text>
@@ -2455,7 +2418,7 @@ export default function LeituraColetasScreen() {
           </View>
         ) : modoLeitorFisico ? (
           <PhysicalScannerInput
-            active={cameraAtiva && modoLeitorFisico && !modoManual && !holdScannerCamera && !tamanhoAberto}
+            active={cameraAtiva && modoLeitorFisico && !modoManual && !holdScannerCamera}
             disabled={loading}
             title="Leitor físico de coletas"
             subtitle={`Base ${base.trim()} · Total nesta sessão: ${resumo.total}`}
@@ -2529,7 +2492,7 @@ export default function LeituraColetasScreen() {
                 barcodeScannerSettings={{
                   barcodeTypes: BARCODE_TYPES,
                 }}
-                onBarcodeScanned={loading || tamanhoAberto ? undefined : handleBarcodeScanned}
+                onBarcodeScanned={loading ? undefined : handleBarcodeScanned}
               />
               <View
                 style={{
@@ -2542,14 +2505,6 @@ export default function LeituraColetasScreen() {
                 <ScanFrameOverlay wrapStyle={{}} />
               </View>
               <View style={styles.cameraFooter}>
-                {ultimaLeitura && podeDefinirTamanho && ultimaLeitura.idSaida != null ? (
-                  <View style={styles.cameraUltimaLeitura}>
-                    <Text style={styles.cameraUltimaCodigo} numberOfLines={1}>
-                      {ultimaLeitura.codigo}
-                    </Text>
-                    {renderTamanhoUltimaLeitura(true)}
-                  </View>
-                ) : null}
                 <View style={styles.resumoRow}>
                   <View style={[styles.resumoBadge, styles.resumoShopee]}>
                     <Text style={styles.resumoNum}>{resumo.shopee}</Text>

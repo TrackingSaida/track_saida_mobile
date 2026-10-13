@@ -35,11 +35,9 @@ import {
   effectivePodeLerSaida,
   effectiveAvulsoExigeFoto,
   effectiveAvulsoPermitirFotos,
-  isAdminOperadorRole,
   isStaffOperacaoRole,
   ownerExigeSelecaoAvulso,
 } from "../../../utils/role";
-import TamanhoUltimaLeitura from "../components/TamanhoUltimaLeitura";
 import {
   lerSaidaAdmin,
   lancarAvulso,
@@ -98,9 +96,6 @@ interface LeituraSaidaItem {
   /** Motoboy para o qual a leitura foi contada (igual à web: duplicidade por entregador+código). */
   motoboyId: number;
   status: StatusLeituraSaida;
-  idSaida?: number | null;
-  categoriaGId?: number | null;
-  categoriaGNome?: string | null;
 }
 
 interface FeedbackVisual {
@@ -311,7 +306,6 @@ export default function LeituraSaidasScreen() {
   const [motoboyNome, setMotoboyNome] = useState("");
   const [codigoInput, setCodigoInput] = useState("");
   const [leituras, setLeituras] = useState<LeituraSaidaItem[]>([]);
-  const [tamanhoAberto, setTamanhoAberto] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirmandoLeitura, setConfirmandoLeitura] = useState(false);
   const [cameraAtiva, setCameraAtiva] = useState(false);
@@ -948,32 +942,6 @@ export default function LeituraSaidasScreen() {
     totalValidas > 0 || totalErros > 0
       ? ultimaLeituraLive
       : sessaoFinalizadaSnap?.ultima ?? undefined;
-  const podeDefinirTamanho = isAdminOperadorRole(currentUser?.role);
-  const renderTamanhoUltimaLeitura = (escuro: boolean) => {
-    const alvo = ultimaLeituraLive;
-    if (!podeDefinirTamanho || !alvo || alvo !== ultimaLeitura || alvo.idSaida == null) return null;
-    if (alvo.status !== "sucesso" && alvo.status !== "nao_coletado") return null;
-    const idSaida = alvo.idSaida;
-    return (
-      <TamanhoUltimaLeitura
-        idSaida={idSaida}
-        codigo={alvo.codigo}
-        categoriaId={alvo.categoriaGId}
-        categoriaNome={alvo.categoriaGNome}
-        escuro={escuro}
-        onAbertoChange={setTamanhoAberto}
-        onAlterado={(res) =>
-          setLeituras((prev) =>
-            prev.map((l) =>
-              l.idSaida === idSaida
-                ? { ...l, categoriaGId: res.categoria_g_id, categoriaGNome: res.categoria_g_nome }
-                : l
-            )
-          )
-        }
-      />
-    );
-  };
   const temSessaoVisivel =
     totalValidas > 0 ||
     totalErros > 0 ||
@@ -1393,7 +1361,6 @@ export default function LeituraSaidasScreen() {
           entregador: motoboyNome,
           motoboyId,
           status: statusBackend === "Não Coletado" ? "nao_coletado" : "sucesso",
-          idSaida: res.id_saida ?? null,
         };
 
         setLeituras((prev) => [...prev, item]);
@@ -2081,7 +2048,6 @@ export default function LeituraSaidasScreen() {
                 >
                   {labelResumoStatus(ultimaLeitura.status)}
                 </Text>
-                {renderTamanhoUltimaLeitura(false)}
               </>
             ) : (
               <Text style={styles.vazioText}>
@@ -2163,7 +2129,7 @@ export default function LeituraSaidasScreen() {
           </View>
         ) : modoLeitorFisico ? (
           <PhysicalScannerInput
-            active={cameraAtiva && modoLeitorFisico && !modoManual && !holdScannerCamera && !tamanhoAberto}
+            active={cameraAtiva && modoLeitorFisico && !modoManual && !holdScannerCamera}
             disabled={loading || confirmandoLeitura || !!conflito || !!conflitoDiaAnterior}
             title="Leitor físico de saídas"
             subtitle={`${motoboyNome || "Motoboy não selecionado"} · Lidos: ${totalValidas}`}
@@ -2251,7 +2217,7 @@ export default function LeituraSaidasScreen() {
                   barcodeScannerSettings={{
                     barcodeTypes: BARCODE_TYPES,
                   }}
-                  onBarcodeScanned={loading || !motoboyId || tamanhoAberto ? undefined : handleBarcodeScanned}
+                  onBarcodeScanned={loading || !motoboyId ? undefined : handleBarcodeScanned}
                 />
                 <View
                   style={{
@@ -2287,7 +2253,7 @@ export default function LeituraSaidasScreen() {
                       <Text style={styles.cameraContadorLabel}>Avulso</Text>
                     </View>
                   </View>
-                  <View style={styles.cameraFooterBox} pointerEvents="box-none">
+                  <View style={styles.cameraFooterBox} pointerEvents="none">
                     <Text style={styles.cameraFooterLabel}>Última leitura</Text>
                     {ultimaLeitura ? (
                       <>
@@ -2295,7 +2261,6 @@ export default function LeituraSaidasScreen() {
                         <Text style={styles.cameraFooterStatus}>
                           {labelResumoStatus(ultimaLeitura.status)}
                         </Text>
-                        {renderTamanhoUltimaLeitura(true)}
                       </>
                     ) : (
                       <Text style={styles.cameraFooterStatus}>Aguardando primeiro código…</Text>
