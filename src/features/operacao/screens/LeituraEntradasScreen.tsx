@@ -22,17 +22,10 @@ import { useThemeColors } from "../../../theme/colors";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
 import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
-import {
-  effectiveAvulsoExigeFoto,
-  effectiveAvulsoPermitirFotos,
-  effectiveEntradaObrigatoria,
-  effectivePodeDigitarCodigoManual,
-  isAdminOperadorRole,
-} from "../../../utils/role";
+import { effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos, effectiveEntradaObrigatoria, effectivePodeDigitarCodigoManual } from "../../../utils/role";
 import { formatApiError } from "../../../utils/formatApiError";
 import { playSound } from "../../../utils/sound";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
-import TamanhoUltimaLeitura from "../components/TamanhoUltimaLeitura";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
 import {
   getEntradaResumoDia,
@@ -53,9 +46,6 @@ interface LeituraEntradaItem {
   codigo: string;
   servico: string;
   status: StatusLeitura;
-  idSaida?: number | null;
-  categoriaGId?: number | null;
-  categoriaGNome?: string | null;
 }
 
 const SCAN_DEBOUNCE_MS = 1500;
@@ -130,7 +120,6 @@ export default function LeituraEntradasScreen() {
   const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
   const habilitada = effectiveEntradaObrigatoria(currentUser);
   const podeManual = effectivePodeDigitarCodigoManual(currentUser);
-  const podeDefinirTamanho = isAdminOperadorRole(currentUser?.role);
 
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -146,9 +135,6 @@ export default function LeituraEntradasScreen() {
   );
   const [avulsoModalVisible, setAvulsoModalVisible] = useState(false);
   const holdScannerCamera = avulsoModalVisible || photoCaptureActive;
-  const [tamanhoAberto, setTamanhoAberto] = useState(false);
-  const tamanhoAbertoRef = useRef(false);
-  tamanhoAbertoRef.current = tamanhoAberto;
   const [resumoDia, setResumoDia] = useState<EntradaResumoDia>(RESUMO_DIA_VAZIO);
   const [resumoLoading, setResumoLoading] = useState(false);
   const scanLocked = useRef(false);
@@ -413,27 +399,6 @@ export default function LeituraEntradasScreen() {
 
   const ultimaLeitura = leituras.length ? leituras[leituras.length - 1] : null;
 
-  const renderTamanhoUltimaLeitura = (escuro: boolean) =>
-    podeDefinirTamanho && ultimaLeitura?.status === "sucesso" && ultimaLeitura.idSaida != null ? (
-      <TamanhoUltimaLeitura
-        idSaida={ultimaLeitura.idSaida}
-        codigo={ultimaLeitura.codigo}
-        categoriaId={ultimaLeitura.categoriaGId}
-        categoriaNome={ultimaLeitura.categoriaGNome}
-        escuro={escuro}
-        onAbertoChange={setTamanhoAberto}
-        onAlterado={(res) =>
-          setLeituras((prev) =>
-            prev.map((l) =>
-              l.idSaida === ultimaLeitura.idSaida
-                ? { ...l, categoriaGId: res.categoria_g_id, categoriaGNome: res.categoria_g_nome }
-                : l
-            )
-          )
-        }
-      />
-    ) : null;
-
   const loadResumoDia = useCallback(async () => {
     if (!habilitada) return;
     setResumoLoading(true);
@@ -544,14 +509,13 @@ export default function LeituraEntradasScreen() {
           qr_payload_raw: classified.qr_payload_raw,
         });
         const servico = labelServicoUi(res.servico, c);
-        const idSaida = res.id_saida ?? null;
         if (res.qr_atualizado) {
-          appendLeitura({ codigo: c, servico, status: "sucesso", idSaida });
+          appendLeitura({ codigo: c, servico, status: "sucesso" });
           playSound("success");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           pushFeedback("sucesso", "QR da etiqueta salvo", c);
         } else if (res.qr_alerta) {
-          appendLeitura({ codigo: c, servico, status: "sucesso", idSaida });
+          appendLeitura({ codigo: c, servico, status: "sucesso" });
           if (!res.ja_existia) aplicarResumoLocal(servico);
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -561,7 +525,7 @@ export default function LeituraEntradasScreen() {
             c
           );
         } else {
-          appendLeitura({ codigo: c, servico, status: "sucesso", idSaida });
+          appendLeitura({ codigo: c, servico, status: "sucesso" });
           aplicarResumoLocal(servico);
           playSound("success");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -611,7 +575,7 @@ export default function LeituraEntradasScreen() {
 
   const onBarcode = useCallback(
     (result: BarcodeScanningResult) => {
-      if (scanLocked.current || tamanhoAbertoRef.current) return;
+      if (scanLocked.current) return;
       const type = String(result?.type || "").toLowerCase();
       if (type && type !== "qr") return;
       const raw = String(result.data || "").trim();
@@ -642,7 +606,6 @@ export default function LeituraEntradasScreen() {
           codigo: String(s.codigo ?? ""),
           servico: labelServicoUi(s.servico, s.codigo),
           status: "sucesso" as const,
-          idSaida: s.id_saida ?? null,
         }));
         if (novos.length) {
           setLeituras((prev) => {
@@ -766,7 +729,6 @@ export default function LeituraEntradasScreen() {
                   {labelStatusUi(ultimaLeitura.status)}
                   {ultimaLeitura.servico ? ` · ${ultimaLeitura.servico}` : ""}
                 </Text>
-                {renderTamanhoUltimaLeitura(false)}
               </>
             ) : (
               <Text style={styles.vazioText}>Aguardando primeira leitura</Text>
@@ -818,7 +780,7 @@ export default function LeituraEntradasScreen() {
           </View>
         ) : modoLeitorFisico ? (
           <PhysicalScannerInput
-            active={cameraOpen && modoLeitorFisico && !modoManual && !avulsoModalVisible && !tamanhoAberto}
+            active={cameraOpen && modoLeitorFisico && !modoManual && !avulsoModalVisible}
             disabled={loading}
             title="Leitor físico de entradas"
             subtitle={`Entradas nesta sessão: ${totalOk}`}
@@ -923,7 +885,7 @@ export default function LeituraEntradasScreen() {
                   </View>
                 ) : null}
                 <View style={styles.cameraFooter}>
-                  <View style={styles.cameraFooterBox} pointerEvents="box-none">
+                  <View style={styles.cameraFooterBox} pointerEvents="none">
                     <Text style={styles.cameraFooterLabel}>Última leitura</Text>
                     {ultimaLeitura ? (
                       <>
@@ -932,7 +894,6 @@ export default function LeituraEntradasScreen() {
                           {labelStatusUi(ultimaLeitura.status)}
                           {ultimaLeitura.servico ? ` · ${ultimaLeitura.servico}` : ""}
                         </Text>
-                        {renderTamanhoUltimaLeitura(true)}
                       </>
                     ) : (
                       <Text style={styles.cameraFooterStatus}>Aguardando primeiro código…</Text>
