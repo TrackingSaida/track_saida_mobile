@@ -174,6 +174,21 @@ export interface SituacaoBaseColeta {
   pode_ajudar: boolean;
   pode_corrigir?: boolean;
   atualizado_em?: string | null;
+  /** Contas de marketplace conectadas ao seller. */
+  contas?: ContaConectadaSeller[];
+  /** Pedidos sincronizados aguardando coleta; null fora do dia de hoje ou sem conta conectada. */
+  a_coletar?: AColetarSeller | null;
+}
+
+export interface ContaConectadaSeller {
+  canal: "Mercado Livre" | "Shopee";
+  conta: string | null;
+}
+
+export interface AColetarSeller {
+  total: number;
+  mercado_livre: number;
+  shopee: number;
 }
 
 export interface SituacaoColetasResponse {
@@ -181,7 +196,13 @@ export interface SituacaoColetasResponse {
   data_inicio?: string;
   data_fim?: string;
   pode_corrigir_quantidades?: boolean;
-  resumo: { pendentes: number; em_coleta: number; sem_volume?: number; coletadas: number };
+  resumo: {
+    pendentes: number;
+    em_coleta: number;
+    sem_volume?: number;
+    coletadas: number;
+    a_coletar?: (AColetarSeller & { sellers: number }) | null;
+  };
   itens: SituacaoBaseColeta[];
 }
 
