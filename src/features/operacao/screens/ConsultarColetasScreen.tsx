@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -28,6 +29,7 @@ import {
   corrigirQuantidadesParticipante,
   type ParticipanteSituacaoColeta,
   type SituacaoBaseColeta,
+  type SituacaoColetasResponse,
 } from "../coletasApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
 import ColetaServicoBadges from "../components/ColetaServicoBadges";
@@ -51,7 +53,26 @@ import {
   type PeriodoPreset,
 } from "../utils/periodoConsulta";
 
-type Filtro = "todos" | ColetaStatusFiltro;
+type Filtro = "todos" | ColetaStatusFiltro | "a_coletar";
+type ResumoAColetar = NonNullable<SituacaoColetasResponse["resumo"]["a_coletar"]>;
+
+const LOGO_CANAL = {
+  "Mercado Livre": require("../../../../assets/canais/mercado-livre.png"),
+  Shopee: require("../../../../assets/canais/shopee.png"),
+} as const;
+
+function totalAColetar(item: SituacaoBaseColeta): number {
+  return Number(item.a_coletar?.total || 0);
+}
+
+function fraseAColetar(item: SituacaoBaseColeta): string {
+  const total = totalAColetar(item);
+  if (!total) return "";
+  if (item.status === "coletado") {
+    return total === 1 ? "1 novo pedido após a coleta" : `${total} novos pedidos após a coleta`;
+  }
+  return total === 1 ? "1 pedido a coletar" : `${total} pedidos a coletar`;
+}
 type Nav = NativeStackNavigationProp<ColetasFluxoParamList, "ConsultarColetas">;
 
 type CorrecaoCtx = {
@@ -100,6 +121,7 @@ export default function ConsultarColetasScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [itens, setItens] = useState<SituacaoBaseColeta[]>([]);
   const [resumo, setResumo] = useState({ pendentes: 0, em_coleta: 0, sem_volume: 0, coletadas: 0 });
+  const [resumoAColetar, setResumoAColetar] = useState<ResumoAColetar | null>(null);
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
@@ -133,7 +155,28 @@ export default function ConsultarColetasScreen() {
         card: { padding: 15, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.backgroundCard },
         cardPendente: { borderColor: "rgba(218,165,32,0.55)" },
         row: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
-        title: { color: colors.text, fontWeight: "800", fontSize: 16, flex: 1 },
+        title: { color: colors.text, fontWeight: "800", fontSize: 16, flexShrink: 1 },
+        titleWrap: { flex: 1, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
+        contas: { flexDirection: "row", gap: 4 },
+        contaLogo: { width: 18, height: 18, borderRadius: 4 },
+        aColetarBanner: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          padding: 14,
+          borderRadius: 14,
+          borderWidth: 1,
+          borderColor: "#fcd34d",
+          backgroundColor: "rgba(254,243,199,0.55)",
+        },
+        aColetarBannerAtivo: { borderWidth: 2, borderColor: "#d97706" },
+        aColetarValor: { fontSize: 28, fontWeight: "900", color: "#b45309" },
+        aColetarTitulo: { fontSize: 13, fontWeight: "800", color: "#92400e" },
+        aColetarSub: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 3 },
+        aColetarSubText: { fontSize: 12, color: "#92400e" },
+        aColetarCanal: { flexDirection: "row", alignItems: "center", gap: 4 },
+        aColetarLinha: { color: "#b45309", fontSize: 13, fontWeight: "700", marginTop: 7 },
+        cardComPendencia: { borderColor: "#fcd34d", backgroundColor: "rgba(254,243,199,0.25)" },
         muted: { color: colors.textSecondary, fontSize: 12, marginTop: 7, lineHeight: 17 },
         atalho: { color: colors.primary, fontSize: 12, fontWeight: "700", marginTop: 10 },
         btnCorrigir: {
@@ -206,7 +249,15 @@ export default function ConsultarColetasScreen() {
     try {
       const payload = await carregarConsultaColetasPorPeriodo(periodo.dataInicio, periodo.dataFim);
       setItens(payload.itens || []);
-      setResumo(payload.resumo || { pendentes: 0, em_coleta: 0, sem_volume: 0, coletadas: 0 });
+      setResumo({
+        pendentes: payload.resumo?.pendentes ?? 0,
+        em_coleta: payload.resumo?.em_coleta ?? 0,
+        sem_volume: payload.resumo?.sem_volume ?? 0,
+        coletadas: payload.resumo?.coletadas ?? 0,
+      });
+      const aColetar = payload.resumo?.a_coletar ?? null;
+      setResumoAColetar(aColetar);
+      if (!aColetar) setFiltro((atual) => (atual === "a_coletar" ? "todos" : atual));
     } catch (error) {
       setErro(formatApiError(error, "Não foi possível consultar as coletas."));
     } finally {
@@ -251,7 +302,12 @@ export default function ConsultarColetasScreen() {
   };
 
   const multiDia = !isPeriodoDiaUnico(periodo);
-  const visiveis = filtro === "todos" ? itens : itens.filter((item) => statusColetaNormalizado(item.status) === filtro);
+  const visiveis =
+    filtro === "todos"
+      ? itens
+      : filtro === "a_coletar"
+        ? itens.filter((item) => totalAColetar(item) > 0)
+        : itens.filter((item) => statusColetaNormalizado(item.status) === filtro);
   const totaisServico = useMemo(
     () =>
       itens.reduce(
@@ -374,6 +430,39 @@ export default function ConsultarColetasScreen() {
       >
         <Text style={styles.periodoLabel}>{labelPeriodo(periodo)}</Text>
 
+        {resumoAColetar ? (
+          <Pressable
+            style={[styles.aColetarBanner, filtro === "a_coletar" && styles.aColetarBannerAtivo]}
+            onPress={() => setFiltro((atual) => (atual === "a_coletar" ? "todos" : "a_coletar"))}
+            accessibilityRole="button"
+            accessibilityLabel={`${resumoAColetar.total} pedidos a coletar nos sellers. Toque para filtrar`}
+          >
+            <Text style={styles.aColetarValor}>{resumoAColetar.total}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.aColetarTitulo}>A coletar nos sellers</Text>
+              <View style={styles.aColetarSub}>
+                {resumoAColetar.mercado_livre ? (
+                  <View style={styles.aColetarCanal}>
+                    <Image source={LOGO_CANAL["Mercado Livre"]} style={styles.contaLogo} />
+                    <Text style={styles.aColetarSubText}>{resumoAColetar.mercado_livre}</Text>
+                  </View>
+                ) : null}
+                {resumoAColetar.shopee ? (
+                  <View style={styles.aColetarCanal}>
+                    <Image source={LOGO_CANAL.Shopee} style={styles.contaLogo} />
+                    <Text style={styles.aColetarSubText}>{resumoAColetar.shopee}</Text>
+                  </View>
+                ) : null}
+                <Text style={styles.aColetarSubText}>
+                  {resumoAColetar.sellers
+                    ? `em ${resumoAColetar.sellers} ${resumoAColetar.sellers === 1 ? "seller" : "sellers"}`
+                    : "nenhum pedido aguardando coleta"}
+                </Text>
+              </View>
+            </View>
+          </Pressable>
+        ) : null}
+
         <View style={styles.resumo}>
           {kpis.map((kpi) => {
             const c = situacaoColetaBadgeColors(kpi.status);
@@ -399,14 +488,15 @@ export default function ConsultarColetasScreen() {
           total={totaisServico.total}
         />
         <View style={styles.filtros}>
-          {(
+          {          (
             [
               ["todos", "Todas"],
+              ...(resumoAColetar ? ([["a_coletar", "A coletar"]] as const) : []),
               ["pendente", "Pendentes"],
               ["em_coleta", "Em coleta"],
               ["sem_volume", "Sem volume"],
               ["coletado", "Coletadas"],
-            ] as const
+            ] as ReadonlyArray<readonly [Filtro, string]>
           ).map(([valor, label]) => (
               <Pressable key={valor} style={[styles.filtro, filtro === valor && styles.filtroAtivo]} onPress={() => setFiltro(valor)}>
                 <Text style={[styles.filtroText, filtro === valor && styles.filtroTextAtivo]}>{label}</Text>
@@ -440,9 +530,26 @@ export default function ConsultarColetasScreen() {
           const cabecalho = (
             <>
               <View style={styles.row}>
-                <Text style={styles.title}>{item.base}</Text>
+                <View style={styles.titleWrap}>
+                  <Text style={styles.title}>{item.base}</Text>
+                  {item.contas?.length ? (
+                    <View style={styles.contas}>
+                      {item.contas
+                        .filter((c) => LOGO_CANAL[c.canal])
+                        .map((c) => (
+                          <Image
+                            key={`${c.canal}-${c.conta ?? ""}`}
+                            source={LOGO_CANAL[c.canal]}
+                            style={styles.contaLogo}
+                            accessibilityLabel={`Conta ${c.canal} conectada${c.conta ? `: ${c.conta}` : ""}`}
+                          />
+                        ))}
+                    </View>
+                  ) : null}
+                </View>
                 <ColetaSituacaoBadge status={item.status} />
               </View>
+              {fraseAColetar(item) ? <Text style={styles.aColetarLinha}>{fraseAColetar(item)}</Text> : null}
               {mostrarData ? <Text style={styles.muted}>Data: {formatDateLabel(dataOp)}</Text> : null}
               {item.status === "sem_volume" ? (
                 <Text style={styles.muted}>Confirmado: não houve coleta neste dia</Text>
@@ -472,7 +579,10 @@ export default function ConsultarColetasScreen() {
           );
 
           return (
-            <View key={cardKey} style={[styles.card, podeRegistrar && styles.cardPendente]}>
+            <View
+              key={cardKey}
+              style={[styles.card, podeRegistrar && styles.cardPendente, totalAColetar(item) > 0 && styles.cardComPendencia]}
+            >
               {podeRegistrar ? (
                 <Pressable
                   onPress={() => abrirLeitura(item)}
