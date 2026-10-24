@@ -10,11 +10,18 @@ const BIOMETRIC_ENABLED_KEY = "biometric_enabled";
 const MOTOBOT_PREFS_PREFIX = "motoboy_prefs_";
 const MOTOBOT_PREFS_LEGACY_PREFIX = "motoboy_prefs:";
 
+export type PrepararRotaMomento = "durante_bipagem" | "ao_encerrar";
+
+export function isPrepararRotaMomento(value: unknown): value is PrepararRotaMomento {
+  return value === "durante_bipagem" || value === "ao_encerrar";
+}
+
 export const SETTINGS_DEFAULTS = {
   theme: "light" as ThemeMode,
   biometricEnabled: false,
   somenteHojePendentes: true,
   roteirizacaoHabilitada: false,
+  prepararRotaMomento: "ao_encerrar" as PrepararRotaMomento,
   prepOrdemModo: "servico" as PrepOrdemModo,
   prepServicoInicio: "Shopee" as ServicoTipo,
   cidadePadrao: "",
@@ -25,6 +32,7 @@ export const SETTINGS_DEFAULTS = {
 export type StoredMotoboyPrefs = {
   somenteHojePendentes?: boolean;
   roteirizacaoHabilitada?: boolean;
+  prepararRotaMomento?: PrepararRotaMomento;
   prepOrdemModo?: PrepOrdemModo;
   prepServicoInicio?: ServicoTipo;
   cidadePadrao?: string;

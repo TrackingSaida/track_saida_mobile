@@ -33,6 +33,7 @@ import {
   compareBairro,
   filterSelectableSuggestions,
   findLocalAddressSuggestions,
+  hasExactLocalStreetNumber,
   formatAddressSummary,
   formatSelectedAddress,
   hasBairroConflict,
@@ -454,9 +455,20 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
         lastSearchQueryRef.current = query;
         resetAddressSessionToken();
         try {
-          const local = findLocalAddressSuggestions(enriched, knownDeliveries, defaults);
+          const local = filterSelectableSuggestions(
+            findLocalAddressSuggestions(enriched, knownDeliveries, defaults)
+          );
+          if (hasExactLocalStreetNumber(enriched, local)) {
+            const rankedLocal = rankAddressSuggestions(local).slice(0, 3);
+            setSuggestions(rankedLocal.length > 0 ? rankedLocal : local.slice(0, 3));
+            setDidYouMean(null);
+            setSearchEmpty(false);
+            setSearching(false);
+            onFlowStateChange?.("idle");
+            return;
+          }
           if (local.length > 0) {
-            setSuggestions(filterSelectableSuggestions(local));
+            setSuggestions(local);
           }
           const { suggestions: remote, didYouMean: dym } = await searchAddressSuggestions(query, {
             hints: enriched,
@@ -465,55 +477,11 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           if (requestId !== searchRequestIdRef.current) return;
 
           const localIds = new Set(local.map((s) => s.id));
-          let merged = filterSelectableSuggestions([
+          const merged = filterSelectableSuggestions([
             ...local,
             ...remote.filter((s) => !localIds.has(s.id)),
           ]);
-          let finalDym = dym;
-
-          if (merged.length === 0 && !finalDym) {
-            // 1) Mantém bairro (hábito rua+número+bairro) e tira só o número.
-            const withBairroQuery = buildSearchQuery(
-              { ...enriched, numero: "" },
-              defaults
-            );
-            if (
-              (enriched.numero ?? "").trim() &&
-              withBairroQuery !== query &&
-              withBairroQuery.replace(/\s/g, "").length >= 4
-            ) {
-              const withBairro = await searchAddressSuggestions(withBairroQuery, {
-                hints: enriched,
-                defaults,
-              });
-              if (requestId !== searchRequestIdRef.current) return;
-              merged = filterSelectableSuggestions(withBairro.suggestions);
-              finalDym = withBairro.didYouMean;
-            }
-          }
-
-          if (merged.length === 0 && !finalDym) {
-            // 2) Fallback mais amplo: só logradouro + cidade.
-            const hadExtra =
-              (enriched.numero ?? "").trim() || (enriched.bairro ?? "").trim();
-            const relaxedQuery = buildSearchQuery(
-              { ...enriched, numero: "", bairro: "" },
-              defaults
-            );
-            if (
-              hadExtra &&
-              relaxedQuery !== query &&
-              relaxedQuery.replace(/\s/g, "").length >= 4
-            ) {
-              const relaxed = await searchAddressSuggestions(relaxedQuery, {
-                hints: enriched,
-                defaults,
-              });
-              if (requestId !== searchRequestIdRef.current) return;
-              merged = filterSelectableSuggestions(relaxed.suggestions);
-              finalDym = relaxed.didYouMean;
-            }
-          }
+          const finalDym = dym;
 
           const ranked = rankAddressSuggestions(merged);
           const ordered = (ranked.length > 0 ? ranked : merged).slice(0, 3);

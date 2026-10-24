@@ -49,6 +49,7 @@ export function useActiveRoutePolyline(params: {
   backendPolylineCoords?: RoutePoint[] | null;
   geometryProvider?: "google" | "osrm" | null;
   geometryStatus?: "valid" | "stale" | "missing" | "failed" | null;
+  routeEnd?: { latitude: number; longitude: number } | null;
 }) {
   const {
     isRouteActive,
@@ -62,6 +63,7 @@ export function useActiveRoutePolyline(params: {
     backendPolylineCoords,
     geometryProvider,
     geometryStatus,
+    routeEnd,
   } = params;
 
   const useBackendGoogle =
@@ -112,6 +114,11 @@ export function useActiveRoutePolyline(params: {
     geocodedMeta,
     legacyValidationCache,
   ]);
+
+  const linePoints = useMemo(() => {
+    if (!routeEnd) return stopPoints;
+    return [...stopPoints, routeEnd];
+  }, [stopPoints, routeEnd]);
 
   const nextStop = stopPoints[0] ?? null;
 
@@ -184,14 +191,14 @@ export function useActiveRoutePolyline(params: {
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      void runFetch(stopPoints);
+      void runFetch(linePoints);
     }, DEBOUNCE_MS);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       abortRef.current?.abort();
     };
-  }, [stopPoints, runFetch, useBackendGoogle, geometryProvider, geometryStatus]);
+  }, [linePoints, runFetch, useBackendGoogle, geometryProvider, geometryStatus]);
 
   useEffect(() => {
     if (!isRouteActive || !currentLocation || !nextStop) {
@@ -266,8 +273,8 @@ export function useActiveRoutePolyline(params: {
   const recalcPolyline = useCallback(() => {
     if (useBackendGoogle) return;
     lastHashRef.current = null;
-    void runFetch(stopPoints, true);
-  }, [stopPoints, runFetch, useBackendGoogle]);
+    void runFetch(linePoints, true);
+  }, [linePoints, runFetch, useBackendGoogle]);
 
   const polyline = useMemo(
     () =>

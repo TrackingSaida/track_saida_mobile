@@ -6,13 +6,16 @@ import {
   SETTINGS_DEFAULTS,
   buildMotoboyPrefsKey,
   getMotoboyPrefs,
+  isPrepararRotaMomento,
   setMotoboyPrefs,
+  type PrepararRotaMomento,
   type StoredMotoboyPrefs,
 } from "../services/settingsService";
 
 interface MotoboyPrefsState {
   somenteHojePendentes: boolean;
   roteirizacaoHabilitada: boolean;
+  prepararRotaMomento: PrepararRotaMomento;
   prepOrdemModo: PrepOrdemModo;
   prepServicoInicio: ServicoTipo;
   routePriority: RoutePriority;
@@ -23,6 +26,7 @@ interface MotoboyPrefsState {
   resetToDefaults: () => void;
   setSomenteHojePendentes: (value: boolean) => Promise<void>;
   setRoteirizacaoHabilitada: (value: boolean) => Promise<void>;
+  setPrepararRotaMomento: (value: PrepararRotaMomento) => Promise<void>;
   setPrepOrdem: (modo: PrepOrdemModo, servicoInicio?: ServicoTipo) => Promise<void>;
   setRoutePriority: (priority: RoutePriority) => Promise<void>;
   setCidadePadrao: (cidade: string, estado?: string) => Promise<void>;
@@ -36,6 +40,7 @@ function snapshotFromState(state: MotoboyPrefsState): StoredMotoboyPrefs {
   return {
     somenteHojePendentes: state.somenteHojePendentes,
     roteirizacaoHabilitada: state.roteirizacaoHabilitada,
+    prepararRotaMomento: state.prepararRotaMomento,
     prepOrdemModo: state.prepOrdemModo,
     prepServicoInicio: state.prepServicoInicio,
     routePriority: state.routePriority,
@@ -48,6 +53,9 @@ function applyStoredPrefs(stored: StoredMotoboyPrefs | null): Partial<MotoboyPre
   return {
     somenteHojePendentes: stored?.somenteHojePendentes ?? SETTINGS_DEFAULTS.somenteHojePendentes,
     roteirizacaoHabilitada: stored?.roteirizacaoHabilitada ?? SETTINGS_DEFAULTS.roteirizacaoHabilitada,
+    prepararRotaMomento: isPrepararRotaMomento(stored?.prepararRotaMomento)
+      ? stored.prepararRotaMomento
+      : SETTINGS_DEFAULTS.prepararRotaMomento,
     prepOrdemModo: stored?.prepOrdemModo ?? SETTINGS_DEFAULTS.prepOrdemModo,
     prepServicoInicio: stored?.prepServicoInicio ?? SETTINGS_DEFAULTS.prepServicoInicio,
     routePriority: stored?.routePriority ?? SETTINGS_DEFAULTS.routePriority,
@@ -57,9 +65,10 @@ function applyStoredPrefs(stored: StoredMotoboyPrefs | null): Partial<MotoboyPre
   };
 }
 
-const defaultState = (): Omit<MotoboyPrefsState, "loadForCurrentUser" | "resetToDefaults" | "setSomenteHojePendentes" | "setRoteirizacaoHabilitada" | "setPrepOrdem" | "setRoutePriority" | "setCidadePadrao"> => ({
+const defaultState = (): Omit<MotoboyPrefsState, "loadForCurrentUser" | "resetToDefaults" | "setSomenteHojePendentes" | "setRoteirizacaoHabilitada" | "setPrepararRotaMomento" | "setPrepOrdem" | "setRoutePriority" | "setCidadePadrao"> => ({
   somenteHojePendentes: SETTINGS_DEFAULTS.somenteHojePendentes,
   roteirizacaoHabilitada: SETTINGS_DEFAULTS.roteirizacaoHabilitada,
+  prepararRotaMomento: SETTINGS_DEFAULTS.prepararRotaMomento,
   prepOrdemModo: SETTINGS_DEFAULTS.prepOrdemModo,
   prepServicoInicio: SETTINGS_DEFAULTS.prepServicoInicio,
   routePriority: SETTINGS_DEFAULTS.routePriority,
@@ -110,6 +119,18 @@ export const useMotoboyPrefsStore = create<MotoboyPrefsState>((set, get) => ({
       await persistSnapshot(userKey, get());
     } catch (error) {
       set({ roteirizacaoHabilitada: previous });
+      throw error;
+    }
+  },
+
+  setPrepararRotaMomento: async (value: PrepararRotaMomento) => {
+    const userKey = resolveUserKey();
+    const previous = get().prepararRotaMomento;
+    set({ prepararRotaMomento: value });
+    try {
+      await persistSnapshot(userKey, get());
+    } catch (error) {
+      set({ prepararRotaMomento: previous });
       throw error;
     }
   },

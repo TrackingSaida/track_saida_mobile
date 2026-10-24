@@ -62,6 +62,8 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
   const setSomenteHojePendentes = useMotoboyPrefsStore((s) => s.setSomenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
   const setRoteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.setRoteirizacaoHabilitada);
+  const prepararRotaMomento = useMotoboyPrefsStore((s) => s.prepararRotaMomento);
+  const setPrepararRotaMomento = useMotoboyPrefsStore((s) => s.setPrepararRotaMomento);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const setCidadePadrao = useMotoboyPrefsStore((s) => s.setCidadePadrao);
@@ -147,8 +149,9 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
           borderRadius: 5,
           backgroundColor: colors.primary,
         },
-        themeOptionText: { fontSize: 15, color: colors.text, fontWeight: "500" },
+        themeOptionText: { fontSize: 15, color: colors.text, fontWeight: "500", flex: 1 },
         themeOptionTextActive: { fontWeight: "700", color: colors.text },
+        momentHint: { fontSize: 12, color: colors.textSecondary, marginTop: 2, fontWeight: "400" },
         aboutRow: {
           paddingVertical: 12,
           paddingHorizontal: 16,
@@ -324,6 +327,35 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
     });
   };
 
+  const renderMomentOption = (
+    value: "durante_bipagem" | "ao_encerrar",
+    label: string,
+    hint: string,
+    isLast = false
+  ) => {
+    const active = prepararRotaMomento === value;
+    return (
+      <TouchableOpacity
+        key={value}
+        style={[styles.themeOption, isLast && styles.themeOptionLast]}
+        onPress={() => {
+          if (active) return;
+          void runWithSave(() => setPrepararRotaMomento(value));
+        }}
+        activeOpacity={0.7}
+        disabled={saving}
+      >
+        <View style={[styles.themeRadio, active && styles.themeRadioActive]}>
+          {active ? <View style={styles.themeRadioDot} /> : null}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.themeOptionText, active && styles.themeOptionTextActive]}>{label}</Text>
+          <Text style={styles.momentHint}>{hint}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   const renderThemeOption = (mode: ThemeMode, label: string, isLast = false) => {
     const active = theme === mode;
     return (
@@ -399,8 +431,23 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
                 value={roteirizacaoHabilitada}
                 onValueChange={(value) => void handleRoteirizacaoToggle(value)}
                 disabled={saving}
-                isLast
+                isLast={!roteirizacaoHabilitada}
               />
+              {roteirizacaoHabilitada
+                ? renderMomentOption(
+                    "durante_bipagem",
+                    "Durante a leitura",
+                    "Pede o endereço logo após cada bip."
+                  )
+                : null}
+              {roteirizacaoHabilitada
+                ? renderMomentOption(
+                    "ao_encerrar",
+                    "Ao encerrar",
+                    "Prepara a rota depois de começar a entrega.",
+                    true
+                  )
+                : null}
             </SettingsSection>
 
             <SettingsSection title="Cidade da busca">

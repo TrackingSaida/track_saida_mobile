@@ -90,10 +90,10 @@ type Props = NativeStackScreenProps<RootStackParamList, "PrepareDeliveries">;
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
-type AfterSaveMode = "scan" | "queue" | "none";
+type AfterSaveMode = "scan" | "queue" | "none" | "return_scan";
 type FormMode = "new" | "edit";
 
-export default function PrepareDeliveriesScreen({ navigation }: Props) {
+export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
 
@@ -392,9 +392,31 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         navigation.navigate("Tabs", { screen: "Entregas" });
         return;
       }
-      void loadDeliveries({ onlyToday: somenteHojePendentes });
-    }, [roteirizacaoHabilitada, navigation, loadDeliveries, somenteHojePendentes])
+      let cancelled = false;
+      void (async () => {
+        await loadDeliveries({ onlyToday: somenteHojePendentes });
+        if (cancelled) return;
+        if (route.params?.autoGenerate) {
+          navigation.setParams({ autoGenerate: undefined });
+          setPendingAutoGenerate(true);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [
+      roteirizacaoHabilitada,
+      navigation,
+      loadDeliveries,
+      somenteHojePendentes,
+      route.params?.autoGenerate,
+    ])
   );
+
+  const returnToScan = route.params?.returnToScan === true;
+  const addressDeliveryId = route.params?.addressDeliveryId;
+  const [pendingAutoGenerate, setPendingAutoGenerate] = useState(false);
+  const inlineOpenedRef = useRef(false);
 
   const total = pendingDeliveries.length;
   const comEndereco = deliveriesWithAddress.length;
@@ -597,6 +619,8 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
           setPostSaveSuccess(null);
           setFeedbackMessage("✓ Endereço salvo");
           setTimeout(() => setShowScanSheet(true), 400);
+        } else if (afterSaveMode === "return_scan") {
+          navigation.navigate("Scan");
         } else if (afterSaveMode === "queue") {
           refreshQueue();
           const remaining = useDeliveryStore.getState().deliveriesWithoutAddress.length;
@@ -624,6 +648,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
       refreshQueue,
       cidadePadrao,
       estadoPadrao,
+      navigation,
     ]
   );
 
@@ -642,6 +667,37 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     []
   );
 
+  const backToScan = useCallback(() => {
+    navigation.navigate("Scan");
+  }, [navigation]);
+
+  useEffect(() => {
+    if (!returnToScan || addressDeliveryId == null || inlineOpenedRef.current) return;
+    const state = useDeliveryStore.getState();
+    const delivery =
+      state.pendingDeliveries.find((d) => d.id_saida === addressDeliveryId) ??
+      state.deliveriesWithoutAddress.find((d) => d.id_saida === addressDeliveryId) ??
+      state.deliveriesWithAddress.find((d) => d.id_saida === addressDeliveryId);
+    if (!delivery) return;
+    inlineOpenedRef.current = true;
+    openAddressForm(delivery, {
+      mode: delivery.possui_endereco ? "edit" : "new",
+      afterSave: "return_scan",
+    });
+  }, [returnToScan, addressDeliveryId, pendingDeliveries, openAddressForm]);
+
+  const closeQuickForm = useCallback(() => {
+    if (afterSaveMode === "return_scan" || returnToScan) {
+      backToScan();
+      return;
+    }
+    setShowQuickForm(false);
+    setActiveDelivery(null);
+    setFormMode("new");
+    setPostSaveSuccess(null);
+    setQuickFormInlineFeedback(null);
+  }, [afterSaveMode, returnToScan, backToScan]);
+
   const prepOrigem = useMemo((): PrepAddressOrigem => {
     if (formMode === "edit") return "none";
     if (afterSaveMode === "scan") return "qr";
@@ -650,7 +706,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
   }, [afterSaveMode, formMode]);
 
   const quickFormSubmitLabel = useMemo(() => {
-    if (formMode === "edit") return "Salvar endereço";
+    if (formMode === "edit" || afterSaveMode === "return_scan") return "Salvar endereço";
     if (afterSaveMode === "scan") return "Salvar e escanear próximo";
     return "Salvar e próximo";
   }, [afterSaveMode, formMode]);
@@ -1079,6 +1135,13 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     [withCoords, semEndereco, navigation, reconcileActiveRoute, askDestinationAndGenerate]
   );
 
+  useEffect(() => {
+    if (!pendingAutoGenerate || loading) return;
+    setPendingAutoGenerate(false);
+    const sem = useDeliveryStore.getState().deliveriesWithoutAddress.length;
+    void handleGerarRotaOtimizada(sem > 0 ? { partial: true } : undefined);
+  }, [pendingAutoGenerate, loading, handleGerarRotaOtimizada]);
+
   const handleIniciarRota = useCallback(async () => {
     if (activeRouteId != null) {
       navigation.navigate("RouteBuilder");
@@ -1266,10 +1329,21 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
     refreshQueue();
   };
 
-  if (loading && total === 0) {
+  if (loading && total === 0 && !returnToScan) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
         <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  if (returnToScan && !showQuickForm && !showAdvancedForm && !showGeocodeFailure) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <ScreenHeaderBar title="Endereço" onBack={backToScan} paddingTop={Math.max(12, insets.top)} />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" />
+        </View>
       </View>
     );
   }
@@ -1464,13 +1538,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
         <View style={[styles.modalWrap, { flex: 1 }]}>
           <ScreenHeaderBar
             title="Preparar rota"
-            onBack={() => {
-              setShowQuickForm(false);
-              setActiveDelivery(null);
-              setFormMode("new");
-              setPostSaveSuccess(null);
-              setQuickFormInlineFeedback(null);
-            }}
+            onBack={closeQuickForm}
             paddingTop={Math.max(12, insets.top)}
           />
           {activeDelivery && postSaveSuccess ? (
@@ -1502,13 +1570,7 @@ export default function PrepareDeliveriesScreen({ navigation }: Props) {
               }
               onDictate={handleDictate}
               onOcr={handleOcr}
-              onCancel={() => {
-                setShowQuickForm(false);
-                setActiveDelivery(null);
-                setFormMode("new");
-                setPostSaveSuccess(null);
-                setQuickFormInlineFeedback(null);
-              }}
+              onCancel={closeQuickForm}
             />
           ) : null}
         </View>

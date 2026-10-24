@@ -8,7 +8,9 @@ import {
   ACTIVE_ROUTE_PENDING_MESSAGE,
   PENDING_ADDED_MESSAGE,
   PENDING_ADDED_TITLE,
+  deliveryNeedsAddressForRoute,
   resolvePostScanRouteContext,
+  shouldPromptAddressDuringScan,
 } from "./postScanRouteFlowCore";
 
 export {
@@ -17,6 +19,7 @@ export {
   PENDING_ADDED_TITLE,
   deliveryNeedsAddressForRoute,
   resolvePostScanRouteContext,
+  shouldPromptAddressDuringScan,
   type PostScanRouteContext,
 } from "./postScanRouteFlowCore";
 
@@ -50,12 +53,30 @@ export function runPostScanRouteFlow(
   }
 
   const roteirizacaoHabilitada = useMotoboyPrefsStore.getState().roteirizacaoHabilitada;
+  const prepararDuranteBipagem =
+    useMotoboyPrefsStore.getState().prepararRotaMomento === "durante_bipagem";
   const { routeOrder, activeRouteId } = useDeliveryStore.getState();
   const ctx = resolvePostScanRouteContext({
     roteirizacaoHabilitada,
     routeOrderLength: routeOrder.length,
     activeRouteId,
   });
+
+  if (
+    delivery &&
+    shouldPromptAddressDuringScan({
+      roteirizacaoHabilitada,
+      prepararDuranteBipagem,
+      routeContext: ctx,
+      needsAddress: deliveryNeedsAddressForRoute(delivery),
+    })
+  ) {
+    navigation.navigate("PrepareDeliveries", {
+      addressDeliveryId: idSaida,
+      returnToScan: true,
+    });
+    return;
+  }
 
   if (ctx === "route_active_notify") {
     notifyActiveRoutePendingAdded();

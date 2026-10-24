@@ -30,7 +30,7 @@ import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useAuthStore } from "../../../store/authStore";
 import { effectivePodeDigitarCodigoManual, effectivePodeCriarAvulsoSaida, effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos, ownerExigeSelecaoAvulso } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
-import { runPostScanRouteFlow } from "../utils/postScanRouteFlow";
+import { deliveryNeedsAddressForRoute, runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import type { EntregaListItem } from "../types";
 import AvulsoLancamentoModal from "../../operacao/components/AvulsoLancamentoModal";
 import AvulsoSelecionarModal from "../../operacao/components/AvulsoSelecionarModal";
@@ -445,11 +445,15 @@ export default function ScanScreen({ navigation, route }: Props) {
   const [listaExpandida, setListaExpandida] = useState(false);
   const [removendoId, setRemovendoId] = useState<number | null>(null);
   const [showPrepararRotaModal, setShowPrepararRotaModal] = useState(false);
+  const [faltamEnderecoNaSessao, setFaltamEnderecoNaSessao] = useState(0);
   const [feedbackVisual, setFeedbackVisual] = useState<FeedbackVisual | null>(null);
   const scanLocked = useRef(false);
   const feedbackClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRoute = useDeliveryStore((s) => s.startRoute);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
+  const prepararDuranteBipagem = useMotoboyPrefsStore(
+    (s) => s.prepararRotaMomento === "durante_bipagem"
+  );
   const currentUser = useAuthStore((s) => s.currentUser);
   const podeDigitarManual = effectivePodeDigitarCodigoManual(currentUser);
   const podeLancarAvulso = effectivePodeCriarAvulsoSaida(currentUser);
@@ -927,9 +931,20 @@ export default function ScanScreen({ navigation, route }: Props) {
   const handleComecarEntregar = async () => {
     if (leiturasSession.length === 0) return;
     const deliveryIds = leiturasSession.map((l) => l.id_saida);
+    const store = useDeliveryStore.getState();
+    const conhecidas = [
+      ...store.pendingDeliveries,
+      ...store.deliveriesWithoutAddress,
+      ...store.deliveriesWithAddress,
+    ];
+    const semEndereco = deliveryIds.filter((id) => {
+      const entrega = conhecidas.find((d) => d.id_saida === id);
+      return !entrega || deliveryNeedsAddressForRoute(entrega);
+    }).length;
     setIniciandoRota(true);
     try {
       await startRoute(deliveryIds);
+      setFaltamEnderecoNaSessao(semEndereco);
       clearLeituras();
       setRotaIniciada(true);
       if (roteirizacaoHabilitada) {
@@ -949,6 +964,11 @@ export default function ScanScreen({ navigation, route }: Props) {
   const handlePrepararRota = () => {
     setShowPrepararRotaModal(false);
     navigation.navigate("PrepareDeliveries");
+  };
+
+  const handleGerarRotaDaSessao = () => {
+    setShowPrepararRotaModal(false);
+    navigation.navigate("PrepareDeliveries", { autoGenerate: true });
   };
 
   const handleIrParaPendentes = () => {
@@ -1378,15 +1398,39 @@ export default function ScanScreen({ navigation, route }: Props) {
       <Modal visible={showPrepararRotaModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Preparar rota</Text>
-            <Text style={styles.modalMessage}>Você deseja preparar sua rota agora?</Text>
+            <Text style={styles.modalTitle}>
+              {prepararDuranteBipagem ? "Começar entrega" : "Preparar rota"}
+            </Text>
+            <Text style={styles.modalMessage}>
+              {prepararDuranteBipagem
+                ? "Os pedidos já estão na sua lista. O que deseja fazer agora?"
+                : "Você deseja preparar sua rota agora?"}
+            </Text>
             <View style={[styles.modalActions, { flexDirection: "column", gap: 10 }]}>
-              <TouchableOpacity style={styles.modalBtnOk} onPress={handlePrepararRota}>
-                <Text style={styles.modalBtnOkText}>Preparar Rota</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalBtnCancel} onPress={handleIrParaPendentes}>
-                <Text style={styles.modalBtnCancelText}>Ir para Pendentes</Text>
-              </TouchableOpacity>
+              {prepararDuranteBipagem ? (
+                <>
+                  <TouchableOpacity style={styles.modalBtnOk} onPress={handleIrParaPendentes}>
+                    <Text style={styles.modalBtnOkText}>Ir para Pendentes</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.modalBtnOk} onPress={handleGerarRotaDaSessao}>
+                    <Text style={styles.modalBtnOkText}>Gerar rota</Text>
+                  </TouchableOpacity>
+                  {faltamEnderecoNaSessao > 0 ? (
+                    <TouchableOpacity style={styles.modalBtnCancel} onPress={handlePrepararRota}>
+                      <Text style={styles.modalBtnCancelText}>Preparar rota</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity style={styles.modalBtnOk} onPress={handlePrepararRota}>
+                    <Text style={styles.modalBtnOkText}>Preparar Rota</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.modalBtnCancel} onPress={handleIrParaPendentes}>
+                    <Text style={styles.modalBtnCancelText}>Ir para Pendentes</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
         </View>
