@@ -3,6 +3,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -98,15 +99,22 @@ export default function OperacaoFilterSheet({
   );
 }
 
+type PeriodoPresetOpcao = { key: string; label: string; icon?: "calendar-outline" };
+
 type PeriodoFilterSheetProps = {
   visible: boolean;
-  draft: PeriodoConsulta;
+  draft: Pick<PeriodoConsulta, "dataInicio" | "dataFim"> & { preset: string };
   showDatePicker: boolean;
   onClose: () => void;
   onClear: () => void;
   onApply: () => void;
   onSelectPreset: (key: PeriodoPreset) => void;
+  onSelectPresetKey?: (key: string) => void;
   onDateChange: (event: DateTimePickerEvent, date?: Date) => void;
+  presets?: PeriodoPresetOpcao[];
+  extra?: React.ReactNode;
+  pickerDate?: string;
+  allowFuture?: boolean;
 };
 
 export function OperacaoPeriodoFilterSheet({
@@ -117,10 +125,15 @@ export function OperacaoPeriodoFilterSheet({
   onClear,
   onApply,
   onSelectPreset,
+  onSelectPresetKey,
   onDateChange,
+  presets = PERIOD_PRESETS,
+  extra = null,
+  pickerDate,
+  allowFuture = false,
 }: PeriodoFilterSheetProps) {
   const colors = useThemeColors();
-  const pickerValue = parseYmd(draft.dataFim) ?? new Date();
+  const pickerValue = parseYmd(pickerDate || draft.dataFim) ?? new Date();
 
   const styles = useMemo(
     () =>
@@ -150,34 +163,47 @@ export function OperacaoPeriodoFilterSheet({
       mode="date"
       display={Platform.OS === "ios" ? "spinner" : "default"}
       onChange={onDateChange}
-      maximumDate={new Date()}
+      {...(allowFuture ? {} : { maximumDate: new Date() })}
     />
   ) : null;
+
+  const conteudo = (
+    <>
+      <Text style={styles.sectionLabel}>Período</Text>
+      <View style={styles.pillRow}>
+        {presets.map((opt) => {
+          const active = draft.preset === opt.key;
+          return (
+            <TouchableOpacity
+              key={opt.key}
+              style={[styles.pill, active && styles.pillActive]}
+                onPress={() => (onSelectPresetKey ? onSelectPresetKey(opt.key) : onSelectPreset(opt.key as PeriodoPreset))}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+            >
+              {opt.icon ? (
+                <Ionicons name={opt.icon} size={16} color={active ? colors.primary : colors.textSecondary} />
+              ) : null}
+              <Text style={[styles.pillText, active && styles.pillTextActive]}>{opt.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      {extra}
+      {Platform.OS === "ios" ? picker : null}
+    </>
+  );
 
   return (
     <>
       <OperacaoFilterSheet visible={visible} onClose={onClose} onClear={onClear} onApply={onApply}>
-        <Text style={styles.sectionLabel}>Período</Text>
-        <View style={styles.pillRow}>
-          {PERIOD_PRESETS.map((opt) => {
-            const active = draft.preset === opt.key;
-            return (
-              <TouchableOpacity
-                key={opt.key}
-                style={[styles.pill, active && styles.pillActive]}
-                onPress={() => onSelectPreset(opt.key)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-              >
-                {opt.icon ? (
-                  <Ionicons name={opt.icon} size={16} color={active ? colors.primary : colors.textSecondary} />
-                ) : null}
-                <Text style={[styles.pillText, active && styles.pillTextActive]}>{opt.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-        {Platform.OS === "ios" ? picker : null}
+        {extra ? (
+          <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+            {conteudo}
+          </ScrollView>
+        ) : (
+          conteudo
+        )}
       </OperacaoFilterSheet>
       {Platform.OS === "android" ? picker : null}
     </>

@@ -16,6 +16,7 @@ import { type DateTimePickerEvent } from "@react-native-community/datetimepicker
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
+import { Ionicons } from "@expo/vector-icons";
 
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useThemeColors } from "../../../theme/colors";
@@ -26,6 +27,8 @@ import { isAdminRole } from "../../../utils/role";
 import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import {
   carregarConsultaColetasPorPeriodo,
+  complementarExecucoesComSituacaoHoje,
+  consultarSituacaoColetas,
   corrigirQuantidadesParticipante,
   type ParticipanteSituacaoColeta,
   type SituacaoBaseColeta,
@@ -42,16 +45,15 @@ import {
   statusColetaNormalizado,
   type ColetaStatusFiltro,
 } from "../utils/coletaSituacaoUi";
+import { formatDateLabel, formatYmd, isPeriodoDiaUnico } from "../utils/periodoConsulta";
 import {
-  buildPeriodo,
-  formatDateLabel,
-  formatYmd,
-  isPeriodoDiaUnico,
-  labelPeriodo,
-  periodoFiltroAtivoCount,
-  type PeriodoConsulta,
-  type PeriodoPreset,
-} from "../utils/periodoConsulta";
+  buildColetaPeriodo,
+  COLETA_PERIODO_PRESETS,
+  labelColetaPeriodo,
+  periodoPersonalizado,
+  type ColetaPeriodo,
+  type ColetaPeriodoPreset,
+} from "../utils/periodoColetas";
 
 type Filtro = "todos" | ColetaStatusFiltro | "a_coletar";
 type ResumoAColetar = NonNullable<SituacaoColetasResponse["resumo"]["a_coletar"]>;
@@ -63,6 +65,23 @@ const LOGO_CANAL = {
 
 function totalAColetar(item: SituacaoBaseColeta): number {
   return Number(item.a_coletar?.total || 0);
+}
+
+function resumoStatusDias(dias: SituacaoBaseColeta[]): string {
+  const counts = { coletado: 0, em_coleta: 0, pendente: 0, sem_volume: 0 };
+  dias.forEach((dia) => {
+    counts[statusColetaNormalizado(dia.status)] += 1;
+  });
+  const rotulo: Record<keyof typeof counts, [string, string]> = {
+    coletado: ["coletada", "coletadas"],
+    em_coleta: ["em coleta", "em coleta"],
+    pendente: ["pendente", "pendentes"],
+    sem_volume: ["sem volume", "sem volume"],
+  };
+  return (["coletado", "em_coleta", "pendente", "sem_volume"] as const)
+    .filter((key) => counts[key] > 0)
+    .map((key) => `${counts[key]} ${counts[key] === 1 ? rotulo[key][0] : rotulo[key][1]}`)
+    .join(" · ");
 }
 
 function fraseAColetar(item: SituacaoBaseColeta): string {
@@ -96,13 +115,13 @@ function modoLabel(modo: SituacaoBaseColeta["modo"]): string {
   return "—";
 }
 
-function dataItemColeta(item: SituacaoBaseColeta, periodo: PeriodoConsulta): string {
+function dataItemColeta(item: SituacaoBaseColeta, periodo: ColetaPeriodo): string {
   const raw = (item.data_operacao || "").slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   return isPeriodoDiaUnico(periodo) ? periodo.dataInicio : "";
 }
 
-function podeRegistrarHoje(item: SituacaoBaseColeta, periodo: PeriodoConsulta): boolean {
+function podeRegistrarHoje(item: SituacaoBaseColeta, periodo: ColetaPeriodo): boolean {
   if (!isColetaPendente(item.status)) return false;
   const data = dataItemColeta(item, periodo);
   return data === hojeOperacaoLocal();
@@ -115,8 +134,12 @@ export default function ConsultarColetasScreen() {
   const entidadeLabel = ownerEntityLabel(currentUser);
   const entidadeLabelLower = ownerEntityLabelLower(currentUser);
   const podeCorrigirRole = isAdminRole(currentUser?.role);
-  const [periodo, setPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
-  const [draftPeriodo, setDraftPeriodo] = useState<PeriodoConsulta>(() => buildPeriodo("hoje"));
+  const [periodo, setPeriodo] = useState<ColetaPeriodo>(() => buildColetaPeriodo("hoje"));
+  const [draftPeriodo, setDraftPeriodo] = useState<ColetaPeriodo>(() => buildColetaPeriodo("hoje"));
+  const [baseId, setBaseId] = useState<number | null>(null);
+  const [draftBaseId, setDraftBaseId] = useState<number | null>(null);
+  const [bordaData, setBordaData] = useState<"inicio" | "fim">("inicio");
+  const [expandidas, setExpandidas] = useState<number[]>([]);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [itens, setItens] = useState<SituacaoBaseColeta[]>([]);
@@ -239,6 +262,17 @@ export default function ConsultarColetasScreen() {
         },
         btnGhostText: { color: colors.text, fontWeight: "700" },
         btnPrimaryText: { color: colors.primaryContrast, fontWeight: "800" },
+        bordaBtn: {
+          flex: 1,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: 10,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+        },
+        bordaBtnAtiva: { borderColor: colors.primary },
+        baseLista: { maxHeight: 180 },
+        diaBloco: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
       }),
     [colors]
   );
@@ -248,14 +282,28 @@ export default function ConsultarColetasScreen() {
     setErro("");
     try {
       const payload = await carregarConsultaColetasPorPeriodo(periodo.dataInicio, periodo.dataFim);
-      setItens(payload.itens || []);
+      const multi = periodo.dataInicio !== periodo.dataFim;
+      const dia = hojeOperacaoLocal();
+      let itensCarregados = payload.itens || [];
+      if (multi && periodo.dataInicio <= dia && dia <= periodo.dataFim) {
+        try {
+          const situacaoHoje = await consultarSituacaoColetas(dia);
+          itensCarregados = complementarExecucoesComSituacaoHoje(itensCarregados, situacaoHoje, dia);
+        } catch {
+          // O período continua visível; corrigir fica indisponível neste carregamento.
+        }
+      }
+      setItens(itensCarregados);
+      setBaseId((atual) =>
+        atual != null && itensCarregados.some((item) => item.base_id === atual) ? atual : null
+      );
       setResumo({
         pendentes: payload.resumo?.pendentes ?? 0,
         em_coleta: payload.resumo?.em_coleta ?? 0,
         sem_volume: payload.resumo?.sem_volume ?? 0,
         coletadas: payload.resumo?.coletadas ?? 0,
       });
-      const aColetar = payload.resumo?.a_coletar ?? null;
+      const aColetar = multi ? null : (payload.resumo?.a_coletar ?? null);
       setResumoAColetar(aColetar);
       if (!aColetar) setFiltro((atual) => (atual === "a_coletar" ? "todos" : atual));
     } catch (error) {
@@ -271,12 +319,15 @@ export default function ConsultarColetasScreen() {
     }, [carregar])
   );
 
-  const onSelectDraftPreset = (key: PeriodoPreset) => {
-    if (key === "outro") {
+  const onSelectDraftPreset = (key: string) => {
+    if (key === "personalizado") {
+      setDraftPeriodo((atual) => ({ ...atual, preset: "personalizado" }));
+      setBordaData("inicio");
       setShowDatePicker(true);
       return;
     }
-    setDraftPeriodo(buildPeriodo(key));
+    setShowDatePicker(false);
+    setDraftPeriodo(buildColetaPeriodo(key as Exclude<ColetaPeriodoPreset, "personalizado">));
   };
 
   const onChangeDate = (event: DateTimePickerEvent, selectedDate?: Date) => {
@@ -286,28 +337,65 @@ export default function ConsultarColetasScreen() {
       return;
     }
     if (!selectedDate) return;
-    setDraftPeriodo(buildPeriodo("outro", formatYmd(selectedDate)));
+    const iso = formatYmd(selectedDate);
+    setDraftPeriodo((atual) =>
+      periodoPersonalizado(
+        bordaData === "inicio" ? iso : atual.dataInicio,
+        bordaData === "fim" ? iso : atual.dataFim
+      )
+    );
     if (Platform.OS === "ios") setShowDatePicker(false);
   };
 
   const aplicarPeriodo = () => {
+    let inicio = draftPeriodo.dataInicio;
+    let fim = draftPeriodo.dataFim;
+    if (fim < inicio) [inicio, fim] = [fim, inicio];
+    const proximo = { ...draftPeriodo, dataInicio: inicio, dataFim: fim };
     const mudou =
-      draftPeriodo.preset !== periodo.preset ||
-      draftPeriodo.dataInicio !== periodo.dataInicio ||
-      draftPeriodo.dataFim !== periodo.dataFim;
-    setPeriodo(draftPeriodo);
+      proximo.preset !== periodo.preset ||
+      proximo.dataInicio !== periodo.dataInicio ||
+      proximo.dataFim !== periodo.dataFim ||
+      draftBaseId !== baseId;
+    setPeriodo(proximo);
+    setBaseId(draftBaseId);
+    setExpandidas([]);
     if (mudou) setFiltro("todos");
     setFilterSheetVisible(false);
     setShowDatePicker(false);
   };
 
   const multiDia = !isPeriodoDiaUnico(periodo);
-  const visiveis =
-    filtro === "todos"
-      ? itens
-      : filtro === "a_coletar"
-        ? itens.filter((item) => totalAColetar(item) > 0)
-        : itens.filter((item) => statusColetaNormalizado(item.status) === filtro);
+  const visiveis = itens.filter((item) => {
+    if (baseId != null && item.base_id !== baseId) return false;
+    if (filtro === "todos") return true;
+    if (filtro === "a_coletar") return totalAColetar(item) > 0;
+    return statusColetaNormalizado(item.status) === filtro;
+  });
+  const grupos = useMemo(() => {
+    if (!multiDia) return [];
+    const mapa = new Map<number, { base_id: number; base: string; dias: SituacaoBaseColeta[] }>();
+    visiveis.forEach((item) => {
+      const atual = mapa.get(item.base_id);
+      if (atual) atual.dias.push(item);
+      else mapa.set(item.base_id, { base_id: item.base_id, base: item.base, dias: [item] });
+    });
+    return [...mapa.values()]
+      .map((grupo) => ({
+        ...grupo,
+        dias: [...grupo.dias].sort((a, b) => String(b.data_operacao || "").localeCompare(String(a.data_operacao || ""))),
+      }))
+      .sort((a, b) => a.base.localeCompare(b.base, "pt-BR"));
+  }, [multiDia, visiveis]);
+  const basesFiltro = useMemo(() => {
+    const vistas = new Map<number, string>();
+    itens.forEach((item) => {
+      if (!vistas.has(item.base_id)) vistas.set(item.base_id, item.base);
+    });
+    return [...vistas.entries()]
+      .map(([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [itens]);
   const totaisServico = useMemo(
     () =>
       itens.reduce(
@@ -414,9 +502,10 @@ export default function ConsultarColetasScreen() {
         onBack={() => navigation.goBack()}
         rightElement={
           <OperacaoFilterButton
-            activeCount={periodoFiltroAtivoCount(periodo)}
+            activeCount={(periodo.preset !== "hoje" ? 1 : 0) + (baseId != null ? 1 : 0)}
             onPress={() => {
               setDraftPeriodo(periodo);
+              setDraftBaseId(baseId);
               setFilterSheetVisible(true);
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             }}
@@ -428,12 +517,15 @@ export default function ConsultarColetasScreen() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void carregar()} />}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.periodoLabel}>{labelPeriodo(periodo)}</Text>
+        <Text style={styles.periodoLabel}>{labelColetaPeriodo(periodo)}</Text>
 
         {resumoAColetar ? (
           <Pressable
             style={[styles.aColetarBanner, filtro === "a_coletar" && styles.aColetarBannerAtivo]}
-            onPress={() => setFiltro((atual) => (atual === "a_coletar" ? "todos" : "a_coletar"))}
+                onPress={() => {
+                  setExpandidas([]);
+                  setFiltro((atual) => (atual === "a_coletar" ? "todos" : "a_coletar"));
+                }}
             accessibilityRole="button"
             accessibilityLabel={`${resumoAColetar.total} pedidos a coletar nos sellers. Toque para filtrar`}
           >
@@ -471,7 +563,10 @@ export default function ConsultarColetasScreen() {
               <Pressable
                 key={kpi.key}
                 style={[styles.kpi, { borderColor: c.border, backgroundColor: c.bg }, ativo && { borderWidth: 2 }]}
-                onPress={() => setFiltro((atual) => (atual === kpi.key ? "todos" : kpi.key))}
+                onPress={() => {
+                  setExpandidas([]);
+                  setFiltro((atual) => (atual === kpi.key ? "todos" : kpi.key));
+                }}
                 accessibilityRole="button"
                 accessibilityLabel={`Filtrar ${kpi.label}`}
               >
@@ -498,7 +593,14 @@ export default function ConsultarColetasScreen() {
               ["coletado", "Coletadas"],
             ] as ReadonlyArray<readonly [Filtro, string]>
           ).map(([valor, label]) => (
-              <Pressable key={valor} style={[styles.filtro, filtro === valor && styles.filtroAtivo]} onPress={() => setFiltro(valor)}>
+              <Pressable
+                key={valor}
+                style={[styles.filtro, filtro === valor && styles.filtroAtivo]}
+                onPress={() => {
+                  setExpandidas([]);
+                  setFiltro(valor);
+                }}
+              >
                 <Text style={[styles.filtroText, filtro === valor && styles.filtroTextAtivo]}>{label}</Text>
               </Pressable>
             )
@@ -517,7 +619,103 @@ export default function ConsultarColetasScreen() {
             </Text>
           </View>
         ) : null}
-        {visiveis.map((item) => {
+        {multiDia
+          ? grupos.map((grupo) => {
+              const aberto = expandidas.includes(grupo.base_id);
+              const statusUnico = new Set(grupo.dias.map((dia) => statusColetaNormalizado(dia.status))).size === 1;
+              const soma = grupo.dias.reduce(
+                (acc, dia) => ({
+                  shopee: acc.shopee + (dia.shopee || 0),
+                  mercadoLivre: acc.mercadoLivre + (dia.mercado_livre || 0),
+                  avulso: acc.avulso + (dia.avulso || 0),
+                  total: acc.total + (dia.total || 0),
+                }),
+                { shopee: 0, mercadoLivre: 0, avulso: 0, total: 0 }
+              );
+              return (
+                <View key={grupo.base_id} style={styles.card}>
+                  <Pressable
+                    onPress={() =>
+                      setExpandidas((atual) =>
+                        atual.includes(grupo.base_id) ? atual.filter((id) => id !== grupo.base_id) : [...atual, grupo.base_id]
+                      )
+                    }
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: aberto }}
+                    accessibilityLabel={`Ver dias de ${grupo.base}`}
+                  >
+                    <View style={styles.row}>
+                      <View style={styles.titleWrap}>
+                        <Ionicons name={aberto ? "chevron-down" : "chevron-forward"} size={18} color={colors.textSecondary} />
+                        <Text style={styles.title}>{grupo.base}</Text>
+                      </View>
+                      {statusUnico ? <ColetaSituacaoBadge status={grupo.dias[0].status} /> : null}
+                    </View>
+                    {statusUnico ? null : <Text style={styles.muted}>{resumoStatusDias(grupo.dias)}</Text>}
+                    <View style={{ marginTop: 10 }}>
+                      <ColetaServicoBadges
+                        shopee={soma.shopee}
+                        mercadoLivre={soma.mercadoLivre}
+                        avulso={soma.avulso}
+                        total={soma.total}
+                      />
+                    </View>
+                  </Pressable>
+                  {aberto
+                    ? grupo.dias.map((item) => {
+                        const dataOp = dataItemColeta(item, periodo);
+                        const corrigiveis = (item.participantes || []).filter(
+                          (p) => p.pode_corrigir && podeCorrigirRole && dataOp === hojeOperacaoLocal()
+                        );
+                        return (
+                          <View key={`${item.base_id}-${dataOp || item.id_execucao || "x"}`} style={styles.diaBloco}>
+                            <View style={styles.row}>
+                              <Text style={styles.title}>{dataOp ? formatDateLabel(dataOp) : "Dia"}</Text>
+                              <ColetaSituacaoBadge status={item.status} />
+                            </View>
+                            {item.status === "sem_volume" ? (
+                              <Text style={styles.muted}>Confirmado: não houve coleta neste dia</Text>
+                            ) : null}
+                            <Text style={styles.muted}>
+                              {item.participantes.length
+                                ? item.participantes
+                                    .map((p) => {
+                                      if (p.status === "em_coleta") return `${p.username} (em coleta)`;
+                                      if (p.sem_volume) return `${p.username} (sem volume)`;
+                                      return p.username;
+                                    })
+                                    .join(" • ")
+                                : "Ninguém iniciou esta coleta"}
+                            </Text>
+                            <Text style={styles.muted}>{modoLabel(item.modo)}</Text>
+                            <View style={{ marginTop: 10 }}>
+                              <ColetaServicoBadges
+                                shopee={item.shopee}
+                                mercadoLivre={item.mercado_livre}
+                                avulso={item.avulso}
+                                total={item.total}
+                              />
+                            </View>
+                            {corrigiveis.map((p) => (
+                              <Pressable
+                                key={p.id_participante || p.user_id}
+                                style={styles.btnCorrigir}
+                                onPress={() => abrirCorrecao(item, p)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Corrigir quantidades de ${p.username}`}
+                              >
+                                <Text style={styles.btnCorrigirText}>Corrigir quantidades · {p.username}</Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                        );
+                      })
+                    : null}
+                </View>
+              );
+            })
+          : null}
+        {!multiDia && visiveis.map((item) => {
           const dataOp = dataItemColeta(item, periodo);
           const mostrarData = Boolean(dataOp) && (multiDia || periodo.preset !== "hoje");
           const podeRegistrar = podeRegistrarHoje(item, periodo);
@@ -619,14 +817,79 @@ export default function ConsultarColetasScreen() {
       <OperacaoPeriodoFilterSheet
         visible={filterSheetVisible}
         draft={draftPeriodo}
+        presets={COLETA_PERIODO_PRESETS}
         showDatePicker={showDatePicker}
+        pickerDate={bordaData === "fim" ? draftPeriodo.dataFim : draftPeriodo.dataInicio}
+        allowFuture
+        extra={
+          <View>
+            <Text style={styles.fieldLabelModal}>Início e fim</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+              <Pressable
+                style={[styles.bordaBtn, bordaData === "inicio" && showDatePicker && styles.bordaBtnAtiva]}
+                onPress={() => {
+                  setBordaData("inicio");
+                  setShowDatePicker(true);
+                  setDraftPeriodo((atual) => ({ ...atual, preset: "personalizado" }));
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Escolher data inicial"
+              >
+                <Text style={styles.fieldLabelModal}>Início</Text>
+                <Text style={{ color: colors.text, fontWeight: "700" }}>{formatDateLabel(draftPeriodo.dataInicio)}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.bordaBtn, bordaData === "fim" && showDatePicker && styles.bordaBtnAtiva]}
+                onPress={() => {
+                  setBordaData("fim");
+                  setShowDatePicker(true);
+                  setDraftPeriodo((atual) => ({ ...atual, preset: "personalizado" }));
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Escolher data final"
+              >
+                <Text style={styles.fieldLabelModal}>Fim</Text>
+                <Text style={{ color: colors.text, fontWeight: "700" }}>{formatDateLabel(draftPeriodo.dataFim)}</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.fieldLabelModal}>Base</Text>
+            <ScrollView style={styles.baseLista} nestedScrollEnabled>
+              <View style={styles.filtros}>
+                <Pressable
+                  style={[styles.filtro, draftBaseId == null && styles.filtroAtivo]}
+                  onPress={() => setDraftBaseId(null)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: draftBaseId == null }}
+                >
+                  <Text style={[styles.filtroText, draftBaseId == null && styles.filtroTextAtivo]}>Todas</Text>
+                </Pressable>
+                {basesFiltro.map((base) => (
+                  <Pressable
+                    key={base.id}
+                    style={[styles.filtro, draftBaseId === base.id && styles.filtroAtivo]}
+                    onPress={() => setDraftBaseId(base.id)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: draftBaseId === base.id }}
+                  >
+                    <Text style={[styles.filtroText, draftBaseId === base.id && styles.filtroTextAtivo]}>{base.nome}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        }
         onClose={() => {
           setFilterSheetVisible(false);
           setShowDatePicker(false);
         }}
-        onClear={() => setDraftPeriodo(buildPeriodo("hoje"))}
+        onClear={() => {
+          setDraftPeriodo(buildColetaPeriodo("hoje"));
+          setDraftBaseId(null);
+          setShowDatePicker(false);
+        }}
         onApply={aplicarPeriodo}
-        onSelectPreset={onSelectDraftPreset}
+        onSelectPreset={() => undefined}
+        onSelectPresetKey={onSelectDraftPreset}
         onDateChange={onChangeDate}
       />
 
