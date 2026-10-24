@@ -355,6 +355,42 @@ export async function carregarConsultaColetasPorPeriodo(
   };
 }
 
+/** A listagem de período não traz permissão nem preço. A situação de hoje completa só as execuções desse dia. */
+export function complementarExecucoesComSituacaoHoje(
+  itens: SituacaoBaseColeta[],
+  situacao: SituacaoColetasResponse,
+  hoje: string
+): SituacaoBaseColeta[] {
+  const porBase = new Map(situacao.itens.map((item) => [item.base_id, item]));
+  return itens.map((item) => {
+    const data = (item.data_operacao || "").slice(0, 10);
+    if (data !== hoje) return item;
+    const origemBase = porBase.get(item.base_id);
+    if (!origemBase) return item;
+    const porParticipante = new Map(
+      origemBase.participantes
+        .filter((participante) => participante.id_participante != null)
+        .map((participante) => [participante.id_participante as number, participante])
+    );
+    return {
+      ...item,
+      precos: origemBase.precos || item.precos,
+      atualizado_em: origemBase.atualizado_em ?? item.atualizado_em,
+      pode_corrigir: Boolean(origemBase.pode_corrigir),
+      participantes: item.participantes.map((participante) => {
+        const origem = participante.id_participante != null ? porParticipante.get(participante.id_participante) : undefined;
+        if (!origem) return participante;
+        return {
+          ...participante,
+          pode_corrigir: Boolean(origem.pode_corrigir),
+          versao: origem.versao ?? participante.versao,
+          valor_total: origem.valor_total ?? participante.valor_total,
+        };
+      }),
+    };
+  });
+}
+
 export interface CorrigirQuantidadesPayload {
   shopee: number;
   mercado_livre: number;

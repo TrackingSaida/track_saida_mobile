@@ -112,6 +112,6 @@ export function labelPeriodo(p: PeriodoConsulta): string {
   return formatDateLabel(p.dataFim);
 }
 
-export function isPeriodoDiaUnico(p: PeriodoConsulta): boolean {
+export function isPeriodoDiaUnico(p: { dataInicio: string; dataFim: string }): boolean {
   return p.dataInicio === p.dataFim;
 }
