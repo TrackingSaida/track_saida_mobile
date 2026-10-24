@@ -23,7 +23,13 @@ export type MotoboyRootStackParamList = {
   Tabs: NavigatorScreenParams<MotoboyTabParamList> | undefined;
   Scan: { resumeAvulso?: boolean } | undefined;
   DeliverScan: undefined;
-  PrepareDeliveries: undefined;
+  PrepareDeliveries:
+    | {
+        addressDeliveryId?: number;
+        returnToScan?: boolean;
+        autoGenerate?: boolean;
+      }
+    | undefined;
   RouteBuilder:
     | {
         openLocatePackage?: boolean;

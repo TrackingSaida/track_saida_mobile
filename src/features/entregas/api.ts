@@ -268,7 +268,7 @@ export async function putEndereco(idSaida: number, body: EnderecoBody): Promise<
   return data;
 }
 
-const ENDERECO_SUGESTOES_TIMEOUT_MS = 20_000;
+const ENDERECO_SUGESTOES_TIMEOUT_MS = 10_000;
 const ROUTE_OPTIMIZE_TIMEOUT_MS = 30_000;
 
 export async function postEnderecoSugestoes(

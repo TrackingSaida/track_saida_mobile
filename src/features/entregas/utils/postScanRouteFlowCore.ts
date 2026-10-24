@@ -24,3 +24,15 @@ export function deliveryNeedsAddressForRoute(d: EntregaListItem): boolean {
   const addr = (d.endereco_formatado ?? d.endereco ?? "").trim();
   return addr.length === 0;
 }
+
+/** Durante a leitura, só abre endereço quando não há rota e o pedido ainda não tem destino utilizável. */
+export function shouldPromptAddressDuringScan(input: {
+  roteirizacaoHabilitada: boolean;
+  prepararDuranteBipagem: boolean;
+  routeContext: PostScanRouteContext;
+  needsAddress: boolean;
+}): boolean {
+  if (!input.roteirizacaoHabilitada || !input.prepararDuranteBipagem) return false;
+  if (input.routeContext !== "none") return false;
+  return input.needsAddress;
+}

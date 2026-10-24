@@ -27,6 +27,7 @@ import FormAusenteModal from "../features/entregas/components/FormAusenteModal";
 import type { MarcacaoEntregaResponse } from "../features/entregas/types";
 import { getEntrega } from "../features/entregas/api";
 import { useDeliveryStore } from "../store/deliveryStore";
+import { useRouteDestinationStore } from "../store/routeDestinationStore";
 import {
   camposAusenteFromDeliveries,
   camposEntregueFromDeliveries,
@@ -315,6 +316,11 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const routePolylineCoords = useDeliveryStore((s) => s.routePolylineCoords);
   const routeGeometryProvider = useDeliveryStore((s) => s.routeGeometryProvider);
   const routeGeometryStatus = useDeliveryStore((s) => s.routeGeometryStatus);
+  const routeDestination = useRouteDestinationStore((s) =>
+    s.useDestination && s.end
+      ? { latitude: s.end.latitude, longitude: s.end.longitude, label: s.addressLabel }
+      : null
+  );
 
   const { polyline: routePolyline, polylineWarning, recalcPolyline } = useActiveRoutePolyline({
     isRouteActive,
@@ -328,6 +334,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     backendPolylineCoords: routePolylineCoords,
     geometryProvider: routeGeometryProvider,
     geometryStatus: routeGeometryStatus,
+    routeEnd: routeDestination,
   });
 
   useEffect(() => {
@@ -1533,6 +1540,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
           legacyValidationCache={legacyValidationCache}
           untrustedCount={untrustedCount}
           routePolyline={routePolyline ?? undefined}
+          routeDestination={routeDestination}
           routeMode
           isRouteActive={isRouteActive}
           polylineWarning={polylineWarning}

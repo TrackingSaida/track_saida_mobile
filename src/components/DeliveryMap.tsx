@@ -47,6 +47,7 @@ export interface DeliveryMapProps {
   legacyValidationCache?: LegacyValidationCache;
   untrustedCount?: number;
   routePolyline?: Array<{ latitude: number; longitude: number }>;
+  routeDestination?: { latitude: number; longitude: number; label?: string | null } | null;
   routeMode?: boolean;
   isRouteActive?: boolean;
   polylineWarning?: string | null;
@@ -65,6 +66,7 @@ export default function DeliveryMap({
   legacyValidationCache,
   untrustedCount = 0,
   routePolyline,
+  routeDestination = null,
   routeMode = true,
   isRouteActive: isRouteActiveProp,
   polylineWarning,
@@ -402,6 +404,14 @@ export default function DeliveryMap({
           shadowRadius: 2,
           elevation: 3,
         },
+        destinationMarker: {
+          width: 14,
+          height: 14,
+          borderRadius: 7,
+          backgroundColor: "#16a34a",
+          borderWidth: 2,
+          borderColor: "#fff",
+        },
       }),
     []
   );
@@ -503,6 +513,20 @@ export default function DeliveryMap({
             geodesic={false}
           />
         )}
+        {routeDestination ? (
+          <Marker
+            coordinate={{
+              latitude: routeDestination.latitude,
+              longitude: routeDestination.longitude,
+            }}
+            anchor={{ x: 0.5, y: 1 }}
+            tracksViewChanges={false}
+            title="Destino final"
+            description={routeDestination.label || "Casa"}
+          >
+            <View style={styles.destinationMarker} />
+          </Marker>
+        ) : null}
         {currentLocation && (
           <Marker
             coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}

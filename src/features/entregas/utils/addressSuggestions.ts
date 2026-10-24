@@ -632,6 +632,29 @@ function applyDefaultsToValues(
 const GPS_CACHE_TTL_MS = 120_000;
 let cachedSearchGps: { latitude: number; longitude: number } | null = null;
 let cachedSearchGpsAt = 0;
+let gpsRefreshInFlight = false;
+
+function rememberSearchGps(pos: { latitude: number; longitude: number } | null): void {
+  if (!pos) return;
+  cachedSearchGps = pos;
+  cachedSearchGpsAt = Date.now();
+}
+
+function peekSearchGps(): { latitude: number; longitude: number } | null {
+  if (!cachedSearchGps) return null;
+  if (Date.now() - cachedSearchGpsAt >= GPS_CACHE_TTL_MS) return null;
+  return cachedSearchGps;
+}
+
+function refreshSearchGpsInBackground(): void {
+  if (gpsRefreshInFlight) return;
+  gpsRefreshInFlight = true;
+  void getCurrentGps()
+    .then((pos) => rememberSearchGps(pos))
+    .finally(() => {
+      gpsRefreshInFlight = false;
+    });
+}
 
 async function getCurrentGps(): Promise<{ latitude: number; longitude: number } | null> {
   try {
@@ -647,15 +670,10 @@ async function getCurrentGps(): Promise<{ latitude: number; longitude: number } 
 }
 
 export async function getSearchGpsCached(): Promise<{ latitude: number; longitude: number } | null> {
-  const now = Date.now();
-  if (cachedSearchGps && now - cachedSearchGpsAt < GPS_CACHE_TTL_MS) {
-    return cachedSearchGps;
-  }
+  const cached = peekSearchGps();
+  if (cached) return cached;
   const pos = await getCurrentGps();
-  if (pos) {
-    cachedSearchGps = pos;
-    cachedSearchGpsAt = now;
-  }
+  rememberSearchGps(pos);
   return pos;
 }
 
@@ -772,7 +790,8 @@ export async function searchAddressSuggestions(
   }
 
   try {
-    const gps = options?.gps !== undefined ? options.gps : await getSearchGpsCached();
+    const gps = options?.gps !== undefined ? options.gps : peekSearchGps();
+    if (options?.gps === undefined && !gps) refreshSearchGpsInBackground();
     const response = await postEnderecoSugestoes({
       query: q || buildSearchQuery(hints ?? {}, options?.defaults),
       latitude: gps?.latitude,
@@ -901,6 +920,21 @@ export function findLocalAddressSuggestions(
   }
 
   return results;
+}
+
+/** Rua e número iguais a um pedido já na rota ou na fila. */
+export function hasExactLocalStreetNumber(
+  vals: Partial<AddressFormValues>,
+  suggestions: AddressSuggestion[]
+): boolean {
+  const rua = normalizeStreet((vals.rua ?? "").trim());
+  const numero = (vals.numero ?? "").trim();
+  if (!rua || !numero) return false;
+  return suggestions.some((s) => {
+    const sRua = normalizeStreet((s.values.rua ?? "").trim());
+    const sNumero = normalizeNumero((s.values.numero ?? "").trim());
+    return sRua === rua && sNumero === normalizeNumero(numero);
+  });
 }
 
 export async function enrichParsedAddress(
