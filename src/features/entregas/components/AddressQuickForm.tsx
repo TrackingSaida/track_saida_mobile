@@ -863,8 +863,11 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           }
         }
 
-        // Motoboy costuma falar só rua+número — usa cidade/UF padrão da operação.
-        if (!vals.cidade.trim() && defaults.cidade) vals = { ...vals, cidade: defaults.cidade };
+        // Cidade da busca só completa texto livre. Sugestão escolhida fica com a cidade dela.
+        const pickedSuggestion = Boolean(selection || selectedSuggestionId);
+        if (!vals.cidade.trim() && defaults.cidade && !pickedSuggestion) {
+          vals = { ...vals, cidade: defaults.cidade };
+        }
         if (!vals.estado.trim() && defaults.estado) vals = { ...vals, estado: defaults.estado };
 
         // Sugestão sem CEP: completa a partir do OCR/texto, ViaCEP ou reverse — não bloqueia o save.
