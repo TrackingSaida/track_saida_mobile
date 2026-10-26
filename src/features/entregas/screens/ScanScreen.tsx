@@ -532,6 +532,21 @@ export default function ScanScreen({ navigation, route }: Props) {
     }, [clearSessionIfRotaIniciada])
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      const sub = navigation.addListener("beforeRemove", (e) => {
+        const type = e.data.action.type;
+        if (type !== "GO_BACK" && type !== "POP") return;
+        const state = navigation.getState();
+        const below = state.routes[state.index - 1];
+        if (below?.name !== "PrepareDeliveries") return;
+        e.preventDefault();
+        navigation.navigate("Tabs", undefined, { pop: true });
+      });
+      return () => sub();
+    }, [navigation])
+  );
+
   const addLeitura = useCallback((ent: { id_saida: number; codigo?: string | null; servico?: string | null }) => {
     const serv = classifyServico(ent.servico);
     addLeituraStore({ id_saida: ent.id_saida, codigo: ent.codigo || "", servico: serv });
@@ -1135,7 +1150,9 @@ export default function ScanScreen({ navigation, route }: Props) {
   return (
     <View style={styles.containerCamera}>
       <View style={[styles.headerOverlay, { top: insets.top }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Tabs", undefined, { pop: true })}
+        >
           <Text style={styles.backTextWhite}>← Voltar</Text>
         </TouchableOpacity>
         <Text style={styles.titleWhite}>Escanear</Text>
