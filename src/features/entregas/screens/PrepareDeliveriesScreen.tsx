@@ -620,7 +620,7 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
           setFeedbackMessage("✓ Endereço salvo");
           setTimeout(() => setShowScanSheet(true), 400);
         } else if (afterSaveMode === "return_scan") {
-          navigation.navigate("Scan");
+          navigation.navigate("Scan", undefined, { pop: true });
         } else if (afterSaveMode === "queue") {
           refreshQueue();
           const remaining = useDeliveryStore.getState().deliveriesWithoutAddress.length;
@@ -668,7 +668,7 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
   );
 
   const backToScan = useCallback(() => {
-    navigation.navigate("Scan");
+    navigation.navigate("Scan", undefined, { pop: true });
   }, [navigation]);
 
   useEffect(() => {
