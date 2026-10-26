@@ -1562,6 +1562,7 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
                 formMode === "edit" ? deliveryToFreeText(activeDelivery) : ""
               }
               submitLabel={quickFormSubmitLabel}
+              saveOnSelect={formMode !== "edit"}
               inlineFeedback={quickFormInlineFeedback}
               externalParsed={externalParsed}
               onFlowStateChange={setFlowState}
