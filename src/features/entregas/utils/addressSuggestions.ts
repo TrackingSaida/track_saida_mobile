@@ -175,7 +175,7 @@ export function formatSuggestionLines(
   const v = s.values;
   const cidade = (v.cidade ?? "").trim();
   const estado = normalizeEstadoUf(v.estado) || (v.estado ?? "").trim().toUpperCase();
-  const line3FromValues = cidade && estado ? `${cidade} - ${estado}` : cidade || estado;
+  const line3FromValues = suggestionCityLine(cidade, estado, (s.secondaryText ?? "").trim());
   const cepDigits = normalizeCep(v.cep ?? "");
   const badge = suggestionBadgeLabel(s, opts);
 
@@ -224,6 +224,36 @@ export function formatSuggestionLines(
     distance: formatSuggestionDistance(s.distanceKm),
     badge,
   };
+}
+
+function normalizeCityToken(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Cidade citada no texto do provedor, como "Parque Viana, Barueri - SP". */
+function cityNamedInSecondary(secondary: string): string | null {
+  const matches = [...secondary.matchAll(/(?:^|,\s*)([^,\n]+?)\s*-\s*[A-Za-z]{2}\b/g)];
+  const last = matches[matches.length - 1]?.[1]?.trim();
+  return last || null;
+}
+
+function suggestionCityLine(
+  cidade: string,
+  estado: string,
+  secondary: string
+): string {
+  const line = cidade && estado ? `${cidade} - ${estado}` : cidade || estado;
+  if (!secondary.trim()) return line;
+  if (!cidade) return "";
+  const named = cityNamedInSecondary(secondary);
+  const cidadeKey = normalizeCityToken(cidade);
+  if (named && normalizeCityToken(named) !== cidadeKey) return "";
+  if (normalizeCityToken(secondary).includes(cidadeKey)) return "";
+  return line;
 }
 
 function normalizePartForDedup(text: string): string {
@@ -622,9 +652,10 @@ function applyDefaultsToValues(
   values: AddressFormValues,
   defaults?: { cidade?: string; estado?: string }
 ): AddressFormValues {
+  // A cidade da busca (GPS ou cidade forçada) só orienta a consulta.
+  // Não pode entrar no endereço: o motoboy atende mais de um município.
   return {
     ...values,
-    cidade: values.cidade.trim() || (defaults?.cidade ?? "").trim(),
     estado: values.estado.trim() || (defaults?.estado ?? "").trim(),
   };
 }
@@ -696,6 +727,11 @@ function mapApiSuggestionToAddress(
     hints
   );
   values = applyDefaultsToValues(values, defaults);
+  const providerCity = (api.cidade ?? "").trim();
+  const namedCity = cityNamedInSecondary(api.secondary_text ?? "");
+  if (!providerCity && namedCity) {
+    values = { ...values, cidade: namedCity };
+  }
   const placeId = (api.place_id ?? "").trim();
   const requiresDetails = Boolean(api.requires_place_details && placeId);
   const id = placeId
