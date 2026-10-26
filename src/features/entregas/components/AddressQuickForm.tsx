@@ -83,6 +83,12 @@ export type InlineFeedback = {
   tone: "success" | "warning" | "info";
 } | null;
 
+type SelectionSave = {
+  vals: AddressFormValues;
+  coords: GeocodeResult | null;
+  origem: AddressOrigem;
+};
+
 interface AddressQuickFormProps {
   delivery: EntregaListItem;
   flowState?: QuickFormFlowState;
@@ -94,6 +100,8 @@ interface AddressQuickFormProps {
   hidePackageCard?: boolean;
   showInputActions?: boolean;
   submitLabel?: string;
+  /** Grava ao tocar uma sugestão. A edição de um endereço já salvo continua no botão. */
+  saveOnSelect?: boolean;
   inlineFeedback?: InlineFeedback;
   onFlowStateChange?: (state: QuickFormFlowState) => void;
   onSaveAndNext: (
@@ -129,6 +137,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       hidePackageCard = false,
       showInputActions = true,
       submitLabel = "Salvar e próximo",
+      saveOnSelect = false,
       inlineFeedback = null,
       onFlowStateChange,
       onSaveAndNext,
@@ -156,6 +165,10 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
     const userBairroRef = useRef("");
     const telemetryEventsRef = useRef<string[]>([]);
     const appliedSuggestionIdRef = useRef<string | null>(null);
+    const saveInFlightRef = useRef(false);
+    const handleSaveRef = useRef<
+      (skipNumeroWarn?: boolean, selection?: SelectionSave) => Promise<void>
+    >(async () => {});
 
     const setInformedBairro = useCallback((bairro: string) => {
       const trimmed = bairro.trim();
@@ -226,6 +239,14 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
     const applySuggestion = useCallback(
       async (s: AddressSuggestion, fromAuto = false) => {
         if (!isSelectableAddressSuggestion(s)) return;
+        const shouldSave = !fromAuto && saveOnSelect;
+        if (shouldSave && saveInFlightRef.current) return;
+        if (shouldSave) saveInFlightRef.current = true;
+        const releaseSave = () => {
+          if (shouldSave) saveInFlightRef.current = false;
+        };
+        let handedOff = false;
+        try {
 
         // Google provisional sem bairro: não auto-aplicar até place-details.
         if (fromAuto && isGooglePendingSuggestion(s) && !(s.values.bairro ?? "").trim()) {
@@ -366,6 +387,17 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
           return fromAuto || ranked.length <= 1 ? [displaySuggestion] : ranked.slice(0, 3);
         });
         setSearchEmpty(false);
+        if (shouldSave) {
+          handedOff = true;
+          void handleSaveRef.current(false, {
+            vals,
+            coords: { latitude: resolved.latitude, longitude: resolved.longitude },
+            origem,
+          });
+        }
+        } finally {
+          if (!handedOff) releaseSave();
+        }
       },
       [
         autoApplied,
@@ -375,6 +407,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
         defaults,
         freeText,
         onFlowStateChange,
+        saveOnSelect,
         trackEvent,
       ]
     );
@@ -696,7 +729,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       };
     };
 
-    const validateValues = (vals: AddressFormValues): string | null => {
+    const validateValues = (vals: AddressFormValues, hasSelection = false): string | null => {
       const missing: string[] = [];
       if (!vals.rua.trim()) missing.push("rua");
       if (!vals.numero.trim()) missing.push("número");
@@ -706,7 +739,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       if (vals.cep.replace(/\D/g, "").length < 8) missing.push("CEP (8 dígitos)");
       if (missing.length === 0) return null;
       const selectableCount = filterSelectableSuggestions(suggestions).length;
-      if (selectableCount > 0 && !selectedSuggestionId) {
+      if (selectableCount > 0 && !(hasSelection || selectedSuggestionId)) {
         return "Selecione uma das sugestões de endereço abaixo.";
       }
       if (!vals.cidade.trim() && !defaults.cidade) {
@@ -715,30 +748,34 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
       return `Faltam: ${missing.join(", ")}. Aguarde a busca ou use o modo avançado.`;
     };
 
-    const executeSave = async (overrideVals?: AddressFormValues) => {
-      const vals = overrideVals ?? buildValues();
+    const executeSave = async (overrideVals?: AddressFormValues, selection?: SelectionSave) => {
+      const vals = overrideVals ?? selection?.vals ?? buildValues();
+      const coords = selection ? selection.coords : selectedCoords;
+      const origem: AddressOrigem = selection
+        ? selection.origem
+        : selectedSuggestionId &&
+            isValidGeocodeCoords(selectedCoords?.latitude, selectedCoords?.longitude)
+          ? selectedOrigem
+          : "manual";
       onFlowStateChange?.("saving");
+      saveInFlightRef.current = true;
       try {
-        const origem: AddressOrigem =
-          selectedSuggestionId &&
-          isValidGeocodeCoords(selectedCoords?.latitude, selectedCoords?.longitude)
-            ? selectedOrigem
-            : "manual";
-        await onSaveAndNext(vals, selectedCoords, origem, {
+        await onSaveAndNext(vals, coords, origem, {
           bairroInformado: userBairroRef.current.trim() || undefined,
           events: [...telemetryEventsRef.current],
         });
         telemetryEventsRef.current = [];
       } finally {
+        saveInFlightRef.current = false;
         onFlowStateChange?.("idle");
       }
     };
 
-    const confirmBairroThenSave = (vals: AddressFormValues) => {
+    const confirmBairroThenSave = (vals: AddressFormValues, selection?: SelectionSave) => {
       const informed = userBairroRef.current.trim();
       const chosen = (vals.bairro ?? "").trim();
       if (!informed || !chosen || compareBairro(informed, chosen) !== "conflict") {
-        void executeSave(vals);
+        void executeSave(vals, selection);
         return;
       }
       trackEvent("bairro_mismatch");
@@ -751,31 +788,51 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
             onPress: () => {
               const next = { ...vals, bairro: informed };
               setParsedInternal(next);
-              void executeSave(next);
+              void executeSave(next, selection ? { ...selection, vals: next } : undefined);
             },
           },
           {
             text: `Usar ${chosen}`,
             onPress: () => {
               trackEvent("suggestion_changed_by_user");
-              void executeSave(vals);
+              void executeSave(vals, selection);
             },
           },
-          { text: "Corrigir", style: "cancel", onPress: () => freeTextRef.current?.focus() },
+          {
+            text: "Corrigir",
+            style: "cancel",
+            onPress: () => {
+              saveInFlightRef.current = false;
+              freeTextRef.current?.focus();
+            },
+          },
         ]
       );
     };
 
-    const handleSave = async (skipNumeroWarn = false) => {
-      let vals = buildValues();
+    const handleSave = async (skipNumeroWarn = false, selection?: SelectionSave) => {
+      if (!selection && !skipNumeroWarn) {
+        if (saveInFlightRef.current) return;
+        saveInFlightRef.current = true;
+      }
+      try {
+      let vals = selection?.vals ?? buildValues();
+      const coords = selection?.coords ?? selectedCoords;
       const hasStreet = !!(vals.rua.trim() || vals.bairro.trim());
       if (!skipNumeroWarn && hasStreet && !vals.numero.trim()) {
         Alert.alert(
           "Endereço sem número",
           "Este endereço parece estar sem número.\nDeseja salvar mesmo assim?",
           [
-            { text: "Corrigir", style: "cancel", onPress: () => freeTextRef.current?.focus() },
-            { text: "Salvar mesmo assim", onPress: () => void handleSave(true) },
+            {
+              text: "Corrigir",
+              style: "cancel",
+              onPress: () => {
+                saveInFlightRef.current = false;
+                freeTextRef.current?.focus();
+              },
+            },
+            { text: "Salvar mesmo assim", onPress: () => void handleSave(true, selection) },
           ]
         );
         return;
@@ -796,7 +853,7 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
             setParsedInternal(vals);
             const summary = formatAddressSummary(vals);
             if (summary) setFreeText(summary);
-            if (vals.cidade.trim() && vals.estado.trim() && !selectedSuggestionId) {
+            if (!selection && vals.cidade.trim() && vals.estado.trim() && !selectedSuggestionId) {
               await runSearchRef.current(vals, { autoApply: true });
               // Se a busca auto-aplicou sugestão, usa o estado atualizado.
               vals = { ...vals, ...parsedInternalRef.current };
@@ -813,29 +870,26 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
         // Sugestão sem CEP: completa a partir do OCR/texto, ViaCEP ou reverse — não bloqueia o save.
         const cepAfterHints = vals.cep.replace(/\D/g, "");
         const hasTrustedSuggestionCoords =
-          !!selectedSuggestionId &&
-          isValidGeocodeCoords(selectedCoords?.latitude, selectedCoords?.longitude);
+          (!!selection || !!selectedSuggestionId) &&
+          isValidGeocodeCoords(coords?.latitude, coords?.longitude);
         if (cepAfterHints.length < 8 && (hasTrustedSuggestionCoords || (vals.rua.trim() && vals.cidade.trim()))) {
           onFlowStateChange?.("searching");
           try {
             vals = await completeMissingCep(vals, {
               freeText,
               hintCep: parsedInternalRef.current.cep,
-              latitude: selectedCoords?.latitude,
-              longitude: selectedCoords?.longitude,
+              latitude: coords?.latitude,
+              longitude: coords?.longitude,
               reversePostcode: reverseGeocodePostcode,
             });
             // Retry único se ainda faltou CEP e há coords (reverse pode ter falhado na 1ª).
             if (
               vals.cep.replace(/\D/g, "").length < 8 &&
               hasTrustedSuggestionCoords &&
-              selectedCoords?.latitude != null &&
-              selectedCoords?.longitude != null
+              coords?.latitude != null &&
+              coords?.longitude != null
             ) {
-              const retryCep = await reverseGeocodePostcode(
-                selectedCoords.latitude,
-                selectedCoords.longitude
-              );
+              const retryCep = await reverseGeocodePostcode(coords.latitude, coords.longitude);
               if (retryCep && retryCep.length === 8) {
                 vals = { ...vals, cep: retryCep };
               }
@@ -850,14 +904,24 @@ const AddressQuickForm = forwardRef<AddressQuickFormHandle, AddressQuickFormProp
 
         setParsedInternal((prev) => ({ ...prev, ...vals }));
 
-        const validationError = validateValues(vals);
+        const validationError = validateValues(vals, !!selection);
         if (validationError) {
+          saveInFlightRef.current = false;
           Alert.alert("Endereço incompleto", validationError);
           return;
         }
       }
-      confirmBairroThenSave(vals);
+      if (selection) {
+        selection = { ...selection, vals };
+      }
+      confirmBairroThenSave(vals, selection);
+      } catch {
+        saveInFlightRef.current = false;
+        onFlowStateChange?.("idle");
+        Alert.alert("Endereço", "Não foi possível preparar o endereço. Tente novamente.");
+      }
     };
+    handleSaveRef.current = handleSave;
 
     const inputLocked =
       flowState === "geocoding" ||
