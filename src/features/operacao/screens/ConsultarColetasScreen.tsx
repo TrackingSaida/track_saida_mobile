@@ -23,13 +23,15 @@ import { useThemeColors } from "../../../theme/colors";
 import { formatApiError } from "../../../utils/formatApiError";
 import { useAuthStore } from "../../../store/authStore";
 import { ownerEntityLabel, ownerEntityLabelLower } from "../../../utils/ownerLabels";
-import { isAdminRole } from "../../../utils/role";
+import { isAdminOperadorRole, isAdminRole, permiteManualColeta } from "../../../utils/role";
 import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
+import { listarBasesAtivas } from "../basesApi";
 import {
   carregarConsultaColetasPorPeriodo,
   complementarExecucoesComSituacaoHoje,
   consultarSituacaoColetas,
   corrigirQuantidadesParticipante,
+  lancarColetaManualOperacional,
   type ParticipanteSituacaoColeta,
   type SituacaoBaseColeta,
   type SituacaoColetasResponse,
@@ -45,6 +47,7 @@ import {
   statusColetaNormalizado,
   type ColetaStatusFiltro,
 } from "../utils/coletaSituacaoUi";
+import { completarPendentesPeriodo, contarResumoColetas } from "../utils/pendentesPeriodoColeta";
 import { formatDateLabel, formatYmd, isPeriodoDiaUnico } from "../utils/periodoConsulta";
 import {
   buildColetaPeriodo,
@@ -102,6 +105,13 @@ type CorrecaoCtx = {
   avulso: string;
 };
 
+type ManualCtx = {
+  item: SituacaoBaseColeta;
+  flex: string;
+  shopee: string;
+  avulso: string;
+};
+
 function money(value: number | string | undefined): string {
   const n = Number(value);
   if (!Number.isFinite(n)) return "R$ 0,00";
@@ -149,8 +159,10 @@ export default function ConsultarColetasScreen() {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
   const [correcao, setCorrecao] = useState<CorrecaoCtx | null>(null);
+  const [manual, setManual] = useState<ManualCtx | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [erroCorrecao, setErroCorrecao] = useState("");
+  const [erroManual, setErroManual] = useState("");
 
   const styles = useMemo(
     () =>
@@ -293,15 +305,26 @@ export default function ConsultarColetasScreen() {
           // O período continua visível; corrigir fica indisponível neste carregamento.
         }
       }
+      if (multi && isAdminOperadorRole(currentUser?.role)) {
+        const bases = await listarBasesAtivas();
+        itensCarregados = completarPendentesPeriodo(
+          itensCarregados,
+          bases,
+          periodo.dataInicio,
+          periodo.dataFim,
+          dia
+        );
+      }
       setItens(itensCarregados);
       setBaseId((atual) =>
         atual != null && itensCarregados.some((item) => item.base_id === atual) ? atual : null
       );
+      const contagem = multi ? contarResumoColetas(itensCarregados) : null;
       setResumo({
-        pendentes: payload.resumo?.pendentes ?? 0,
-        em_coleta: payload.resumo?.em_coleta ?? 0,
-        sem_volume: payload.resumo?.sem_volume ?? 0,
-        coletadas: payload.resumo?.coletadas ?? 0,
+        pendentes: contagem?.pendentes ?? payload.resumo?.pendentes ?? 0,
+        em_coleta: contagem?.em_coleta ?? payload.resumo?.em_coleta ?? 0,
+        sem_volume: contagem?.sem_volume ?? payload.resumo?.sem_volume ?? 0,
+        coletadas: contagem?.coletadas ?? payload.resumo?.coletadas ?? 0,
       });
       const aColetar = multi ? null : (payload.resumo?.a_coletar ?? null);
       setResumoAColetar(aColetar);
@@ -311,7 +334,7 @@ export default function ConsultarColetasScreen() {
     } finally {
       setLoading(false);
     }
-  }, [periodo.dataFim, periodo.dataInicio]);
+  }, [currentUser?.role, periodo.dataFim, periodo.dataInicio]);
 
   useFocusEffect(
     useCallback(() => {
@@ -414,6 +437,57 @@ export default function ConsultarColetasScreen() {
     if (!podeRegistrarHoje(item, periodo)) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     navigation.navigate("LeituraColetas", { baseId: item.base_id, baseNome: item.base });
+  };
+
+  const podeAtalhoManual = (item: SituacaoBaseColeta) => {
+    if (!permiteManualColeta(currentUser) || !isColetaPendente(item.status) || item.id_execucao) return false;
+    const data = dataItemColeta(item, periodo);
+    const hoje = hojeOperacaoLocal();
+    if (!data || data >= hoje) return false;
+    return isAdminOperadorRole(currentUser?.role);
+  };
+
+  const abrirManual = (item: SituacaoBaseColeta) => {
+    if (!podeAtalhoManual(item)) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setErroManual("");
+    setManual({ item, flex: "", shopee: "", avulso: "" });
+  };
+
+  const salvarManual = async () => {
+    if (!manual) return;
+    const flex = manual.flex.trim() === "" ? 0 : Number(manual.flex);
+    const shopee = manual.shopee.trim() === "" ? 0 : Number(manual.shopee);
+    const avulso = manual.avulso.trim() === "" ? 0 : Number(manual.avulso);
+    if (![flex, shopee, avulso].every((n) => Number.isInteger(n) && n >= 0)) {
+      setErroManual("Use apenas números inteiros a partir de zero.");
+      return;
+    }
+    if (flex + shopee + avulso <= 0) {
+      setErroManual("Informe a quantidade de Flex, Shopee ou Avulso.");
+      return;
+    }
+    const data = dataItemColeta(manual.item, periodo);
+    setSalvando(true);
+    setErroManual("");
+    try {
+      await lancarColetaManualOperacional({
+        base_id: manual.item.base_id,
+        data_operacao: data,
+        shopee,
+        mercado_livre: flex,
+        avulso,
+        sem_volume: false,
+        acrescentar: false,
+        origem_cliente: "mobile",
+      });
+      setManual(null);
+      await carregar();
+    } catch (error) {
+      setErroManual(formatApiError(error, "Não foi possível registrar a coleta."));
+    } finally {
+      setSalvando(false);
+    }
   };
 
   const abrirCorrecao = (item: SituacaoBaseColeta, participante: ParticipanteSituacaoColeta) => {
@@ -707,6 +781,26 @@ export default function ConsultarColetasScreen() {
                                 <Text style={styles.btnCorrigirText}>Corrigir quantidades · {p.username}</Text>
                               </Pressable>
                             ))}
+                            {dataOp === hojeOperacaoLocal() && isColetaPendente(item.status) && !item.id_execucao ? (
+                              <Pressable
+                                style={styles.btnCorrigir}
+                                onPress={() => abrirLeitura(item)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Registrar coleta de ${grupo.base} em ${formatDateLabel(dataOp)}`}
+                              >
+                                <Text style={styles.btnCorrigirText}>Registrar coleta</Text>
+                              </Pressable>
+                            ) : null}
+                            {podeAtalhoManual(item) ? (
+                              <Pressable
+                                style={styles.btnCorrigir}
+                                onPress={() => abrirManual(item)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Registrar coleta de ${grupo.base} em ${formatDateLabel(dataOp)}`}
+                              >
+                                <Text style={styles.btnCorrigirText}>Registrar coleta</Text>
+                              </Pressable>
+                            ) : null}
                           </View>
                         );
                       })
@@ -794,7 +888,18 @@ export default function ConsultarColetasScreen() {
                 <>
                   {cabecalho}
                   {pendente && !podeRegistrar ? (
-                    <Text style={styles.muted}>Registro disponível apenas para o dia de hoje.</Text>
+                    podeAtalhoManual(item) ? (
+                      <Pressable
+                        style={styles.btnCorrigir}
+                        onPress={() => abrirManual(item)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Registrar coleta de ${item.base} em ${formatDateLabel(dataOp)}`}
+                      >
+                        <Text style={styles.btnCorrigirText}>Registrar coleta</Text>
+                      </Pressable>
+                    ) : (
+                      <Text style={styles.muted}>Registro disponível apenas para o dia de hoje.</Text>
+                    )
                   ) : null}
                 </>
               )}
@@ -955,6 +1060,59 @@ export default function ConsultarColetasScreen() {
               </Pressable>
               <Pressable style={styles.btnPrimary} disabled={salvando} onPress={() => void salvarCorrecao()}>
                 {salvando ? <ActivityIndicator color={colors.primaryContrast} /> : <Text style={styles.btnPrimaryText}>Confirmar</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={Boolean(manual)} animationType="slide" transparent onRequestClose={() => !salvando && setManual(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Registrar coleta</Text>
+            {manual ? (
+              <Text style={styles.muted}>
+                {manual.item.base} · {formatDateLabel(dataItemColeta(manual.item, periodo))}
+              </Text>
+            ) : null}
+            <Text style={styles.muted}>A coleta manual fica neste dia e nesta base.</Text>
+            <View>
+              <Text style={styles.fieldLabelModal}>Flex</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="number-pad"
+                value={manual?.flex ?? ""}
+                onChangeText={(v) => setManual((c) => (c ? { ...c, flex: v.replace(/[^\d]/g, "") } : c))}
+                accessibilityLabel="Quantidade Flex"
+              />
+            </View>
+            <View>
+              <Text style={styles.fieldLabelModal}>Shopee</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="number-pad"
+                value={manual?.shopee ?? ""}
+                onChangeText={(v) => setManual((c) => (c ? { ...c, shopee: v.replace(/[^\d]/g, "") } : c))}
+                accessibilityLabel="Quantidade Shopee"
+              />
+            </View>
+            <View>
+              <Text style={styles.fieldLabelModal}>Avulso</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="number-pad"
+                value={manual?.avulso ?? ""}
+                onChangeText={(v) => setManual((c) => (c ? { ...c, avulso: v.replace(/[^\d]/g, "") } : c))}
+                accessibilityLabel="Quantidade Avulso"
+              />
+            </View>
+            {erroManual ? <Text style={styles.error}>{erroManual}</Text> : null}
+            <View style={styles.actions}>
+              <Pressable style={styles.btnGhost} disabled={salvando} onPress={() => setManual(null)}>
+                <Text style={styles.btnGhostText}>Cancelar</Text>
+              </Pressable>
+              <Pressable style={styles.btnPrimary} disabled={salvando} onPress={() => void salvarManual()}>
+                {salvando ? <ActivityIndicator color={colors.primaryContrast} /> : <Text style={styles.btnPrimaryText}>Registrar</Text>}
               </Pressable>
             </View>
           </View>

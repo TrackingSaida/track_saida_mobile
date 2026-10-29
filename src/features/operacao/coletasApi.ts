@@ -173,6 +173,8 @@ export interface SituacaoBaseColeta {
   participando: boolean;
   pode_ajudar: boolean;
   pode_corrigir?: boolean;
+  /** Dia sem execução, montado na consulta do período. */
+  sintetico?: boolean;
   atualizado_em?: string | null;
   /** Contas de marketplace conectadas ao seller. */
   contas?: ContaConectadaSeller[];
