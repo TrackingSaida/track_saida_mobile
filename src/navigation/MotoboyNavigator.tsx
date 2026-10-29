@@ -32,6 +32,7 @@ import MeusDadosScreen from "../screens/MeusDadosScreen";
 import ConfiguracoesScreen from "../screens/ConfiguracoesScreen";
 import PrivacidadeScreen from "../screens/PrivacidadeScreen";
 import SobreRotevoScreen from "../screens/SobreRotevoScreen";
+import CentralAjudaScreen from "../features/ajuda/CentralAjudaScreen";
 import MinhasEntregasScreen from "../features/entregas/screens/MinhasEntregasScreen";
 import MinhasEntregasDiaScreen from "../features/entregas/screens/MinhasEntregasDiaScreen";
 import MeusFechamentosScreen from "../features/fechamentos/screens/MeusFechamentosScreen";
@@ -207,6 +208,7 @@ export default function MotoboyRootNavigator({ onLogout }: { onLogout: () => Pro
       <RootStack.Screen name="Configuracoes" component={ConfiguracoesScreen} />
       <RootStack.Screen name="Privacidade" component={PrivacidadeScreen} />
       <RootStack.Screen name="SobreRotevo" component={SobreRotevoScreen} />
+      <RootStack.Screen name="CentralAjuda" component={CentralAjudaScreen} />
       <RootStack.Screen name="EnviarAviso" component={EnviarAvisoScreen} />
       <RootStack.Screen name="MinhasEntregas" component={MinhasEntregasScreen} />
       <RootStack.Screen name="MinhasEntregasDia" component={MinhasEntregasDiaScreen} />

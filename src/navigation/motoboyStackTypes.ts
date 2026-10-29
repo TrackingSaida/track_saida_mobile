@@ -53,6 +53,7 @@ export type MotoboyRootStackParamList = {
   Configuracoes: undefined;
   Privacidade: undefined;
   SobreRotevo: undefined;
+  CentralAjuda: undefined;
   EnviarAviso: undefined;
   MinhasEntregas: { presetPeriodoHoje?: true } | undefined;
   MinhasEntregasDia: { data: string };
