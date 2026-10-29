@@ -24,6 +24,7 @@ import MeusDadosScreen from "../screens/MeusDadosScreen";
 import ConfiguracoesScreen from "../screens/ConfiguracoesScreen";
 import PrivacidadeScreen from "../screens/PrivacidadeScreen";
 import SobreRotevoScreen from "../screens/SobreRotevoScreen";
+import CentralAjudaScreen from "../features/ajuda/CentralAjudaScreen";
 import EnviarAvisoScreen from "../features/avisos/screens/EnviarAvisoScreen";
 import MinhasEntregasScreen from "../features/entregas/screens/MinhasEntregasScreen";
 import MinhasEntregasDiaScreen from "../features/entregas/screens/MinhasEntregasDiaScreen";
@@ -53,6 +54,7 @@ function MaisStackScreen({ onLogout }: { onLogout: () => Promise<void> }) {
       <MaisStack.Screen name="Configuracoes" component={ConfiguracoesScreen} />
       <MaisStack.Screen name="Privacidade" component={PrivacidadeScreen} />
       <MaisStack.Screen name="SobreRotevo" component={SobreRotevoScreen} />
+      <MaisStack.Screen name="CentralAjuda" component={CentralAjudaScreen} />
       <MaisStack.Screen name="EnviarAviso" component={EnviarAvisoScreen} />
       <MaisStack.Screen name="MinhasEntregas" component={MinhasEntregasScreen} />
       <MaisStack.Screen name="MinhasEntregasDia" component={MinhasEntregasDiaScreen} />

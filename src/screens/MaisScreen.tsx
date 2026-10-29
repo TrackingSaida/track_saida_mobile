@@ -35,6 +35,7 @@ export type MaisStackParamList = {
   Configuracoes: undefined;
   Privacidade: undefined;
   SobreRotevo: undefined;
+  CentralAjuda: undefined;
   EnviarAviso: undefined;
   MinhasEntregas: { presetPeriodoHoje?: true } | undefined;
   MinhasEntregasDia: { data: string };
@@ -253,6 +254,14 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
             title="Preferências"
             subtitle="Configurações do aplicativo"
             onPress={() => navigation.navigate("Configuracoes")}
+            iconColor={profile.accent}
+            iconSoftBg={profile.accentSoft}
+          />
+          <PressableMenuRow
+            icon="play-circle-outline"
+            title="Central de Ajuda"
+            subtitle="Tutoriais do ROTEVO Ensina"
+            onPress={() => navigation.navigate("CentralAjuda")}
             iconColor={profile.accent}
             iconSoftBg={profile.accentSoft}
           />
