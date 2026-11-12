@@ -268,6 +268,10 @@ export interface LerSaidaApiRow {
   qr_atualizado?: boolean;
   qr_alerta?: boolean;
   qr_alerta_mensagem?: string;
+  fluxo_confirmacao_ativo?: boolean;
+  sessao_id?: number | null;
+  sessao_status?: string | null;
+  sessao_total?: number | null;
 }
 
 export interface LancarAvulsoBody {

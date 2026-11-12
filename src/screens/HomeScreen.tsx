@@ -1,5 +1,14 @@
-import React, { useCallback, useMemo } from "react";
-import { View, StyleSheet, Alert, ScrollView } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  View,
+  StyleSheet,
+  Alert,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  ActivityIndicator,
+  Modal,
+} from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
@@ -29,7 +38,12 @@ import HomeOperationalCard from "../features/home/components/HomeOperationalCard
 import HomeNextAction from "../features/home/components/HomeNextAction";
 import HomeDailySummary from "../features/home/components/HomeDailySummary";
 import HomeCompletedState from "../features/home/components/HomeCompletedState";
-import { getRotaResumo } from "../features/entregas/api";
+import {
+  confirmarSaidaSessoes,
+  getRotaResumo,
+  getSaidaSessoesPendentes,
+  type SaidaSessoesPendentesResponse,
+} from "../features/entregas/api";
 import {
   useDiaRotaConcluidaStore,
   VALOR_ROTA_LABEL,
@@ -67,12 +81,55 @@ export default function HomeScreen() {
   const showColeta = effectivePodeLerColeta(currentUser);
   const unreadCount = useAvisosUnreadStore((s) => s.unreadCount);
   const refreshUnread = useAvisosUnreadStore((s) => s.refresh);
+  const [saidaPendente, setSaidaPendente] = useState<SaidaSessoesPendentesResponse | null>(null);
+  const [idsRemovidos, setIdsRemovidos] = useState<number[]>([]);
+  const [revisandoSaida, setRevisandoSaida] = useState(false);
+  const [confirmandoSaida, setConfirmandoSaida] = useState(false);
+  const saidaPendenteTotal = Math.max(0, (saidaPendente?.total ?? 0) - idsRemovidos.length);
+
+  const carregarConfirmacaoSaida = useCallback(async () => {
+    try {
+      const result = await getSaidaSessoesPendentes();
+      setSaidaPendente(result.fluxo_confirmacao_ativo ? result : null);
+      setIdsRemovidos([]);
+    } catch {
+      // Mantém a home utilizável offline; o gate do backend protege a operação.
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       void refreshUnread();
-    }, [refreshUnread])
+      void carregarConfirmacaoSaida();
+    }, [refreshUnread, carregarConfirmacaoSaida])
   );
+
+  const confirmarSaidaPendente = useCallback(async () => {
+    setConfirmandoSaida(true);
+    try {
+      await confirmarSaidaSessoes({
+        sessao_ids: saidaPendente?.sessao_ids ?? [],
+        ids_removidos: idsRemovidos,
+      });
+      setSaidaPendente(null);
+      setIdsRemovidos([]);
+      setRevisandoSaida(false);
+      await useDeliveryStore.getState().loadDeliveries();
+      navigation.navigate("Entregas", { initialTab: "pendente" });
+    } catch {
+      Alert.alert("Não foi possível confirmar", "Verifique sua conexão e tente novamente.");
+    } finally {
+      setConfirmandoSaida(false);
+    }
+  }, [idsRemovidos, navigation, saidaPendente?.sessao_ids]);
+
+  const alternarRemocao = useCallback((idSaida: number) => {
+    setIdsRemovidos((atuais) =>
+      atuais.includes(idSaida)
+        ? atuais.filter((id) => id !== idSaida)
+        : [...atuais, idSaida]
+    );
+  }, []);
 
   const styles = useMemo(
     () =>
@@ -83,6 +140,66 @@ export default function HomeScreen() {
           paddingTop: space.md,
           paddingBottom: space.xxl,
         },
+        confirmacaoCard: {
+          backgroundColor: colors.backgroundCard,
+          borderColor: colors.primary,
+          borderWidth: 1,
+          borderRadius: 14,
+          padding: space.md,
+          marginBottom: space.md,
+        },
+        confirmacaoTitle: { color: colors.text, fontWeight: "700", fontSize: 17 },
+        confirmacaoText: { color: colors.textSecondary, marginTop: 4, marginBottom: space.sm },
+        confirmacaoButton: {
+          minHeight: 48,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 10,
+          backgroundColor: colors.primary,
+        },
+        confirmacaoButtonText: { color: colors.primaryContrast, fontWeight: "700", fontSize: 16 },
+        revisarButton: { alignItems: "center", paddingTop: space.sm },
+        revisarButtonText: { color: colors.primary, fontWeight: "700" },
+        modalOverlay: {
+          flex: 1,
+          justifyContent: "flex-end",
+          backgroundColor: colors.overlay,
+        },
+        modalCard: {
+          maxHeight: "82%",
+          backgroundColor: colors.backgroundCard,
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
+          padding: space.md,
+        },
+        modalTitle: { color: colors.text, fontWeight: "700", fontSize: 20 },
+        modalDescription: { color: colors.textSecondary, marginTop: 4, marginBottom: space.md },
+        pacoteRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottomColor: colors.separator,
+          borderBottomWidth: 1,
+          paddingVertical: 12,
+        },
+        pacoteInfo: { flex: 1, paddingRight: space.sm },
+        pacoteCodigo: { color: colors.text, fontWeight: "700", fontSize: 16 },
+        pacoteServico: { color: colors.textSecondary, marginTop: 2 },
+        removerButton: {
+          borderColor: colors.danger,
+          borderWidth: 1,
+          borderRadius: 8,
+          minWidth: 86,
+          alignItems: "center",
+          paddingHorizontal: 10,
+          paddingVertical: 8,
+        },
+        removerButtonSelected: { backgroundColor: colors.danger },
+        removerText: { color: colors.danger, fontWeight: "700" },
+        removerTextSelected: { color: colors.primaryContrast },
+        modalActions: { gap: space.sm, paddingTop: space.md },
+        closeButton: { alignItems: "center", paddingVertical: 12 },
+        closeButtonText: { color: colors.textSecondary, fontWeight: "700" },
       }),
     [colors]
   );
@@ -192,6 +309,34 @@ export default function HomeScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        {(saidaPendente?.total ?? 0) > 0 ? (
+          <View style={styles.confirmacaoCard}>
+            <Text style={styles.confirmacaoTitle}>Saída aguardando confirmação</Text>
+            <Text style={styles.confirmacaoText}>
+              Confirme os {saidaPendenteTotal} pacotes lidos antes de preparar rota ou entregar.
+            </Text>
+            <TouchableOpacity
+              style={styles.confirmacaoButton}
+              disabled={confirmandoSaida}
+              onPress={() => void confirmarSaidaPendente()}
+            >
+              {confirmandoSaida ? (
+                <ActivityIndicator color={colors.primaryContrast} />
+              ) : (
+                <Text style={styles.confirmacaoButtonText}>
+                  {saidaPendenteTotal > 0
+                    ? `Começar entrega — ${saidaPendenteTotal} pacotes`
+                    : "Confirmar remoção dos pacotes"}
+                </Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.revisarButton} onPress={() => setRevisandoSaida(true)}>
+              <Text style={styles.revisarButtonText}>
+                Revisar pacotes{idsRemovidos.length ? ` · ${idsRemovidos.length} removido(s)` : ""}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         {presentation.completedAction ? (
           <HomeCompletedState
             title={presentation.view.title}
@@ -237,6 +382,62 @@ export default function HomeScreen() {
           onPressDetails={() => navigation.navigate("ResumoDetalhe")}
         />
       </ScrollView>
+      <Modal
+        visible={revisandoSaida}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRevisandoSaida(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Pacotes para começar entrega</Text>
+            <Text style={styles.modalDescription}>
+              Remova somente os pacotes que não ficarão com você. As sessões são tratadas automaticamente.
+            </Text>
+            <ScrollView>
+              {(saidaPendente?.itens ?? []).map((item) => {
+                const removido = idsRemovidos.includes(item.id_saida);
+                return (
+                  <View key={item.id_saida} style={styles.pacoteRow}>
+                    <View style={styles.pacoteInfo}>
+                      <Text style={styles.pacoteCodigo}>{item.codigo || `Pedido ${item.id_saida}`}</Text>
+                      <Text style={styles.pacoteServico}>{item.servico || "Avulso"}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.removerButton, removido && styles.removerButtonSelected]}
+                      onPress={() => alternarRemocao(item.id_saida)}
+                    >
+                      <Text style={[styles.removerText, removido && styles.removerTextSelected]}>
+                        {removido ? "Manter" : "Remover"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.confirmacaoButton}
+                disabled={confirmandoSaida}
+                onPress={() => void confirmarSaidaPendente()}
+              >
+                {confirmandoSaida ? (
+                  <ActivityIndicator color={colors.primaryContrast} />
+                ) : (
+                  <Text style={styles.confirmacaoButtonText}>
+                    {saidaPendenteTotal > 0
+                      ? `Começar entrega — ${saidaPendenteTotal} pacotes`
+                      : "Confirmar remoção dos pacotes"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.closeButton} onPress={() => setRevisandoSaida(false)}>
+                <Text style={styles.closeButtonText}>Voltar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

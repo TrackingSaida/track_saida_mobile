@@ -44,6 +44,17 @@ function isAlreadyFinalizedError(e: unknown): boolean {
   return false;
 }
 
+function obsoleteActionReason(e: unknown): string | null {
+  const ax = e as AxiosError<{
+    detail?: { code?: string; reason?: string };
+  }>;
+  const detail = ax.response?.data?.detail;
+  if (ax.response?.status !== 409 || detail?.code !== "ACAO_PEDIDO_OBSOLETA") {
+    return null;
+  }
+  return detail.reason || "REATRIBUIDO";
+}
+
 /** 4xx de regra/negócio: não adianta retentar em loop. */
 function isPermanentSyncError(e: unknown): boolean {
   if (axios.isAxiosError(e)) {
@@ -153,6 +164,15 @@ async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
         auditSync("sync_mark_already_finalized", action, `id_saida=${idSaida}`);
         continue;
       }
+      const obsoleteReason = obsoleteActionReason(e);
+      if (obsoleteReason) {
+        auditSync(
+          "sync_discard_obsolete_item",
+          action,
+          `id_saida=${idSaida} reason=${obsoleteReason}`
+        );
+        continue;
+      }
       throw e;
     }
   }
@@ -165,6 +185,11 @@ async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
       buildApplyRouteSyncDeps(get, set)
     );
     await reconcileActiveRouteState(buildRouteReconcileDeps(get));
+  } else {
+    // Reatribuições podem retirar o item da rota no servidor sem rota_sync na ação antiga.
+    await reconcileActiveRouteState(buildRouteReconcileDeps(useDeliveryStore.getState)).catch(
+      () => undefined
+    );
   }
 }
 

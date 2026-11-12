@@ -339,7 +339,7 @@ export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
   const openDetail = async (it: ConferenciaItem) => {
     setDetailLoading(true);
     try {
-      const d = await getConferenciaDetalhe(it.motoboy_id, it.data_ref);
+      const d = await getConferenciaDetalhe(it.motoboy_id, it.data_ref, it.sessao_id);
       setDetail(d);
     } catch (e) {
       Alert.alert("Erro", formatApiError(e, "Não foi possível abrir o detalhe."));
@@ -352,7 +352,11 @@ export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
     if (!detail || detail.status === "conferida") return;
     setConferindo(true);
     try {
-      const d = await conferirSaidaMotoboy(detail.motoboy_id, detail.data_ref);
+      const d = await conferirSaidaMotoboy(
+        detail.motoboy_id,
+        detail.data_ref,
+        detail.sessao_id
+      );
       setDetail(d);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSucessoMsg(

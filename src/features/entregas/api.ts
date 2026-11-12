@@ -133,6 +133,49 @@ export async function iniciarRota(deliveryIds?: number[]): Promise<{ atualizados
   return data;
 }
 
+export interface SaidaSessaoPendenteItem {
+  sessao_id: number;
+  id_saida: number;
+  codigo?: string | null;
+  servico?: string | null;
+  situacao: string;
+  acao: string;
+}
+
+export interface SaidaSessoesPendentesResponse {
+  fluxo_confirmacao_ativo: boolean;
+  sessao_ids: number[];
+  total: number;
+  itens: SaidaSessaoPendenteItem[];
+}
+
+export async function getSaidaSessoesPendentes(): Promise<SaidaSessoesPendentesResponse> {
+  const { data } = await client.get<SaidaSessoesPendentesResponse>(
+    "/mobile/saida-sessoes/pendentes"
+  );
+  return data;
+}
+
+export async function confirmarSaidaSessoes(input?: {
+  sessao_ids?: number[];
+  ids_removidos?: number[];
+  chave_idempotente?: string;
+}): Promise<{
+  sessao_ids: number[];
+  ids_confirmados: number[];
+  ids_removidos: number[];
+  total_confirmado: number;
+}> {
+  const { data } = await client.post("/mobile/saida-sessoes/confirmar", {
+    sessao_ids: input?.sessao_ids ?? [],
+    ids_removidos: input?.ids_removidos ?? [],
+    chave_idempotente:
+      input?.chave_idempotente ??
+      `saida-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+  });
+  return data;
+}
+
 export interface EntregueBody {
   tipo_recebedor?: string | null;
   nome_recebedor?: string | null;
@@ -312,6 +355,10 @@ export interface ScanSuccess {
   qr_atualizado?: boolean;
   qr_alerta?: boolean;
   qr_alerta_mensagem?: string;
+  fluxo_confirmacao_ativo?: boolean;
+  sessao_id?: number | null;
+  sessao_status?: string | null;
+  sessao_total?: number | null;
 }
 
 export interface ScanConflict {

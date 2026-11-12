@@ -1,5 +1,6 @@
 import { uploadDeliveryPhoto } from "../../../services/deliveryPhotoService";
 import { createPhotoId } from "../../../services/outbox/types";
+import type { AxiosError } from "axios";
 
 export type PhotoUploadInput = {
   uri: string;
@@ -8,6 +9,11 @@ export type PhotoUploadInput = {
 };
 
 const UPLOAD_CONCURRENCY = 3;
+
+function isObsoleteDeliveryActionError(e: unknown): boolean {
+  const ax = e as AxiosError<{ detail?: { code?: string } }>;
+  return ax.response?.status === 409 && ax.response?.data?.detail?.code === "ACAO_PEDIDO_OBSOLETA";
+}
 
 async function mapPool<T, R>(
   items: T[],
@@ -42,24 +48,12 @@ async function uploadPhotosForDeliveryIds(
 
   const keys = await mapPool(photos, UPLOAD_CONCURRENCY, async (photo) => {
     const photoId = photo.photoId || createPhotoId();
-    const primaryId = targets[0];
     const filename = photo.uri.split("/").pop() || "foto.jpg";
-    const objectKey = await uploadDeliveryPhoto({
-      id_saida: primaryId,
-      tipo,
-      uri: photo.uri,
-      mimeType: "image/jpeg",
-      filename,
-      photoId,
-      existingObjectKey: photo.objectKey,
-      validarCamposObrigatorios: false,
-      alterarStatus: false,
-      clientActionId,
-    });
-
-    if (targets.length > 1) {
-      await mapPool(targets.slice(1), UPLOAD_CONCURRENCY, async (idSaida) => {
-        await uploadDeliveryPhoto({
+    let objectKey = photo.objectKey;
+    let lastObsoleteError: unknown = null;
+    for (const idSaida of targets) {
+      try {
+        objectKey = await uploadDeliveryPhoto({
           id_saida: idSaida,
           tipo,
           uri: photo.uri,
@@ -71,9 +65,12 @@ async function uploadPhotosForDeliveryIds(
           alterarStatus: false,
           clientActionId,
         });
-      });
+      } catch (error) {
+        if (!isObsoleteDeliveryActionError(error)) throw error;
+        lastObsoleteError = error;
+      }
     }
-
+    if (!objectKey) throw lastObsoleteError;
     return objectKey;
   });
 

@@ -21,6 +21,19 @@ function isNetworkOrTimeoutError(e: unknown): boolean {
   return false;
 }
 
+export function isTransientRefreshError(e: unknown): boolean {
+  if (isNetworkOrTimeoutError(e)) return true;
+  if (!axios.isAxiosError(e)) return true;
+  const status = e.response?.status;
+  return status === 408 || status === 429 || (status != null && status >= 500);
+}
+
+export function isDefinitiveRefreshRejection(e: unknown): boolean {
+  if (!axios.isAxiosError(e)) return false;
+  const status = e.response?.status;
+  return status === 400 || status === 401 || status === 403;
+}
+
 function headerClaimsStale(headers: unknown): boolean {
   if (!headers || typeof headers !== "object") return false;
   const h = headers as Record<string, unknown>;
@@ -55,14 +68,16 @@ async function tryRefreshToken(attempt = 1): Promise<boolean> {
     await setTokens(data.access_token, data.refresh_token || refreshToken);
     return true;
   } catch (e) {
-    if (isNetworkOrTimeoutError(e) && attempt < 2) {
+    if (isTransientRefreshError(e) && attempt < 2) {
       await new Promise((r) => setTimeout(r, 800));
       return tryRefreshToken(attempt + 1);
     }
-    if (isNetworkOrTimeoutError(e)) {
+    if (isTransientRefreshError(e)) {
       return false;
     }
-    await onSessionExpired();
+    if (isDefinitiveRefreshRejection(e)) {
+      await onSessionExpired();
+    }
     return false;
   }
 }
