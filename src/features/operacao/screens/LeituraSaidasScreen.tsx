@@ -50,6 +50,7 @@ import {
 import {
   confirmarLeituraStaff,
   getConferenciaDetalhe,
+  recuperarSessaoAbertaStaff,
   type ConfirmarLeituraResult,
 } from "../conferenciaApi";
 import { classifyCodigoParaOperacao, inferServicoSaida } from "../parseCodigoQr";
@@ -1123,6 +1124,11 @@ export default function LeituraSaidasScreen() {
         setSessaoFinalizadaSnap(null);
       }
       setModalSelecaoMotoboyVisible(false);
+      void recuperarSessaoAbertaStaff(item.id_motoboy)
+        .then((sessao) => {
+          useStaffScanSessionStore.getState().setSessaoId(sessao.sessao_id ?? null);
+        })
+        .catch(() => undefined);
       suppressAutoCameraRef.current = false;
     },
     [conferenciaHabilitada]
@@ -1150,6 +1156,7 @@ export default function LeituraSaidasScreen() {
         motoboyId,
         dataRef: dataRefHojeLocal(),
         qtd: totalValidas,
+        sessaoId: useStaffScanSessionStore.getState().sessaoId,
       });
       useStaffScanSessionStore.getState().archivarAposConfirmar();
       setSessaoFinalizadaSnap({
@@ -1331,6 +1338,9 @@ export default function LeituraSaidasScreen() {
           qr_payload_raw: cls.qr_payload_raw,
           origem: origem === "leitor" ? "manual" : origem,
         });
+        if (res.sessao_id != null) {
+          useStaffScanSessionStore.getState().setSessaoId(Number(res.sessao_id));
+        }
 
         const inferido = inferServicoSaida(c);
         const servicoEfetivo =

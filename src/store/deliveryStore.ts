@@ -746,7 +746,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       }
     }
     set({
-      activeRouteId: payload.rota_id ?? null,
+      activeRouteId: payload.status === "em_entrega" ? payload.rota_id ?? null : null,
       routeOrder: payload.ordem,
       activeStopIndex: payload.parada_atual,
       routeDeliveries: deliveries,

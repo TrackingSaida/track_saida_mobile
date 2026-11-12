@@ -223,6 +223,12 @@ function getErrorMessage(e: unknown): string {
   return String(e);
 }
 
+function isObsoleteDeliveryActionError(e: unknown): boolean {
+  if (!e || typeof e !== "object" || !("response" in e)) return false;
+  const ax = e as AxiosError<{ detail?: { code?: string } }>;
+  return ax.response?.status === 409 && ax.response?.data?.detail?.code === "ACAO_PEDIDO_OBSOLETA";
+}
+
 /**
  * Obtém presigned PUT, envia o arquivo ao B2 e chama PATCH /saidas/{id}/foto (append).
  * Retorna o object_key. Lança em erro de rede ou API com mensagem descritiva.
@@ -254,6 +260,7 @@ export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Pr
         photo_id: photoId,
       });
     } catch (e) {
+      if (isObsoleteDeliveryActionError(e)) throw e;
       throw new Error(getErrorMessage(e) || "Não foi possível obter permissão para envio. Verifique o servidor.");
     }
 
@@ -275,6 +282,7 @@ export async function uploadDeliveryPhoto(params: UploadDeliveryPhotoParams): Pr
       headers
     );
   } catch (e) {
+    if (isObsoleteDeliveryActionError(e)) throw e;
     throw new Error(getErrorMessage(e) || "Foto enviada, mas falha ao registrar. Tente novamente.");
   }
   return objectKey;

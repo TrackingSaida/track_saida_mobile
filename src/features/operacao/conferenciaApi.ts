@@ -4,6 +4,7 @@ export type ConferenciaAba = "pendente" | "reconferir" | "conferida";
 
 export interface ConferenciaItem {
   id: number;
+  sessao_id?: number | null;
   motoboy_id: number;
   motoboy_nome: string;
   data_ref: string;
@@ -21,6 +22,7 @@ export interface PacoteNovoConferencia {
 }
 
 export interface ConferenciaDetalhe {
+  sessao_id?: number | null;
   motoboy_id: number;
   motoboy_nome: string;
   data_ref: string;
@@ -100,8 +102,15 @@ export async function getConferenciaTotaisAbas(params: {
 
 export async function getConferenciaDetalhe(
   motoboyId: number,
-  dataRef: string
+  dataRef: string,
+  sessaoId?: number | null
 ): Promise<ConferenciaDetalhe> {
+  if (sessaoId != null) {
+    const { data } = await client.get<ConferenciaDetalhe>(
+      `/conferencias-saida/sessoes/${sessaoId}`
+    );
+    return data;
+  }
   const { data } = await client.get<ConferenciaDetalhe>(`/conferencias-saida/${motoboyId}`, {
     params: { data_ref: dataRef },
   });
@@ -110,8 +119,15 @@ export async function getConferenciaDetalhe(
 
 export async function conferirSaidaMotoboy(
   motoboyId: number,
-  dataRef: string
+  dataRef: string,
+  sessaoId?: number | null
 ): Promise<ConferenciaDetalhe> {
+  if (sessaoId != null) {
+    const { data } = await client.post<ConferenciaDetalhe>(
+      `/conferencias-saida/sessoes/${sessaoId}/conferir`
+    );
+    return data;
+  }
   const { data } = await client.post<ConferenciaDetalhe>(
     `/conferencias-saida/${motoboyId}/conferir`,
     { data_ref: dataRef }
@@ -130,6 +146,25 @@ export interface ConfirmarLeituraResult {
   sum_avulso: number;
   total: number;
   virou_reconferir: boolean;
+  sessao_id?: number | null;
+  sessao_status?: string | null;
+  sessao_total?: number | null;
+  fluxo_confirmacao_ativo?: boolean;
+}
+
+export interface SessaoAbertaStaff {
+  fluxo_confirmacao_ativo: boolean;
+  sessao_id?: number | null;
+  sessao_status?: string | null;
+  sessao_total: number;
+  saida_ids: number[];
+}
+
+export async function recuperarSessaoAbertaStaff(motoboyId: number): Promise<SessaoAbertaStaff> {
+  const { data } = await client.get<SessaoAbertaStaff>(
+    `/conferencias-saida/sessao-aberta/${motoboyId}`
+  );
+  return data;
 }
 
 /** Staff: confirma leitura do dia e upsert em conferencia_saida (sem iniciar rota). */
@@ -137,6 +172,7 @@ export async function confirmarLeituraStaff(params: {
   motoboyId: number;
   dataRef: string;
   qtd?: number;
+  sessaoId?: number | null;
 }): Promise<ConfirmarLeituraResult> {
   const { data } = await client.post<ConfirmarLeituraResult>(
     "/conferencias-saida/confirmar-leitura",
@@ -144,6 +180,7 @@ export async function confirmarLeituraStaff(params: {
       motoboy_id: params.motoboyId,
       data_ref: params.dataRef,
       ...(params.qtd != null ? { qtd: params.qtd } : {}),
+      ...(params.sessaoId != null ? { sessao_id: params.sessaoId } : {}),
     }
   );
   return data;

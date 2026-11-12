@@ -21,7 +21,7 @@ import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
-import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, confirmarReativacaoEncerrado, lancarAvulsoMobile, type ScanOrigem } from "../api";
+import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, confirmarReativacaoEncerrado, lancarAvulsoMobile, confirmarSaidaSessoes, type ScanOrigem } from "../api";
 import { formatApiError } from "../../../utils/formatApiError";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
@@ -103,6 +103,7 @@ type ScanSuccessLocal = {
   qr_alerta?: boolean;
   qr_alerta_mensagem?: string;
   entrega: EntregaListItem;
+  fluxo_confirmacao_ativo?: boolean;
 };
 
 interface FeedbackVisual {
@@ -442,6 +443,7 @@ export default function ScanScreen({ navigation, route }: Props) {
   const [confirmandoDiaAnterior, setConfirmandoDiaAnterior] = useState(false);
   const [confirmandoEncerrado, setConfirmandoEncerrado] = useState(false);
   const [iniciandoRota, setIniciandoRota] = useState(false);
+  const [fluxoConfirmacaoAtivo, setFluxoConfirmacaoAtivo] = useState(false);
   const [listaExpandida, setListaExpandida] = useState(false);
   const [removendoId, setRemovendoId] = useState<number | null>(null);
   const [showPrepararRotaModal, setShowPrepararRotaModal] = useState(false);
@@ -696,6 +698,9 @@ export default function ScanScreen({ navigation, route }: Props) {
           });
         } else if ((result as ScanSuccessLocal).entrega) {
           const sucessoResult = result as ScanSuccessLocal;
+          if (sucessoResult.fluxo_confirmacao_ativo) {
+            setFluxoConfirmacaoAtivo(true);
+          }
           if (sucessoResult.qr_atualizado) {
             addLeitura(sucessoResult.entrega);
             setCodigo("");
@@ -958,10 +963,14 @@ export default function ScanScreen({ navigation, route }: Props) {
     }).length;
     setIniciandoRota(true);
     try {
-      await startRoute(deliveryIds);
+      if (fluxoConfirmacaoAtivo) {
+        await confirmarSaidaSessoes();
+      } else {
+        await startRoute(deliveryIds);
+      }
       setFaltamEnderecoNaSessao(semEndereco);
       clearLeituras();
-      setRotaIniciada(true);
+      setRotaIniciada(!fluxoConfirmacaoAtivo);
       if (roteirizacaoHabilitada) {
         setShowPrepararRotaModal(true);
       } else {
