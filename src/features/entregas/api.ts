@@ -1,5 +1,13 @@
 import { AxiosError } from "axios";
 import { apiClient } from "../../services/apiClient";
+import {
+  chaveDaTentativa,
+  ConfirmacaoCanceladaError,
+  encerrarTentativa,
+  idTentativaConfirmacao,
+  isSaidaNaoConfirmada,
+  pedirConfirmacaoContextual,
+} from "./confirmacaoSaidaGate";
 import type {
   EntregaListItem,
   EntregaHistoricoItem,
@@ -139,7 +147,10 @@ export interface SaidaSessaoPendenteItem {
   codigo?: string | null;
   servico?: string | null;
   situacao: string;
+  situacao_label?: string | null;
   acao: string;
+  acao_label?: string | null;
+  finalizada_em?: string | null;
 }
 
 export interface SaidaSessoesPendentesResponse {
@@ -164,16 +175,47 @@ export async function confirmarSaidaSessoes(input?: {
   sessao_ids: number[];
   ids_confirmados: number[];
   ids_removidos: number[];
+  ids_ignorados?: number[];
   total_confirmado: number;
 }> {
-  const { data } = await client.post("/mobile/saida-sessoes/confirmar", {
-    sessao_ids: input?.sessao_ids ?? [],
-    ids_removidos: input?.ids_removidos ?? [],
-    chave_idempotente:
-      input?.chave_idempotente ??
-      `saida-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-  });
-  return data;
+  const tentativa = idTentativaConfirmacao(input);
+  const chaveInformada = input?.chave_idempotente?.trim();
+  const chave = chaveInformada || chaveDaTentativa(tentativa);
+  try {
+    const { data } = await client.post("/mobile/saida-sessoes/confirmar", {
+      sessao_ids: input?.sessao_ids ?? [],
+      ids_removidos: input?.ids_removidos ?? [],
+      chave_idempotente: chave,
+    });
+    if (!chaveInformada) encerrarTentativa(tentativa);
+    return data;
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function retomarAposConfirmacao<T>(chave: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!isSaidaNaoConfirmada(error)) throw error;
+    const pendentes = await getSaidaSessoesPendentes();
+    const total = pendentes.fluxo_confirmacao_ativo ? pendentes.total : 0;
+    if (total <= 0) throw error;
+    const confirmou = await pedirConfirmacaoContextual(total);
+    if (!confirmou) throw new ConfirmacaoCanceladaError();
+    await confirmarSaidaSessoes({
+      sessao_ids: pendentes.sessao_ids,
+      chave_idempotente: chave,
+    });
+    return await run();
+  }
+}
+
+function chaveRetomada(prefixo: string, headers?: Record<string, string>): string {
+  const actionId = headers?.["X-Client-Action-Id"] || headers?.["x-client-action-id"];
+  if (actionId) return chaveDaTentativa(`${prefixo}:${actionId}`);
+  return `saida-${prefixo}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export interface EntregueBody {
@@ -195,12 +237,15 @@ export async function marcarEntregue(
   body?: EntregueBody,
   headers?: Record<string, string>
 ): Promise<MarcacaoEntregaResponse> {
-  const { data } = await client.post<MarcacaoEntregaResponse>(
-    `/mobile/entrega/${idSaida}/entregue`,
-    body ?? {},
-    headers ? { headers } : undefined
-  );
-  return data;
+  const chave = chaveRetomada(`entregue-${idSaida}`, headers);
+  return retomarAposConfirmacao(chave, async () => {
+    const { data } = await client.post<MarcacaoEntregaResponse>(
+      `/mobile/entrega/${idSaida}/entregue`,
+      body ?? {},
+      headers ? { headers } : undefined
+    );
+    return data;
+  });
 }
 
 export async function marcarAusente(
@@ -209,12 +254,15 @@ export async function marcarAusente(
   observacao?: string,
   headers?: Record<string, string>
 ): Promise<MarcacaoEntregaResponse> {
-  const { data } = await client.post<MarcacaoEntregaResponse>(
-    `/mobile/entrega/${idSaida}/ausente`,
-    { motivo_id: motivoId, observacao: observacao || null },
-    headers ? { headers } : undefined
-  );
-  return data;
+  const chave = chaveRetomada(`ausente-${idSaida}`, headers);
+  return retomarAposConfirmacao(chave, async () => {
+    const { data } = await client.post<MarcacaoEntregaResponse>(
+      `/mobile/entrega/${idSaida}/ausente`,
+      { motivo_id: motivoId, observacao: observacao || null },
+      headers ? { headers } : undefined
+    );
+    return data;
+  });
 }
 
 export interface DevolverBody {
@@ -237,7 +285,16 @@ export async function marcarDevolver(
 export type DeliveryPhotoTipo = "entregue" | "ausente" | "devolucao" | "lancar_avulso";
 
 export async function finalizarLote(body: FinalizarLoteBody): Promise<FinalizarLoteResponse> {
-  const { data } = await client.post<FinalizarLoteResponse>("/mobile/entregas/finalizar-lote", body);
+  const tentativa = `lote:${body.acao}:${[...body.ids].sort((a, b) => a - b).join(",")}`;
+  const chave = chaveDaTentativa(tentativa);
+  const data = await retomarAposConfirmacao(chave, async () => {
+    const { data: resposta } = await client.post<FinalizarLoteResponse>(
+      "/mobile/entregas/finalizar-lote",
+      body
+    );
+    return resposta;
+  });
+  encerrarTentativa(tentativa);
   return data;
 }
 
@@ -637,10 +694,20 @@ export async function postRotasOtimizar(
   if (priority) body.priority = priority;
   const headers: Record<string, string> = {};
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
-  const { data } = await client.post<RotasOtimizarResponse>("/mobile/rotas/otimizar", body, {
-    timeout: ROUTE_OPTIMIZE_TIMEOUT_MS,
-    headers,
+  const tentativa = `otimizar:${[...deliveryIds].sort((a, b) => a - b).join(",")}`;
+  const chave = chaveDaTentativa(tentativa);
+  const data = await retomarAposConfirmacao(chave, async () => {
+    const { data: resposta } = await client.post<RotasOtimizarResponse>(
+      "/mobile/rotas/otimizar",
+      body,
+      {
+        timeout: ROUTE_OPTIMIZE_TIMEOUT_MS,
+        headers,
+      }
+    );
+    return resposta;
   });
+  encerrarTentativa(tentativa);
   return data;
 }
 

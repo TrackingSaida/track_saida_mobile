@@ -12,6 +12,7 @@ interface StaffScanSessionState {
   motoboyId: number | null;
   motoboyNome: string;
   sessaoId: number | null;
+  versao: number | null;
   leituras: StaffLeituraSessionItem[];
   /** true após Confirmar Leitura com sucesso (até nova leitura). */
   confirmada: boolean;
@@ -23,7 +24,7 @@ interface StaffScanSessionState {
     leituras: StaffLeituraSessionItem[];
   }) => void;
   markConfirmada: () => void;
-  setSessaoId: (id: number | null) => void;
+  setSessaoId: (id: number | null, versao?: number | null) => void;
   /** Após confirmar: zera leituras e mantém motoboy. */
   archivarAposConfirmar: () => void;
   clearSession: () => void;
@@ -42,6 +43,7 @@ export const useStaffScanSessionStore = create<StaffScanSessionState>((set, get)
   motoboyId: null,
   motoboyNome: "",
   sessaoId: null,
+  versao: null,
   leituras: [],
   confirmada: false,
 
@@ -56,6 +58,7 @@ export const useStaffScanSessionStore = create<StaffScanSessionState>((set, get)
         leituras: [],
         confirmada: false,
         sessaoId: null,
+        versao: null,
       };
     }),
 
@@ -85,7 +88,11 @@ export const useStaffScanSessionStore = create<StaffScanSessionState>((set, get)
     }),
 
   markConfirmada: () => set({ confirmada: true }),
-  setSessaoId: (id) => set({ sessaoId: id }),
+  setSessaoId: (id, versao) =>
+    set({
+      sessaoId: id,
+      versao: versao ?? null,
+    }),
 
   archivarAposConfirmar: () =>
     set((state) => ({
@@ -102,6 +109,7 @@ export const useStaffScanSessionStore = create<StaffScanSessionState>((set, get)
       leituras: [],
       confirmada: false,
       sessaoId: null,
+      versao: null,
     }),
 
   podeTrocarMotoboy: () => !temLeiturasValidasNaoConfirmadas(get()),

@@ -102,13 +102,15 @@ export async function persistRouteSnapshotFromStore(): Promise<void> {
   if (!motoboyId || !subBase) return;
 
   const store = useDeliveryStore.getState();
-  if (!store.activeRouteId && store.routeOrder.length === 0) return;
+  const routeId = store.activeRouteId ?? store.persistedRouteId;
+  if (!routeId && store.routeOrder.length === 0) return;
 
+  // Rota pronta fica em persistedRouteId. Só a rota explicitamente iniciada é em_entrega.
   const status: "rota_pronta" | "em_entrega" =
-    store.routeStarted || store.activeRouteId ? "em_entrega" : "rota_pronta";
+    store.activeRouteId != null ? "em_entrega" : "rota_pronta";
 
   await saveRouteSnapshot(motoboyId, subBase, getTodayISO(), {
-    route_id: store.activeRouteId || undefined,
+    route_id: routeId || undefined,
     status,
     ordem: store.routeOrder,
     parada_atual: store.activeStopIndex,

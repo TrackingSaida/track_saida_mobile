@@ -272,6 +272,7 @@ export interface LerSaidaApiRow {
   sessao_id?: number | null;
   sessao_status?: string | null;
   sessao_total?: number | null;
+  sessao_versao?: number | null;
 }
 
 export interface LancarAvulsoBody {

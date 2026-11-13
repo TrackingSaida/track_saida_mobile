@@ -15,7 +15,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
 import type { AxiosError } from "axios";
@@ -67,6 +67,38 @@ const CORNER_LENGTH = 40;
 const CORNER_THICKNESS = 5;
 const CORNER_COLOR = "#00bfff";
 const FEEDBACK_MS = 1100;
+
+type SessaoServidorLeitura = {
+  id: number | null;
+  versao: number | null;
+  total: number;
+  status: string | null;
+  carregando: boolean;
+  erro: string | null;
+};
+
+const SESSAO_SERVIDOR_VAZIA: SessaoServidorLeitura = {
+  id: null,
+  versao: null,
+  total: 0,
+  status: null,
+  carregando: false,
+  erro: null,
+};
+
+function codigoErroAxios(err: unknown): string | null {
+  const ax = err as AxiosError<{ detail?: { code?: string } | string; code?: string }>;
+  const data = ax.response?.data;
+  if (!data || typeof data !== "object") return null;
+  const detail = data.detail;
+  if (detail && typeof detail === "object" && typeof detail.code === "string") return detail.code;
+  return typeof data.code === "string" ? data.code : null;
+}
+
+function semRespostaDeRede(err: unknown): boolean {
+  const ax = err as AxiosError;
+  return ax.response == null;
+}
 
 type ConfirmadoMotoboyResumo = {
   qtdConfirmada: number;
@@ -305,6 +337,7 @@ export default function LeituraSaidasScreen() {
   const [motoboys, setMotoboys] = useState<MotoboyItem[]>([]);
   const [motoboyId, setMotoboyId] = useState<number | null>(null);
   const [motoboyNome, setMotoboyNome] = useState("");
+  const [sessaoServidor, setSessaoServidor] = useState<SessaoServidorLeitura>(SESSAO_SERVIDOR_VAZIA);
   const [codigoInput, setCodigoInput] = useState("");
   const [leituras, setLeituras] = useState<LeituraSaidaItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -918,10 +951,18 @@ export default function LeituraSaidasScreen() {
   }, [leiturasDoMotoboy]);
 
   const conferenciaHabilitada = effectiveConferenciaSaida(currentUser);
+  const fluxoSessaoAtivo = currentUser?.confirmacao_saida_sessoes_habilitada === true;
   const bloquearSaidaSemColeta = currentUser?.bloquear_saida_sem_coleta === true;
   const sessaoConfirmada = useStaffScanSessionStore((s) => s.confirmada);
+  const sessaoAbertaNoServidor =
+    fluxoSessaoAtivo &&
+    sessaoServidor.status === "ABERTA" &&
+    sessaoServidor.id != null &&
+    sessaoServidor.total > 0;
   const pendenciaConfirmacao =
-    conferenciaHabilitada && !sessaoConfirmada && totalValidas > 0;
+    conferenciaHabilitada &&
+    !sessaoConfirmada &&
+    (fluxoSessaoAtivo ? sessaoAbertaNoServidor : totalValidas > 0);
 
   const ultimaLeituraLive = useMemo(
     () => (leiturasDoMotoboy.length ? leiturasDoMotoboy[leiturasDoMotoboy.length - 1] : undefined),
@@ -1102,14 +1143,59 @@ export default function LeituraSaidasScreen() {
     setCameraAtiva(true);
   }, []);
 
+  const aplicarSessaoServidor = useCallback((sessao: Awaited<ReturnType<typeof recuperarSessaoAbertaStaff>>) => {
+    if (!sessao.fluxo_confirmacao_ativo || sessao.sessao_id == null || sessao.sessao_status !== "ABERTA") {
+      setSessaoServidor(SESSAO_SERVIDOR_VAZIA);
+      useStaffScanSessionStore.getState().setSessaoId(null, null);
+      return null;
+    }
+    const proxima: SessaoServidorLeitura = {
+      id: Number(sessao.sessao_id),
+      versao: sessao.versao ?? null,
+      total: Number(sessao.sessao_total ?? 0),
+      status: sessao.sessao_status,
+      carregando: false,
+      erro: null,
+    };
+    setSessaoServidor(proxima);
+    useStaffScanSessionStore.getState().setSessaoId(proxima.id, proxima.versao);
+    return proxima;
+  }, []);
+
+  const recuperarSessaoDoServidor = useCallback(
+    async (idMotoboy: number) => {
+      setSessaoServidor((atual) => ({ ...atual, carregando: true, erro: null }));
+      try {
+        const sessao = await recuperarSessaoAbertaStaff(idMotoboy);
+        return aplicarSessaoServidor(sessao);
+      } catch (err) {
+        const code = codigoErroAxios(err);
+        const mensagem =
+          code === "ATUALIZACAO_OBRIGATORIA" || code === "CLIENTE_INCOMPATIVEL"
+            ? "Atualize o aplicativo antes de continuar a leitura."
+            : semRespostaDeRede(err)
+              ? "Sem conexão para recuperar a leitura em aberto."
+              : "Não foi possível recuperar a leitura em aberto.";
+        setSessaoServidor((atual) => ({ ...atual, carregando: false, erro: mensagem }));
+        return null;
+      }
+    },
+    [aplicarSessaoServidor]
+  );
+
   const aplicarMotoboySelecionado = useCallback(
     (item: MotoboyItem) => {
       const store = useStaffScanSessionStore.getState();
+      const sessaoAbertaDesteMotoboy =
+        fluxoSessaoAtivo &&
+        store.motoboyId === motoboyId &&
+        sessaoServidor.status === "ABERTA" &&
+        sessaoServidor.total > 0;
       if (
         conferenciaHabilitada &&
         store.motoboyId != null &&
         store.motoboyId !== item.id_motoboy &&
-        !store.podeTrocarMotoboy()
+        (!store.podeTrocarMotoboy() || sessaoAbertaDesteMotoboy)
       ) {
         Alert.alert(
           "Finalize a leitura",
@@ -1122,16 +1208,20 @@ export default function LeituraSaidasScreen() {
       if (store.motoboyId !== item.id_motoboy) {
         setLeituras([]);
         setSessaoFinalizadaSnap(null);
+        setSessaoServidor(SESSAO_SERVIDOR_VAZIA);
       }
       setModalSelecaoMotoboyVisible(false);
-      void recuperarSessaoAbertaStaff(item.id_motoboy)
-        .then((sessao) => {
-          useStaffScanSessionStore.getState().setSessaoId(sessao.sessao_id ?? null);
-        })
-        .catch(() => undefined);
+      if (fluxoSessaoAtivo) void recuperarSessaoDoServidor(item.id_motoboy);
       suppressAutoCameraRef.current = false;
     },
-    [conferenciaHabilitada]
+    [conferenciaHabilitada, fluxoSessaoAtivo, motoboyId, recuperarSessaoDoServidor, sessaoServidor.status, sessaoServidor.total]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!fluxoSessaoAtivo || motoboyId == null) return;
+      void recuperarSessaoDoServidor(motoboyId);
+    }, [fluxoSessaoAtivo, motoboyId, recuperarSessaoDoServidor])
   );
 
   const handleConfirmarLeitura = useCallback(async () => {
@@ -1139,7 +1229,7 @@ export default function LeituraSaidasScreen() {
       pushFeedback("info", "Selecione um motoboy.");
       return;
     }
-    if (totalValidas <= 0) {
+    if (!fluxoSessaoAtivo && totalValidas <= 0) {
       pushFeedback("info", "Nenhuma leitura válida para confirmar.");
       return;
     }
@@ -1152,11 +1242,22 @@ export default function LeituraSaidasScreen() {
     }
     setConfirmandoLeitura(true);
     try {
+      const sessaoAtual = fluxoSessaoAtivo ? await recuperarSessaoDoServidor(motoboyId) : null;
+      if (fluxoSessaoAtivo && (sessaoAtual?.id == null || sessaoAtual.total <= 0)) {
+        pushFeedback(
+          "info",
+          sessaoAtual
+            ? "Não há leitura em aberto para finalizar."
+            : "Não foi possível ler a sessão no servidor."
+        );
+        return;
+      }
       const res = await confirmarLeituraStaff({
         motoboyId,
         dataRef: dataRefHojeLocal(),
-        qtd: totalValidas,
-        sessaoId: useStaffScanSessionStore.getState().sessaoId,
+        ...(fluxoSessaoAtivo
+          ? { sessaoId: sessaoAtual?.id, versao: sessaoAtual?.versao }
+          : { qtd: totalValidas }),
       });
       useStaffScanSessionStore.getState().archivarAposConfirmar();
       setSessaoFinalizadaSnap({
@@ -1172,6 +1273,8 @@ export default function LeituraSaidasScreen() {
         itens: leiturasDoMotoboy.map((item) => ({ ...item })),
       });
       setLeituras([]);
+      setSessaoServidor(SESSAO_SERVIDOR_VAZIA);
+      useStaffScanSessionStore.getState().setSessaoId(null, null);
       aplicarResumoConfirmado(motoboyId, res);
       // Volta à tela principal de registrar saída (sem precisar Fechar o scan).
       fecharCamera();
@@ -1184,6 +1287,20 @@ export default function LeituraSaidasScreen() {
         `${res.motoboy_nome}\nConfirmado: ${res.qtd_no_momento ?? res.total}\nShopee: ${res.sum_shopee} · ML: ${res.sum_mercado} · Avulso: ${res.sum_avulso}`
       );
     } catch (err) {
+      const code = codigoErroAxios(err);
+      if (code === "SESSAO_VERSAO_CONFLITO") {
+        if (motoboyId) void recuperarSessaoDoServidor(motoboyId);
+        pushFeedback("info", "A leitura mudou. Atualizamos a sessão. Finalize outra vez.");
+        return;
+      }
+      if (code === "ATUALIZACAO_OBRIGATORIA" || code === "CLIENTE_INCOMPATIVEL") {
+        pushFeedback("info", "Atualize o aplicativo antes de finalizar a leitura.");
+        return;
+      }
+      if (semRespostaDeRede(err)) {
+        pushFeedback("erro", "Sem conexão para finalizar a leitura.");
+        return;
+      }
       pushFeedback("erro", formatApiError(err, "Erro ao finalizar leitura."));
     } finally {
       setConfirmandoLeitura(false);
@@ -1199,6 +1316,8 @@ export default function LeituraSaidasScreen() {
     ultimaLeituraLive,
     leiturasDoMotoboy,
     conferenciaHabilitada,
+    fluxoSessaoAtivo,
+    recuperarSessaoDoServidor,
     pushFeedback,
     aplicarResumoConfirmado,
     fecharCamera,
@@ -1339,7 +1458,17 @@ export default function LeituraSaidasScreen() {
           origem: origem === "leitor" ? "manual" : origem,
         });
         if (res.sessao_id != null) {
-          useStaffScanSessionStore.getState().setSessaoId(Number(res.sessao_id));
+          const idSessao = Number(res.sessao_id);
+          const versaoSessao = res.sessao_versao ?? null;
+          setSessaoServidor({
+            id: idSessao,
+            versao: versaoSessao,
+            total: Number(res.sessao_total ?? 0),
+            status: res.sessao_status || "ABERTA",
+            carregando: false,
+            erro: null,
+          });
+          useStaffScanSessionStore.getState().setSessaoId(idSessao, versaoSessao);
         }
 
         const inferido = inferServicoSaida(c);
@@ -2023,6 +2152,17 @@ export default function LeituraSaidasScreen() {
                 );
               })}
             </View>
+          ) : null}
+          {motoboySelecionadoOk && fluxoSessaoAtivo ? (
+            <Text style={styles.vazioText}>
+              {sessaoServidor.carregando
+                ? "Buscando a leitura em aberto…"
+                : sessaoServidor.erro
+                  ? sessaoServidor.erro
+                  : sessaoAbertaNoServidor
+                    ? `Leitura em aberto no servidor: ${sessaoServidor.total} pacote(s).`
+                    : "Não há leitura em aberto para este motoboy."}
+            </Text>
           ) : null}
           {motoboySelecionadoOk && pendenciaConfirmacao && conferenciaHabilitada ? (
             <TouchableOpacity

@@ -11,9 +11,11 @@ type OutboxState = {
   actions: OutboxDeliveryAction[];
   isSyncing: boolean;
   lastSyncError: string | null;
+  avisoCargaRemovida: string | null;
   refresh: () => Promise<void>;
   setSyncing: (v: boolean) => void;
   setLastSyncError: (msg: string | null) => void;
+  setAvisoCargaRemovida: (msg: string | null) => void;
 };
 
 export const useOutboxStore = create<OutboxState>((set) => ({
@@ -21,6 +23,7 @@ export const useOutboxStore = create<OutboxState>((set) => ({
   actions: [],
   isSyncing: false,
   lastSyncError: null,
+  avisoCargaRemovida: null,
 
   refresh: async () => {
     const actions = await listPendingActions();
@@ -30,6 +33,7 @@ export const useOutboxStore = create<OutboxState>((set) => ({
 
   setSyncing: (isSyncing) => set({ isSyncing }),
   setLastSyncError: (lastSyncError) => set({ lastSyncError }),
+  setAvisoCargaRemovida: (avisoCargaRemovida) => set({ avisoCargaRemovida }),
 }));
 
 export async function hydrateOutboxStore(): Promise<void> {

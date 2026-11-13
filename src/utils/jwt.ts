@@ -25,6 +25,8 @@ export interface JwtClaims {
   entrada_obrigatoria_habilitada?: boolean;
   /** Conferência de saída após Começar Entrega. */
   conferencia_saida_habilitada?: boolean;
+  /** Exige confirmação real de saída antes de rota, entrega e ausência. */
+  confirmacao_saida_sessoes_habilitada?: boolean;
   /** Com coleta ativa: true impede saída sem coleta; false avisa e permite. */
   bloquear_saida_sem_coleta?: boolean;
   [key: string]: unknown;

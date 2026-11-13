@@ -55,6 +55,37 @@ type HomeNav = CompositeNavigationProp<
   NativeStackNavigationProp<MotoboyRootStackParamList>
 >;
 
+function rotuloSituacaoPendente(item: { situacao_label?: string | null }): string {
+  const label = String(item.situacao_label || "").trim();
+  return label || "Aguardando confirmação de saída";
+}
+
+function rotuloAcaoPendente(item: { acao?: string; acao_label?: string | null }): string {
+  const label = String(item.acao_label || "").trim();
+  if (label && !label.includes("_")) return label;
+  if (item.acao === "SESSAO_LEITURA_FINALIZADA") return "Lote de leitura finalizado";
+  if (item.acao === "LEITURA_SAIDA") return "Pacote lido";
+  return "Pacote lido";
+}
+
+function horaFinalizacao(iso?: string | null): string | null {
+  if (!iso) return null;
+  const data = new Date(iso);
+  if (Number.isNaN(data.getTime())) return null;
+  return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function codigoErroConfirmacao(error: unknown): string | null {
+  const ax = error as {
+    response?: { data?: { detail?: { code?: string } | string; code?: string } };
+  };
+  const data = ax.response?.data;
+  if (!data || typeof data !== "object") return null;
+  const detail = data.detail;
+  if (detail && typeof detail === "object" && detail.code) return detail.code;
+  return typeof data.code === "string" ? data.code : null;
+}
+
 async function openRouteResumo(rotaId: string): Promise<void> {
   const resumo = await getRotaResumo(rotaId);
   useDiaRotaConcluidaStore.getState().open({
@@ -85,15 +116,43 @@ export default function HomeScreen() {
   const [idsRemovidos, setIdsRemovidos] = useState<number[]>([]);
   const [revisandoSaida, setRevisandoSaida] = useState(false);
   const [confirmandoSaida, setConfirmandoSaida] = useState(false);
+  const [carregandoSaida, setCarregandoSaida] = useState(false);
+  const [erroSaida, setErroSaida] = useState<string | null>(null);
   const saidaPendenteTotal = Math.max(0, (saidaPendente?.total ?? 0) - idsRemovidos.length);
+  const itensVisiveis = useMemo(
+    () => (saidaPendente?.itens ?? []).filter((item) => !idsRemovidos.includes(item.id_saida)),
+    [idsRemovidos, saidaPendente?.itens]
+  );
+  const resumoServicos = useMemo(() => {
+    let shopee = 0;
+    let mercado = 0;
+    let avulso = 0;
+    itensVisiveis.forEach((item) => {
+      const servico = String(item.servico || "").toLowerCase();
+      if (servico.includes("shopee")) shopee += 1;
+      else if (servico.includes("mercado") || servico === "ml") mercado += 1;
+      else avulso += 1;
+    });
+    return { shopee, mercado, avulso };
+  }, [itensVisiveis]);
+  const horaLote = useMemo(() => {
+    const horas = itensVisiveis
+      .map((item) => horaFinalizacao(item.finalizada_em))
+      .filter((hora): hora is string => !!hora);
+    return horas.sort().at(-1) ?? null;
+  }, [itensVisiveis]);
 
   const carregarConfirmacaoSaida = useCallback(async () => {
+    setCarregandoSaida(true);
     try {
       const result = await getSaidaSessoesPendentes();
       setSaidaPendente(result.fluxo_confirmacao_ativo ? result : null);
       setIdsRemovidos([]);
+      setErroSaida(null);
     } catch {
-      // Mantém a home utilizável offline; o gate do backend protege a operação.
+      setErroSaida("Sem conexão para atualizar os pacotes. A confirmação continua protegida pelo servidor.");
+    } finally {
+      setCarregandoSaida(false);
     }
   }, []);
 
@@ -107,21 +166,42 @@ export default function HomeScreen() {
   const confirmarSaidaPendente = useCallback(async () => {
     setConfirmandoSaida(true);
     try {
-      await confirmarSaidaSessoes({
+      const resposta = await confirmarSaidaSessoes({
         sessao_ids: saidaPendente?.sessao_ids ?? [],
         ids_removidos: idsRemovidos,
       });
+      const ignorados = resposta.ids_ignorados?.length ?? 0;
       setSaidaPendente(null);
       setIdsRemovidos([]);
       setRevisandoSaida(false);
       await useDeliveryStore.getState().loadDeliveries();
-      navigation.navigate("Entregas", { initialTab: "pendente" });
-    } catch {
+      if (ignorados > 0) {
+        Alert.alert(
+          "Lista atualizada",
+          ignorados === 1
+            ? "1 pacote foi removido da sua lista antes da confirmação."
+            : `${ignorados} pacotes foram removidos da sua lista antes da confirmação.`
+        );
+      }
+      if ((resposta.total_confirmado ?? 0) > 0) {
+        navigation.navigate("Entregas", { initialTab: "pendente" });
+      }
+    } catch (error) {
+      const code = codigoErroConfirmacao(error);
+      if (code === "SESSAO_VERSAO_CONFLITO") {
+        await carregarConfirmacaoSaida();
+        Alert.alert("A lista mudou", "Atualizamos os pacotes. Confira a lista e confirme outra vez.");
+        return;
+      }
+      if (code === "ATUALIZACAO_OBRIGATORIA" || code === "CLIENTE_INCOMPATIVEL") {
+        Alert.alert("Atualização necessária", "Atualize o aplicativo antes de confirmar a saída.");
+        return;
+      }
       Alert.alert("Não foi possível confirmar", "Verifique sua conexão e tente novamente.");
     } finally {
       setConfirmandoSaida(false);
     }
-  }, [idsRemovidos, navigation, saidaPendente?.sessao_ids]);
+  }, [carregarConfirmacaoSaida, idsRemovidos, navigation, saidaPendente?.sessao_ids]);
 
   const alternarRemocao = useCallback((idSaida: number) => {
     setIdsRemovidos((atuais) =>
@@ -309,11 +389,21 @@ export default function HomeScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        {carregandoSaida && !saidaPendente ? (
+          <ActivityIndicator color={colors.primary} style={{ marginBottom: space.md }} />
+        ) : null}
+        {erroSaida ? <Text style={styles.confirmacaoText}>{erroSaida}</Text> : null}
         {(saidaPendente?.total ?? 0) > 0 ? (
           <View style={styles.confirmacaoCard}>
-            <Text style={styles.confirmacaoTitle}>Saída aguardando confirmação</Text>
+            <Text style={styles.confirmacaoTitle}>Pacotes aguardando confirmação</Text>
             <Text style={styles.confirmacaoText}>
-              Confirme os {saidaPendenteTotal} pacotes lidos antes de preparar rota ou entregar.
+              {saidaPendenteTotal === 1
+                ? "1 pacote foi separado para você."
+                : `${saidaPendenteTotal} pacotes foram separados para você.`}
+              {saidaPendenteTotal > 0
+                ? ` Shopee ${resumoServicos.shopee} · Mercado Livre ${resumoServicos.mercado} · Avulso ${resumoServicos.avulso}.`
+                : ""}
+              {horaLote ? ` Finalizado às ${horaLote}.` : ""}
             </Text>
             <TouchableOpacity
               style={styles.confirmacaoButton}
@@ -395,13 +485,19 @@ export default function HomeScreen() {
               Remova somente os pacotes que não ficarão com você. As sessões são tratadas automaticamente.
             </Text>
             <ScrollView>
+              {(saidaPendente?.itens ?? []).length === 0 ? (
+                <Text style={styles.modalDescription}>Nenhum pacote aguardando confirmação.</Text>
+              ) : null}
               {(saidaPendente?.itens ?? []).map((item) => {
                 const removido = idsRemovidos.includes(item.id_saida);
                 return (
                   <View key={item.id_saida} style={styles.pacoteRow}>
                     <View style={styles.pacoteInfo}>
-                      <Text style={styles.pacoteCodigo}>{item.codigo || `Pedido ${item.id_saida}`}</Text>
-                      <Text style={styles.pacoteServico}>{item.servico || "Avulso"}</Text>
+                      <Text style={styles.pacoteCodigo}>{rotuloSituacaoPendente(item)}</Text>
+                      <Text style={styles.pacoteServico}>
+                        {rotuloAcaoPendente(item)} · {item.codigo || `Pedido ${item.id_saida}`} ·{" "}
+                        {item.servico || "Avulso"}
+                      </Text>
                     </View>
                     <TouchableOpacity
                       style={[styles.removerButton, removido && styles.removerButtonSelected]}

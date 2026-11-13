@@ -33,7 +33,10 @@ import {
   beginOptimizeIdempotencyKey,
   endOptimizeIdempotencyKey,
   abandonOptimizeIdempotencyKey,
+  clearOptimizeRecovery,
+  keepOptimizeRecovery,
 } from "../features/entregas/utils/optimizeIdempotency";
+import { isTransientRefreshError } from "../services/apiClient";
 import { inferCoordPrecision, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
 import { geocodeAddressStrict } from "../features/entregas/utils/geocodeStrict";
 import { mergeEntregaPreservingCampos } from "../features/entregas/utils/camposObrigatoriosUtils";
@@ -170,7 +173,7 @@ export type OptimizeRouteResult = {
   ok: boolean;
   mode: RouteOptimizationMode;
   semCoordenadas: number[];
-  message: "success" | "partial" | "local_fallback" | "noop";
+  message: "success" | "partial" | "local_fallback" | "noop" | "transient";
 };
 
 export type OptimizeRouteOptions = {
@@ -1178,24 +1181,33 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         ...endOpts,
       });
       if (!optimizeResult.ok) {
-        get().clearRoute();
+        if (optimizeResult.message !== "transient") {
+          get().clearRoute();
+        }
         return {
           ok: false,
           reason: "optimize_failed",
-          message: "Não foi possível montar a nova rota. Tente novamente.",
+          message:
+            optimizeResult.message === "transient"
+              ? "A conexão falhou durante o cálculo. A rota pronta foi preservada. Tente novamente."
+              : "Não foi possível montar a nova rota. Tente novamente.",
         };
       }
 
       try {
         const ativa = await getRotasAtiva(getTodayISO());
-        if (
-          ativa?.rota_id &&
-          (ativa.status === "rota_pronta" || ativa.status === "em_entrega")
-        ) {
+        if (ativa?.rota_id && ativa.status === "em_entrega") {
           set({
             activeRouteId: ativa.rota_id,
+            persistedRouteId: ativa.rota_id,
             activeStopIndex: ativa.parada_atual ?? 0,
-            routeStarted: ativa.status === "em_entrega",
+            routeStarted: true,
+          });
+        } else if (ativa?.rota_id && ativa.status === "rota_pronta") {
+          set({
+            activeRouteId: null,
+            persistedRouteId: ativa.rota_id,
+            routeStarted: false,
           });
         }
       } catch {
@@ -1309,10 +1321,35 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
 
     const routePriority: RoutePriority = useMotoboyPrefsStore.getState().routePriority;
     const apiPriority = toApiPriorityPayload(routePriority);
-    const idemKey = beginOptimizeIdempotencyKey();
+    const fingerprint = idsForApi.join(",");
+    const idemKey = beginOptimizeIdempotencyKey(fingerprint);
+
+    const transientOptimize = (err: unknown): boolean => {
+      if (isTransientRefreshError(err)) return true;
+      const detail =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { status?: number; data?: { detail?: unknown } } }).response
+          : null;
+      const code =
+        detail?.data?.detail &&
+        typeof detail.data.detail === "object" &&
+        detail.data.detail !== null &&
+        "code" in detail.data.detail
+          ? String((detail.data.detail as { code?: string }).code || "")
+          : "";
+      return code === "OPTIMIZATION_IN_PROGRESS" || detail?.status === 408 || detail?.status === 429;
+    };
 
     try {
-      const res = await postRotasOtimizar(idsForApi, start, apiPriority, end, idemKey);
+      let res;
+      try {
+        res = await postRotasOtimizar(idsForApi, start, apiPriority, end, idemKey);
+      } catch (firstError) {
+        if (!transientOptimize(firstError)) throw firstError;
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        res = await postRotasOtimizar(idsForApi, start, apiPriority, end, idemKey);
+      }
+      clearOptimizeRecovery();
       const semCoordenadas = res.sem_coordenadas ?? [];
       const message: OptimizeRouteResult["message"] =
         semCoordenadas.length > 0 ? "partial" : "success";
@@ -1355,7 +1392,16 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         detail && typeof detail === "object" && detail !== null && "code" in detail
           ? String((detail as { code?: string }).code || "")
           : "";
-      if (code.startsWith("ROUTING_") || code === "OPTIMIZATION_IN_PROGRESS") {
+      if (transientOptimize(err) || code === "OPTIMIZATION_IN_PROGRESS") {
+        keepOptimizeRecovery(fingerprint);
+        return {
+          ok: false,
+          mode: null,
+          semCoordenadas: [],
+          message: "transient",
+        };
+      }
+      if (code.startsWith("ROUTING_")) {
         throw err;
       }
       const suffixDeliveries = getOrderedRouteDeliveries(
