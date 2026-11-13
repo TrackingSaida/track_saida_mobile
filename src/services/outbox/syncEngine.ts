@@ -1,6 +1,8 @@
 import axios, { type AxiosError } from "axios";
-import { marcarEntregue, marcarAusente, marcarDevolver } from "../../features/entregas/api";
-import { isNetworkOrTimeoutError } from "../apiClient";
+import * as FileSystem from "expo-file-system/legacy";
+import * as SecureStore from "expo-secure-store";
+import { getEntrega, marcarEntregue, marcarAusente, marcarDevolver } from "../../features/entregas/api";
+import { isNetworkOrTimeoutError, isTransientRefreshError } from "../apiClient";
 import {
   loadManifest,
   persistAction,
@@ -22,11 +24,27 @@ import {
 } from "../../features/entregas/utils/deliveryPhotoBatch";
 
 const MAX_ATTEMPTS = 5;
+const OBSOLETE_REPAIR_KEY = "outbox_obsolete_repair_v1";
 let processing = false;
+let repairDone = false;
 let stopEngine: (() => void) | null = null;
+let pedidosRemovidosNaPassagem = 0;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function registrarPedidoRemovido(quantidade: number): void {
+  if (quantidade > 0) pedidosRemovidosNaPassagem += quantidade;
+}
+
+function publicarAvisoCargaRemovida(): void {
+  const total = pedidosRemovidosNaPassagem;
+  pedidosRemovidosNaPassagem = 0;
+  if (total <= 0) return;
+  const texto =
+    total === 1 ? "Pedido removido da sua carga" : `${total} pedidos removidos da sua carga`;
+  useOutboxStore.getState().setAvisoCargaRemovida(texto);
 }
 
 function auditSync(event: string, action: OutboxDeliveryAction, extra?: string): void {
@@ -100,6 +118,91 @@ async function recoverStuckSyncingActions(): Promise<void> {
   }
 }
 
+async function deleteOrphanPhotos(action: OutboxDeliveryAction): Promise<void> {
+  for (const photo of action.photos) {
+    if (!photo.localUri) continue;
+    try {
+      await FileSystem.deleteAsync(photo.localUri, { idempotent: true });
+    } catch {
+      /* arquivo local já ausente */
+    }
+  }
+}
+
+async function discardObsoleteAction(
+  action: OutboxDeliveryAction,
+  quantidade = action.idSaidas.length
+): Promise<void> {
+  await deleteOrphanPhotos(action);
+  await removeAction(action.actionId);
+  registrarPedidoRemovido(quantidade > 0 ? quantidade : 1);
+  auditSync("sync_discard_obsolete_action", action);
+  const manifest = await loadManifest();
+  const stillFailed = manifest.actions.some((item) => item.state === "failed");
+  if (!stillFailed) {
+    useOutboxStore.getState().setLastSyncError(null);
+  }
+  await reconcileActiveRouteState(buildRouteReconcileDeps(useDeliveryStore.getState)).catch(
+    () => undefined
+  );
+}
+
+async function repairObsoleteFailedActions(): Promise<void> {
+  if (repairDone) return;
+  try {
+    if ((await SecureStore.getItemAsync(OBSOLETE_REPAIR_KEY)) === "1") {
+      repairDone = true;
+      return;
+    }
+  } catch {
+    /* segue e tenta reparar nesta execução */
+  }
+  if (!(await isOnline())) return;
+
+  const manifest = await loadManifest();
+  const failed = manifest.actions.filter((action) => action.state === "failed");
+  for (const action of failed) {
+    const obsoleteIds: number[] = [];
+    try {
+      for (const idSaida of action.idSaidas) {
+        try {
+          await getEntrega(idSaida);
+        } catch (error) {
+          if (isTransientRefreshError(error) || isNetworkOrTimeoutError(error)) {
+            return;
+          }
+          if (obsoleteActionReason(error)) {
+            obsoleteIds.push(idSaida);
+          }
+        }
+      }
+    } catch {
+      return;
+    }
+    if (obsoleteIds.length === 0) continue;
+    if (obsoleteIds.length === action.idSaidas.length) {
+      await discardObsoleteAction(action, obsoleteIds.length);
+      continue;
+    }
+    const drop = new Set(obsoleteIds);
+    await persistAction({
+      ...action,
+      idSaidas: action.idSaidas.filter((id) => !drop.has(id)),
+    });
+    registrarPedidoRemovido(obsoleteIds.length);
+    auditSync("sync_discard_obsolete_item", action, `ids=${obsoleteIds.join(",")}`);
+  }
+
+  try {
+    await SecureStore.setItemAsync(OBSOLETE_REPAIR_KEY, "1");
+  } catch {
+    /* a próxima abertura tenta de novo se a marca não gravar */
+    return;
+  }
+  repairDone = true;
+  await useOutboxStore.getState().refresh();
+}
+
 async function uploadActionPhotos(action: OutboxDeliveryAction): Promise<OutboxDeliveryAction> {
   const pending = action.photos
     .map((photo, index) => ({ photo, index }))
@@ -134,12 +237,16 @@ async function uploadActionPhotos(action: OutboxDeliveryAction): Promise<OutboxD
   return current;
 }
 
-async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
+async function markActionOnServer(
+  action: OutboxDeliveryAction
+): Promise<{ marked: number; obsolete: number }> {
   const headers = { "X-Client-Action-Id": action.clientActionId };
   let lastResponse:
     | Awaited<ReturnType<typeof marcarEntregue>>
     | Awaited<ReturnType<typeof marcarDevolver>>
     | null = null;
+  let marked = 0;
+  let obsolete = 0;
 
   for (const idSaida of action.idSaidas) {
     try {
@@ -159,13 +266,16 @@ async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
           headers
         );
       }
+      marked += 1;
     } catch (e) {
       if (isAlreadyFinalizedError(e)) {
         auditSync("sync_mark_already_finalized", action, `id_saida=${idSaida}`);
+        marked += 1;
         continue;
       }
       const obsoleteReason = obsoleteActionReason(e);
       if (obsoleteReason) {
+        obsolete += 1;
         auditSync(
           "sync_discard_obsolete_item",
           action,
@@ -191,6 +301,7 @@ async function markActionOnServer(action: OutboxDeliveryAction): Promise<void> {
       () => undefined
     );
   }
+  return { marked, obsolete };
 }
 
 async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
@@ -199,10 +310,23 @@ async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
   auditSync("sync_start", current);
 
   if (current.photos.length > 0) {
-    current = await uploadActionPhotos(current);
+    try {
+      current = await uploadActionPhotos(current);
+    } catch (error) {
+      if (obsoleteActionReason(error)) {
+        await discardObsoleteAction(current);
+        return;
+      }
+      throw error;
+    }
   }
 
-  await markActionOnServer(current);
+  const resultado = await markActionOnServer(current);
+  if (resultado.marked === 0 && resultado.obsolete > 0) {
+    await discardObsoleteAction(current, resultado.obsolete);
+    return;
+  }
+  if (resultado.obsolete > 0) registrarPedidoRemovido(resultado.obsolete);
   await removeAction(action.actionId);
   auditSync("sync_ok", current);
 }
@@ -216,9 +340,11 @@ export async function processOutboxQueue(): Promise<void> {
   if (!(await isOnline())) return;
 
   processing = true;
+  pedidosRemovidosNaPassagem = 0;
   useOutboxStore.getState().setSyncing(true);
 
   try {
+    await repairObsoleteFailedActions();
     await recoverStuckSyncingActions();
     const manifest = await loadManifest();
     const hasFailedAlready = manifest.actions.some((a) => a.state === "failed");
@@ -273,6 +399,7 @@ export async function processOutboxQueue(): Promise<void> {
       }
     }
   } finally {
+    publicarAvisoCargaRemovida();
     processing = false;
     useOutboxStore.getState().setSyncing(false);
     await useOutboxStore.getState().refresh();

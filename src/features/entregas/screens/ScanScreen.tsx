@@ -444,6 +444,10 @@ export default function ScanScreen({ navigation, route }: Props) {
   const [confirmandoEncerrado, setConfirmandoEncerrado] = useState(false);
   const [iniciandoRota, setIniciandoRota] = useState(false);
   const [fluxoConfirmacaoAtivo, setFluxoConfirmacaoAtivo] = useState(false);
+  const confirmacaoNasClaims = useAuthStore(
+    (s) => s.currentUser?.confirmacao_saida_sessoes_habilitada === true
+  );
+  const exigeConfirmacaoSaida = fluxoConfirmacaoAtivo || confirmacaoNasClaims;
   const [listaExpandida, setListaExpandida] = useState(false);
   const [removendoId, setRemovendoId] = useState<number | null>(null);
   const [showPrepararRotaModal, setShowPrepararRotaModal] = useState(false);
@@ -963,14 +967,14 @@ export default function ScanScreen({ navigation, route }: Props) {
     }).length;
     setIniciandoRota(true);
     try {
-      if (fluxoConfirmacaoAtivo) {
+      if (exigeConfirmacaoSaida) {
         await confirmarSaidaSessoes();
       } else {
         await startRoute(deliveryIds);
       }
       setFaltamEnderecoNaSessao(semEndereco);
       clearLeituras();
-      setRotaIniciada(!fluxoConfirmacaoAtivo);
+      setRotaIniciada(!exigeConfirmacaoSaida);
       if (roteirizacaoHabilitada) {
         setShowPrepararRotaModal(true);
       } else {

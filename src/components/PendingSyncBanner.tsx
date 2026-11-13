@@ -12,13 +12,40 @@ export default function PendingSyncBanner() {
   const isSyncing = useOutboxStore((s) => s.isSyncing);
   const actions = useOutboxStore((s) => s.actions);
   const lastSyncError = useOutboxStore((s) => s.lastSyncError);
+  const avisoCargaRemovida = useOutboxStore((s) => s.avisoCargaRemovida);
+  const setAvisoCargaRemovida = useOutboxStore((s) => s.setAvisoCargaRemovida);
   const refresh = useOutboxStore((s) => s.refresh);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  if (pendingCount <= 0) return null;
+  useEffect(() => {
+    if (!avisoCargaRemovida) return;
+    const timer = setTimeout(() => setAvisoCargaRemovida(null), 8000);
+    return () => clearTimeout(timer);
+  }, [avisoCargaRemovida, setAvisoCargaRemovida]);
+
+  if (pendingCount <= 0 && !avisoCargaRemovida) return null;
+
+  if (pendingCount <= 0 && avisoCargaRemovida) {
+    return (
+      <View
+        style={[
+          styles.wrap,
+          {
+            paddingTop: Math.max(insets.top, 8),
+            backgroundColor: colors.warning + "22",
+            borderBottomColor: colors.warning + "66",
+          },
+        ]}
+      >
+        <View style={styles.textCol}>
+          <Text style={[styles.text, { color: colors.text }]}>{avisoCargaRemovida}</Text>
+        </View>
+      </View>
+    );
+  }
 
   const failed = actions.filter((a) => a.state === "failed");
   const hasFailed = failed.length > 0;
@@ -54,6 +81,11 @@ export default function PendingSyncBanner() {
         {hasFailed && errorText ? (
           <Text style={[styles.errorHint, { color: colors.textSecondary }]} numberOfLines={2}>
             {errorText}
+          </Text>
+        ) : null}
+        {avisoCargaRemovida ? (
+          <Text style={[styles.errorHint, { color: colors.text }]} numberOfLines={2}>
+            {avisoCargaRemovida}
           </Text>
         ) : null}
       </View>

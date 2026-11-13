@@ -526,6 +526,14 @@ export default function ConferenciaSaidaScreen({ navigation, route }: Props) {
               >
                 <Text style={styles.modalTitle}>{formatPersonName(detail.motoboy_nome || "")}</Text>
                 <Text style={styles.modalSub}>{formatDateLabel(detail.data_ref)}</Text>
+                <Text style={styles.modalSub}>
+                  {`Quantidade operacional: ${detail.operacional_total ?? detail.total} pacote(s)`}
+                </Text>
+                {detail.snapshot_total != null ? (
+                  <Text style={styles.modalSub}>
+                    {`Registro da finalização: ${detail.snapshot_total} pacote(s). Shopee ${detail.snapshot_shopee ?? 0}, ML ${detail.snapshot_ml ?? 0}, Avulso ${detail.snapshot_avulso ?? 0}. Este registro não é reescrito.`}
+                  </Text>
+                ) : null}
                 <View
                   style={[
                     styles.badge,

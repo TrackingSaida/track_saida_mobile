@@ -1,5 +1,7 @@
 export const CLUSTER_THRESHOLD = 15;
 export const CLUSTER_DISTANCE_DEG = 0.012;
+
+/** @deprecated Não usado em routeMode: a rota sempre renderiza um pin por parada. */
 export const ROUTE_CLUSTER_MAX_STOPS = 50;
 
 export type MapClusterDisplayItem<T extends { latitude: number; longitude: number }> =
@@ -11,7 +13,8 @@ export function clusterMapPoints<T extends { latitude: number; longitude: number
   options: { routeMode?: boolean; clusterThreshold?: number } = {}
 ): MapClusterDisplayItem<T>[] {
   const { routeMode = false, clusterThreshold = CLUSTER_THRESHOLD } = options;
-  if (routeMode && points.length <= ROUTE_CLUSTER_MAX_STOPS) {
+  // Rota ativa/pronta: todos os números de parada precisam aparecer no mapa.
+  if (routeMode) {
     return points.map((point) => ({ type: "single", point }));
   }
   if (points.length <= clusterThreshold) {

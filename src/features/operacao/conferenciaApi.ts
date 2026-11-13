@@ -38,6 +38,14 @@ export interface ConferenciaDetalhe {
   novos_mercado?: number;
   novos_avulso?: number;
   novos_pacotes?: PacoteNovoConferencia[];
+  snapshot_total?: number | null;
+  snapshot_shopee?: number | null;
+  snapshot_ml?: number | null;
+  snapshot_avulso?: number | null;
+  operacional_total?: number | null;
+  operacional_shopee?: number | null;
+  operacional_ml?: number | null;
+  operacional_avulso?: number | null;
 }
 
 export type ConferenciaTotaisAbas = Record<ConferenciaAba, number>;
@@ -157,6 +165,7 @@ export interface SessaoAbertaStaff {
   sessao_id?: number | null;
   sessao_status?: string | null;
   sessao_total: number;
+  versao?: number | null;
   saida_ids: number[];
 }
 
@@ -173,6 +182,7 @@ export async function confirmarLeituraStaff(params: {
   dataRef: string;
   qtd?: number;
   sessaoId?: number | null;
+  versao?: number | null;
 }): Promise<ConfirmarLeituraResult> {
   const { data } = await client.post<ConfirmarLeituraResult>(
     "/conferencias-saida/confirmar-leitura",
@@ -181,6 +191,7 @@ export async function confirmarLeituraStaff(params: {
       data_ref: params.dataRef,
       ...(params.qtd != null ? { qtd: params.qtd } : {}),
       ...(params.sessaoId != null ? { sessao_id: params.sessaoId } : {}),
+      ...(params.versao != null ? { versao: params.versao } : {}),
     }
   );
   return data;
