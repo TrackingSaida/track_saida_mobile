@@ -24,6 +24,7 @@ import CompactStaffHeader from "../components/ui/CompactStaffHeader";
 import { decodeJwtPayload } from "../utils/jwt";
 import {
   effectivePodeLerColeta,
+  effectivePodeRealizarEntrada,
   isAdminRole,
   isMotoboyRole,
   staffRoleLabel,
@@ -135,6 +136,7 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
   const showMotoboyMenu = isMotoboyRole(role);
   const claims = token ? decodeJwtPayload(token) : {};
   const mostrarColeta = showMotoboyMenu && effectivePodeLerColeta(currentUser);
+  const mostrarEntrada = showMotoboyMenu && effectivePodeRealizarEntrada(currentUser);
   const mostrarDevolver = showMotoboyMenu && claims.devolucao_sub_base_habilitada === true;
   const mostrarEnviarAviso = !showMotoboyMenu && isAdminRole(role);
   const unreadAvisos = useAvisosUnreadStore((s) => s.unreadCount);
@@ -292,6 +294,16 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
                 title="Consultar coletas"
                 subtitle="Pendentes e andamento"
                 onPress={() => navigation.navigate("ConsultarColetas")}
+                iconColor={profile.accent}
+                iconSoftBg={profile.accentSoft}
+              />
+            ) : null}
+            {mostrarEntrada ? (
+              <PressableMenuRow
+                icon="log-in-outline"
+                title="Registrar entrada"
+                subtitle="Entrada na base"
+                onPress={() => navigation.navigate("LeituraEntradas")}
                 iconColor={profile.accent}
                 iconSoftBg={profile.accentSoft}
               />

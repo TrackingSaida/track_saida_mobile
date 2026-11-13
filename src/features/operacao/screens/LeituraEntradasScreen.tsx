@@ -22,7 +22,13 @@ import { useThemeColors } from "../../../theme/colors";
 import ScreenHeaderBar from "../../../components/ScreenHeaderBar";
 import { useAuthStore } from "../../../store/authStore";
 import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
-import { effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos, effectiveEntradaObrigatoria, effectivePodeDigitarCodigoManual } from "../../../utils/role";
+import {
+  effectiveAvulsoExigeFoto,
+  effectiveAvulsoPermitirFotos,
+  effectivePodeCriarAvulsoColeta,
+  effectivePodeDigitarCodigoManual,
+  effectivePodeRealizarEntrada,
+} from "../../../utils/role";
 import { formatApiError } from "../../../utils/formatApiError";
 import { playSound } from "../../../utils/sound";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
@@ -118,8 +124,9 @@ export default function LeituraEntradasScreen() {
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
   const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
-  const habilitada = effectiveEntradaObrigatoria(currentUser);
+  const habilitada = effectivePodeRealizarEntrada(currentUser);
   const podeManual = effectivePodeDigitarCodigoManual(currentUser);
+  const podeAvulso = effectivePodeCriarAvulsoColeta(currentUser);
 
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -767,13 +774,15 @@ export default function LeituraEntradasScreen() {
                 <Text style={styles.btnTextPrimary}>Registrar entrada</Text>
               )}
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
-              onPress={() => setAvulsoModalVisible(true)}
-              disabled={loading}
-            >
-              <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-            </TouchableOpacity>
+            {podeAvulso ? (
+              <TouchableOpacity
+                style={[styles.btnAvulsoFooter, { marginTop: 12 }, loading && styles.btnDisabled]}
+                onPress={() => setAvulsoModalVisible(true)}
+                disabled={loading}
+              >
+                <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity style={styles.linkManual} onPress={() => setCameraOpen(false)}>
               <Text style={styles.linkManualText}>Fechar scanner</Text>
             </TouchableOpacity>
@@ -788,13 +797,15 @@ export default function LeituraEntradasScreen() {
             onScan={(codigo) => processar(codigo, "leitor")}
           >
             {renderFeedbackStrip("main")}
-            <TouchableOpacity
-              style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
-              onPress={() => setAvulsoModalVisible(true)}
-              disabled={loading}
-            >
-              <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-            </TouchableOpacity>
+            {podeAvulso ? (
+              <TouchableOpacity
+                style={[styles.btnAvulsoFooter, loading && styles.btnDisabled]}
+                onPress={() => setAvulsoModalVisible(true)}
+                disabled={loading}
+              >
+                <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+              </TouchableOpacity>
+            ) : null}
             {podeManual ? (
               <TouchableOpacity
                 style={styles.linkManual}
@@ -834,13 +845,15 @@ export default function LeituraEntradasScreen() {
                 <TouchableOpacity style={styles.btnPrimary} onPress={() => void requestPermission()}>
                   <Text style={styles.btnTextPrimary}>Permitir câmera</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }]}
-                  onPress={() => setAvulsoModalVisible(true)}
-                  disabled={loading}
-                >
-                  <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                </TouchableOpacity>
+                {podeAvulso ? (
+                  <TouchableOpacity
+                    style={[styles.btnAvulsoFooter, { marginTop: 12, alignSelf: "stretch" }]}
+                    onPress={() => setAvulsoModalVisible(true)}
+                    disabled={loading}
+                  >
+                    <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {podeManual ? (
                   <TouchableOpacity
                     style={styles.linkManualWhite}
@@ -899,14 +912,16 @@ export default function LeituraEntradasScreen() {
                       <Text style={styles.cameraFooterStatus}>Aguardando primeiro código…</Text>
                     )}
                   </View>
-                  <TouchableOpacity
-                    style={[styles.btnAvulsoFooter, (loading || cameraBusy) && styles.btnDisabled]}
-                    onPress={() => setAvulsoModalVisible(true)}
-                    disabled={loading || cameraBusy}
-                    accessibilityLabel="Lançar Avulso"
-                  >
-                    <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
-                  </TouchableOpacity>
+                  {podeAvulso ? (
+                    <TouchableOpacity
+                      style={[styles.btnAvulsoFooter, (loading || cameraBusy) && styles.btnDisabled]}
+                      onPress={() => setAvulsoModalVisible(true)}
+                      disabled={loading || cameraBusy}
+                      accessibilityLabel="Lançar Avulso"
+                    >
+                      <Text style={styles.btnAvulsoFooterText}>Lançar Avulso</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   {podeManual ? (
                     <TouchableOpacity
                       style={styles.linkManualWhite}
@@ -924,7 +939,7 @@ export default function LeituraEntradasScreen() {
       </Modal>
 
       <AvulsoLancamentoModal
-        visible={avulsoModalVisible}
+        visible={avulsoModalVisible && podeAvulso}
         loading={loading}
         exigeFoto={effectiveAvulsoExigeFoto(currentUser)}
         permitirFotos={effectiveAvulsoPermitirFotos(currentUser)}
