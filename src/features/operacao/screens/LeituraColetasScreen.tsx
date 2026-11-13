@@ -816,6 +816,17 @@ export default function LeituraColetasScreen() {
   const situacaoSelecionadaRef = React.useRef(situacaoSelecionada);
   situacaoSelecionadaRef.current = situacaoSelecionada;
 
+  const podeVoltarPendente = useMemo(() => {
+    if (!situacaoSelecionada?.participando || !currentUser?.id || !situacaoSelecionada.id_execucao) {
+      return false;
+    }
+    const meu = situacaoSelecionada.participantes.find(
+      (p) => p.user_id === currentUser.id && p.status === "em_coleta"
+    );
+    if (!meu) return false;
+    return (meu.total ?? 0) <= 0 && !Boolean(meu.sem_volume);
+  }, [currentUser?.id, situacaoSelecionada]);
+
   const limparSelecaoLocal = useCallback(() => {
     setBase("");
     setTotaisColeta(TOTAIS_VAZIOS);
@@ -1521,6 +1532,43 @@ export default function LeituraColetasScreen() {
     pushFeedback,
     situacaoSelecionada,
     totaisColeta.total,
+  ]);
+
+  const handleVoltarParaPendente = useCallback(() => {
+    const idExecucao = situacaoSelecionada?.id_execucao;
+    if (!idExecucao || !podeVoltarPendente) return;
+    Alert.alert("Voltar para pendente?", "A base volta para Pendente.", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Voltar para pendente",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            setLoading(true);
+            try {
+              await liberarParticipacaoColeta(idExecucao);
+              pushFeedback("sucesso", "Base voltou para Pendente.");
+              limparSelecaoLocal();
+              void carregarSituacao();
+            } catch (error) {
+              Alert.alert(
+                "Não foi possível voltar",
+                formatApiError(error, "Se já houver volume, finalize a coleta.")
+              );
+              void carregarSituacao();
+            } finally {
+              setLoading(false);
+            }
+          })();
+        },
+      },
+    ]);
+  }, [
+    carregarSituacao,
+    limparSelecaoLocal,
+    podeVoltarPendente,
+    pushFeedback,
+    situacaoSelecionada?.id_execucao,
   ]);
 
   const handleVoltarComPendencia = useCallback(() => {
@@ -2266,7 +2314,9 @@ export default function LeituraColetasScreen() {
         </View>
       ) : null}
 
-      {baseSelecionadaOk && !ignorarColeta && (podeLancarAvulso || podeMarcarSemVolume) ? (
+      {baseSelecionadaOk &&
+      !ignorarColeta &&
+      (podeLancarAvulso || podeMarcarSemVolume || podeVoltarPendente) ? (
         <View style={styles.outrasAcoesCard}>
           <Text style={styles.sectionTitleHome}>Outras ações nesta base</Text>
           {podeLancarAvulso ? (
@@ -2297,6 +2347,23 @@ export default function LeituraColetasScreen() {
                 <Text style={styles.outrasAcoesSub}>Quando não houve coleta nesta base hoje</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          ) : null}
+          {podeVoltarPendente ? (
+            <TouchableOpacity
+              style={[styles.outrasAcoesRow, { borderBottomWidth: 0 }]}
+              onPress={handleVoltarParaPendente}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel="Voltar para pendente"
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.outrasAcoesTitle}>Voltar para pendente</Text>
+                <Text style={styles.outrasAcoesSub}>
+                  Sai da coleta sem volume e libera a base
+                </Text>
+              </View>
+              <Ionicons name="arrow-undo-outline" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
           ) : null}
         </View>
