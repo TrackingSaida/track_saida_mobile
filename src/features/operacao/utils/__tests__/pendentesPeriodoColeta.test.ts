@@ -59,3 +59,27 @@ test("completa dias pendentes sem duplicar coleta existente", () => {
   assert.equal(resumo.pendentes, 5);
   assert.equal(resumo.coletadas, 1);
 });
+
+test("agenda confirmada Seg-Sab nao sintetiza pendente no domingo", () => {
+  // 2026-11-14 sabado, 2026-11-15 domingo
+  const cheio = completarPendentesPeriodo(
+    [],
+    [
+      {
+        id_base: 1,
+        base: "SEG SAB",
+        dias_coleta: [1, 2, 3, 4, 5, 6],
+        agenda_coleta_confirmada: true,
+      },
+    ],
+    "2026-11-14",
+    "2026-11-15",
+    "2026-11-15"
+  );
+  assert.deepEqual(
+    cheio.map((item) => `${item.data_operacao}|${item.status}`),
+    ["2026-11-14|pendente"]
+  );
+  assert.equal(contarResumoColetas(cheio).pendentes, 1);
+  assert.equal(contarResumoColetas([{ ...cheio[0], status: "nao_programado" as never }]).pendentes, 0);
+});

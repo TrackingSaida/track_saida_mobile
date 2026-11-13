@@ -160,7 +160,7 @@ export interface SituacaoBaseColeta {
   endereco_completo?: string | null;
   /** Dia da coleta (YYYY-MM-DD); útil em períodos multi-dia. */
   data_operacao?: string | null;
-  status: "pendente" | "em_coleta" | "coletado" | "sem_volume";
+  status: "pendente" | "em_coleta" | "coletado" | "sem_volume" | "nao_programado";
   id_execucao: number | null;
   modo: "codigo" | "coleta_manual" | "ambos" | null;
   total: number;

@@ -784,8 +784,8 @@ export default function LeituraColetasScreen() {
     [bases, base]
   );
   const basesParaPicker = useMemo(
-    () => basesParaSeletorColeta(bases, situacaoPorBaseId, situacaoPorNome, base),
-    [bases, situacaoPorBaseId, situacaoPorNome, base]
+    () => basesParaSeletorColeta(bases, situacaoPorBaseId, situacaoPorNome, base, dataOperacao),
+    [bases, situacaoPorBaseId, situacaoPorNome, base, dataOperacao]
   );
   const basesPendentesPicker = useMemo(
     () => basesParaPicker.filter((item) => item.statusSeletor === "pendente"),
