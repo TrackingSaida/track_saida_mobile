@@ -36,6 +36,13 @@ module.exports = ({ config }) => {
     process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || ""
   ).trim();
 
+  const appVariant = (process.env.EXPO_PUBLIC_APP_VARIANT || "").trim().toLowerCase();
+  if (appVariant === "homol") {
+    next.name = "ROTEVO HOMOL";
+    next.extra.appVariant = "homol";
+    next.extra.apiBaseUrl = "https://rotevo-api-homol.onrender.com/api";
+  }
+
   const isEasBuild = process.env.EAS_BUILD === "true";
   if (isEasBuild && !apiKey) {
     console.warn(

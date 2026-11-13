@@ -18,6 +18,17 @@
           "android/app/build/outputs/mapping/release/mapping.txt"
         ]
       }
+    },
+    "homol": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_APP_VARIANT": "homol",
+        "EXPO_PUBLIC_API_BASE_URL": "https://rotevo-api-homol.onrender.com/api"
+      },
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleHomol"
+      }
     }
   },
   "submit": {

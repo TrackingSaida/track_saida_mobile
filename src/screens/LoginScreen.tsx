@@ -19,6 +19,7 @@ import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { motoboyLogin, normalizeAuthError, userLogin } from "../api/auth";
+import { IS_HOMOL_APP } from "../config/api";
 import { useAuthStore } from "../store/authStore";
 import { getSavedCredentials, saveOrClearCredentials } from "../services/savedCredentials";
 import { useThemeColors } from "../theme/colors";
@@ -359,8 +360,9 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
                       resizeMode="contain"
                       accessibilityLabel="ROTEVO"
                     />
-                    <Text style={styles.title}>ROTEVO</Text>
+                    <Text style={styles.title}>{IS_HOMOL_APP ? "ROTEVO HOMOL" : "ROTEVO"}</Text>
                     <Text style={styles.tagline}>Gestão Inteligente de Entregas</Text>
+                    {IS_HOMOL_APP ? <Text style={styles.tagline}>Homologação</Text> : null}
                     <Text style={styles.welcome}>Bem-vindo de volta</Text>
                   </View>
                   <View style={styles.inputRow}>
