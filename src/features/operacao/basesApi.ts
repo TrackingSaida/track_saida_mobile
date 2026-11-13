@@ -7,6 +7,8 @@ export interface BaseItem {
   ativo?: boolean;
   /** Endereço corrido vindo de base_seller_dados (quando cadastrado). */
   endereco_completo?: string | null;
+  dias_coleta?: number[] | null;
+  agenda_coleta_confirmada?: boolean | null;
 }
 
 export async function listarBasesAtivas(): Promise<BaseItem[]> {
@@ -25,6 +27,8 @@ export async function listarBasesAtivas(): Promise<BaseItem[]> {
         typeof b.endereco_completo === "string" && b.endereco_completo.trim()
           ? b.endereco_completo.trim()
           : null,
+      dias_coleta: Array.isArray(b.dias_coleta) ? b.dias_coleta.map(Number) : null,
+      agenda_coleta_confirmada: Boolean(b.agenda_coleta_confirmada),
     }))
     .sort((a, b) => a.base.localeCompare(b.base, "pt-BR", { sensitivity: "base" }));
 }

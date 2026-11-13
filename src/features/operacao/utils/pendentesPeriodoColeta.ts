@@ -1,5 +1,12 @@
 import type { SituacaoBaseColeta } from "../coletasApi";
 
+export type BaseAgendaColeta = {
+  id_base: number;
+  base: string;
+  dias_coleta?: number[] | null;
+  agenda_coleta_confirmada?: boolean | null;
+};
+
 export function somarDiaIso(ymd: string): string {
   const partes = ymd.slice(0, 10).split("-").map(Number);
   const dt = new Date(Date.UTC(partes[0], partes[1] - 1, partes[2] + 1));
@@ -21,6 +28,23 @@ export function diasAteHoje(inicio: string, fim: string, hoje: string): string[]
   return dias;
 }
 
+export function isoWeekdayYmd(ymd: string): number {
+  const [y, m, d] = String(ymd || "")
+    .slice(0, 10)
+    .split("-")
+    .map(Number);
+  if (!y || !m || !d) return 0;
+  const js = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return js === 0 ? 7 : js;
+}
+
+export function baseProgramadaNoDia(base: BaseAgendaColeta, dia: string): boolean {
+  if (!base?.agenda_coleta_confirmada) return true;
+  const dias = Array.isArray(base.dias_coleta) ? base.dias_coleta.map(Number) : [];
+  if (!dias.length) return true;
+  return dias.includes(isoWeekdayYmd(dia));
+}
+
 export function contarResumoColetas(itens: SituacaoBaseColeta[]): {
   pendentes: number;
   em_coleta: number;
@@ -32,7 +56,7 @@ export function contarResumoColetas(itens: SituacaoBaseColeta[]): {
     if (item.status === "em_coleta") resumo.em_coleta += 1;
     else if (item.status === "sem_volume") resumo.sem_volume += 1;
     else if (item.status === "coletado") resumo.coletadas += 1;
-    else resumo.pendentes += 1;
+    else if (item.status === "pendente" || !item.status) resumo.pendentes += 1;
   });
   return resumo;
 }
@@ -59,11 +83,11 @@ function diaPendente(base: { id_base: number; base: string }, data: string): Sit
 
 /**
  * Completa o período com um dia pendente para cada base ativa sem coleta.
- * A lista de execuções só traz dias já gravados.
+ * Com agenda confirmada, dias fora de `dias_coleta` não viram pendente.
  */
 export function completarPendentesPeriodo(
   itens: SituacaoBaseColeta[],
-  bases: Array<{ id_base: number; base: string }>,
+  bases: BaseAgendaColeta[],
   inicio: string,
   fim: string,
   hoje: string
@@ -76,6 +100,7 @@ export function completarPendentesPeriodo(
     const id = Number(base.id_base);
     if (!id) return;
     dias.forEach((dia) => {
+      if (!baseProgramadaNoDia(base, dia)) return;
       const chave = `${id}|${dia}`;
       if (chaves.has(chave)) return;
       chaves.add(chave);
