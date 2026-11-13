@@ -27,6 +27,7 @@ import EntregaDetailScreen from "../features/entregas/screens/EntregaDetailScree
 import HomeResumoDetalheScreen from "../features/home/screens/HomeResumoDetalheScreen";
 import LeituraColetasScreen from "../features/operacao/screens/LeituraColetasScreen";
 import LeiturasColetaScreen from "../features/operacao/screens/LeiturasColetaScreen";
+import LeituraEntradasScreen from "../features/operacao/screens/LeituraEntradasScreen";
 import ConsultarColetasScreen from "../features/operacao/screens/ConsultarColetasScreen";
 import MeusDadosScreen from "../screens/MeusDadosScreen";
 import ConfiguracoesScreen from "../screens/ConfiguracoesScreen";
@@ -201,6 +202,7 @@ export default function MotoboyRootNavigator({ onLogout }: { onLogout: () => Pro
       <RootStack.Screen name="DevolverPacotes" component={DevolverPacotesScreen} />
       <RootStack.Screen name="LeituraColetas" component={LeituraColetasScreen} />
       <RootStack.Screen name="LeiturasColeta" component={LeiturasColetaScreen} />
+      <RootStack.Screen name="LeituraEntradas" component={LeituraEntradasScreen} />
       <RootStack.Screen name="ConsultarColetas" component={ConsultarColetasScreen} />
       <RootStack.Screen name="EntregaDetail" component={EntregaDetailScreen} />
       <RootStack.Screen name="ResumoDetalhe" component={HomeResumoDetalheScreen} />

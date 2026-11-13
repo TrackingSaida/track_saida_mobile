@@ -11,6 +11,8 @@ export interface JwtClaims {
   owner_valor?: string;
   motoboy_id?: number;
   pode_ler_coleta?: boolean;
+  /** Motoboy pode registrar entrada (só vale com entrada_obrigatoria_habilitada). */
+  pode_realizar_entrada?: boolean;
   pode_ler_saida?: boolean;
   pode_digitar_codigo_manual?: boolean;
   /** Motoboy pode lançar avulso (legado = coleta OR saída). */

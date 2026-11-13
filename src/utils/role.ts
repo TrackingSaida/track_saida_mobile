@@ -163,6 +163,18 @@ export function effectiveEntradaObrigatoria(claims: JwtClaims | null | undefined
   return asExplicitTrue(claims.entrada_obrigatoria_habilitada);
 }
 
+/**
+ * Pode abrir/registrar entrada: staff com módulo ON; motoboy com módulo ON e flag (default OFF).
+ */
+export function effectivePodeRealizarEntrada(claims: JwtClaims | null | undefined): boolean {
+  if (!claims) return false;
+  if (!effectiveEntradaObrigatoria(claims)) return false;
+  const r = asRole(claims.role);
+  if (isStaffOperacaoRole(r)) return true;
+  if (isMotoboyRole(r)) return asExplicitTrue(claims.pode_realizar_entrada);
+  return false;
+}
+
 /** Owner habilitou Conferência de Saída. */
 export function effectiveConferenciaSaida(claims: JwtClaims | null | undefined): boolean {
   if (!claims) return false;

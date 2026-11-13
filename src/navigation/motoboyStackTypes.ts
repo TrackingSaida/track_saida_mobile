@@ -46,6 +46,7 @@ export type MotoboyRootStackParamList = {
     baseNome: string;
     dataOperacao?: string;
   };
+  LeituraEntradas: undefined;
   ConsultarColetas: undefined;
   EntregaDetail: { idSaida: number; resumeKind?: "entregue" | "ausente" };
   ResumoDetalhe: undefined;
