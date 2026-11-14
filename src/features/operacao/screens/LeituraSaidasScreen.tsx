@@ -30,6 +30,7 @@ import * as Haptics from "expo-haptics";
 import { formatApiError } from "../../../utils/formatApiError";
 import {
   effectiveConferenciaSaida,
+  effectiveConfirmacaoSaidaSessoes,
   effectivePodeDigitarCodigoManual,
   effectivePodeCriarAvulsoSaida,
   effectivePodeLerSaida,
@@ -951,7 +952,7 @@ export default function LeituraSaidasScreen() {
   }, [leiturasDoMotoboy]);
 
   const conferenciaHabilitada = effectiveConferenciaSaida(currentUser);
-  const fluxoSessaoAtivo = currentUser?.confirmacao_saida_sessoes_habilitada === true;
+  const fluxoSessaoAtivo = effectiveConfirmacaoSaidaSessoes(currentUser);
   const bloquearSaidaSemColeta = currentUser?.bloquear_saida_sem_coleta === true;
   const sessaoConfirmada = useStaffScanSessionStore((s) => s.confirmada);
   const sessaoAbertaNoServidor =
