@@ -60,7 +60,10 @@ import PendingMapGroupSheet, { confirmCreateRouteFromGroup } from "../components
 import RouteEditAddressSheet from "../components/RouteEditAddressSheet";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import { formatApiError } from "../../../utils/formatApiError";
-import { runOptimizeRouteWithFeedback } from "../utils/optimizeRouteFeedback";
+import {
+  runOptimizeRouteWithFeedback,
+  scheduleOptimizeAlertAfterMapSettle,
+} from "../utils/optimizeRouteFeedback";
 import { SERVICO_COLORS, SERVICO_ORDER, servicoTipo, serviceCountForTab, serviceCountLabelForTab, type ServicoTipo } from "../utils/servico";
 import EntregaCodigoHeader from "../components/EntregaCodigoHeader";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
@@ -1384,12 +1387,16 @@ export default function EntregasListScreen({ navigation, route }: Props) {
                 clearActiveRouteState();
               }
               setRouteDeliveries(withCoords);
+              let optimizeResult: Awaited<ReturnType<typeof runOptimizeRouteWithFeedback>> = null;
               if (withCoords.length >= 2) {
-                const result = await runOptimizeRouteWithFeedback(optimizeRoute);
-                if (!result?.ok) return;
+                optimizeResult = await runOptimizeRouteWithFeedback(optimizeRoute, {
+                  silent: true,
+                });
+                if (!optimizeResult?.ok) return;
               }
               setSelectedPendingGroup(null);
               navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
+              if (optimizeResult) scheduleOptimizeAlertAfterMapSettle(optimizeResult);
             } catch (e) {
               Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
             }

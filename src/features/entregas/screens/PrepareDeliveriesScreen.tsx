@@ -72,7 +72,10 @@ import {
   type PrepPrimaryAction,
   type PrepSecondaryAction,
 } from "../utils/prepFlowState";
-import { runOptimizeRouteWithFeedback } from "../utils/optimizeRouteFeedback";
+import {
+  runOptimizeRouteWithFeedback,
+  scheduleOptimizeAlertAfterMapSettle,
+} from "../utils/optimizeRouteFeedback";
 import { warmupOptimizeGps } from "../utils/optimizeGpsCascade";
 import { abandonOptimizeIdempotencyKey } from "../utils/optimizeIdempotency";
 import { deliveryToFreeText } from "../utils/deliveryAddress";
@@ -1016,12 +1019,14 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
       abandonOptimizeIdempotencyKey();
       clearActiveRouteState();
       setRouteDeliveries(withCoords);
-      const result = await runOptimizeRouteWithFeedback(optimizeRoute);
+      // silent: evita Alert nativo sobre o MapView no mount (crash Android com muitos pins).
+      const result = await runOptimizeRouteWithFeedback(optimizeRoute, { silent: true });
       if (!result?.ok) {
         clearRoute();
         return;
       }
       navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
+      scheduleOptimizeAlertAfterMapSettle(result);
     } catch (e) {
       clearRoute();
       Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
