@@ -33,17 +33,75 @@ interface AuthState {
   onUnauthorized: () => Promise<void>;
 }
 
-async function fetchTipoOwnerFromMe(token: string): Promise<string | null> {
+/** Flags de owner que a UI lê do JWT; `/auth/me` devolve o valor vivo do banco. */
+type OwnerFlagsFromMe = Pick<
+  JwtClaims,
+  | "tipo_owner"
+  | "confirmacao_saida_sessoes_habilitada"
+  | "conferencia_saida_habilitada"
+  | "entrada_obrigatoria_habilitada"
+  | "bloquear_saida_sem_coleta"
+  | "devolucao_sub_base_habilitada"
+  | "ignorar_coleta"
+  | "modo_operacao"
+>;
+
+async function fetchOwnerFlagsFromMe(token: string): Promise<Partial<OwnerFlagsFromMe> | null> {
   try {
-    const { data } = await axios.get<{ tipo_owner?: string }>(`${API_BASE_URL}/auth/me`, {
+    const { data } = await axios.get<Partial<OwnerFlagsFromMe>>(`${API_BASE_URL}/auth/me`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       timeout: 10000,
     });
-    if (data?.tipo_owner == null) return null;
-    return normalizeTipoOwner(data.tipo_owner);
+    if (!data || typeof data !== "object") return null;
+    const patch: Partial<OwnerFlagsFromMe> = {};
+    if (data.tipo_owner != null) {
+      patch.tipo_owner = normalizeTipoOwner(data.tipo_owner);
+    }
+    if (typeof data.confirmacao_saida_sessoes_habilitada === "boolean") {
+      patch.confirmacao_saida_sessoes_habilitada = data.confirmacao_saida_sessoes_habilitada;
+    }
+    if (typeof data.conferencia_saida_habilitada === "boolean") {
+      patch.conferencia_saida_habilitada = data.conferencia_saida_habilitada;
+    }
+    if (typeof data.entrada_obrigatoria_habilitada === "boolean") {
+      patch.entrada_obrigatoria_habilitada = data.entrada_obrigatoria_habilitada;
+    }
+    if (typeof data.bloquear_saida_sem_coleta === "boolean") {
+      patch.bloquear_saida_sem_coleta = data.bloquear_saida_sem_coleta;
+    }
+    if (typeof data.devolucao_sub_base_habilitada === "boolean") {
+      patch.devolucao_sub_base_habilitada = data.devolucao_sub_base_habilitada;
+    }
+    if (typeof data.ignorar_coleta === "boolean") {
+      patch.ignorar_coleta = data.ignorar_coleta;
+    }
+    if (typeof data.modo_operacao === "string" && data.modo_operacao.trim()) {
+      patch.modo_operacao = data.modo_operacao.trim();
+    }
+    return Object.keys(patch).length ? patch : null;
   } catch {
     return null;
   }
+}
+
+function mergeOwnerFlagsIntoCurrentUser(
+  get: () => AuthState,
+  set: (partial: Partial<AuthState>) => void,
+  patch: Partial<OwnerFlagsFromMe> | null
+): void {
+  if (!patch) return;
+  const current = get().currentUser;
+  if (!current) return;
+  let changed = false;
+  const next: JwtClaims = { ...current };
+  (Object.keys(patch) as (keyof OwnerFlagsFromMe)[]).forEach((key) => {
+    const value = patch[key];
+    if (value !== undefined && next[key] !== value) {
+      (next as Record<string, unknown>)[key] = value;
+      changed = true;
+    }
+  });
+  if (changed) set({ currentUser: next });
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -82,13 +140,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentUser: claims,
       sessionExpiredVisible: false,
     });
-    const tipoOwner = await fetchTipoOwnerFromMe(accessToken);
-    if (tipoOwner) {
-      const current = get().currentUser;
-      if (current && current.tipo_owner !== tipoOwner) {
-        set({ currentUser: { ...current, tipo_owner: tipoOwner } });
-      }
-    }
+    mergeOwnerFlagsIntoCurrentUser(get, set, await fetchOwnerFlagsFromMe(accessToken));
     const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
     await useMotoboyPrefsStore.getState().loadForCurrentUser();
     try {
@@ -125,11 +177,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isLoading: false,
           requiresBiometricUnlock: false,
         });
-        void fetchTipoOwnerFromMe(token).then((tipoOwner) => {
-          const current = get().currentUser;
-          if (tipoOwner && current && current.tipo_owner !== tipoOwner) {
-            set({ currentUser: { ...current, tipo_owner: tipoOwner } });
-          }
+        void fetchOwnerFlagsFromMe(token).then((patch) => {
+          mergeOwnerFlagsIntoCurrentUser(get, set, patch);
         });
         return;
       }
@@ -309,11 +358,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         requiresBiometricUnlock: false,
         sessionExpiredVisible: false,
       });
-      const tipoOwner = await fetchTipoOwnerFromMe(token);
-      const current = get().currentUser;
-      if (tipoOwner && current && current.tipo_owner !== tipoOwner) {
-        set({ currentUser: { ...current, tipo_owner: tipoOwner } });
-      }
+      mergeOwnerFlagsIntoCurrentUser(get, set, await fetchOwnerFlagsFromMe(token));
       const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
       await useMotoboyPrefsStore.getState().loadForCurrentUser();
       try {
