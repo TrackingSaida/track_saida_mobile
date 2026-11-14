@@ -165,35 +165,51 @@ export default function DeliveryMap({
 
   const [markersReady, setMarkersReady] = useState(false);
   const [markerResnapshotActive, setMarkerResnapshotActive] = useState(false);
+  const [markersMounted, setMarkersMounted] = useState(false);
   const hadSelectionRef = useRef(false);
 
   const routeOrderSig = useMemo(() => routeOrder.join(","), [routeOrder]);
+  const heavyMarkerLoad =
+    Platform.OS === "android" && groupedPointsWithCoords.length >= 25;
+  // Janelas curtas com muitos pins: tracksViewChanges=true em massa derruba o processo no Android.
+  const markerPaintMs = heavyMarkerLoad ? 280 : Platform.OS === "android" ? 500 : 1500;
+  const markerResnapshotMs = heavyMarkerLoad ? 350 : 1200;
 
   useEffect(() => {
-    if (groupedPointsWithCoords.length === 0) return;
+    if (groupedPointsWithCoords.length === 0) {
+      setMarkersMounted(false);
+      return;
+    }
+    // Atrasa o mount dos Markers para o MapView criar a SurfaceView antes dos bitmaps.
+    setMarkersMounted(false);
+    const mountDelay = heavyMarkerLoad ? 120 : 0;
+    const mountT = setTimeout(() => setMarkersMounted(true), mountDelay);
     setMarkersReady(false);
-    const t = setTimeout(() => setMarkersReady(true), Platform.OS === "android" ? 500 : 1500);
-    return () => clearTimeout(t);
-  }, [groupedPointsWithCoords.length, routeOrderSig]);
+    const readyT = setTimeout(() => setMarkersReady(true), mountDelay + markerPaintMs);
+    return () => {
+      clearTimeout(mountT);
+      clearTimeout(readyT);
+    };
+  }, [groupedPointsWithCoords.length, routeOrderSig, heavyMarkerLoad, markerPaintMs]);
 
   useEffect(() => {
-    if (!routeOrderSig) return;
+    if (!routeOrderSig || !markersMounted) return;
     setMarkerResnapshotActive(true);
-    const t = setTimeout(() => setMarkerResnapshotActive(false), 1200);
+    const t = setTimeout(() => setMarkerResnapshotActive(false), markerResnapshotMs);
     return () => clearTimeout(t);
-  }, [routeOrderSig]);
+  }, [routeOrderSig, markersMounted, markerResnapshotMs]);
 
   useEffect(() => {
     const hasSelection = selectedStopNumber != null || selectedId != null;
     const hadSelection = hadSelectionRef.current;
     if (hadSelection && !hasSelection) {
       setMarkerResnapshotActive(true);
-      const t = setTimeout(() => setMarkerResnapshotActive(false), 1200);
+      const t = setTimeout(() => setMarkerResnapshotActive(false), markerResnapshotMs);
       hadSelectionRef.current = hasSelection;
       return () => clearTimeout(t);
     }
     hadSelectionRef.current = hasSelection;
-  }, [selectedStopNumber, selectedId]);
+  }, [selectedStopNumber, selectedId, markerResnapshotMs]);
 
   const tracksMarkerChanges = !markersReady || markerResnapshotActive;
 
@@ -537,81 +553,83 @@ export default function DeliveryMap({
             <View style={styles.motoboyMarker} />
           </Marker>
         )}
-        {mapDisplayItems.map((item, idx) => {
-          if (item.type === "cluster") {
-            const first = item.points[0];
-            if (!first) return null;
-            const clusterSelected = selectedStopNumber === first.paradaIndex;
-            const clusterOpState = getStopMarkerOperationalState(
-              first.groupIndex,
+        {markersMounted &&
+          mapDisplayItems.map((item) => {
+            if (item.type === "cluster") {
+              const first = item.points[0];
+              if (!first) return null;
+              const clusterSelected = selectedStopNumber === first.paradaIndex;
+              const clusterOpState = getStopMarkerOperationalState(
+                first.groupIndex,
+                groupedStops,
+                routeDeliveryStatus,
+                activeGroupIndex,
+                isRouteActive
+              );
+              return (
+                <Marker
+                  key={`cluster-${item.points.map((p) => p.firstDelivery.id_saida).join("-")}`}
+                  coordinate={{ latitude: item.latitude, longitude: item.longitude }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  zIndex={first.paradaIndex}
+                  tracksViewChanges={tracksMarkerChanges || clusterSelected}
+                  onPress={() => onMarkerPress?.(first.firstDelivery, first.paradaIndex - 1)}
+                >
+                  <RouteStopMarker
+                    stopNumber={first.paradaIndex}
+                    status={first.status}
+                    isCurrent={clusterOpState.isCurrent}
+                    isNext={clusterOpState.isNext}
+                    isCompleted={clusterOpState.isCompleted}
+                    isSelected={clusterSelected}
+                    isStreetLevel={
+                      (first.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
+                    }
+                  />
+                </Marker>
+              );
+            }
+            const point = item.point;
+            const paradaNumber = point.paradaIndex;
+            const displayCoord = displayCoordByParada.get(paradaNumber) ?? {
+              latitude: point.latitude,
+              longitude: point.longitude,
+            };
+            const opState = getStopMarkerOperationalState(
+              point.groupIndex,
               groupedStops,
               routeDeliveryStatus,
               activeGroupIndex,
               isRouteActive
             );
+            const isSelected =
+              selectedStopNumber === paradaNumber ||
+              (selectedId != null &&
+                groupedStops[point.groupIndex]?.deliveries.some((d) => d.id_saida === selectedId));
+
             return (
-            <Marker
-              key={`cluster-${item.points.map((p) => p.firstDelivery.id_saida).join("-")}`}
-              coordinate={{ latitude: item.latitude, longitude: item.longitude }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              zIndex={first.paradaIndex}
-              tracksViewChanges={tracksMarkerChanges || clusterSelected}
-              onPress={() => onMarkerPress?.(first.firstDelivery, first.paradaIndex - 1)}
+              <Marker
+                key={`parada-${point.firstDelivery.id_saida}`}
+                coordinate={displayCoord}
+                anchor={{ x: 0.5, y: 0.5 }}
+                zIndex={paradaNumber}
+                tracksViewChanges={tracksMarkerChanges || isSelected}
+                onPress={() => onMarkerPress?.(point.firstDelivery, point.paradaIndex - 1)}
               >
-              <RouteStopMarker
-                  stopNumber={first.paradaIndex}
-                  status={first.status}
-                  isCurrent={clusterOpState.isCurrent}
-                  isNext={clusterOpState.isNext}
-                  isCompleted={clusterOpState.isCompleted}
-                  isSelected={clusterSelected}
+                <RouteStopMarker
+                  stopNumber={paradaNumber}
+                  status={point.status}
+                  isCurrent={opState.isCurrent}
+                  isNext={opState.isNext}
+                  isCompleted={opState.isCompleted}
+                  isSelected={isSelected}
                   isStreetLevel={
-                    (first.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
+                    (point.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
                   }
                 />
               </Marker>
             );
-          }
-          const point = item.point;
-          const paradaNumber = point.paradaIndex;
-          const displayCoord = displayCoordByParada.get(paradaNumber) ?? {
-            latitude: point.latitude,
-            longitude: point.longitude,
-          };
-          const opState = getStopMarkerOperationalState(
-            point.groupIndex,
-            groupedStops,
-            routeDeliveryStatus,
-            activeGroupIndex,
-            isRouteActive
-          );
-          const isSelected =
-            selectedStopNumber === paradaNumber ||
-            (selectedId != null && groupedStops[point.groupIndex]?.deliveries.some((d) => d.id_saida === selectedId));
-
-          return (
-            <Marker
-              key={`parada-${point.firstDelivery.id_saida}`}
-              coordinate={displayCoord}
-              anchor={{ x: 0.5, y: 0.5 }}
-              zIndex={paradaNumber}
-              tracksViewChanges={tracksMarkerChanges || isSelected}
-              onPress={() => onMarkerPress?.(point.firstDelivery, point.paradaIndex - 1)}
-            >
-              <RouteStopMarker
-                stopNumber={paradaNumber}
-                status={point.status}
-                isCurrent={opState.isCurrent}
-                isNext={opState.isNext}
-                isCompleted={opState.isCompleted}
-                isSelected={isSelected}
-                isStreetLevel={
-                  (point.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
-                }
-              />
-            </Marker>
-          );
-        })}
+          })}
       </MapView>
       {polylineWarning && routeActive && (
         <View style={styles.polylineWarning} pointerEvents="none">
