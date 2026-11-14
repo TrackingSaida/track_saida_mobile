@@ -28,7 +28,7 @@ import { useScanSessionStore } from "../../../store/scanSessionStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useAuthStore } from "../../../store/authStore";
-import { effectivePodeDigitarCodigoManual, effectivePodeCriarAvulsoSaida, effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos, ownerExigeSelecaoAvulso } from "../../../utils/role";
+import { effectivePodeDigitarCodigoManual, effectivePodeCriarAvulsoSaida, effectiveAvulsoExigeFoto, effectiveAvulsoPermitirFotos, effectiveConfirmacaoSaidaSessoes, ownerExigeSelecaoAvulso } from "../../../utils/role";
 import { playSound } from "../../../utils/sound";
 import { deliveryNeedsAddressForRoute, runPostScanRouteFlow } from "../utils/postScanRouteFlow";
 import type { EntregaListItem } from "../types";
@@ -444,8 +444,8 @@ export default function ScanScreen({ navigation, route }: Props) {
   const [confirmandoEncerrado, setConfirmandoEncerrado] = useState(false);
   const [iniciandoRota, setIniciandoRota] = useState(false);
   const [fluxoConfirmacaoAtivo, setFluxoConfirmacaoAtivo] = useState(false);
-  const confirmacaoNasClaims = useAuthStore(
-    (s) => s.currentUser?.confirmacao_saida_sessoes_habilitada === true
+  const confirmacaoNasClaims = useAuthStore((s) =>
+    effectiveConfirmacaoSaidaSessoes(s.currentUser)
   );
   const exigeConfirmacaoSaida = fluxoConfirmacaoAtivo || confirmacaoNasClaims;
   const [listaExpandida, setListaExpandida] = useState(false);

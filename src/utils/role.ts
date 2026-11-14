@@ -181,6 +181,14 @@ export function effectiveConferenciaSaida(claims: JwtClaims | null | undefined):
   return asExplicitTrue(claims.conferencia_saida_habilitada);
 }
 
+/** Owner habilitou confirmação real de saída por sessões. */
+export function effectiveConfirmacaoSaidaSessoes(
+  claims: JwtClaims | null | undefined
+): boolean {
+  if (!claims) return false;
+  return asExplicitTrue(claims.confirmacao_saida_sessoes_habilitada);
+}
+
 /** Owner exige seleção de avulso na saída (Coleta e/ou Entrada ativos). */
 export function ownerExigeSelecaoAvulso(claims: JwtClaims | null | undefined): boolean {
   if (!claims) return false;
