@@ -31,6 +31,18 @@ function hasScanInsert(ctas: ReturnType<typeof deriveHomeCtas>): boolean {
   return ctas.scanInsert.action === "scan_insert";
 }
 
+test("deriveHomeCtas em route_ready prioriza Revisar paradas e mantém Iniciar rota secundário", () => {
+  const readyView = deriveHomeOperationalView(baseInput);
+  const ctas = deriveHomeCtas(readyView, true);
+  assert.equal(readyView.heroState, "route_ready");
+  assert.equal(ctas.layout, "route");
+  if (ctas.layout === "route") {
+    assert.equal(ctas.primary.action, "edit_route");
+    assert.equal(ctas.primary.label, "Revisar paradas");
+    assert.equal(ctas.secondary.some((c) => c.action === "start_route"), true);
+  }
+});
+
 test("deriveHomeCtas inclui scan_insert em route_ready, route_active e route_completed", () => {
   const readyView = deriveHomeOperationalView(baseInput);
   assert.equal(readyView.heroState, "route_ready");

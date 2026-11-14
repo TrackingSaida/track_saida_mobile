@@ -414,11 +414,15 @@ export default function DeliveryMap({
           backgroundColor: "#2196F3",
           borderWidth: 2,
           borderColor: "#fff",
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.3,
-          shadowRadius: 2,
-          elevation: 3,
+          // Sem elevation/shadow no Android: mesmo padrão dos pins (bitmap barato).
+          ...(Platform.OS === "ios"
+            ? {
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.3,
+                shadowRadius: 2,
+              }
+            : {}),
         },
         destinationMarker: {
           width: 14,
@@ -431,6 +435,14 @@ export default function DeliveryMap({
       }),
     []
   );
+
+  // No Android, polyline Google densa + pin de destino (caminho Sim/origem+destino)
+  // no mesmo frame dos Markers customizados derruba o MapView (SurfaceView/bitmap).
+  const denseGooglePolyline =
+    Platform.OS === "android" && (routePolyline?.length ?? 0) >= 80;
+  const hasDestinationOverlay = Platform.OS === "android" && Boolean(routeDestination);
+  const deferHeavyOverlays = heavyMarkerLoad || denseGooglePolyline || hasDestinationOverlay;
+  const showRouteOverlays = markersMounted && (!deferHeavyOverlays || markersReady);
 
   const stopPolylineCoords = useMemo(
     () => withCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
@@ -509,7 +521,7 @@ export default function DeliveryMap({
           if (activeRouteId) setFollowUser(false);
         }}
       >
-        {polylineCoordinates.length >= 2 && (
+        {showRouteOverlays && polylineCoordinates.length >= 2 && (
           <Polyline
             coordinates={polylineCoordinates}
             strokeWidth={routeActive ? 6 : 4}
@@ -519,7 +531,7 @@ export default function DeliveryMap({
             geodesic={false}
           />
         )}
-        {!routeActive && highlightedPolyline.length >= 2 && (
+        {showRouteOverlays && !routeActive && highlightedPolyline.length >= 2 && (
           <Polyline
             coordinates={highlightedPolyline}
             strokeWidth={6}
@@ -529,7 +541,7 @@ export default function DeliveryMap({
             geodesic={false}
           />
         )}
-        {routeDestination ? (
+        {showRouteOverlays && routeDestination ? (
           <Marker
             coordinate={{
               latitude: routeDestination.latitude,
@@ -540,17 +552,17 @@ export default function DeliveryMap({
             title="Destino final"
             description={routeDestination.label || "Casa"}
           >
-            <View style={styles.destinationMarker} />
+            <View style={styles.destinationMarker} collapsable={false} />
           </Marker>
         ) : null}
-        {currentLocation && (
+        {showRouteOverlays && currentLocation && (
           <Marker
             coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}
             anchor={{ x: 0.5, y: 0.5 }}
             tracksViewChanges={false}
             title="Você"
           >
-            <View style={styles.motoboyMarker} />
+            <View style={styles.motoboyMarker} collapsable={false} />
           </Marker>
         )}
         {markersMounted &&

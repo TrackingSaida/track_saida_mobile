@@ -284,13 +284,16 @@ export function deriveHomeCtas(
     return {
       layout: "route",
       primary: {
-        label: loadingStartRoute ? "Iniciando…" : "Iniciar rota",
-        action: "start_route",
+        label: "Revisar paradas",
+        action: "edit_route",
         primary: true,
       },
       secondary: [
+        {
+          label: loadingStartRoute ? "Iniciando…" : "Iniciar rota",
+          action: "start_route",
+        },
         { label: "Localizar pacote", action: "locate_package" },
-        { label: "Editar rota", action: "edit_route" },
         SCAN_INSERT_CTA,
       ],
     };
