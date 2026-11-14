@@ -1,5 +1,6 @@
 import {
   SCAN_COLETA_CTA,
+  SCAN_ENTRADA_CTA,
   type HomeCta,
   type HomeCtasResult,
   type HomeOperationalView,
@@ -14,14 +15,27 @@ export type HomePresentation = {
   cardAction?: HomeCta;
   /** Atalho de coleta no idle, só se o token já libera leitura de coleta. */
   coletaAction?: HomeCta;
+  /** Atalho de entrada no idle, só se o token libera registrar entrada. */
+  entradaAction?: HomeCta;
 };
 
 export type MapHomeCtasOptions = {
   showColeta?: boolean;
+  showEntrada?: boolean;
 };
 
 const IDLE_INSERT_LABEL = "Inserir pacotes";
 const IDLE_COLETA_DESCRIPTION = "Leia a carga ou registre uma coleta para começar.";
+const IDLE_ENTRADA_DESCRIPTION = "Leia a carga ou registre uma entrada para começar.";
+const IDLE_COLETA_ENTRADA_DESCRIPTION =
+  "Leia a carga, registre coleta ou entrada para começar.";
+
+function idleDescription(showColeta: boolean, showEntrada: boolean, fallback: string): string {
+  if (showColeta && showEntrada) return IDLE_COLETA_ENTRADA_DESCRIPTION;
+  if (showColeta) return IDLE_COLETA_DESCRIPTION;
+  if (showEntrada) return IDLE_ENTRADA_DESCRIPTION;
+  return fallback;
+}
 
 /**
  * Posiciona CTAs já calculados por deriveHomeCtas na Home nova.
@@ -49,11 +63,16 @@ export function mapHomeCtasToPresentation(
 
   const idle = !ctas.viewPending && !ctas.tertiary?.[0];
   const showColeta = idle && opts?.showColeta === true;
+  const showEntrada = idle && opts?.showEntrada === true;
   return {
-    view: showColeta ? { ...view, description: IDLE_COLETA_DESCRIPTION } : view,
+    view:
+      showColeta || showEntrada
+        ? { ...view, description: idleDescription(showColeta, showEntrada, view.description) }
+        : view,
     viewPending: ctas.viewPending,
     nextAction: ctas.tertiary?.[0],
     cardAction: idle ? { ...ctas.scanInsert, label: IDLE_INSERT_LABEL } : undefined,
     coletaAction: showColeta ? SCAN_COLETA_CTA : undefined,
+    entradaAction: showEntrada ? SCAN_ENTRADA_CTA : undefined,
   };
 }

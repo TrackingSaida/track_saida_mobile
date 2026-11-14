@@ -74,10 +74,38 @@ test("mapHomeCtasToPresentation: idle com coleta adiciona atalho de registrar co
   assert.equal(ui.cardAction?.action, "scan_insert");
   assert.equal(ui.cardAction?.label, "Inserir pacotes");
   assert.equal(ui.coletaAction?.action, "scan_coleta");
+  assert.equal(ui.entradaAction, undefined);
   assert.equal(ui.view.description, "Leia a carga ou registre uma coleta para começar.");
 });
 
-test("mapHomeCtasToPresentation: pending não mostra coleta no card", () => {
+test("mapHomeCtasToPresentation: idle com entrada adiciona atalho de registrar entrada", () => {
+  const view = deriveHomeOperationalView({
+    ...baseInput,
+    routeOrder: [],
+    routeDeliveries: [],
+  });
+  const ctas = deriveHomeCtas(view, true);
+  const ui = mapHomeCtasToPresentation(view, ctas, { showEntrada: true });
+  assert.equal(ui.cardAction?.action, "scan_insert");
+  assert.equal(ui.entradaAction?.action, "scan_entrada");
+  assert.equal(ui.coletaAction, undefined);
+  assert.equal(ui.view.description, "Leia a carga ou registre uma entrada para começar.");
+});
+
+test("mapHomeCtasToPresentation: idle com coleta e entrada combina descrição", () => {
+  const view = deriveHomeOperationalView({
+    ...baseInput,
+    routeOrder: [],
+    routeDeliveries: [],
+  });
+  const ctas = deriveHomeCtas(view, true);
+  const ui = mapHomeCtasToPresentation(view, ctas, { showColeta: true, showEntrada: true });
+  assert.equal(ui.coletaAction?.action, "scan_coleta");
+  assert.equal(ui.entradaAction?.action, "scan_entrada");
+  assert.equal(ui.view.description, "Leia a carga, registre coleta ou entrada para começar.");
+});
+
+test("mapHomeCtasToPresentation: pending não mostra coleta nem entrada no card", () => {
   const view = deriveHomeOperationalView({
     ...baseInput,
     routeOrder: [],
@@ -85,9 +113,10 @@ test("mapHomeCtasToPresentation: pending não mostra coleta no card", () => {
     resumo: { pendentes: 3, finalizadas_hoje: 0, ausentes: 0, atraso_d1: 0 },
   });
   const ctas = deriveHomeCtas(view, true);
-  const ui = mapHomeCtasToPresentation(view, ctas, { showColeta: true });
+  const ui = mapHomeCtasToPresentation(view, ctas, { showColeta: true, showEntrada: true });
   assert.equal(ui.viewPending?.action, "view_pending");
   assert.equal(ui.coletaAction, undefined);
+  assert.equal(ui.entradaAction, undefined);
   assert.equal(ui.cardAction, undefined);
 });
 

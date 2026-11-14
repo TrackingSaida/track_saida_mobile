@@ -44,6 +44,8 @@ export function ctaActionToIcon(action: HomeCtaAction): OperationalIconKey | nul
       return "scanDeliver";
     case "scan_coleta":
       return "packagesWaiting";
+    case "scan_entrada":
+      return "packagesWaiting";
     case "locate_package":
       return "locatePackage";
     case "view_pending":

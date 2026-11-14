@@ -153,6 +153,7 @@ export type HomeCtaAction =
   | "scan_insert"
   | "scan_deliver"
   | "scan_coleta"
+  | "scan_entrada"
   | "prepare_route"
   | "view_pending"
   | "start_route"
@@ -188,6 +189,13 @@ export const SCAN_COLETA_CTA: HomeCta = {
   label: "Registrar coleta",
   subtitle: "Pacotes coletados na base",
   action: "scan_coleta",
+  layout: "full",
+};
+
+export const SCAN_ENTRADA_CTA: HomeCta = {
+  label: "Registrar entrada",
+  subtitle: "Pacotes que chegaram na base",
+  action: "scan_entrada",
   layout: "full",
 };
 
