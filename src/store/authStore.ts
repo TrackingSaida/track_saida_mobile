@@ -33,27 +33,28 @@ interface AuthState {
   onUnauthorized: () => Promise<void>;
 }
 
-/** Flags de owner que a UI lê do JWT; `/auth/me` devolve o valor vivo do banco. */
-type OwnerFlagsFromMe = Pick<
+/** Flags que a UI lê do JWT; `/auth/me` devolve o valor vivo do banco (owner + permissão de entrada). */
+type MeFlagsFromAuth = Pick<
   JwtClaims,
   | "tipo_owner"
   | "confirmacao_saida_sessoes_habilitada"
   | "conferencia_saida_habilitada"
   | "entrada_obrigatoria_habilitada"
+  | "pode_realizar_entrada"
   | "bloquear_saida_sem_coleta"
   | "devolucao_sub_base_habilitada"
   | "ignorar_coleta"
   | "modo_operacao"
 >;
 
-async function fetchOwnerFlagsFromMe(token: string): Promise<Partial<OwnerFlagsFromMe> | null> {
+async function fetchMeFlagsFromAuth(token: string): Promise<Partial<MeFlagsFromAuth> | null> {
   try {
-    const { data } = await axios.get<Partial<OwnerFlagsFromMe>>(`${API_BASE_URL}/auth/me`, {
+    const { data } = await axios.get<Partial<MeFlagsFromAuth>>(`${API_BASE_URL}/auth/me`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       timeout: 10000,
     });
     if (!data || typeof data !== "object") return null;
-    const patch: Partial<OwnerFlagsFromMe> = {};
+    const patch: Partial<MeFlagsFromAuth> = {};
     if (data.tipo_owner != null) {
       patch.tipo_owner = normalizeTipoOwner(data.tipo_owner);
     }
@@ -65,6 +66,9 @@ async function fetchOwnerFlagsFromMe(token: string): Promise<Partial<OwnerFlagsF
     }
     if (typeof data.entrada_obrigatoria_habilitada === "boolean") {
       patch.entrada_obrigatoria_habilitada = data.entrada_obrigatoria_habilitada;
+    }
+    if (typeof data.pode_realizar_entrada === "boolean") {
+      patch.pode_realizar_entrada = data.pode_realizar_entrada;
     }
     if (typeof data.bloquear_saida_sem_coleta === "boolean") {
       patch.bloquear_saida_sem_coleta = data.bloquear_saida_sem_coleta;
@@ -84,17 +88,17 @@ async function fetchOwnerFlagsFromMe(token: string): Promise<Partial<OwnerFlagsF
   }
 }
 
-function mergeOwnerFlagsIntoCurrentUser(
+function mergeMeFlagsIntoCurrentUser(
   get: () => AuthState,
   set: (partial: Partial<AuthState>) => void,
-  patch: Partial<OwnerFlagsFromMe> | null
+  patch: Partial<MeFlagsFromAuth> | null
 ): void {
   if (!patch) return;
   const current = get().currentUser;
   if (!current) return;
   let changed = false;
   const next: JwtClaims = { ...current };
-  (Object.keys(patch) as (keyof OwnerFlagsFromMe)[]).forEach((key) => {
+  (Object.keys(patch) as (keyof MeFlagsFromAuth)[]).forEach((key) => {
     const value = patch[key];
     if (value !== undefined && next[key] !== value) {
       (next as Record<string, unknown>)[key] = value;
@@ -140,7 +144,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentUser: claims,
       sessionExpiredVisible: false,
     });
-    mergeOwnerFlagsIntoCurrentUser(get, set, await fetchOwnerFlagsFromMe(accessToken));
+    mergeMeFlagsIntoCurrentUser(get, set, await fetchMeFlagsFromAuth(accessToken));
     const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
     await useMotoboyPrefsStore.getState().loadForCurrentUser();
     try {
@@ -177,8 +181,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isLoading: false,
           requiresBiometricUnlock: false,
         });
-        void fetchOwnerFlagsFromMe(token).then((patch) => {
-          mergeOwnerFlagsIntoCurrentUser(get, set, patch);
+        void fetchMeFlagsFromAuth(token).then((patch) => {
+          mergeMeFlagsIntoCurrentUser(get, set, patch);
         });
         return;
       }
@@ -358,7 +362,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         requiresBiometricUnlock: false,
         sessionExpiredVisible: false,
       });
-      mergeOwnerFlagsIntoCurrentUser(get, set, await fetchOwnerFlagsFromMe(token));
+      mergeMeFlagsIntoCurrentUser(get, set, await fetchMeFlagsFromAuth(token));
       const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
       await useMotoboyPrefsStore.getState().loadForCurrentUser();
       try {
