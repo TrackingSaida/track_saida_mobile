@@ -10,7 +10,7 @@ import { useThemeStore } from "../store/themeStore";
 import { useAuthStore } from "../store/authStore";
 import { useFontScale } from "../hooks/useFontScale";
 import { textStyle } from "../theme/typography";
-import { effectivePodeLerColeta } from "../utils/role";
+import { effectivePodeLerColeta, effectivePodeRealizarEntrada } from "../utils/role";
 import type { MotoboyRootStackParamList, MotoboyTabParamList } from "./motoboyStackTypes";
 import HomeScreen from "../screens/HomeScreen";
 import EntregasListScreen from "../features/entregas/screens/EntregasListScreen";
@@ -72,6 +72,7 @@ function MotoboyTabs({ onLogout }: { onLogout: () => Promise<void> }) {
   const tabMinHeight = ms(58) + Math.max(0, insets.bottom - 8);
   const [scanOpen, setScanOpen] = useState(false);
   const showColeta = effectivePodeLerColeta(currentUser);
+  const showEntrada = effectivePodeRealizarEntrada(currentUser);
   const stackNav = useNavigation<NativeStackNavigationProp<MotoboyRootStackParamList>>();
 
   const onSelectScan = useCallback(
@@ -79,6 +80,7 @@ function MotoboyTabs({ onLogout }: { onLogout: () => Promise<void> }) {
       setScanOpen(false);
       if (action === "insert") stackNav.navigate("Scan");
       else if (action === "deliver") stackNav.navigate("DeliverScan");
+      else if (action === "entrada") stackNav.navigate("LeituraEntradas");
       else stackNav.navigate("LeituraColetas");
     },
     [stackNav]
@@ -183,6 +185,7 @@ function MotoboyTabs({ onLogout }: { onLogout: () => Promise<void> }) {
       <ScanActionSheet
         visible={scanOpen}
         showColeta={showColeta}
+        showEntrada={showEntrada}
         onClose={() => setScanOpen(false)}
         onSelect={onSelectScan}
       />

@@ -27,6 +27,8 @@ type Props = {
   onCardAction?: () => void;
   coletaAction?: HomeCta;
   onColetaAction?: () => void;
+  entradaAction?: HomeCta;
+  onEntradaAction?: () => void;
 };
 
 export default function HomeOperationalCard({
@@ -40,12 +42,15 @@ export default function HomeOperationalCard({
   onCardAction,
   coletaAction,
   onColetaAction,
+  entradaAction,
+  onEntradaAction,
 }: Props) {
   const colors = useThemeColors();
   const visual = HOME_STATE_ASSETS[state];
   const iconColor = resolveHomeStateIconColor(visual, colors);
   const showPrimary = Boolean(cardAction && onCardAction && !viewPending);
   const showColeta = Boolean(showPrimary && coletaAction && onColetaAction);
+  const showEntrada = Boolean(showPrimary && entradaAction && onEntradaAction);
 
   const styles = useMemo(
     () =>
@@ -194,6 +199,16 @@ export default function HomeOperationalCard({
           accessibilityLabel={coletaAction?.label}
         >
           <Text style={styles.secondaryText}>{coletaAction?.label}</Text>
+        </TouchableOpacity>
+      ) : null}
+      {showEntrada ? (
+        <TouchableOpacity
+          style={styles.secondaryCta}
+          onPress={onEntradaAction}
+          accessibilityRole="button"
+          accessibilityLabel={entradaAction?.label}
+        >
+          <Text style={styles.secondaryText}>{entradaAction?.label}</Text>
         </TouchableOpacity>
       ) : null}
     </View>

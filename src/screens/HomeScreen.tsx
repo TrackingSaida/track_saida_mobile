@@ -23,7 +23,7 @@ import { useDeliveryStore } from "../store/deliveryStore";
 import { useThemeColors } from "../theme/colors";
 import { space } from "../theme/spacing";
 import { decodeJwtPayload } from "../utils/jwt";
-import { effectivePodeLerColeta } from "../utils/role";
+import { effectivePodeLerColeta, effectivePodeRealizarEntrada } from "../utils/role";
 import { useHomeData } from "../features/home/hooks/useHomeData";
 import { ROUTE_LOCATION_REQUIRED_MESSAGE } from "../services/location/locationService";
 import {
@@ -110,6 +110,7 @@ export default function HomeScreen() {
   const nome = claims.username || "Motoboy";
   const subBase = claims.sub_base || "";
   const showColeta = effectivePodeLerColeta(currentUser);
+  const showEntrada = effectivePodeRealizarEntrada(currentUser);
   const unreadCount = useAvisosUnreadStore((s) => s.unreadCount);
   const refreshUnread = useAvisosUnreadStore((s) => s.refresh);
   const [saidaPendente, setSaidaPendente] = useState<SaidaSessoesPendentesResponse | null>(null);
@@ -309,7 +310,7 @@ export default function HomeScreen() {
     loadingStartRoute: data.iniciandoRota,
     offerPrepareRoute,
   });
-  const presentation = mapHomeCtasToPresentation(view, ctas, { showColeta });
+  const presentation = mapHomeCtasToPresentation(view, ctas, { showColeta, showEntrada });
 
   const runAction = useCallback(
     (action: HomeCtaAction) => {
@@ -323,6 +324,9 @@ export default function HomeScreen() {
           break;
         case "scan_coleta":
           navigation.navigate("LeituraColetas");
+          break;
+        case "scan_entrada":
+          navigation.navigate("LeituraEntradas");
           break;
         case "prepare_route":
           navigation.navigate("PrepareDeliveries");
@@ -456,6 +460,12 @@ export default function HomeScreen() {
             onColetaAction={
               presentation.coletaAction
                 ? () => runAction(presentation.coletaAction!.action)
+                : undefined
+            }
+            entradaAction={presentation.entradaAction}
+            onEntradaAction={
+              presentation.entradaAction
+                ? () => runAction(presentation.entradaAction!.action)
                 : undefined
             }
           />

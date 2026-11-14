@@ -33,17 +33,56 @@ interface AuthState {
   onUnauthorized: () => Promise<void>;
 }
 
-async function fetchTipoOwnerFromMe(token: string): Promise<string | null> {
+/** Flags que a UI lê do JWT e `/auth/me` pode atualizar sem esperar refresh. */
+type MeFlagsPatch = Partial<
+  Pick<JwtClaims, "tipo_owner" | "entrada_obrigatoria_habilitada" | "pode_realizar_entrada">
+>;
+
+async function fetchMeFlags(token: string): Promise<MeFlagsPatch | null> {
   try {
-    const { data } = await axios.get<{ tipo_owner?: string }>(`${API_BASE_URL}/auth/me`, {
+    const { data } = await axios.get<{
+      tipo_owner?: string;
+      entrada_obrigatoria_habilitada?: boolean;
+      pode_realizar_entrada?: boolean;
+    }>(`${API_BASE_URL}/auth/me`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       timeout: 10000,
     });
-    if (data?.tipo_owner == null) return null;
-    return normalizeTipoOwner(data.tipo_owner);
+    if (!data || typeof data !== "object") return null;
+    const patch: MeFlagsPatch = {};
+    if (data.tipo_owner != null) {
+      patch.tipo_owner = normalizeTipoOwner(data.tipo_owner);
+    }
+    if (typeof data.entrada_obrigatoria_habilitada === "boolean") {
+      patch.entrada_obrigatoria_habilitada = data.entrada_obrigatoria_habilitada;
+    }
+    if (typeof data.pode_realizar_entrada === "boolean") {
+      patch.pode_realizar_entrada = data.pode_realizar_entrada;
+    }
+    return Object.keys(patch).length ? patch : null;
   } catch {
     return null;
   }
+}
+
+function mergeMeFlagsIntoCurrentUser(
+  get: () => AuthState,
+  set: (partial: Partial<AuthState>) => void,
+  patch: MeFlagsPatch | null
+): void {
+  if (!patch) return;
+  const current = get().currentUser;
+  if (!current) return;
+  let changed = false;
+  const next: JwtClaims = { ...current };
+  (Object.keys(patch) as (keyof MeFlagsPatch)[]).forEach((key) => {
+    const value = patch[key];
+    if (value !== undefined && next[key] !== value) {
+      (next as Record<string, unknown>)[key] = value;
+      changed = true;
+    }
+  });
+  if (changed) set({ currentUser: next });
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -82,13 +121,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentUser: claims,
       sessionExpiredVisible: false,
     });
-    const tipoOwner = await fetchTipoOwnerFromMe(accessToken);
-    if (tipoOwner) {
-      const current = get().currentUser;
-      if (current && current.tipo_owner !== tipoOwner) {
-        set({ currentUser: { ...current, tipo_owner: tipoOwner } });
-      }
-    }
+    mergeMeFlagsIntoCurrentUser(get, set, await fetchMeFlags(accessToken));
     const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
     await useMotoboyPrefsStore.getState().loadForCurrentUser();
     try {
@@ -125,12 +158,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isLoading: false,
           requiresBiometricUnlock: false,
         });
-        void fetchTipoOwnerFromMe(token).then((tipoOwner) => {
-          const current = get().currentUser;
-          if (tipoOwner && current && current.tipo_owner !== tipoOwner) {
-            set({ currentUser: { ...current, tipo_owner: tipoOwner } });
-          }
-        });
+        void fetchMeFlags(token).then((patch) => mergeMeFlagsIntoCurrentUser(get, set, patch));
         return;
       }
 
@@ -309,11 +337,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         requiresBiometricUnlock: false,
         sessionExpiredVisible: false,
       });
-      const tipoOwner = await fetchTipoOwnerFromMe(token);
-      const current = get().currentUser;
-      if (tipoOwner && current && current.tipo_owner !== tipoOwner) {
-        set({ currentUser: { ...current, tipo_owner: tipoOwner } });
-      }
+      mergeMeFlagsIntoCurrentUser(get, set, await fetchMeFlags(token));
       const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
       await useMotoboyPrefsStore.getState().loadForCurrentUser();
       try {
