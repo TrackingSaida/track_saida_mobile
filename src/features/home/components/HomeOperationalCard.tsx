@@ -123,15 +123,29 @@ export default function HomeOperationalCard({
           fontSize: 16,
           fontWeight: "800",
         },
+        secondaryRow: {
+          marginTop: space.xs,
+          flexDirection: "row",
+          alignItems: "center",
+        },
         secondaryCta: {
-          marginTop: space.sm,
-          alignSelf: "center",
-          paddingVertical: space.xs,
+          flex: 1,
+          minHeight: 44,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          paddingHorizontal: space.xs,
+        },
+        secondaryDivider: {
+          width: StyleSheet.hairlineWidth,
+          height: 16,
+          backgroundColor: colors.border,
         },
         secondaryText: {
           fontSize: typo.bodySmall,
           fontWeight: "600",
-          color: colors.textSecondary,
+          color: colors.text,
         },
       }),
     [colors]
@@ -191,25 +205,40 @@ export default function HomeOperationalCard({
           </LinearGradient>
         </TouchableOpacity>
       ) : null}
-      {showColeta ? (
-        <TouchableOpacity
-          style={styles.secondaryCta}
-          onPress={onColetaAction}
-          accessibilityRole="button"
-          accessibilityLabel={coletaAction?.label}
-        >
-          <Text style={styles.secondaryText}>{coletaAction?.label}</Text>
-        </TouchableOpacity>
-      ) : null}
-      {showEntrada ? (
-        <TouchableOpacity
-          style={styles.secondaryCta}
-          onPress={onEntradaAction}
-          accessibilityRole="button"
-          accessibilityLabel={entradaAction?.label}
-        >
-          <Text style={styles.secondaryText}>{entradaAction?.label}</Text>
-        </TouchableOpacity>
+      {showColeta || showEntrada ? (
+        <View style={styles.secondaryRow}>
+          {showColeta ? (
+            <TouchableOpacity
+              style={styles.secondaryCta}
+              onPress={onColetaAction}
+              accessibilityRole="button"
+              accessibilityLabel={coletaAction?.label}
+            >
+              <Ionicons
+                name={operationalIcons.scanColeta as IoniconName}
+                size={18}
+                color={colors.deliveryAccent}
+              />
+              <Text style={styles.secondaryText}>{coletaAction?.label}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {showColeta && showEntrada ? <View style={styles.secondaryDivider} /> : null}
+          {showEntrada ? (
+            <TouchableOpacity
+              style={styles.secondaryCta}
+              onPress={onEntradaAction}
+              accessibilityRole="button"
+              accessibilityLabel={entradaAction?.label}
+            >
+              <Ionicons
+                name={operationalIcons.scanEntrada as IoniconName}
+                size={18}
+                color={colors.deliveryAccent}
+              />
+              <Text style={styles.secondaryText}>{entradaAction?.label}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );

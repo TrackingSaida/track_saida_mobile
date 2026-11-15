@@ -25,17 +25,6 @@ export type MapHomeCtasOptions = {
 };
 
 const IDLE_INSERT_LABEL = "Inserir pacotes";
-const IDLE_COLETA_DESCRIPTION = "Leia a carga ou registre uma coleta para começar.";
-const IDLE_ENTRADA_DESCRIPTION = "Leia a carga ou registre uma entrada para começar.";
-const IDLE_COLETA_ENTRADA_DESCRIPTION =
-  "Leia a carga, registre coleta ou entrada para começar.";
-
-function idleDescription(showColeta: boolean, showEntrada: boolean, fallback: string): string {
-  if (showColeta && showEntrada) return IDLE_COLETA_ENTRADA_DESCRIPTION;
-  if (showColeta) return IDLE_COLETA_DESCRIPTION;
-  if (showEntrada) return IDLE_ENTRADA_DESCRIPTION;
-  return fallback;
-}
 
 /**
  * Posiciona CTAs já calculados por deriveHomeCtas na Home nova.
@@ -65,10 +54,7 @@ export function mapHomeCtasToPresentation(
   const showColeta = idle && opts?.showColeta === true;
   const showEntrada = idle && opts?.showEntrada === true;
   return {
-    view:
-      showColeta || showEntrada
-        ? { ...view, description: idleDescription(showColeta, showEntrada, view.description) }
-        : view,
+    view,
     viewPending: ctas.viewPending,
     nextAction: ctas.tertiary?.[0],
     cardAction: idle ? { ...ctas.scanInsert, label: IDLE_INSERT_LABEL } : undefined,

@@ -20,6 +20,7 @@ import {
 import type { EntregaListItem } from "../features/entregas/types";
 import RouteStopMarker from "./RouteStopMarker";
 import { clusterMapPoints } from "../features/entregas/utils/mapClusterUtils";
+import { splitPolylineSegments } from "../features/entregas/utils/simplifyMapPolyline";
 
 const DEFAULT_REGION = {
   latitude: -23.55,
@@ -150,18 +151,6 @@ export default function DeliveryMap({
     () => clusterMapPoints(groupedPointsWithCoords, { routeMode }),
     [groupedPointsWithCoords, routeMode]
   );
-
-  const highlightStopIndex = useMemo(() => {
-    if (selectedStopNumber != null) {
-      const idx = withCoords.findIndex((p) => p.paradaIndex === selectedStopNumber);
-      if (idx >= 0) return idx;
-    }
-    if (isRouteActive && activeGroupIndex >= 0) {
-      const idx = withCoords.findIndex((p) => p.groupIndex === activeGroupIndex);
-      if (idx >= 0) return idx;
-    }
-    return -1;
-  }, [selectedStopNumber, withCoords, isRouteActive, activeGroupIndex]);
 
   const [markersReady, setMarkersReady] = useState(false);
   const [markerResnapshotActive, setMarkerResnapshotActive] = useState(false);
@@ -424,55 +413,18 @@ export default function DeliveryMap({
               }
             : {}),
         },
-        destinationMarker: {
-          width: 14,
-          height: 14,
-          borderRadius: 7,
-          backgroundColor: "#16a34a",
-          borderWidth: 2,
-          borderColor: "#fff",
-        },
       }),
     []
   );
 
-  // No Android, polyline Google densa + pin de destino (caminho Sim/origem+destino)
-  // no mesmo frame dos Markers customizados derruba o MapView (SurfaceView/bitmap).
-  const denseGooglePolyline =
-    Platform.OS === "android" && (routePolyline?.length ?? 0) >= 80;
-  const hasDestinationOverlay = Platform.OS === "android" && Boolean(routeDestination);
-  const deferHeavyOverlays = heavyMarkerLoad || denseGooglePolyline || hasDestinationOverlay;
-  const showRouteOverlays = markersMounted && (!deferHeavyOverlays || markersReady);
-
-  const stopPolylineCoords = useMemo(
-    () => withCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
-    [withCoords]
-  );
-
   const routeActive = isRouteActiveProp ?? isRouteActive;
+  // Revisão: só os pins. A linha da rua entra depois que a rota está iniciada e os pins já montaram.
+  const showRouteLine = routeActive && markersMounted && (!heavyMarkerLoad || markersReady);
 
-  const polylineCoordinates = useMemo(() => {
-    if (routeActive) {
-      return routePolyline && routePolyline.length >= 2 ? routePolyline : [];
-    }
-    if (routePolyline && routePolyline.length >= 2) return routePolyline;
-    return stopPolylineCoords.length >= 2 ? stopPolylineCoords : [];
-  }, [stopPolylineCoords, routePolyline, routeActive]);
-
-  const highlightedPolyline = useMemo(() => {
-    if (routeActive || highlightStopIndex < 0) return [];
-    return stopPolylineCoords.slice(0, highlightStopIndex + 1);
-  }, [stopPolylineCoords, highlightStopIndex, routeActive]);
-
-  const fadedPolylineColor = useMemo(() => {
-    const hex = colors.primary.replace("#", "");
-    const full = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
-    const value = Number.parseInt(full, 16);
-    const r = (value >> 16) & 255;
-    const g = (value >> 8) & 255;
-    const b = value & 255;
-    return `rgba(${r}, ${g}, ${b}, 0.35)`;
-  }, [colors.primary]);
+  const polylineSegments = useMemo(() => {
+    if (!routeActive || !routePolyline || routePolyline.length < 2) return [];
+    return splitPolylineSegments(routePolyline);
+  }, [routeActive, routePolyline]);
 
   const showEmptyMessage = ordered.length > 0 && withCoords.length === 0;
 
@@ -521,27 +473,19 @@ export default function DeliveryMap({
           if (activeRouteId) setFollowUser(false);
         }}
       >
-        {showRouteOverlays && polylineCoordinates.length >= 2 && (
-          <Polyline
-            coordinates={polylineCoordinates}
-            strokeWidth={routeActive ? 6 : 4}
-            strokeColor={routeActive ? colors.primary : fadedPolylineColor}
-            lineCap="round"
-            lineJoin="round"
-            geodesic={false}
-          />
-        )}
-        {showRouteOverlays && !routeActive && highlightedPolyline.length >= 2 && (
-          <Polyline
-            coordinates={highlightedPolyline}
-            strokeWidth={6}
-            strokeColor={colors.primary}
-            lineCap="round"
-            lineJoin="round"
-            geodesic={false}
-          />
-        )}
-        {showRouteOverlays && routeDestination ? (
+        {showRouteLine &&
+          polylineSegments.map((segment, index) => (
+            <Polyline
+              key={`route-seg-${index}`}
+              coordinates={segment}
+              strokeWidth={6}
+              strokeColor={colors.primary}
+              lineCap="round"
+              lineJoin="round"
+              geodesic={false}
+            />
+          ))}
+        {showRouteLine && routeDestination ? (
           <Marker
             coordinate={{
               latitude: routeDestination.latitude,
@@ -549,13 +493,12 @@ export default function DeliveryMap({
             }}
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={false}
+            pinColor="#16a34a"
             title="Destino final"
             description={routeDestination.label || "Casa"}
-          >
-            <View style={styles.destinationMarker} collapsable={false} />
-          </Marker>
+          />
         ) : null}
-        {showRouteOverlays && currentLocation && (
+        {showRouteLine && currentLocation && (
           <Marker
             coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}
             anchor={{ x: 0.5, y: 0.5 }}

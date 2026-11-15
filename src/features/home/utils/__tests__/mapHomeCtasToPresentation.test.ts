@@ -60,7 +60,7 @@ test("mapHomeCtasToPresentation: idle usa scan_insert no card como atalho", () =
   assert.equal(ui.cardAction?.action, "scan_insert");
   assert.equal(ui.cardAction?.label, "Inserir pacotes");
   assert.equal(ui.coletaAction, undefined);
-  assert.equal(ui.view.description, "Escaneie os pacotes para iniciar suas entregas.");
+  assert.equal(ui.view.description, "Leia a carga para começar.");
 });
 
 test("mapHomeCtasToPresentation: idle com coleta adiciona atalho de registrar coleta", () => {
@@ -75,7 +75,7 @@ test("mapHomeCtasToPresentation: idle com coleta adiciona atalho de registrar co
   assert.equal(ui.cardAction?.label, "Inserir pacotes");
   assert.equal(ui.coletaAction?.action, "scan_coleta");
   assert.equal(ui.entradaAction, undefined);
-  assert.equal(ui.view.description, "Leia a carga ou registre uma coleta para começar.");
+  assert.equal(ui.view.description, "Leia a carga para começar.");
 });
 
 test("mapHomeCtasToPresentation: idle com entrada adiciona atalho de registrar entrada", () => {
@@ -89,10 +89,10 @@ test("mapHomeCtasToPresentation: idle com entrada adiciona atalho de registrar e
   assert.equal(ui.cardAction?.action, "scan_insert");
   assert.equal(ui.entradaAction?.action, "scan_entrada");
   assert.equal(ui.coletaAction, undefined);
-  assert.equal(ui.view.description, "Leia a carga ou registre uma entrada para começar.");
+  assert.equal(ui.view.description, "Leia a carga para começar.");
 });
 
-test("mapHomeCtasToPresentation: idle com coleta e entrada combina descrição", () => {
+test("mapHomeCtasToPresentation: idle com coleta e entrada mantém a saída como texto", () => {
   const view = deriveHomeOperationalView({
     ...baseInput,
     routeOrder: [],
@@ -102,7 +102,7 @@ test("mapHomeCtasToPresentation: idle com coleta e entrada combina descrição",
   const ui = mapHomeCtasToPresentation(view, ctas, { showColeta: true, showEntrada: true });
   assert.equal(ui.coletaAction?.action, "scan_coleta");
   assert.equal(ui.entradaAction?.action, "scan_entrada");
-  assert.equal(ui.view.description, "Leia a carga, registre coleta ou entrada para começar.");
+  assert.equal(ui.view.description, "Leia a carga para começar.");
 });
 
 test("mapHomeCtasToPresentation: pending não mostra coleta nem entrada no card", () => {

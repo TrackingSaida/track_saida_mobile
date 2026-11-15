@@ -124,6 +124,7 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
 
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
+  const rotaComOrigemDestino = useMotoboyPrefsStore((s) => s.rotaComOrigemDestino);
   const prepOrdemModo = useMotoboyPrefsStore((s) => s.prepOrdemModo);
   const prepServicoInicio = useMotoboyPrefsStore((s) => s.prepServicoInicio);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
@@ -1043,6 +1044,12 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
   ]);
 
   const askDestinationAndGenerate = useCallback(() => {
+    // Preferência experimental desligada por padrão: evita o crash no Android ao escolher "Sim".
+    if (!rotaComOrigemDestino) {
+      disableDestinationMode();
+      void runOptimizeAfterPrep();
+      return;
+    }
     Alert.alert(
       "Origem e destino",
       "Quer montar a rota saindo do seu local atual e terminando na sua casa?",
@@ -1072,7 +1079,7 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
         },
       ]
     );
-  }, [disableDestinationMode, runOptimizeAfterPrep]);
+  }, [disableDestinationMode, rotaComOrigemDestino, runOptimizeAfterPrep]);
 
   const handleConfirmDestination = useCallback(
     async (address: MotoboyHomeAddress) => {

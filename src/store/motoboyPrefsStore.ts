@@ -16,6 +16,7 @@ interface MotoboyPrefsState {
   somenteHojePendentes: boolean;
   roteirizacaoHabilitada: boolean;
   prepararRotaMomento: PrepararRotaMomento;
+  rotaComOrigemDestino: boolean;
   prepOrdemModo: PrepOrdemModo;
   prepServicoInicio: ServicoTipo;
   routePriority: RoutePriority;
@@ -27,6 +28,7 @@ interface MotoboyPrefsState {
   setSomenteHojePendentes: (value: boolean) => Promise<void>;
   setRoteirizacaoHabilitada: (value: boolean) => Promise<void>;
   setPrepararRotaMomento: (value: PrepararRotaMomento) => Promise<void>;
+  setRotaComOrigemDestino: (value: boolean) => Promise<void>;
   setPrepOrdem: (modo: PrepOrdemModo, servicoInicio?: ServicoTipo) => Promise<void>;
   setRoutePriority: (priority: RoutePriority) => Promise<void>;
   setCidadePadrao: (cidade: string, estado?: string) => Promise<void>;
@@ -41,6 +43,7 @@ function snapshotFromState(state: MotoboyPrefsState): StoredMotoboyPrefs {
     somenteHojePendentes: state.somenteHojePendentes,
     roteirizacaoHabilitada: state.roteirizacaoHabilitada,
     prepararRotaMomento: state.prepararRotaMomento,
+    rotaComOrigemDestino: state.rotaComOrigemDestino,
     prepOrdemModo: state.prepOrdemModo,
     prepServicoInicio: state.prepServicoInicio,
     routePriority: state.routePriority,
@@ -56,6 +59,7 @@ function applyStoredPrefs(stored: StoredMotoboyPrefs | null): Partial<MotoboyPre
     prepararRotaMomento: isPrepararRotaMomento(stored?.prepararRotaMomento)
       ? stored.prepararRotaMomento
       : SETTINGS_DEFAULTS.prepararRotaMomento,
+    rotaComOrigemDestino: stored?.rotaComOrigemDestino ?? SETTINGS_DEFAULTS.rotaComOrigemDestino,
     prepOrdemModo: stored?.prepOrdemModo ?? SETTINGS_DEFAULTS.prepOrdemModo,
     prepServicoInicio: stored?.prepServicoInicio ?? SETTINGS_DEFAULTS.prepServicoInicio,
     routePriority: stored?.routePriority ?? SETTINGS_DEFAULTS.routePriority,
@@ -65,10 +69,22 @@ function applyStoredPrefs(stored: StoredMotoboyPrefs | null): Partial<MotoboyPre
   };
 }
 
-const defaultState = (): Omit<MotoboyPrefsState, "loadForCurrentUser" | "resetToDefaults" | "setSomenteHojePendentes" | "setRoteirizacaoHabilitada" | "setPrepararRotaMomento" | "setPrepOrdem" | "setRoutePriority" | "setCidadePadrao"> => ({
+const defaultState = (): Omit<
+  MotoboyPrefsState,
+  | "loadForCurrentUser"
+  | "resetToDefaults"
+  | "setSomenteHojePendentes"
+  | "setRoteirizacaoHabilitada"
+  | "setPrepararRotaMomento"
+  | "setRotaComOrigemDestino"
+  | "setPrepOrdem"
+  | "setRoutePriority"
+  | "setCidadePadrao"
+> => ({
   somenteHojePendentes: SETTINGS_DEFAULTS.somenteHojePendentes,
   roteirizacaoHabilitada: SETTINGS_DEFAULTS.roteirizacaoHabilitada,
   prepararRotaMomento: SETTINGS_DEFAULTS.prepararRotaMomento,
+  rotaComOrigemDestino: SETTINGS_DEFAULTS.rotaComOrigemDestino,
   prepOrdemModo: SETTINGS_DEFAULTS.prepOrdemModo,
   prepServicoInicio: SETTINGS_DEFAULTS.prepServicoInicio,
   routePriority: SETTINGS_DEFAULTS.routePriority,
@@ -113,12 +129,32 @@ export const useMotoboyPrefsStore = create<MotoboyPrefsState>((set, get) => ({
 
   setRoteirizacaoHabilitada: async (value: boolean) => {
     const userKey = resolveUserKey();
-    const previous = get().roteirizacaoHabilitada;
-    set({ roteirizacaoHabilitada: value });
+    const previousRoteirizacao = get().roteirizacaoHabilitada;
+    const previousOrigemDestino = get().rotaComOrigemDestino;
+    set({
+      roteirizacaoHabilitada: value,
+      // Sem preparação de rota, a pergunta de origem/destino some e volta desligada.
+      ...(value ? {} : { rotaComOrigemDestino: false }),
+    });
     try {
       await persistSnapshot(userKey, get());
     } catch (error) {
-      set({ roteirizacaoHabilitada: previous });
+      set({
+        roteirizacaoHabilitada: previousRoteirizacao,
+        rotaComOrigemDestino: previousOrigemDestino,
+      });
+      throw error;
+    }
+  },
+
+  setRotaComOrigemDestino: async (value: boolean) => {
+    const userKey = resolveUserKey();
+    const previous = get().rotaComOrigemDestino;
+    set({ rotaComOrigemDestino: value });
+    try {
+      await persistSnapshot(userKey, get());
+    } catch (error) {
+      set({ rotaComOrigemDestino: previous });
       throw error;
     }
   },

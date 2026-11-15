@@ -9,6 +9,8 @@ export const operationalIcons = {
   scanPackages: "scan-outline",
   scanInsert: "cube-outline",
   scanDeliver: "checkmark-circle-outline",
+  scanColeta: "layers-outline",
+  scanEntrada: "enter-outline",
   locatePackage: "search-outline",
   pendingList: "list-outline",
   delivered: "checkmark-circle-outline",
@@ -43,9 +45,9 @@ export function ctaActionToIcon(action: HomeCtaAction): OperationalIconKey | nul
     case "scan_deliver":
       return "scanDeliver";
     case "scan_coleta":
-      return "packagesWaiting";
+      return "scanColeta";
     case "scan_entrada":
-      return "packagesWaiting";
+      return "scanEntrada";
     case "locate_package":
       return "locatePackage";
     case "view_pending":

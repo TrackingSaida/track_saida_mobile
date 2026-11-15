@@ -143,7 +143,7 @@ export function deriveHomeOperationalView(input: HomeOperationalInput): HomeOper
   return {
     heroState: "idle",
     title: "Pronto para começar?",
-    description: "Escaneie os pacotes para iniciar suas entregas.",
+    description: "Leia a carga para começar.",
     extraLines: [],
   };
 }
