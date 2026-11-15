@@ -13,16 +13,23 @@ import { useThemeColors } from "../../../theme/colors";
 import { space, radius } from "../../../theme/spacing";
 import { type as typo } from "../../../theme/typography";
 
-export type ScanSheetAction = "insert" | "deliver" | "coleta";
+export type ScanSheetAction = "insert" | "deliver" | "coleta" | "entrada";
 
 type Props = {
   visible: boolean;
   showColeta: boolean;
+  showEntrada?: boolean;
   onClose: () => void;
   onSelect: (action: ScanSheetAction) => void;
 };
 
-export default function ScanActionSheet({ visible, showColeta, onClose, onSelect }: Props) {
+export default function ScanActionSheet({
+  visible,
+  showColeta,
+  showEntrada = false,
+  onClose,
+  onSelect,
+}: Props) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
 
@@ -88,6 +95,9 @@ export default function ScanActionSheet({ visible, showColeta, onClose, onSelect
     [colors]
   );
 
+  const deliverIsLast = !showColeta && !showEntrada;
+  const coletaIsLast = showColeta && !showEntrada;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
@@ -112,7 +122,7 @@ export default function ScanActionSheet({ visible, showColeta, onClose, onSelect
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.action, showColeta ? undefined : styles.actionLast]}
+            style={[styles.action, deliverIsLast ? styles.actionLast : undefined]}
             onPress={() => onSelect("deliver")}
             accessibilityRole="button"
             accessibilityLabel="Finalizar entrega"
@@ -126,7 +136,7 @@ export default function ScanActionSheet({ visible, showColeta, onClose, onSelect
 
           {showColeta ? (
             <TouchableOpacity
-              style={[styles.action, styles.actionLast]}
+              style={[styles.action, coletaIsLast ? styles.actionLast : undefined]}
               onPress={() => onSelect("coleta")}
               accessibilityRole="button"
               accessibilityLabel="Registrar coleta"
@@ -135,6 +145,21 @@ export default function ScanActionSheet({ visible, showColeta, onClose, onSelect
               <View style={styles.actionTextWrap}>
                 <Text style={styles.actionTitle}>Registrar coleta</Text>
                 <Text style={styles.actionDesc}>Pacotes coletados na base</Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
+
+          {showEntrada ? (
+            <TouchableOpacity
+              style={[styles.action, styles.actionLast]}
+              onPress={() => onSelect("entrada")}
+              accessibilityRole="button"
+              accessibilityLabel="Registrar entrada"
+            >
+              <Ionicons name="enter-outline" size={22} color={colors.deliveryAccent} />
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Registrar entrada</Text>
+                <Text style={styles.actionDesc}>Pacotes que chegaram na base</Text>
               </View>
             </TouchableOpacity>
           ) : null}

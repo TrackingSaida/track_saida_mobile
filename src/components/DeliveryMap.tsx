@@ -20,6 +20,7 @@ import {
 import type { EntregaListItem } from "../features/entregas/types";
 import RouteStopMarker from "./RouteStopMarker";
 import { clusterMapPoints } from "../features/entregas/utils/mapClusterUtils";
+import { splitPolylineSegments } from "../features/entregas/utils/simplifyMapPolyline";
 
 const DEFAULT_REGION = {
   latitude: -23.55,
@@ -151,49 +152,53 @@ export default function DeliveryMap({
     [groupedPointsWithCoords, routeMode]
   );
 
-  const highlightStopIndex = useMemo(() => {
-    if (selectedStopNumber != null) {
-      const idx = withCoords.findIndex((p) => p.paradaIndex === selectedStopNumber);
-      if (idx >= 0) return idx;
-    }
-    if (isRouteActive && activeGroupIndex >= 0) {
-      const idx = withCoords.findIndex((p) => p.groupIndex === activeGroupIndex);
-      if (idx >= 0) return idx;
-    }
-    return -1;
-  }, [selectedStopNumber, withCoords, isRouteActive, activeGroupIndex]);
-
   const [markersReady, setMarkersReady] = useState(false);
   const [markerResnapshotActive, setMarkerResnapshotActive] = useState(false);
+  const [markersMounted, setMarkersMounted] = useState(false);
   const hadSelectionRef = useRef(false);
 
   const routeOrderSig = useMemo(() => routeOrder.join(","), [routeOrder]);
+  const heavyMarkerLoad =
+    Platform.OS === "android" && groupedPointsWithCoords.length >= 25;
+  // Janelas curtas com muitos pins: tracksViewChanges=true em massa derruba o processo no Android.
+  const markerPaintMs = heavyMarkerLoad ? 280 : Platform.OS === "android" ? 500 : 1500;
+  const markerResnapshotMs = heavyMarkerLoad ? 350 : 1200;
 
   useEffect(() => {
-    if (groupedPointsWithCoords.length === 0) return;
+    if (groupedPointsWithCoords.length === 0) {
+      setMarkersMounted(false);
+      return;
+    }
+    // Atrasa o mount dos Markers para o MapView criar a SurfaceView antes dos bitmaps.
+    setMarkersMounted(false);
+    const mountDelay = heavyMarkerLoad ? 120 : 0;
+    const mountT = setTimeout(() => setMarkersMounted(true), mountDelay);
     setMarkersReady(false);
-    const t = setTimeout(() => setMarkersReady(true), Platform.OS === "android" ? 500 : 1500);
-    return () => clearTimeout(t);
-  }, [groupedPointsWithCoords.length, routeOrderSig]);
+    const readyT = setTimeout(() => setMarkersReady(true), mountDelay + markerPaintMs);
+    return () => {
+      clearTimeout(mountT);
+      clearTimeout(readyT);
+    };
+  }, [groupedPointsWithCoords.length, routeOrderSig, heavyMarkerLoad, markerPaintMs]);
 
   useEffect(() => {
-    if (!routeOrderSig) return;
+    if (!routeOrderSig || !markersMounted) return;
     setMarkerResnapshotActive(true);
-    const t = setTimeout(() => setMarkerResnapshotActive(false), 1200);
+    const t = setTimeout(() => setMarkerResnapshotActive(false), markerResnapshotMs);
     return () => clearTimeout(t);
-  }, [routeOrderSig]);
+  }, [routeOrderSig, markersMounted, markerResnapshotMs]);
 
   useEffect(() => {
     const hasSelection = selectedStopNumber != null || selectedId != null;
     const hadSelection = hadSelectionRef.current;
     if (hadSelection && !hasSelection) {
       setMarkerResnapshotActive(true);
-      const t = setTimeout(() => setMarkerResnapshotActive(false), 1200);
+      const t = setTimeout(() => setMarkerResnapshotActive(false), markerResnapshotMs);
       hadSelectionRef.current = hasSelection;
       return () => clearTimeout(t);
     }
     hadSelectionRef.current = hasSelection;
-  }, [selectedStopNumber, selectedId]);
+  }, [selectedStopNumber, selectedId, markerResnapshotMs]);
 
   const tracksMarkerChanges = !markersReady || markerResnapshotActive;
 
@@ -398,53 +403,28 @@ export default function DeliveryMap({
           backgroundColor: "#2196F3",
           borderWidth: 2,
           borderColor: "#fff",
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.3,
-          shadowRadius: 2,
-          elevation: 3,
-        },
-        destinationMarker: {
-          width: 14,
-          height: 14,
-          borderRadius: 7,
-          backgroundColor: "#16a34a",
-          borderWidth: 2,
-          borderColor: "#fff",
+          // Sem elevation/shadow no Android: mesmo padrão dos pins (bitmap barato).
+          ...(Platform.OS === "ios"
+            ? {
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.3,
+                shadowRadius: 2,
+              }
+            : {}),
         },
       }),
     []
   );
 
-  const stopPolylineCoords = useMemo(
-    () => withCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
-    [withCoords]
-  );
-
   const routeActive = isRouteActiveProp ?? isRouteActive;
+  // Revisão: só os pins. A linha da rua entra depois que a rota está iniciada e os pins já montaram.
+  const showRouteLine = routeActive && markersMounted && (!heavyMarkerLoad || markersReady);
 
-  const polylineCoordinates = useMemo(() => {
-    if (routeActive) {
-      return routePolyline && routePolyline.length >= 2 ? routePolyline : [];
-    }
-    if (routePolyline && routePolyline.length >= 2) return routePolyline;
-    return stopPolylineCoords.length >= 2 ? stopPolylineCoords : [];
-  }, [stopPolylineCoords, routePolyline, routeActive]);
-
-  const highlightedPolyline = useMemo(() => {
-    if (routeActive || highlightStopIndex < 0) return [];
-    return stopPolylineCoords.slice(0, highlightStopIndex + 1);
-  }, [stopPolylineCoords, highlightStopIndex, routeActive]);
-
-  const fadedPolylineColor = useMemo(() => {
-    const hex = colors.primary.replace("#", "");
-    const full = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
-    const value = Number.parseInt(full, 16);
-    const r = (value >> 16) & 255;
-    const g = (value >> 8) & 255;
-    const b = value & 255;
-    return `rgba(${r}, ${g}, ${b}, 0.35)`;
-  }, [colors.primary]);
+  const polylineSegments = useMemo(() => {
+    if (!routeActive || !routePolyline || routePolyline.length < 2) return [];
+    return splitPolylineSegments(routePolyline);
+  }, [routeActive, routePolyline]);
 
   const showEmptyMessage = ordered.length > 0 && withCoords.length === 0;
 
@@ -493,27 +473,19 @@ export default function DeliveryMap({
           if (activeRouteId) setFollowUser(false);
         }}
       >
-        {polylineCoordinates.length >= 2 && (
-          <Polyline
-            coordinates={polylineCoordinates}
-            strokeWidth={routeActive ? 6 : 4}
-            strokeColor={routeActive ? colors.primary : fadedPolylineColor}
-            lineCap="round"
-            lineJoin="round"
-            geodesic={false}
-          />
-        )}
-        {!routeActive && highlightedPolyline.length >= 2 && (
-          <Polyline
-            coordinates={highlightedPolyline}
-            strokeWidth={6}
-            strokeColor={colors.primary}
-            lineCap="round"
-            lineJoin="round"
-            geodesic={false}
-          />
-        )}
-        {routeDestination ? (
+        {showRouteLine &&
+          polylineSegments.map((segment, index) => (
+            <Polyline
+              key={`route-seg-${index}`}
+              coordinates={segment}
+              strokeWidth={6}
+              strokeColor={colors.primary}
+              lineCap="round"
+              lineJoin="round"
+              geodesic={false}
+            />
+          ))}
+        {showRouteLine && routeDestination ? (
           <Marker
             coordinate={{
               latitude: routeDestination.latitude,
@@ -521,97 +493,98 @@ export default function DeliveryMap({
             }}
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={false}
+            pinColor="#16a34a"
             title="Destino final"
             description={routeDestination.label || "Casa"}
-          >
-            <View style={styles.destinationMarker} />
-          </Marker>
+          />
         ) : null}
-        {currentLocation && (
+        {showRouteLine && currentLocation && (
           <Marker
             coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}
             anchor={{ x: 0.5, y: 0.5 }}
             tracksViewChanges={false}
             title="Você"
           >
-            <View style={styles.motoboyMarker} />
+            <View style={styles.motoboyMarker} collapsable={false} />
           </Marker>
         )}
-        {mapDisplayItems.map((item, idx) => {
-          if (item.type === "cluster") {
-            const first = item.points[0];
-            if (!first) return null;
-            const clusterSelected = selectedStopNumber === first.paradaIndex;
-            const clusterOpState = getStopMarkerOperationalState(
-              first.groupIndex,
+        {markersMounted &&
+          mapDisplayItems.map((item) => {
+            if (item.type === "cluster") {
+              const first = item.points[0];
+              if (!first) return null;
+              const clusterSelected = selectedStopNumber === first.paradaIndex;
+              const clusterOpState = getStopMarkerOperationalState(
+                first.groupIndex,
+                groupedStops,
+                routeDeliveryStatus,
+                activeGroupIndex,
+                isRouteActive
+              );
+              return (
+                <Marker
+                  key={`cluster-${item.points.map((p) => p.firstDelivery.id_saida).join("-")}`}
+                  coordinate={{ latitude: item.latitude, longitude: item.longitude }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  zIndex={first.paradaIndex}
+                  tracksViewChanges={tracksMarkerChanges || clusterSelected}
+                  onPress={() => onMarkerPress?.(first.firstDelivery, first.paradaIndex - 1)}
+                >
+                  <RouteStopMarker
+                    stopNumber={first.paradaIndex}
+                    status={first.status}
+                    isCurrent={clusterOpState.isCurrent}
+                    isNext={clusterOpState.isNext}
+                    isCompleted={clusterOpState.isCompleted}
+                    isSelected={clusterSelected}
+                    isStreetLevel={
+                      (first.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
+                    }
+                  />
+                </Marker>
+              );
+            }
+            const point = item.point;
+            const paradaNumber = point.paradaIndex;
+            const displayCoord = displayCoordByParada.get(paradaNumber) ?? {
+              latitude: point.latitude,
+              longitude: point.longitude,
+            };
+            const opState = getStopMarkerOperationalState(
+              point.groupIndex,
               groupedStops,
               routeDeliveryStatus,
               activeGroupIndex,
               isRouteActive
             );
+            const isSelected =
+              selectedStopNumber === paradaNumber ||
+              (selectedId != null &&
+                groupedStops[point.groupIndex]?.deliveries.some((d) => d.id_saida === selectedId));
+
             return (
-            <Marker
-              key={`cluster-${item.points.map((p) => p.firstDelivery.id_saida).join("-")}`}
-              coordinate={{ latitude: item.latitude, longitude: item.longitude }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              zIndex={first.paradaIndex}
-              tracksViewChanges={tracksMarkerChanges || clusterSelected}
-              onPress={() => onMarkerPress?.(first.firstDelivery, first.paradaIndex - 1)}
+              <Marker
+                key={`parada-${point.firstDelivery.id_saida}`}
+                coordinate={displayCoord}
+                anchor={{ x: 0.5, y: 0.5 }}
+                zIndex={paradaNumber}
+                tracksViewChanges={tracksMarkerChanges || isSelected}
+                onPress={() => onMarkerPress?.(point.firstDelivery, point.paradaIndex - 1)}
               >
-              <RouteStopMarker
-                  stopNumber={first.paradaIndex}
-                  status={first.status}
-                  isCurrent={clusterOpState.isCurrent}
-                  isNext={clusterOpState.isNext}
-                  isCompleted={clusterOpState.isCompleted}
-                  isSelected={clusterSelected}
+                <RouteStopMarker
+                  stopNumber={paradaNumber}
+                  status={point.status}
+                  isCurrent={opState.isCurrent}
+                  isNext={opState.isNext}
+                  isCompleted={opState.isCompleted}
+                  isSelected={isSelected}
                   isStreetLevel={
-                    (first.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
+                    (point.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
                   }
                 />
               </Marker>
             );
-          }
-          const point = item.point;
-          const paradaNumber = point.paradaIndex;
-          const displayCoord = displayCoordByParada.get(paradaNumber) ?? {
-            latitude: point.latitude,
-            longitude: point.longitude,
-          };
-          const opState = getStopMarkerOperationalState(
-            point.groupIndex,
-            groupedStops,
-            routeDeliveryStatus,
-            activeGroupIndex,
-            isRouteActive
-          );
-          const isSelected =
-            selectedStopNumber === paradaNumber ||
-            (selectedId != null && groupedStops[point.groupIndex]?.deliveries.some((d) => d.id_saida === selectedId));
-
-          return (
-            <Marker
-              key={`parada-${point.firstDelivery.id_saida}`}
-              coordinate={displayCoord}
-              anchor={{ x: 0.5, y: 0.5 }}
-              zIndex={paradaNumber}
-              tracksViewChanges={tracksMarkerChanges || isSelected}
-              onPress={() => onMarkerPress?.(point.firstDelivery, point.paradaIndex - 1)}
-            >
-              <RouteStopMarker
-                stopNumber={paradaNumber}
-                status={point.status}
-                isCurrent={opState.isCurrent}
-                isNext={opState.isNext}
-                isCompleted={opState.isCompleted}
-                isSelected={isSelected}
-                isStreetLevel={
-                  (point.firstDelivery.coord_precision ?? "").toLowerCase() === "street"
-                }
-              />
-            </Marker>
-          );
-        })}
+          })}
       </MapView>
       {polylineWarning && routeActive && (
         <View style={styles.polylineWarning} pointerEvents="none">

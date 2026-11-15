@@ -72,7 +72,10 @@ import {
   type PrepPrimaryAction,
   type PrepSecondaryAction,
 } from "../utils/prepFlowState";
-import { runOptimizeRouteWithFeedback } from "../utils/optimizeRouteFeedback";
+import {
+  runOptimizeRouteWithFeedback,
+  scheduleOptimizeAlertAfterMapSettle,
+} from "../utils/optimizeRouteFeedback";
 import { warmupOptimizeGps } from "../utils/optimizeGpsCascade";
 import { abandonOptimizeIdempotencyKey } from "../utils/optimizeIdempotency";
 import { deliveryToFreeText } from "../utils/deliveryAddress";
@@ -121,6 +124,7 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
 
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
+  const rotaComOrigemDestino = useMotoboyPrefsStore((s) => s.rotaComOrigemDestino);
   const prepOrdemModo = useMotoboyPrefsStore((s) => s.prepOrdemModo);
   const prepServicoInicio = useMotoboyPrefsStore((s) => s.prepServicoInicio);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
@@ -1016,12 +1020,14 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
       abandonOptimizeIdempotencyKey();
       clearActiveRouteState();
       setRouteDeliveries(withCoords);
-      const result = await runOptimizeRouteWithFeedback(optimizeRoute);
+      // silent: evita Alert nativo sobre o MapView no mount (crash Android com muitos pins).
+      const result = await runOptimizeRouteWithFeedback(optimizeRoute, { silent: true });
       if (!result?.ok) {
         clearRoute();
         return;
       }
       navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
+      scheduleOptimizeAlertAfterMapSettle(result);
     } catch (e) {
       clearRoute();
       Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
@@ -1038,6 +1044,12 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
   ]);
 
   const askDestinationAndGenerate = useCallback(() => {
+    // Preferência experimental desligada por padrão: evita o crash no Android ao escolher "Sim".
+    if (!rotaComOrigemDestino) {
+      disableDestinationMode();
+      void runOptimizeAfterPrep();
+      return;
+    }
     Alert.alert(
       "Origem e destino",
       "Quer montar a rota saindo do seu local atual e terminando na sua casa?",
@@ -1067,7 +1079,7 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
         },
       ]
     );
-  }, [disableDestinationMode, runOptimizeAfterPrep]);
+  }, [disableDestinationMode, rotaComOrigemDestino, runOptimizeAfterPrep]);
 
   const handleConfirmDestination = useCallback(
     async (address: MotoboyHomeAddress) => {

@@ -130,6 +130,7 @@ function outboxKindForSaida(idSaida: number): RouteDeliveryStatus | null {
   }
   return null;
 }
+import { AppState, type NativeEventSubscription } from "react-native";
 import {
   areBackgroundLocationPermissionsGranted,
   ensureBackgroundLocationPermission,
@@ -139,6 +140,40 @@ import {
   stopBackgroundTracking,
   type BackgroundLocationPermissionResult,
 } from "../services/location/locationService";
+
+let backgroundTrackingResumeSub: NativeEventSubscription | null = null;
+
+/** Tenta retomar o FGS quando o app voltar ao primeiro plano (evita alerta técnico no start). */
+function scheduleBackgroundTrackingResumeWhenActive(): void {
+  backgroundTrackingResumeSub?.remove();
+  backgroundTrackingResumeSub = null;
+  const tryStart = async () => {
+    if (AppState.currentState !== "active") return;
+    if (!useDeliveryStore.getState().backgroundTrackingNeedsResume) {
+      backgroundTrackingResumeSub?.remove();
+      backgroundTrackingResumeSub = null;
+      return;
+    }
+    if (!(await areBackgroundLocationPermissionsGranted())) return;
+    try {
+      const started = await startBackgroundLocationUpdates();
+      if (started.ok) {
+        useDeliveryStore.setState({ backgroundTrackingNeedsResume: false });
+        backgroundTrackingResumeSub?.remove();
+        backgroundTrackingResumeSub = null;
+      }
+    } catch {
+      /* mantém needsResume */
+    }
+  };
+  if (AppState.currentState === "active") {
+    void tryStart();
+    return;
+  }
+  backgroundTrackingResumeSub = AppState.addEventListener("change", (state) => {
+    if (state === "active") void tryStart();
+  });
+}
 import { useMotoboyPrefsStore } from "./motoboyPrefsStore";
 import { useRouteDestinationStore } from "./routeDestinationStore";
 import {
@@ -623,7 +658,17 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeStarted: true,
       backgroundTrackingNeedsResume: false,
     });
-    await startBackgroundLocationUpdates();
+    // A rota já está ativa no backend. Falha de FGS em background não cancela a rota.
+    try {
+      const started = await startBackgroundLocationUpdates();
+      if (!started.ok) {
+        set({ backgroundTrackingNeedsResume: true });
+        scheduleBackgroundTrackingResumeWhenActive();
+      }
+    } catch {
+      set({ backgroundTrackingNeedsResume: true });
+      scheduleBackgroundTrackingResumeWhenActive();
+    }
     await get().loadDeliveries();
     return rota_id;
   },
@@ -634,8 +679,10 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       return { ok: false, reason: "disclosure_unavailable" };
     }
     const result = await prepareAndStartBackgroundTracking();
-    if (result.ok) {
+    if (result.ok && !result.trackingDeferred) {
       set({ backgroundTrackingNeedsResume: false });
+    } else if (result.ok && result.trackingDeferred) {
+      set({ backgroundTrackingNeedsResume: true });
     }
     return result;
   },
@@ -787,13 +834,19 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     }
 
     // Restore: só retoma tracking se permissões já existirem (sem prompt no bootstrap).
-    // Se faltar permissão, marca needsResume e exige "Continuar rota".
+    // Se faltar permissão ou FGS em background, marca needsResume.
     if (await areBackgroundLocationPermissionsGranted()) {
       try {
-        await startBackgroundLocationUpdates();
-        set({ backgroundTrackingNeedsResume: false });
+        const started = await startBackgroundLocationUpdates();
+        if (started.ok) {
+          set({ backgroundTrackingNeedsResume: false });
+        } else {
+          set({ backgroundTrackingNeedsResume: true });
+          scheduleBackgroundTrackingResumeWhenActive();
+        }
       } catch {
         set({ backgroundTrackingNeedsResume: true });
+        scheduleBackgroundTrackingResumeWhenActive();
       }
     } else {
       set({ backgroundTrackingNeedsResume: true });

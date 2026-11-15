@@ -1,4 +1,4 @@
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import * as Location from "expo-location";
 import type { OptimizeRouteOptions, OptimizeRouteResult } from "../../../store/deliveryStore";
 import { useRouteDestinationStore } from "../../../store/routeDestinationStore";
@@ -29,7 +29,7 @@ function resolveEndOpts(opts?: OptimizeRouteFeedbackOptions): OptimizeRouteOptio
   return {};
 }
 
-function showOptimizeAlert(result: OptimizeRouteResult): void {
+export function showOptimizeAlert(result: OptimizeRouteResult): void {
   if (!result.ok || result.message === "noop") return;
   if (result.mode === "priority_soft") {
     Alert.alert(
@@ -51,6 +51,19 @@ function showOptimizeAlert(result: OptimizeRouteResult): void {
       "Não foi possível otimizar online; usamos a ordenação local por proximidade."
     );
   }
+}
+
+/**
+ * Exibe o Alert de sucesso depois do mapa montar.
+ * Alert nativo sobre MapView com muitos custom Markers + tracksViewChanges
+ * costuma derrubar o processo no Android (SurfaceView / bitmap snapshot).
+ */
+export function scheduleOptimizeAlertAfterMapSettle(
+  result: OptimizeRouteResult,
+  delayMs = Platform.OS === "android" ? 1600 : 400
+): void {
+  if (!result.ok || result.message === "noop") return;
+  setTimeout(() => showOptimizeAlert(result), delayMs);
 }
 
 export async function runOptimizeRouteWithFeedback(

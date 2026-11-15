@@ -30,9 +30,6 @@ export default function PendingMapMarker({ packageCount, hasLate = false }: Pend
           },
         ]}
       >
-        {isLate && (
-          <Ionicons name="warning" size={12} color={LATE_ICON_COLOR} style={styles.warnIcon} />
-        )}
         <Ionicons name="cube" size={14} color={isLate ? LATE_ICON_COLOR : ICON_COLOR} />
         {showCount && (
           <Text allowFontScaling={false} style={[styles.count, isLate && styles.countLate]}>
@@ -72,15 +69,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 15,
     borderWidth: 2,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.25,
-    shadowRadius: 2,
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.25,
+          shadowRadius: 2,
+        }
+      : {}),
     overflow: "hidden",
-  },
-  warnIcon: {
-    marginRight: 2,
   },
   count: {
     marginLeft: 3,
@@ -101,11 +98,14 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.2,
+          shadowRadius: 2,
+        }
+      : {}),
   },
   clusterCount: {
     fontSize: 14,

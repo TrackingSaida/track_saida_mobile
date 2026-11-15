@@ -109,17 +109,21 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 2,
     borderColor: "#fff",
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.25,
-    shadowRadius: 1,
-    overflow: "hidden",
+    // elevation/shadow em custom Marker no Android força bitmap caro e contribui para crash com muitos pins.
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.25,
+          shadowRadius: 1,
+        }
+      : {}),
+    overflow: "hidden" as const,
   },
   wrapFinalized: {
     borderColor: "rgba(0,0,0,0.08)",
     borderWidth: 1,
-    shadowOpacity: 0.15,
+    ...(Platform.OS === "ios" ? { shadowOpacity: 0.15 } : {}),
   },
   wrapStreetLevel: {
     borderColor: "#F59E0B",

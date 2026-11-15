@@ -1,8 +1,12 @@
+import { AppState } from "react-native";
 import * as Location from "expo-location";
 import {
   isBackgroundLocationDisclosureReady,
   requestBackgroundLocationDisclosure,
 } from "./backgroundLocationDisclosure";
+import { isForegroundServiceBackgroundError } from "./foregroundServiceError";
+
+export { isForegroundServiceBackgroundError } from "./foregroundServiceError";
 
 export const LOCATION_TASK_NAME = "background-location-task";
 
@@ -18,6 +22,11 @@ export type BackgroundLocationPermissionReason =
 export type BackgroundLocationPermissionResult =
   | { ok: true }
   | { ok: false; reason: BackgroundLocationPermissionReason };
+
+/** Resultado do start: ok, ou adiado quando o Android ainda vê o app em background. */
+export type StartBackgroundLocationResult =
+  | { ok: true }
+  | { ok: false; deferred: true };
 
 export async function areBackgroundLocationPermissionsGranted(): Promise<boolean> {
   const { status: fg } = await Location.getForegroundPermissionsAsync();
@@ -65,36 +74,56 @@ export async function ensureBackgroundLocationPermission(): Promise<BackgroundLo
 
 /**
  * Inicia updates em segundo plano. Requer permissões já concedidas.
+ * Se o app ainda não está em primeiro plano (Android FGS), devolve deferred sem lançar.
  */
-export async function startBackgroundLocationUpdates(): Promise<void> {
+export async function startBackgroundLocationUpdates(): Promise<StartBackgroundLocationResult> {
   if (!(await areBackgroundLocationPermissionsGranted())) {
     throw new Error("Permissões de localização não concedidas para acompanhar a rota.");
   }
 
   const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (hasStarted) {
-    return;
+    return { ok: true };
   }
 
-  await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-    accuracy: Location.Accuracy.High,
-    timeInterval: 5000,
-    distanceInterval: 10,
-    showsBackgroundLocationIndicator: true,
-    foregroundService: {
-      notificationTitle: "ROTEVO — Rota ativa",
-      notificationBody: "Localização sendo utilizada para acompanhar sua rota.",
-    },
-  });
+  if (AppState.currentState !== "active") {
+    return { ok: false, deferred: true };
+  }
+
+  try {
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+      accuracy: Location.Accuracy.High,
+      timeInterval: 5000,
+      distanceInterval: 10,
+      showsBackgroundLocationIndicator: true,
+      foregroundService: {
+        notificationTitle: "ROTEVO — Rota ativa",
+        notificationBody: "Localização sendo utilizada para acompanhar sua rota.",
+      },
+    });
+    return { ok: true };
+  } catch (error) {
+    if (isForegroundServiceBackgroundError(error)) {
+      return { ok: false, deferred: true };
+    }
+    throw error;
+  }
 }
 
 /**
  * Consentimento + permissões + start updates (ação explícita do usuário).
+ * Se o start for adiado (app em background), ainda devolve ok:true nas permissões
+ * e o caller deve marcar needsResume / tentar de novo no foreground.
  */
-export async function prepareAndStartBackgroundTracking(): Promise<BackgroundLocationPermissionResult> {
+export async function prepareAndStartBackgroundTracking(): Promise<
+  BackgroundLocationPermissionResult & { trackingDeferred?: boolean }
+> {
   const perm = await ensureBackgroundLocationPermission();
   if (!perm.ok) return perm;
-  await startBackgroundLocationUpdates();
+  const started = await startBackgroundLocationUpdates();
+  if (!started.ok) {
+    return { ok: true, trackingDeferred: true };
+  }
   return { ok: true };
 }
 

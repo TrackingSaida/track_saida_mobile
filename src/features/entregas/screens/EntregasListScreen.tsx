@@ -60,7 +60,10 @@ import PendingMapGroupSheet, { confirmCreateRouteFromGroup } from "../components
 import RouteEditAddressSheet from "../components/RouteEditAddressSheet";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import { formatApiError } from "../../../utils/formatApiError";
-import { runOptimizeRouteWithFeedback } from "../utils/optimizeRouteFeedback";
+import {
+  runOptimizeRouteWithFeedback,
+  scheduleOptimizeAlertAfterMapSettle,
+} from "../utils/optimizeRouteFeedback";
 import { SERVICO_COLORS, SERVICO_ORDER, servicoTipo, serviceCountForTab, serviceCountLabelForTab, type ServicoTipo } from "../utils/servico";
 import EntregaCodigoHeader from "../components/EntregaCodigoHeader";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
@@ -723,6 +726,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   const [locating, setLocating] = useState(false);
   const [markersReady, setMarkersReady] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const [pendingMapLatDelta, setPendingMapLatDelta] = useState(0.08);
   const mapRegionInitializedRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [scannerVisible, setScannerVisible] = useState(false);
@@ -987,17 +991,18 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     });
   }, [pendingMapGroups]);
 
+  const pendingMapShowsSingles = pendingMapLatDelta < 0.025;
   const pendingMapDisplayItems = useMemo(
     () =>
       clusterMapPoints(
         pendingMapPointsWithDisplay.map((p) => ({
           ...p,
-          latitude: p.displayLatitude,
-          longitude: p.displayLongitude,
+          latitude: p.latitude,
+          longitude: p.longitude,
         })),
-        { routeMode: false }
+        { routeMode: pendingMapShowsSingles }
       ),
-    [pendingMapPointsWithDisplay]
+    [pendingMapPointsWithDisplay, pendingMapShowsSingles]
   );
 
   const pendingMapPointsSig = useMemo(
@@ -1316,13 +1321,21 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (mapMode !== "map" || tab !== "pendente") return;
     if (pendingMapPointsWithDisplay.length === 0) return;
+    // Troca bolha ↔ pin no zoom remonta markers; no Android a view precisa ser
+    // fotografada de novo (tracksViewChanges) ou os pins somem.
     setMarkersReady(false);
     const t = setTimeout(
       () => setMarkersReady(true),
       Platform.OS === "android" ? 500 : 1500
     );
     return () => clearTimeout(t);
-  }, [mapMode, tab, pendingMapPointsSig, pendingMapPointsWithDisplay.length]);
+  }, [
+    mapMode,
+    tab,
+    pendingMapPointsSig,
+    pendingMapPointsWithDisplay.length,
+    pendingMapShowsSingles,
+  ]);
 
   const centerOnCoords = useCallback((latitude: number, longitude: number) => {
     mapRef.current?.animateToRegion(
@@ -1384,12 +1397,16 @@ export default function EntregasListScreen({ navigation, route }: Props) {
                 clearActiveRouteState();
               }
               setRouteDeliveries(withCoords);
+              let optimizeResult: Awaited<ReturnType<typeof runOptimizeRouteWithFeedback>> = null;
               if (withCoords.length >= 2) {
-                const result = await runOptimizeRouteWithFeedback(optimizeRoute);
-                if (!result?.ok) return;
+                optimizeResult = await runOptimizeRouteWithFeedback(optimizeRoute, {
+                  silent: true,
+                });
+                if (!optimizeResult?.ok) return;
               }
               setSelectedPendingGroup(null);
               navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
+              if (optimizeResult) scheduleOptimizeAlertAfterMapSettle(optimizeResult);
             } catch (e) {
               Alert.alert("Erro", e instanceof Error ? e.message : "Erro ao criar rota.");
             }
@@ -1466,18 +1483,20 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   const handleClusterPress = useCallback(
     (points: PendingMapPointDisplay[]) => {
       if (points.length === 0) return;
-      const lats = points.map((p) => p.displayLatitude);
-      const lons = points.map((p) => p.displayLongitude);
+      const lats = points.map((p) => p.latitude);
+      const lons = points.map((p) => p.longitude);
       const minLat = Math.min(...lats);
       const maxLat = Math.max(...lats);
       const minLon = Math.min(...lons);
       const maxLon = Math.max(...lons);
+      const latSpan = Math.max(0.008, (maxLat - minLat) * 1.8 || 0.012);
+      const lonSpan = Math.max(0.008, (maxLon - minLon) * 1.8 || 0.012);
       mapRef.current?.animateToRegion(
         {
           latitude: (minLat + maxLat) / 2,
           longitude: (minLon + maxLon) / 2,
-          latitudeDelta: Math.max(0.005, (maxLat - minLat) * 2 || 0.02),
-          longitudeDelta: Math.max(0.005, (maxLon - minLon) * 2 || 0.02),
+          latitudeDelta: Math.min(0.02, latSpan),
+          longitudeDelta: Math.min(0.02, lonSpan),
         },
         400
       );
@@ -1877,6 +1896,14 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             style={styles.map}
             initialRegion={mapInitialRegion}
             onMapReady={() => setMapReady(true)}
+            onRegionChangeComplete={(region) => {
+              setPendingMapLatDelta((prev) => {
+                const nextSingles = region.latitudeDelta < 0.025;
+                const prevSingles = prev < 0.025;
+                if (nextSingles === prevSingles) return prev;
+                return region.latitudeDelta;
+              });
+            }}
             showsUserLocation
             showsMyLocationButton={false}
           >

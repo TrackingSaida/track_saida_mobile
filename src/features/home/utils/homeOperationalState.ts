@@ -143,7 +143,7 @@ export function deriveHomeOperationalView(input: HomeOperationalInput): HomeOper
   return {
     heroState: "idle",
     title: "Pronto para começar?",
-    description: "Escaneie os pacotes para iniciar suas entregas.",
+    description: "Leia a carga para começar.",
     extraLines: [],
   };
 }
@@ -153,6 +153,7 @@ export type HomeCtaAction =
   | "scan_insert"
   | "scan_deliver"
   | "scan_coleta"
+  | "scan_entrada"
   | "prepare_route"
   | "view_pending"
   | "start_route"
@@ -188,6 +189,13 @@ export const SCAN_COLETA_CTA: HomeCta = {
   label: "Registrar coleta",
   subtitle: "Pacotes coletados na base",
   action: "scan_coleta",
+  layout: "full",
+};
+
+export const SCAN_ENTRADA_CTA: HomeCta = {
+  label: "Registrar entrada",
+  subtitle: "Pacotes que chegaram na base",
+  action: "scan_entrada",
   layout: "full",
 };
 
@@ -284,13 +292,16 @@ export function deriveHomeCtas(
     return {
       layout: "route",
       primary: {
-        label: loadingStartRoute ? "Iniciando…" : "Iniciar rota",
-        action: "start_route",
+        label: "Revisar paradas",
+        action: "edit_route",
         primary: true,
       },
       secondary: [
+        {
+          label: loadingStartRoute ? "Iniciando…" : "Iniciar rota",
+          action: "start_route",
+        },
         { label: "Localizar pacote", action: "locate_package" },
-        { label: "Editar rota", action: "edit_route" },
         SCAN_INSERT_CTA,
       ],
     };

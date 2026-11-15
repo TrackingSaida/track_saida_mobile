@@ -64,6 +64,8 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
   const setRoteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.setRoteirizacaoHabilitada);
   const prepararRotaMomento = useMotoboyPrefsStore((s) => s.prepararRotaMomento);
   const setPrepararRotaMomento = useMotoboyPrefsStore((s) => s.setPrepararRotaMomento);
+  const rotaComOrigemDestino = useMotoboyPrefsStore((s) => s.rotaComOrigemDestino);
+  const setRotaComOrigemDestino = useMotoboyPrefsStore((s) => s.setRotaComOrigemDestino);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const setCidadePadrao = useMotoboyPrefsStore((s) => s.setCidadePadrao);
@@ -433,6 +435,15 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
                 disabled={saving}
                 isLast={!roteirizacaoHabilitada}
               />
+              {roteirizacaoHabilitada ? (
+                <SettingsToggleRow
+                  label="Montar com origem e destino"
+                  description="Pergunta se a rota sai do seu local atual e termina na sua casa. Desligada, a rota é gerada direto."
+                  value={rotaComOrigemDestino}
+                  onValueChange={(value) => void runWithSave(() => setRotaComOrigemDestino(value))}
+                  disabled={saving}
+                />
+              ) : null}
               {roteirizacaoHabilitada
                 ? renderMomentOption(
                     "durante_bipagem",

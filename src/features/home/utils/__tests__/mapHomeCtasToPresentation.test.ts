@@ -60,7 +60,7 @@ test("mapHomeCtasToPresentation: idle usa scan_insert no card como atalho", () =
   assert.equal(ui.cardAction?.action, "scan_insert");
   assert.equal(ui.cardAction?.label, "Inserir pacotes");
   assert.equal(ui.coletaAction, undefined);
-  assert.equal(ui.view.description, "Escaneie os pacotes para iniciar suas entregas.");
+  assert.equal(ui.view.description, "Leia a carga para começar.");
 });
 
 test("mapHomeCtasToPresentation: idle com coleta adiciona atalho de registrar coleta", () => {
@@ -74,10 +74,38 @@ test("mapHomeCtasToPresentation: idle com coleta adiciona atalho de registrar co
   assert.equal(ui.cardAction?.action, "scan_insert");
   assert.equal(ui.cardAction?.label, "Inserir pacotes");
   assert.equal(ui.coletaAction?.action, "scan_coleta");
-  assert.equal(ui.view.description, "Leia a carga ou registre uma coleta para começar.");
+  assert.equal(ui.entradaAction, undefined);
+  assert.equal(ui.view.description, "Leia a carga para começar.");
 });
 
-test("mapHomeCtasToPresentation: pending não mostra coleta no card", () => {
+test("mapHomeCtasToPresentation: idle com entrada adiciona atalho de registrar entrada", () => {
+  const view = deriveHomeOperationalView({
+    ...baseInput,
+    routeOrder: [],
+    routeDeliveries: [],
+  });
+  const ctas = deriveHomeCtas(view, true);
+  const ui = mapHomeCtasToPresentation(view, ctas, { showEntrada: true });
+  assert.equal(ui.cardAction?.action, "scan_insert");
+  assert.equal(ui.entradaAction?.action, "scan_entrada");
+  assert.equal(ui.coletaAction, undefined);
+  assert.equal(ui.view.description, "Leia a carga para começar.");
+});
+
+test("mapHomeCtasToPresentation: idle com coleta e entrada mantém a saída como texto", () => {
+  const view = deriveHomeOperationalView({
+    ...baseInput,
+    routeOrder: [],
+    routeDeliveries: [],
+  });
+  const ctas = deriveHomeCtas(view, true);
+  const ui = mapHomeCtasToPresentation(view, ctas, { showColeta: true, showEntrada: true });
+  assert.equal(ui.coletaAction?.action, "scan_coleta");
+  assert.equal(ui.entradaAction?.action, "scan_entrada");
+  assert.equal(ui.view.description, "Leia a carga para começar.");
+});
+
+test("mapHomeCtasToPresentation: pending não mostra coleta nem entrada no card", () => {
   const view = deriveHomeOperationalView({
     ...baseInput,
     routeOrder: [],
@@ -85,17 +113,23 @@ test("mapHomeCtasToPresentation: pending não mostra coleta no card", () => {
     resumo: { pendentes: 3, finalizadas_hoje: 0, ausentes: 0, atraso_d1: 0 },
   });
   const ctas = deriveHomeCtas(view, true);
-  const ui = mapHomeCtasToPresentation(view, ctas, { showColeta: true });
+  const ui = mapHomeCtasToPresentation(view, ctas, { showColeta: true, showEntrada: true });
   assert.equal(ui.viewPending?.action, "view_pending");
   assert.equal(ui.coletaAction, undefined);
+  assert.equal(ui.entradaAction, undefined);
   assert.equal(ui.cardAction, undefined);
 });
 
-test("mapHomeCtasToPresentation: route_ready usa primary start_route", () => {
+test("mapHomeCtasToPresentation: route_ready usa primary edit_route (revisar paradas)", () => {
   const view = deriveHomeOperationalView(baseInput);
   const ctas = deriveHomeCtas(view, true);
   const ui = mapHomeCtasToPresentation(view, ctas);
   assert.equal(view.heroState, "route_ready");
-  assert.equal(ui.nextAction?.action, "start_route");
+  assert.equal(ui.nextAction?.action, "edit_route");
+  assert.equal(ui.nextAction?.label, "Revisar paradas");
+  assert.equal(ctas.layout, "route");
+  if (ctas.layout === "route") {
+    assert.equal(ctas.secondary.some((c) => c.action === "start_route"), true);
+  }
   assert.equal(ui.completedAction, undefined);
 });

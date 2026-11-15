@@ -22,6 +22,8 @@ export const SETTINGS_DEFAULTS = {
   somenteHojePendentes: true,
   roteirizacaoHabilitada: false,
   prepararRotaMomento: "ao_encerrar" as PrepararRotaMomento,
+  /** Experimental: pergunta origem/destino ao gerar rota. Desligada até o crash no Android estar resolvido. */
+  rotaComOrigemDestino: false,
   prepOrdemModo: "servico" as PrepOrdemModo,
   prepServicoInicio: "Shopee" as ServicoTipo,
   cidadePadrao: "",
@@ -33,6 +35,7 @@ export type StoredMotoboyPrefs = {
   somenteHojePendentes?: boolean;
   roteirizacaoHabilitada?: boolean;
   prepararRotaMomento?: PrepararRotaMomento;
+  rotaComOrigemDestino?: boolean;
   prepOrdemModo?: PrepOrdemModo;
   prepServicoInicio?: ServicoTipo;
   cidadePadrao?: string;

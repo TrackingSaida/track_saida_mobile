@@ -72,9 +72,11 @@ export default function MotoboyRotasScreen() {
     offerPrepareRoute,
   });
 
-  const hasStartOrContinue =
+  const hasRoutePrimary =
     ctas.layout === "route" &&
-    (ctas.primary.action === "start_route" || ctas.primary.action === "continue_route");
+    (ctas.primary.action === "edit_route" ||
+      ctas.primary.action === "start_route" ||
+      ctas.primary.action === "continue_route");
 
   const continueRoute = useCallback(() => {
     void (async () => {
@@ -95,6 +97,7 @@ export default function MotoboyRotasScreen() {
       void data.startRoute();
       return;
     }
+    // edit_route / continue_route: abre a tela de revisão/edição de paradas
     continueRoute();
   }, [ctas, continueRoute, data]);
 
@@ -127,7 +130,7 @@ export default function MotoboyRotasScreen() {
               iconSoftBg={colors.deliveryAccentSoft}
             />
           ) : null}
-          {data.roteirizacaoHabilitada && hasStartOrContinue && ctas.layout === "route" ? (
+          {data.roteirizacaoHabilitada && hasRoutePrimary && ctas.layout === "route" ? (
             <PressableMenuRow
               icon="navigate-outline"
               title={ctas.primary.label}
