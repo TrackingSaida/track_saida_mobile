@@ -1,6 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { API_BASE_URL } from "../config/api";
-import { useAuthStore } from "../store/authStore";
+import { getSessionEpoch, useAuthStore } from "../store/authStore";
 import { isJwtExpired, secondsUntilJwtExpiry } from "../utils/jwt";
 
 type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
@@ -48,10 +48,16 @@ function headerClaimsStale(headers: unknown): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+function sessionStillOwnsRefresh(epoch: number, refreshToken: string): boolean {
+  if (getSessionEpoch() !== epoch) return false;
+  return useAuthStore.getState().refreshToken === refreshToken;
+}
+
 async function tryRefreshToken(attempt = 1): Promise<boolean> {
+  const epoch = getSessionEpoch();
   const { refreshToken, setTokens, onSessionExpired } = useAuthStore.getState();
   if (!refreshToken) {
-    await onSessionExpired();
+    if (getSessionEpoch() === epoch) await onSessionExpired();
     return false;
   }
   try {
@@ -65,9 +71,11 @@ async function tryRefreshToken(attempt = 1): Promise<boolean> {
       { refresh_token: refreshToken },
       { headers: { "Content-Type": "application/json" }, timeout: 15000 }
     );
-    await setTokens(data.access_token, data.refresh_token || refreshToken);
+    if (!sessionStillOwnsRefresh(epoch, refreshToken)) return false;
+    await setTokens(data.access_token, data.refresh_token || refreshToken, epoch);
     return true;
   } catch (e) {
+    if (!sessionStillOwnsRefresh(epoch, refreshToken)) return false;
     if (isTransientRefreshError(e) && attempt < 2) {
       await new Promise((r) => setTimeout(r, 800));
       return tryRefreshToken(attempt + 1);
@@ -75,7 +83,7 @@ async function tryRefreshToken(attempt = 1): Promise<boolean> {
     if (isTransientRefreshError(e)) {
       return false;
     }
-    if (isDefinitiveRefreshRejection(e)) {
+    if (isDefinitiveRefreshRejection(e) && sessionStillOwnsRefresh(epoch, refreshToken)) {
       await onSessionExpired();
     }
     return false;

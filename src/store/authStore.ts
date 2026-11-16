@@ -12,6 +12,17 @@ const TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
 
 let sessionExpiredCallback: (() => void) | null = null;
+let sessionEpoch = 0;
+
+/** Muda a cada login ou logout. Refresh antigo não pode regravar o perfil novo. */
+export function getSessionEpoch(): number {
+  return sessionEpoch;
+}
+
+export function bumpSessionEpoch(): number {
+  sessionEpoch += 1;
+  return sessionEpoch;
+}
 
 interface AuthState {
   token: string | null;
@@ -21,7 +32,11 @@ interface AuthState {
   requiresBiometricUnlock: boolean;
   sessionExpiredVisible: boolean;
   setToken: (token: string | null) => Promise<void>;
-  setTokens: (accessToken: string, refreshToken?: string | null) => Promise<void>;
+  setTokens: (
+    accessToken: string,
+    refreshToken?: string | null,
+    expectedEpoch?: number
+  ) => Promise<void>;
   loadToken: () => Promise<void>;
   logout: (opts?: { revokeRemote?: boolean }) => Promise<void>;
   onSessionExpired: () => Promise<void>;
@@ -120,13 +135,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (token) {
       await get().setTokens(token, get().refreshToken);
     } else {
+      const epoch = bumpSessionEpoch();
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+      if (getSessionEpoch() !== epoch) return;
       set({ token: null, refreshToken: null, currentUser: null });
     }
   },
 
-  setTokens: async (accessToken: string, refreshToken?: string | null) => {
+  setTokens: async (accessToken: string, refreshToken?: string | null, expectedEpoch?: number) => {
+    if (expectedEpoch != null && expectedEpoch !== getSessionEpoch()) return;
+    const epoch = bumpSessionEpoch();
     await SecureStore.setItemAsync(TOKEN_KEY, accessToken);
     let nextRefresh = get().refreshToken;
     if (refreshToken === null) {
@@ -137,6 +156,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
       nextRefresh = refreshToken;
     }
+    if (getSessionEpoch() !== epoch) return;
     const claims = decodeJwtPayload(accessToken);
     set({
       token: accessToken,
@@ -144,9 +164,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentUser: claims,
       sessionExpiredVisible: false,
     });
-    mergeMeFlagsIntoCurrentUser(get, set, await fetchMeFlagsFromAuth(accessToken));
+    const meFlags = await fetchMeFlagsFromAuth(accessToken);
+    if (getSessionEpoch() !== epoch || get().token !== accessToken) return;
+    mergeMeFlagsIntoCurrentUser(get, set, meFlags);
     const { useMotoboyPrefsStore } = await import("./motoboyPrefsStore");
     await useMotoboyPrefsStore.getState().loadForCurrentUser();
+    if (getSessionEpoch() !== epoch || get().token !== accessToken) return;
     try {
       const { syncPushRegistration } = await import("../services/push/pushService");
       await syncPushRegistration();
@@ -206,6 +229,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async (opts) => {
+    bumpSessionEpoch();
     try {
       const { unregisterPush } = await import("../services/push/pushService");
       await unregisterPush();
