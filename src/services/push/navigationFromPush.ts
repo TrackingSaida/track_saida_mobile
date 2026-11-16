@@ -15,7 +15,7 @@ export function navigateFromPushData(
   data: Record<string, unknown> | null | undefined
 ): void {
   if (!navigation || !data) return;
-  const type = String(data.type || "");
+  const type = String(data.type || data.tipo || "");
   const role = useAuthStore.getState().currentUser?.role as number | undefined;
   const motoboy = isMotoboyRole(role);
 
@@ -89,16 +89,12 @@ export function navigateFromPushData(
         }
         break;
       case "transferencia_pendente":
-        if (motoboy) {
-          navigation.navigate("Tabs", { screen: "Inicio" });
-          void import("../../features/entregas/utils/transferPendingFlow").then(
-            ({ promptTransferenciasPendentes }) => {
-              void promptTransferenciasPendentes();
-            }
-          );
-        } else {
-          navigation.navigate("Home", { screen: "HomeInicio" });
-        }
+        // Não navega para Home: o modal deve aparecer na tela atual (ex.: rota iniciada).
+        void import("../../features/entregas/utils/transferPendingFlow").then(
+          ({ promptTransferenciasPendentes }) => {
+            void promptTransferenciasPendentes();
+          }
+        );
         break;
       case "bloqueio_ausencia": {
         const idSaida = Number(data.id_saida);

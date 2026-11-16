@@ -183,7 +183,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      void (async () => {
+      const POLL_MS = 15000;
+
+      const runSync = async (opts?: { announceRemoval?: boolean }) => {
         try {
           const {
             syncRouteOrderFromServer,
@@ -196,7 +198,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
             await promptTransferenciasPendentes(sync.pendencias);
             if (cancelled) return;
           }
-          if (sync.removedIds.length > 0) {
+          if (opts?.announceRemoval !== false && sync.removedIds.length > 0) {
             const isActive = sync.status === "em_entrega";
             promptRemovedFromRoute({
               removedCount: sync.removedIds.length,
@@ -221,9 +223,17 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         } catch {
           /* sync best-effort */
         }
-      })();
+      };
+
+      void runSync({ announceRemoval: true });
+      // Enquanto a rota iniciada permanece aberta, detectar pendência sem voltar à Home
+      const timer = setInterval(() => {
+        void runSync({ announceRemoval: false });
+      }, POLL_MS);
+
       return () => {
         cancelled = true;
+        clearInterval(timer);
       };
     }, [])
   );
