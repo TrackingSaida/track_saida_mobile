@@ -487,6 +487,50 @@ export async function assumirEntrega(idSaida: number): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/assumir`);
 }
 
+export type TransferenciaPendenteResumo = {
+  transferencia_id: number;
+  id_saida: number;
+  codigo?: string | null;
+  rota_id?: string | null;
+  motoboy_destino_id?: number | null;
+  criada_em?: string | null;
+};
+
+export async function listarTransferenciasPendentes(): Promise<TransferenciaPendenteResumo[]> {
+  const { data } = await client.get<{ items: TransferenciaPendenteResumo[] }>(
+    "/mobile/transferencias/pendentes"
+  );
+  return data?.items ?? [];
+}
+
+export async function aceitarTransferencia(transferenciaId: number): Promise<void> {
+  await client.post(`/mobile/transferencias/${transferenciaId}/aceitar`);
+}
+
+export async function recusarTransferencia(transferenciaId: number): Promise<void> {
+  await client.post(`/mobile/transferencias/${transferenciaId}/recusar`);
+}
+
+export function isTransferenciaAguardandoAceite(err: unknown): {
+  transferenciaId?: number;
+  message: string;
+} | null {
+  const ax = err as { response?: { status?: number; data?: { detail?: unknown } } };
+  if (ax?.response?.status !== 409) return null;
+  const detail = ax.response.data?.detail;
+  const obj =
+    detail && typeof detail === "object"
+      ? (detail as { code?: string; transferencia_id?: number; message?: string })
+      : null;
+  if (obj?.code !== "TRANSFERENCIA_AGUARDANDO_ACEITE") return null;
+  return {
+    transferenciaId: obj.transferencia_id,
+    message:
+      obj.message ||
+      "Aguardando aceite do entregador atual. As paradas da rota dele podem mudar.",
+  };
+}
+
 export async function confirmarNovaSaidaMesmoEntregador(idSaida: number): Promise<void> {
   await client.post(`/mobile/entrega/${idSaida}/confirmar-nova-saida-mesmo-entregador`, { origem: "mobile" });
 }
@@ -792,6 +836,7 @@ export interface RotasAtivaResponse {
   polyline_coords?: RoutePolylineCoord[] | null;
   distancia_total_m?: number | null;
   duracao_total_s?: number | null;
+  transferencias_pendentes?: TransferenciaPendenteResumo[];
 }
 
 export async function postRotasIniciar(ordem: number[]): Promise<{ rota_id: string }> {

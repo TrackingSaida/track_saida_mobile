@@ -400,6 +400,38 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
       void (async () => {
         await loadDeliveries({ onlyToday: somenteHojePendentes });
         if (cancelled) return;
+        try {
+          const {
+            syncRouteOrderFromServer,
+            promptRemovedFromRoute,
+            promptTransferenciasPendentes,
+          } = await import("../utils/transferPendingFlow");
+          const hasLocalRoute =
+            useDeliveryStore.getState().routeOrder.length > 0 ||
+            useDeliveryStore.getState().persistedRouteId != null;
+          if (hasLocalRoute) {
+            const sync = await syncRouteOrderFromServer();
+            if (cancelled) return;
+            if (sync.pendencias?.length) {
+              await promptTransferenciasPendentes(sync.pendencias);
+            }
+            if (sync.removedIds.length > 0) {
+              promptRemovedFromRoute({
+                removedCount: sync.removedIds.length,
+                geometryStale: sync.geometryStale,
+                isActive: sync.status === "em_entrega",
+                onReoptimize: () => {
+                  void useDeliveryStore.getState().reoptimizeFullRoute();
+                },
+              });
+            }
+          } else {
+            await promptTransferenciasPendentes();
+          }
+        } catch {
+          /* best-effort */
+        }
+        if (cancelled) return;
         if (route.params?.autoGenerate) {
           navigation.setParams({ autoGenerate: undefined });
           setPendingAutoGenerate(true);

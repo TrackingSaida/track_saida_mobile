@@ -881,6 +881,16 @@ export default function ScanScreen({ navigation, route }: Props) {
       );
       handlePostScanDelivery(conflito.id_saida, entrega);
     } catch (e: unknown) {
+      const { isTransferenciaAguardandoAceite } = await import("../api");
+      const aguardando = isTransferenciaAguardandoAceite(e);
+      if (aguardando) {
+        setConflito(null);
+        scanLocked.current = false;
+        playSound("error");
+        pushFeedback("erro", "Aguardando aceite");
+        Alert.alert("Aguardando aceite", aguardando.message);
+        return;
+      }
       const msg = formatApiError(e, "Erro ao assumir.");
       playSound("error");
       pushFeedback("erro", msg);
