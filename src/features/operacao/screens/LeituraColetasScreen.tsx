@@ -510,6 +510,20 @@ export default function LeituraColetasScreen() {
         },
         outrasAcoesTitle: { color: colors.text, fontSize: 15, fontWeight: "700" },
         outrasAcoesSub: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
+        sairColetaBtn: {
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: colors.backgroundCard,
+          borderRadius: 16,
+          paddingVertical: 14,
+          paddingHorizontal: 14,
+          marginBottom: 14,
+          borderWidth: 1,
+          borderColor: colors.border,
+          gap: 10,
+        },
+        sairColetaTitle: { color: colors.text, fontSize: 15, fontWeight: "700" },
+        sairColetaSub: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
         scanChoiceRow: { flexDirection: "row", alignItems: "stretch", gap: 10, marginBottom: 16 },
         scanChoiceRowCompact: { gap: 6 },
         scanChoice: {
@@ -828,6 +842,8 @@ export default function LeituraColetasScreen() {
   }, [currentUser?.id, situacaoSelecionada]);
 
   const limparSelecaoLocal = useCallback(() => {
+    // Zera o ref na hora para o cleanup do blur não reenviar DELETE.
+    situacaoSelecionadaRef.current = null;
     setBase("");
     setTotaisColeta(TOTAIS_VAZIOS);
     setUltimaLeitura(null);
@@ -837,22 +853,33 @@ export default function LeituraColetasScreen() {
     setModoLeitorFisico(false);
   }, []);
 
-  const liberarParticipacaoVaziaAtual = useCallback(
-    async (situacao?: SituacaoBaseColeta | null) => {
+  /** Participação vazia do usuário atual elegível a DELETE (mesmos gates de podeVoltarPendente). */
+  const getParticipacaoVaziaLiberavel = useCallback(
+    (situacao?: SituacaoBaseColeta | null): SituacaoBaseColeta | null => {
       const alvo = situacao ?? situacaoSelecionadaRef.current;
-      if (!alvo?.id_execucao || !alvo.participando || !currentUser?.id) return;
+      if (!alvo?.id_execucao || !alvo.participando || !currentUser?.id) return null;
       const meu = alvo.participantes.find(
         (p) => p.user_id === currentUser.id && p.status === "em_coleta"
       );
-      if (!meu) return;
-      if ((meu.total ?? 0) > 0 || Boolean(meu.sem_volume)) return;
+      if (!meu) return null;
+      if ((meu.total ?? 0) > 0 || Boolean(meu.sem_volume)) return null;
+      return alvo;
+    },
+    [currentUser?.id]
+  );
+
+  const liberarParticipacaoVaziaAtual = useCallback(
+    async (situacao?: SituacaoBaseColeta | null) => {
+      const alvo = getParticipacaoVaziaLiberavel(situacao);
+      if (!alvo?.id_execucao) return;
       try {
         await liberarParticipacaoColeta(alvo.id_execucao);
+        situacaoSelecionadaRef.current = null;
       } catch {
         // Melhor esforço: troca de base / sair da tela não deve travar o fluxo.
       }
     },
-    [currentUser?.id]
+    [getParticipacaoVaziaLiberavel]
   );
 
   const nomesEmColeta = useCallback((situacao?: SituacaoBaseColeta | null) => {
@@ -1534,35 +1561,39 @@ export default function LeituraColetasScreen() {
     totaisColeta.total,
   ]);
 
-  const handleVoltarParaPendente = useCallback(() => {
+  const handleSairDaColeta = useCallback(() => {
     const idExecucao = situacaoSelecionada?.id_execucao;
     if (!idExecucao || !podeVoltarPendente) return;
-    Alert.alert("Voltar para pendente?", "A base volta para Pendente.", [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Voltar para pendente",
-        style: "destructive",
-        onPress: () => {
-          void (async () => {
-            setLoading(true);
-            try {
-              await liberarParticipacaoColeta(idExecucao);
-              pushFeedback("sucesso", "Base voltou para Pendente.");
-              limparSelecaoLocal();
-              void carregarSituacao();
-            } catch (error) {
-              Alert.alert(
-                "Não foi possível voltar",
-                formatApiError(error, "Se já houver volume, finalize a coleta.")
-              );
-              void carregarSituacao();
-            } finally {
-              setLoading(false);
-            }
-          })();
+    Alert.alert(
+      "Sair da coleta?",
+      "Sem pacotes — a base será liberada para você escolher outra.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Sair da coleta",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setLoading(true);
+              try {
+                await liberarParticipacaoColeta(idExecucao);
+                limparSelecaoLocal();
+                pushFeedback("sucesso", "Você saiu da coleta. Pode escolher outra base.");
+                void carregarSituacao();
+              } catch (error) {
+                Alert.alert(
+                  "Não foi possível sair",
+                  formatApiError(error, "Se já houver volume, finalize a coleta.")
+                );
+                void carregarSituacao();
+              } finally {
+                setLoading(false);
+              }
+            })();
+          },
         },
-      },
-    ]);
+      ]
+    );
   }, [
     carregarSituacao,
     limparSelecaoLocal,
@@ -1597,6 +1628,61 @@ export default function LeituraColetasScreen() {
       },
     ]);
   }, [currentUser?.id, handleFinalizarColeta, situacaoSelecionada, totaisColeta.total]);
+
+  const handleHeaderBack = useCallback(() => {
+    if (cameraAtiva) {
+      handleVoltarComPendencia();
+      return;
+    }
+    const emColetaComVolume =
+      situacaoSelecionada?.status === "em_coleta" &&
+      ((totaisColeta.total ?? 0) > 0 ||
+        Boolean(
+          situacaoSelecionada?.participantes?.some(
+            (p) => p.user_id === currentUser?.id && ((p.total ?? 0) > 0 || p.sem_volume)
+          )
+        ));
+    if (emColetaComVolume) {
+      Alert.alert("Sair sem finalizar?", "Há leituras nesta base ainda não finalizadas.", [
+        { text: "Continuar", style: "cancel" },
+        { text: "Sair sem finalizar", style: "destructive", onPress: () => navigation.goBack() },
+        { text: "Finalizar agora", onPress: () => void handleFinalizarColeta() },
+      ]);
+      return;
+    }
+
+    const alvo = getParticipacaoVaziaLiberavel();
+    if (!alvo?.id_execucao) {
+      navigation.goBack();
+      return;
+    }
+
+    void (async () => {
+      setLoading(true);
+      try {
+        await liberarParticipacaoColeta(alvo.id_execucao!);
+        limparSelecaoLocal();
+        navigation.goBack();
+      } catch (error) {
+        Alert.alert(
+          "Não foi possível sair",
+          formatApiError(error, "Tente novamente ou use Sair da coleta.")
+        );
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [
+    cameraAtiva,
+    currentUser?.id,
+    getParticipacaoVaziaLiberavel,
+    handleFinalizarColeta,
+    handleVoltarComPendencia,
+    limparSelecaoLocal,
+    navigation,
+    situacaoSelecionada,
+    totaisColeta.total,
+  ]);
 
   const processarLeitura = useCallback(
     async (raw: string, origem: "camera" | "manual" | "leitor") => {
@@ -2086,29 +2172,7 @@ export default function LeituraColetasScreen() {
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <ScreenHeaderBar
           title="Leitura de coletas"
-          onBack={() => {
-            if (cameraAtiva) {
-              handleVoltarComPendencia();
-              return;
-            }
-            const emColetaComVolume =
-              situacaoSelecionada?.status === "em_coleta" &&
-              ((totaisColeta.total ?? 0) > 0 ||
-                Boolean(
-                  situacaoSelecionada?.participantes?.some(
-                    (p) => p.user_id === currentUser?.id && ((p.total ?? 0) > 0 || p.sem_volume)
-                  )
-                ));
-            if (!emColetaComVolume) {
-              navigation.goBack();
-              return;
-            }
-            Alert.alert("Sair sem finalizar?", "Há leituras nesta base ainda não finalizadas.", [
-              { text: "Continuar", style: "cancel" },
-              { text: "Sair sem finalizar", style: "destructive", onPress: () => navigation.goBack() },
-              { text: "Finalizar agora", onPress: () => void handleFinalizarColeta() },
-            ]);
-          }}
+          onBack={handleHeaderBack}
           paddingTop={Math.max(12, insets.top)}
         />
     <ScrollView
@@ -2243,6 +2307,24 @@ export default function LeituraColetasScreen() {
         </View>
       </View>
 
+      {baseSelecionadaOk && podeVoltarPendente && !ignorarColeta ? (
+        <TouchableOpacity
+          style={styles.sairColetaBtn}
+          onPress={handleSairDaColeta}
+          disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sair da coleta"
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sairColetaTitle}>Sair da coleta</Text>
+            <Text style={styles.sairColetaSub}>
+              Sem pacotes — libera a base para escolher outra
+            </Text>
+          </View>
+          <Ionicons name="exit-outline" size={22} color={colors.textSecondary} />
+        </TouchableOpacity>
+      ) : null}
+
       {baseSelecionadaOk && (mostrarLeitura || mostrarManual) && !ignorarColeta ? (
         <View style={styles.registrarPacotesBlock}>
           <Text style={styles.sectionTitleHome}>Registrar pacotes</Text>
@@ -2314,14 +2396,15 @@ export default function LeituraColetasScreen() {
         </View>
       ) : null}
 
-      {baseSelecionadaOk &&
-      !ignorarColeta &&
-      (podeLancarAvulso || podeMarcarSemVolume || podeVoltarPendente) ? (
+      {baseSelecionadaOk && !ignorarColeta && (podeLancarAvulso || podeMarcarSemVolume) ? (
         <View style={styles.outrasAcoesCard}>
           <Text style={styles.sectionTitleHome}>Outras ações nesta base</Text>
           {podeLancarAvulso ? (
             <TouchableOpacity
-              style={styles.outrasAcoesRow}
+              style={[
+                styles.outrasAcoesRow,
+                !podeMarcarSemVolume ? { borderBottomWidth: 0 } : null,
+              ]}
               onPress={() => setAvulsoModalVisible(true)}
               disabled={loading}
               accessibilityRole="button"
@@ -2336,7 +2419,7 @@ export default function LeituraColetasScreen() {
           ) : null}
           {podeMarcarSemVolume ? (
             <TouchableOpacity
-              style={styles.outrasAcoesRow}
+              style={[styles.outrasAcoesRow, { borderBottomWidth: 0 }]}
               onPress={handleMarcarSemVolume}
               disabled={loading}
               accessibilityRole="button"
@@ -2347,23 +2430,6 @@ export default function LeituraColetasScreen() {
                 <Text style={styles.outrasAcoesSub}>Quando não houve coleta nesta base hoje</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-            </TouchableOpacity>
-          ) : null}
-          {podeVoltarPendente ? (
-            <TouchableOpacity
-              style={[styles.outrasAcoesRow, { borderBottomWidth: 0 }]}
-              onPress={handleVoltarParaPendente}
-              disabled={loading}
-              accessibilityRole="button"
-              accessibilityLabel="Voltar para pendente"
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.outrasAcoesTitle}>Voltar para pendente</Text>
-                <Text style={styles.outrasAcoesSub}>
-                  Sai da coleta sem volume e libera a base
-                </Text>
-              </View>
-              <Ionicons name="arrow-undo-outline" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
           ) : null}
         </View>
