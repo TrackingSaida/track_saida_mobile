@@ -1,0 +1,35 @@
+diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
+index 0000000..1111111 100644
+--- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
++++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
+@@ -408,8 +408,29 @@
+     }
+     mTasksAndEventsRepository.putEventForAppScopeKey(appScopeKey, body);
+ 
++    // O loader headless é nulo quando o processo acorda sem contexto ou sem RNHeadlessAppLoader.
++    // Chamar loadApp nesse estado derruba o app (NullPointerException no Play Console).
++    HeadlessAppLoader appLoader = getAppLoader();
++    Context context = mContextRef.get();
++    if (appLoader == null || context == null) {
++      Log.w(TAG, "Headless app loader unavailable. Dropping task '" + task.getName() + "'.");
++      sEvents.remove(appScopeKey);
++      if (eventId != null) {
++        sTaskCallbacks.remove(eventId);
++      }
++      mTasksAndEventsRepository.removeEvents(appScopeKey);
++      if (callback != null) {
++        try {
++          callback.onFinished(new HashMap<String, Object>());
++        } catch (Exception callbackError) {
++          Log.w(TAG, "Task callback failed after dropping headless execution.", callbackError);
++        }
++      }
++      return;
++    }
++
+     try {
+-      getAppLoader().loadApp(mContextRef.get(), new HeadlessAppLoader.Params(appScopeKey, task.getAppUrl()), () -> {
++      appLoader.loadApp(context, new HeadlessAppLoader.Params(appScopeKey, task.getAppUrl()), () -> {
+       }, success -> {
+         if (!success) {
+           sEvents.remove(appScopeKey);
