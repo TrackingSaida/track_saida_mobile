@@ -152,6 +152,15 @@ export default function LeituraColetasScreen() {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const currentUser = useAuthStore((s) => s.currentUser);
+  /** JWT usa `uid`; `id` só como fallback legado. */
+  const currentUserId = useMemo(() => {
+    const raw = currentUser?.uid ?? currentUser?.id;
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    if (typeof raw === "string" && raw.trim() && Number.isFinite(Number(raw))) {
+      return Number(raw);
+    }
+    return null;
+  }, [currentUser?.id, currentUser?.uid]);
   const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
   const pendingSelectRef = useRef<{ baseId?: number; baseNome?: string } | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
@@ -831,15 +840,15 @@ export default function LeituraColetasScreen() {
   situacaoSelecionadaRef.current = situacaoSelecionada;
 
   const podeVoltarPendente = useMemo(() => {
-    if (!situacaoSelecionada?.participando || !currentUser?.id || !situacaoSelecionada.id_execucao) {
+    if (!situacaoSelecionada?.participando || currentUserId == null || !situacaoSelecionada.id_execucao) {
       return false;
     }
     const meu = situacaoSelecionada.participantes.find(
-      (p) => p.user_id === currentUser.id && p.status === "em_coleta"
+      (p) => p.user_id === currentUserId && p.status === "em_coleta"
     );
     if (!meu) return false;
     return (meu.total ?? 0) <= 0 && !Boolean(meu.sem_volume);
-  }, [currentUser?.id, situacaoSelecionada]);
+  }, [currentUserId, situacaoSelecionada]);
 
   const limparSelecaoLocal = useCallback(() => {
     // Zera o ref na hora para o cleanup do blur não reenviar DELETE.
@@ -857,15 +866,15 @@ export default function LeituraColetasScreen() {
   const getParticipacaoVaziaLiberavel = useCallback(
     (situacao?: SituacaoBaseColeta | null): SituacaoBaseColeta | null => {
       const alvo = situacao ?? situacaoSelecionadaRef.current;
-      if (!alvo?.id_execucao || !alvo.participando || !currentUser?.id) return null;
+      if (!alvo?.id_execucao || !alvo.participando || currentUserId == null) return null;
       const meu = alvo.participantes.find(
-        (p) => p.user_id === currentUser.id && p.status === "em_coleta"
+        (p) => p.user_id === currentUserId && p.status === "em_coleta"
       );
       if (!meu) return null;
       if ((meu.total ?? 0) > 0 || Boolean(meu.sem_volume)) return null;
       return alvo;
     },
-    [currentUser?.id]
+    [currentUserId]
   );
 
   const liberarParticipacaoVaziaAtual = useCallback(
@@ -1529,7 +1538,7 @@ export default function LeituraColetasScreen() {
       return;
     }
     if ((totaisColeta.total ?? 0) <= 0 && situacaoSelecionada?.status !== "sem_volume") {
-      const meu = situacaoSelecionada?.participantes?.find((p) => p.user_id === currentUser?.id);
+      const meu = situacaoSelecionada?.participantes?.find((p) => p.user_id === currentUserId);
       if (!meu || ((meu.total ?? 0) <= 0 && !meu.sem_volume)) {
         Alert.alert("Finalize depois", "Registre ao menos um pacote ou marque sem volume antes de finalizar.");
         return;
@@ -1555,7 +1564,7 @@ export default function LeituraColetasScreen() {
     baseSelecionada?.id_base,
     carregarResumoBase,
     carregarSituacao,
-    currentUser?.id,
+    currentUserId,
     pushFeedback,
     situacaoSelecionada,
     totaisColeta.total,
@@ -1608,7 +1617,7 @@ export default function LeituraColetasScreen() {
       ((totaisColeta.total ?? 0) > 0 ||
         Boolean(
           situacaoSelecionada?.participantes?.some(
-            (p) => p.user_id === currentUser?.id && ((p.total ?? 0) > 0 || p.sem_volume)
+            (p) => p.user_id === currentUserId && ((p.total ?? 0) > 0 || p.sem_volume)
           )
         ));
     if (!emColetaComVolume) {
@@ -1627,7 +1636,7 @@ export default function LeituraColetasScreen() {
         onPress: () => void handleFinalizarColeta(),
       },
     ]);
-  }, [currentUser?.id, handleFinalizarColeta, situacaoSelecionada, totaisColeta.total]);
+  }, [currentUserId, handleFinalizarColeta, situacaoSelecionada, totaisColeta.total]);
 
   const handleHeaderBack = useCallback(() => {
     if (cameraAtiva) {
@@ -1639,7 +1648,7 @@ export default function LeituraColetasScreen() {
       ((totaisColeta.total ?? 0) > 0 ||
         Boolean(
           situacaoSelecionada?.participantes?.some(
-            (p) => p.user_id === currentUser?.id && ((p.total ?? 0) > 0 || p.sem_volume)
+            (p) => p.user_id === currentUserId && ((p.total ?? 0) > 0 || p.sem_volume)
           )
         ));
     if (emColetaComVolume) {
@@ -1674,7 +1683,7 @@ export default function LeituraColetasScreen() {
     })();
   }, [
     cameraAtiva,
-    currentUser?.id,
+    currentUserId,
     getParticipacaoVaziaLiberavel,
     handleFinalizarColeta,
     handleVoltarComPendencia,
