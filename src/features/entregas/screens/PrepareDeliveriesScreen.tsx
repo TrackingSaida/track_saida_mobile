@@ -397,9 +397,9 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
         return;
       }
       let cancelled = false;
-      void (async () => {
-        await loadDeliveries({ onlyToday: somenteHojePendentes });
-        if (cancelled) return;
+      const POLL_MS = 15000;
+
+      const checkTransferencias = async (opts?: { announceRemoval?: boolean }) => {
         try {
           const {
             syncRouteOrderFromServer,
@@ -415,7 +415,7 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
             if (sync.pendencias?.length) {
               await promptTransferenciasPendentes(sync.pendencias);
             }
-            if (sync.removedIds.length > 0) {
+            if (opts?.announceRemoval !== false && sync.removedIds.length > 0) {
               promptRemovedFromRoute({
                 removedCount: sync.removedIds.length,
                 geometryStale: sync.geometryStale,
@@ -431,14 +431,26 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
         } catch {
           /* best-effort */
         }
+      };
+
+      void (async () => {
+        await loadDeliveries({ onlyToday: somenteHojePendentes });
+        if (cancelled) return;
+        await checkTransferencias({ announceRemoval: true });
         if (cancelled) return;
         if (route.params?.autoGenerate) {
           navigation.setParams({ autoGenerate: undefined });
           setPendingAutoGenerate(true);
         }
       })();
+
+      const timer = setInterval(() => {
+        void checkTransferencias({ announceRemoval: false });
+      }, POLL_MS);
+
       return () => {
         cancelled = true;
+        clearInterval(timer);
       };
     }, [
       roteirizacaoHabilitada,

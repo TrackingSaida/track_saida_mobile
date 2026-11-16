@@ -211,7 +211,7 @@ export function attachPushListeners(onNavigate: PushNavHandler): () => void {
 
     const received = Notifications.addNotificationReceivedListener((notification) => {
       const data = mergeNotificationPayload(notification.request.content);
-      const tipo = String(data.type || "");
+      const tipo = String(data.type || data.tipo || "");
       // Sempre toca no foreground; avisos usam beep operacional
       void playSound(tipo === "aviso_urgente" ? "error" : "warn");
       if (tipo === "aviso_base" || tipo === "aviso_urgente") {
@@ -222,6 +222,14 @@ export function attachPushListeners(onNavigate: PushNavHandler): () => void {
         void import("../../store/avisosUnreadStore").then(({ useAvisosUnreadStore }) => {
           void useAvisosUnreadStore.getState().refresh({ playOnIncrease: false });
         });
+      }
+      // PRD-013: mostrar aceite mesmo com o app na rota iniciada (sem precisar ir à Home)
+      if (tipo === "transferencia_pendente") {
+        void import("../../features/entregas/utils/transferPendingFlow").then(
+          ({ promptTransferenciasPendentes }) => {
+            void promptTransferenciasPendentes();
+          }
+        );
       }
     });
 
