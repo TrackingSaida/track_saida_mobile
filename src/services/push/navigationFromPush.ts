@@ -88,6 +88,18 @@ export function navigateFromPushData(
           });
         }
         break;
+      case "transferencia_pendente":
+        if (motoboy) {
+          navigation.navigate("Tabs", { screen: "Inicio" });
+          void import("../../features/entregas/utils/transferPendingFlow").then(
+            ({ promptTransferenciasPendentes }) => {
+              void promptTransferenciasPendentes();
+            }
+          );
+        } else {
+          navigation.navigate("Home", { screen: "HomeInicio" });
+        }
+        break;
       case "bloqueio_ausencia": {
         const idSaida = Number(data.id_saida);
         if (motoboy) {

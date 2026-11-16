@@ -122,6 +122,14 @@ export function useHomeData() {
       setRotaAtivaValid(
         result.stillActive && store.activeRouteId != null && store.routeOrder.length > 0
       );
+      try {
+        const { promptTransferenciasPendentes } = await import(
+          "../../entregas/utils/transferPendingFlow"
+        );
+        await promptTransferenciasPendentes();
+      } catch {
+        /* pendência best-effort */
+      }
     } catch {
       applyLocalRouteValidity();
     }

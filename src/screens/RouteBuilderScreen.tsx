@@ -182,6 +182,54 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      let cancelled = false;
+      void (async () => {
+        try {
+          const {
+            syncRouteOrderFromServer,
+            promptRemovedFromRoute,
+            promptTransferenciasPendentes,
+          } = await import("../features/entregas/utils/transferPendingFlow");
+          const sync = await syncRouteOrderFromServer();
+          if (cancelled) return;
+          if (sync.pendencias?.length) {
+            await promptTransferenciasPendentes(sync.pendencias);
+            if (cancelled) return;
+          }
+          if (sync.removedIds.length > 0) {
+            const isActive = sync.status === "em_entrega";
+            promptRemovedFromRoute({
+              removedCount: sync.removedIds.length,
+              geometryStale: sync.geometryStale,
+              isActive,
+              onReoptimize: () => {
+                void runOptimizeRouteWithFeedback(() =>
+                  useDeliveryStore.getState().reoptimizeFullRoute()
+                );
+              },
+              onRefreshGeometry: () => {
+                const routeId =
+                  useDeliveryStore.getState().activeRouteId ??
+                  useDeliveryStore.getState().persistedRouteId;
+                if (!routeId) return;
+                void import("../features/entregas/api").then(({ postRotasGeometryRefresh }) =>
+                  postRotasGeometryRefresh(routeId)
+                );
+              },
+            });
+          }
+        } catch {
+          /* sync best-effort */
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
       if (route.params?.openLocatePackage) {
         setShowLocateSheet(true);
         navigation.setParams({ openLocatePackage: undefined });
