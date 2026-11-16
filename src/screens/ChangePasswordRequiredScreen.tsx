@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { changePassword } from "../api/auth";
+import { saveOrClearCredentials } from "../services/savedCredentials";
 import { useAuthStore } from "../store/authStore";
 import { useThemeColors } from "../theme/colors";
 import { formatApiError } from "../utils/formatApiError";
@@ -51,6 +52,7 @@ export default function ChangePasswordRequiredScreen({ onDone }: Props) {
     setLoading(true);
     try {
       await changePassword(token, newP);
+      await saveOrClearCredentials("", "", false);
       await logout();
       onDone();
     } catch (err: unknown) {
