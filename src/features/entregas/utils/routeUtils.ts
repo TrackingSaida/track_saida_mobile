@@ -413,7 +413,9 @@ export function getAddressReviewIssue(
 }
 
 export function getStopCodigosList(group: GroupedStop): string[] {
-  return group.deliveries.map((d) => (d.codigo ?? "").trim()).filter(Boolean);
+  return group.deliveries
+    .map((d) => String(d.codigo_exibicao || d.codigo || "").trim())
+    .filter(Boolean);
 }
 
 export function getStopPrimaryCodigo(group: GroupedStop): string {

@@ -21,7 +21,7 @@ import type { BarcodeScanningResult } from "expo-camera";
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
-import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, confirmarReativacaoEncerrado, lancarAvulsoMobile, confirmarSaidaSessoes, type ScanOrigem } from "../api";
+import { scanCodigo, assumirEntrega, removerEntrega, getEntrega, confirmarNovaSaidaMesmoEntregador, confirmarReativacaoEncerrado, lancarAvulsoMobile, confirmarSaidaSessoes, getSaidaSessoesPendentes, type ScanOrigem } from "../api";
 import { formatApiError } from "../../../utils/formatApiError";
 import { classifyCodigoParaOperacao } from "../../operacao/parseCodigoQr";
 import { useScanSessionStore } from "../../../store/scanSessionStore";
@@ -978,13 +978,33 @@ export default function ScanScreen({ navigation, route }: Props) {
     setIniciandoRota(true);
     try {
       if (exigeConfirmacaoSaida) {
-        await confirmarSaidaSessoes();
+        const pendentes = await getSaidaSessoesPendentes().catch(() => null);
+        const totalPend =
+          pendentes?.fluxo_confirmacao_ativo && (pendentes.total ?? 0) > 0
+            ? pendentes.total
+            : 0;
+        if (totalPend <= 0) {
+          clearLeituras();
+          setRotaIniciada(true);
+          navigation.navigate("Tabs", { screen: "Entregas" });
+          return;
+        }
+        const resposta = await confirmarSaidaSessoes({
+          sessao_ids: pendentes?.sessao_ids ?? [],
+        });
+        setFaltamEnderecoNaSessao(semEndereco);
+        clearLeituras();
+        setRotaIniciada(true);
+        if ((resposta.total_confirmado ?? 0) <= 0) {
+          navigation.navigate("Tabs", { screen: "Entregas" });
+          return;
+        }
       } else {
         await startRoute(deliveryIds);
+        setFaltamEnderecoNaSessao(semEndereco);
+        clearLeituras();
+        setRotaIniciada(true);
       }
-      setFaltamEnderecoNaSessao(semEndereco);
-      clearLeituras();
-      setRotaIniciada(!exigeConfirmacaoSaida);
       if (roteirizacaoHabilitada) {
         setShowPrepararRotaModal(true);
       } else {
