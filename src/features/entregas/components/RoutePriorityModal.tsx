@@ -16,6 +16,8 @@ import {
   ROUTE_PRIORITY_NONE,
   type RoutePriority,
 } from "../utils/routePriority";
+import { matchesContains } from "../utils/matchAvulsoSearch";
+import { codigoExibicaoEntrega } from "../utils/codigoExibicaoEntrega";
 
 interface RoutePriorityModalProps {
   visible: boolean;
@@ -43,9 +45,9 @@ export default function RoutePriorityModal({
   );
 
   const filteredPackages = useMemo(() => {
-    const q = codigoQuery.trim().toLowerCase();
+    const q = codigoQuery.trim();
     if (!q) return withAddress;
-    return withAddress.filter((p) => (p.codigo ?? "").toLowerCase().includes(q));
+    return withAddress.filter((p) => matchesContains(p, q));
   }, [withAddress, codigoQuery]);
 
   const styles = useMemo(
@@ -228,7 +230,9 @@ export default function RoutePriorityModal({
                     style={styles.pkgRow}
                     onPress={() => selectDelivery(item)}
                   >
-                    <Text style={styles.pkgCodigo}>{item.codigo?.trim() || `#${item.id_saida}`}</Text>
+                    <Text style={styles.pkgCodigo}>
+                      {codigoExibicaoEntrega(item) || `#${item.id_saida}`}
+                    </Text>
                     <Text style={styles.pkgAddr} numberOfLines={1}>
                       {item.endereco_formatado || item.endereco || "—"}
                     </Text>

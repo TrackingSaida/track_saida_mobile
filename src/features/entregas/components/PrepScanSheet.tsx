@@ -16,6 +16,7 @@ import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import type { EntregaListItem } from "../types";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "./ScannerTorchButton";
+import { matchesResolve } from "../utils/matchAvulsoSearch";
 
 const SCAN_DEBOUNCE_MS = 1500;
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -31,11 +32,9 @@ function findByCodigo(
   codigo: string,
   list: EntregaListItem[]
 ): EntregaListItem | null {
-  const normalized = codigo.trim().toLowerCase();
-  if (!normalized) return null;
-  return (
-    list.find((d) => (d.codigo ?? "").trim().toLowerCase() === normalized) ?? null
-  );
+  const raw = codigo.trim();
+  if (!raw) return null;
+  return list.find((d) => matchesResolve(d, raw)) ?? null;
 }
 
 export default function PrepScanSheet({

@@ -1,5 +1,7 @@
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import type { EntregaListItem } from "../types";
+import { matchesResolve } from "./matchAvulsoSearch";
+import { codigoExibicaoEntrega } from "./codigoExibicaoEntrega";
 
 export type ResolvePendingScanResult =
   | { ok: true; item: EntregaListItem }
@@ -32,14 +34,14 @@ export function resolvePendingDeliveryByScan(
   pendingDeliveries: EntregaListItem[]
 ): ResolvePendingScanResult {
   const parsed = parseCodigoQrRaw(raw || "");
-  const codigo = String(parsed.codigo || raw || "").trim().toLowerCase();
+  const codigo = String(parsed.codigo || raw || "").trim();
   if (!codigo) {
     return { ok: false, title: "Atenção", message: "Informe um código válido." };
   }
 
-  const item = pendingDeliveries.find(
-    (d) => String(d.codigo ?? "").trim().toLowerCase() === codigo
-  );
+  const item =
+    pendingDeliveries.find((d) => matchesResolve(d, codigo)) ??
+    pendingDeliveries.find((d) => matchesResolve(d, raw));
   if (!item) {
     return {
       ok: false,
@@ -52,7 +54,7 @@ export function resolvePendingDeliveryByScan(
     return {
       ok: false,
       title: "Bloqueado",
-      message: `Pedido ${item.codigo ?? ""} já está finalizado (${item.exibicao || item.status}).`,
+      message: `Pedido ${codigoExibicaoEntrega(item)} já está finalizado (${item.exibicao || item.status}).`,
     };
   }
 

@@ -22,6 +22,7 @@ import { getStopAddressLine } from "../utils/routeUtils";
 import type { EntregaListItem } from "../types";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "./ScannerTorchButton";
+import { codigoExibicaoEntrega } from "../utils/codigoExibicaoEntrega";
 
 const SCAN_DEBOUNCE_MS = 1500;
 const BARCODE_TYPES: import("expo-camera").BarcodeType[] = ["qr"];
@@ -250,7 +251,7 @@ export default function RouteLocatePackageSheet({
       ) : null}
       {r.sameStopDeliveries.map((d) => {
         const isMatch = d.id_saida === r.delivery.id_saida;
-        const codigo = d.codigo?.trim() || "—";
+        const codigo = codigoExibicaoEntrega(d) || "—";
         return (
           <Text
             key={d.id_saida}
@@ -360,7 +361,7 @@ export default function RouteLocatePackageSheet({
                   onPress={() => setResult(m)}
                 >
                   <Text style={styles.actionBtnText}>
-                    Parada {m.stopIndex + 1} · {m.delivery.codigo ?? m.delivery.id_saida}
+                    Parada {m.stopIndex + 1} · {codigoExibicaoEntrega(m.delivery) || m.delivery.id_saida}
                   </Text>
                 </TouchableOpacity>
               ))}

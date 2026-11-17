@@ -6,6 +6,7 @@ import {
   type GeocodedMetaMap,
   type LegacyValidationCache,
 } from "./deliveryDestination";
+import { scoreCodigoSearch } from "./matchAvulsoSearch";
 
 export { haversineDistanceKm } from "./coordsUtils";
 
@@ -651,24 +652,24 @@ export type RouteLocateMatch = {
   score: number;
 };
 
-/** Busca parcial por código ou id_saida; prioriza match exato, depois prefixo, depois contém. */
+/** Busca parcial por código/rótulo amigável ou id_saida; prioriza match exato, depois prefixo, depois contém. */
 export function findInRouteByQuery(
   groups: GroupedStop[],
   query: string,
   maxResults = 8
 ): RouteLocateMatch[] {
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   if (!q) return [];
   const matches: RouteLocateMatch[] = [];
 
   for (let stopIndex = 0; stopIndex < groups.length; stopIndex++) {
     for (const delivery of groups[stopIndex].deliveries) {
-      const codigo = (delivery.codigo ?? "").trim().toLowerCase();
       const idStr = String(delivery.id_saida);
-      let score = 0;
-      if (codigo === q || idStr === q) score = 100;
-      else if (codigo.startsWith(q) || idStr.startsWith(q)) score = 50;
-      else if (codigo.includes(q) || idStr.includes(q)) score = 10;
+      const qLower = q.toLowerCase();
+      let score = scoreCodigoSearch(delivery, q);
+      if (idStr === qLower) score = Math.max(score, 100);
+      else if (idStr.startsWith(qLower)) score = Math.max(score, 50);
+      else if (idStr.includes(qLower)) score = Math.max(score, 10);
       if (score > 0) {
         matches.push({
           stopIndex,

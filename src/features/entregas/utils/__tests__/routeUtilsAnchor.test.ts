@@ -62,3 +62,15 @@ test("findInRouteByQuery encontra id_saida parcial", () => {
   assert.ok(matches.length >= 1);
   assert.ok(matches.some((m) => String(m.delivery.id_saida).includes("9876")));
 });
+
+test("findInRouteByQuery encontra avulso por codigo_exibicao", () => {
+  const avulso = {
+    ...makeDelivery(50, "AVULSO-abc"),
+    codigo_exibicao: "teste • 06311-001",
+  };
+  const groups = makeGroups([[avulso], [makeDelivery(51, "XYZ-1")]]);
+  const byName = findInRouteByQuery(groups, "teste");
+  assert.equal(byName[0]?.delivery.id_saida, 50);
+  const byCep = findInRouteByQuery(groups, "06311");
+  assert.equal(byCep[0]?.delivery.id_saida, 50);
+});
