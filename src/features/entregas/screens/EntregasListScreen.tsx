@@ -84,6 +84,7 @@ import {
   resolvePendingDeliveryByScan,
 } from "../utils/resolvePendingDeliveryByScan";
 import { codigoExibicaoEntrega } from "../utils/codigoExibicaoEntrega";
+import { matchesContains } from "../utils/matchAvulsoSearch";
 import { ScanFrameOverlay } from "../../operacao/components/ScanFrameOverlay";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
@@ -923,9 +924,9 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   }, [tab, listForTab, suggestedOrder]);
 
   const pendentesFiltrados = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = searchQuery.trim();
     if (!q) return orderedPendentes;
-    return orderedPendentes.filter((item) => String(item.codigo ?? "").toLowerCase().includes(q));
+    return orderedPendentes.filter((item) => matchesContains(item, q));
   }, [orderedPendentes, searchQuery]);
 
   const listWithSections = useMemo<ServiceSection[]>(() => {
@@ -1861,7 +1862,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             }
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.searchResultItem} onPress={() => handleSelectBuscaDigitada(item)}>
-                <Text style={styles.searchResultCodigo}>{item.codigo ?? "—"}</Text>
+                <Text style={styles.searchResultCodigo}>{codigoExibicaoEntrega(item) || "—"}</Text>
                 <Text style={styles.searchResultCliente}>{item.cliente ?? "Sem cliente"}</Text>
               </TouchableOpacity>
             )}

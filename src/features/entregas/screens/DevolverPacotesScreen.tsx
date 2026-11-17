@@ -26,6 +26,7 @@ import ScannerTorchButton from "../components/ScannerTorchButton";
 import { getEntregas } from "../api";
 import type { EntregaListItem } from "../types";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
+import { matchesContains, matchesResolve } from "../utils/matchAvulsoSearch";
 import { takeDeliveryPhoto, preparePhoto } from "../../../services/deliveryPhotoService";
 import {
   clearDevolucaoPhotoDraft,
@@ -49,26 +50,18 @@ function searchEntregasByCodigo(
   query: string,
   limit = 12
 ): EntregaListItem[] {
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   if (!q) return [];
-  return itens
-    .filter((it) => String(it.codigo ?? "").toLowerCase().includes(q))
-    .slice(0, limit);
+  return itens.filter((it) => matchesContains(it, q)).slice(0, limit);
 }
 
 function findEntregaByScan(itens: EntregaListItem[], raw: string): EntregaListItem | null {
   const parsed = parseCodigoQrRaw(raw);
-  const candidates = [parsed.codigo, raw]
-    .map((v) => String(v ?? "").trim().toLowerCase())
-    .filter(Boolean);
+  const candidates = [parsed.codigo, raw].map((v) => String(v ?? "").trim()).filter(Boolean);
   if (candidates.length === 0) return null;
 
   for (const item of itens) {
-    const codigo = String(item.codigo ?? "").trim().toLowerCase();
-    if (!codigo) continue;
-    if (candidates.some((c) => codigo.includes(c) || c.includes(codigo))) {
-      return item;
-    }
+    if (candidates.some((c) => matchesResolve(item, c))) return item;
   }
   return null;
 }

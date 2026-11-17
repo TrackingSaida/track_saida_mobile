@@ -15,6 +15,7 @@ import { geocodeAddress } from "../utils/geocode";
 import type { EntregaListItem } from "../types";
 import EntregaCodigoHeader from "./EntregaCodigoHeader";
 import { getStopPedidoLabel } from "../utils/routeUtils";
+import { matchesContains } from "../utils/matchAvulsoSearch";
 
 interface RouteQuickAddSheetProps {
   visible: boolean;
@@ -38,6 +39,7 @@ function matchByAddress(
   const inRoute = new Set(routeOrder);
   return pending.filter((d) => {
     if (inRoute.has(d.id_saida)) return false;
+    if (matchesContains(d, query)) return true;
     const addr = normalizeAddr(
       d.endereco_formatado || [d.endereco, d.numero, d.bairro, d.cep].filter(Boolean).join(" ")
     );

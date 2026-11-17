@@ -154,6 +154,7 @@ export type ExtratoSituacaoFechamento = "sem_fechamento" | "gerado" | "pago";
 export interface ExtratoPedidoItem {
   id_saida: number;
   codigo: string | null;
+  codigo_exibicao?: string | null;
   status: string;
   exibicao: string;
   servico: string;

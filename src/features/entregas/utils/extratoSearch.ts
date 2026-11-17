@@ -1,5 +1,6 @@
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import type { ExtratoDiaItem, ExtratoFinanceiro, ExtratoPedidoItem } from "../types";
+import { matchesContains, matchesResolve } from "./matchAvulsoSearch";
 
 export function flattenExtratoItens(extrato: ExtratoFinanceiro | null): ExtratoPedidoItem[] {
   if (!extrato) return [];
@@ -11,9 +12,9 @@ export function searchExtratoByCodigo(
   query: string,
   limit = 12
 ): ExtratoPedidoItem[] {
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   if (!q) return [];
-  return itens.filter((it) => String(it.codigo ?? "").toLowerCase().includes(q)).slice(0, limit);
+  return itens.filter((it) => matchesContains(it, q)).slice(0, limit);
 }
 
 export function findExtratoItemByScan(
@@ -21,15 +22,11 @@ export function findExtratoItemByScan(
   raw: string
 ): ExtratoPedidoItem | null {
   const parsed = parseCodigoQrRaw(raw);
-  const candidates = [parsed.codigo, raw].map((v) => String(v ?? "").trim().toLowerCase()).filter(Boolean);
+  const candidates = [parsed.codigo, raw].map((v) => String(v ?? "").trim()).filter(Boolean);
   if (candidates.length === 0) return null;
 
   for (const item of itens) {
-    const codigo = String(item.codigo ?? "").trim().toLowerCase();
-    if (!codigo) continue;
-    if (candidates.some((c) => codigo.includes(c) || c.includes(codigo))) {
-      return item;
-    }
+    if (candidates.some((c) => matchesResolve(item, c))) return item;
   }
   return null;
 }
