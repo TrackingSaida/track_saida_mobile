@@ -57,6 +57,10 @@ export const usePhotoCaptureStore = create<PhotoCaptureState>((set) => ({
     releaseTimer = setTimeout(() => {
       releaseTimer = null;
       set({ hardwareBusy: false });
+      // Retoma a fila após liberar a câmera (PRD-014).
+      void import("../services/outbox/syncEngine")
+        .then((m) => m.processOutboxQueue())
+        .catch(() => {});
     }, CAMERA_HARDWARE_RELEASE_MS);
   },
 }));

@@ -9,9 +9,13 @@ import {
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CAMERA_HARDWARE_RELEASE_MS } from "../services/photoFlowUtils";
+import {
+  CAMERA_HARDWARE_RELEASE_MS,
+  pickComprovantePictureSize,
+} from "../services/photoFlowUtils";
 import { persistCapturedPhoto } from "../services/deliveryPhotoService";
 import { savePendingCaptureUri } from "../services/deliveryPhotoDraft";
+import { setRouteTrackingProfile } from "../services/location/locationService";
 import { usePhotoCaptureStore } from "../store/photoCaptureStore";
 
 export default function InAppPhotoCaptureModal() {
@@ -21,6 +25,7 @@ export default function InAppPhotoCaptureModal() {
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [pictureSize, setPictureSize] = useState<string | undefined>(undefined);
   const cameraRef = useRef<CameraView>(null);
   const busyRef = useRef(false);
 
@@ -28,11 +33,17 @@ export default function InAppPhotoCaptureModal() {
     if (!active) {
       setCameraReady(false);
       setCapturing(false);
+      setPictureSize(undefined);
       busyRef.current = false;
+      void setRouteTrackingProfile("route");
       return;
     }
+    void setRouteTrackingProfile("photo");
     const timer = setTimeout(() => setCameraReady(true), CAMERA_HARDWARE_RELEASE_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      void setRouteTrackingProfile("route");
+    };
   }, [active]);
 
   useEffect(() => {
@@ -41,6 +52,18 @@ export default function InAppPhotoCaptureModal() {
       void requestPermission();
     }
   }, [active, permission, requestPermission]);
+
+  const handleCameraReady = async () => {
+    const camera = cameraRef.current;
+    if (!camera) return;
+    try {
+      const sizes = await camera.getAvailablePictureSizesAsync();
+      const chosen = pickComprovantePictureSize(sizes);
+      if (chosen) setPictureSize(chosen);
+    } catch (e) {
+      console.warn("[InAppPhotoCapture] pictureSize indisponível", e);
+    }
+  };
 
   const handleCancel = () => {
     if (busyRef.current) return;
@@ -88,7 +111,15 @@ export default function InAppPhotoCaptureModal() {
     >
       <View style={styles.root}>
         {cameraReady && !permissionDenied ? (
-          <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+          <CameraView
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            pictureSize={pictureSize}
+            onCameraReady={() => {
+              void handleCameraReady();
+            }}
+          />
         ) : (
           <View style={[StyleSheet.absoluteFill, styles.placeholder]} />
         )}

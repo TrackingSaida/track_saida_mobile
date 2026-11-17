@@ -72,6 +72,28 @@ export async function ensureBackgroundLocationPermission(): Promise<BackgroundLo
   return { ok: true };
 }
 
+export type RouteTrackingProfile = "route" | "photo";
+
+const ROUTE_TRACKING_OPTIONS = {
+  route: {
+    accuracy: Location.Accuracy.High,
+    timeInterval: 5000,
+    distanceInterval: 10,
+  },
+  photo: {
+    accuracy: Location.Accuracy.Balanced,
+    timeInterval: 15000,
+    distanceInterval: 25,
+  },
+} as const;
+
+const FOREGROUND_SERVICE = {
+  notificationTitle: "ROTEVO — Rota ativa",
+  notificationBody: "Localização sendo utilizada para acompanhar sua rota.",
+} as const;
+
+let activeTrackingProfile: RouteTrackingProfile = "route";
+
 /**
  * Inicia updates em segundo plano. Requer permissões já concedidas.
  * Se o app ainda não está em primeiro plano (Android FGS), devolve deferred sem lançar.
@@ -91,22 +113,51 @@ export async function startBackgroundLocationUpdates(): Promise<StartBackgroundL
   }
 
   try {
+    const opts = ROUTE_TRACKING_OPTIONS.route;
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-      accuracy: Location.Accuracy.High,
-      timeInterval: 5000,
-      distanceInterval: 10,
+      accuracy: opts.accuracy,
+      timeInterval: opts.timeInterval,
+      distanceInterval: opts.distanceInterval,
       showsBackgroundLocationIndicator: true,
-      foregroundService: {
-        notificationTitle: "ROTEVO — Rota ativa",
-        notificationBody: "Localização sendo utilizada para acompanhar sua rota.",
-      },
+      foregroundService: { ...FOREGROUND_SERVICE },
     });
+    activeTrackingProfile = "route";
     return { ok: true };
   } catch (error) {
     if (isForegroundServiceBackgroundError(error)) {
       return { ok: false, deferred: true };
     }
     throw error;
+  }
+}
+
+/**
+ * Durante a câmera do comprovante, alivia GPS; ao fechar, restaura o perfil da rota.
+ * No-op se a task não estiver rodando. Erros de stop/start são engolidos.
+ */
+export async function setRouteTrackingProfile(profile: RouteTrackingProfile): Promise<void> {
+  if (activeTrackingProfile === profile) return;
+  try {
+    const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+    if (!hasStarted) {
+      activeTrackingProfile = profile;
+      return;
+    }
+    if (AppState.currentState !== "active") {
+      return;
+    }
+    const opts = ROUTE_TRACKING_OPTIONS[profile];
+    await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+      accuracy: opts.accuracy,
+      timeInterval: opts.timeInterval,
+      distanceInterval: opts.distanceInterval,
+      showsBackgroundLocationIndicator: true,
+      foregroundService: { ...FOREGROUND_SERVICE },
+    });
+    activeTrackingProfile = profile;
+  } catch (e) {
+    console.warn("[location] setRouteTrackingProfile falhou", profile, e);
   }
 }
 
@@ -130,7 +181,9 @@ export async function prepareAndStartBackgroundTracking(): Promise<
 export async function stopBackgroundTracking(): Promise<void> {
   const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!hasStarted) {
+    activeTrackingProfile = "route";
     return;
   }
   await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+  activeTrackingProfile = "route";
 }

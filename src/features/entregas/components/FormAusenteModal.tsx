@@ -296,7 +296,10 @@ export default function FormAusenteModal({
   );
 
   const addPhotoFromSource = useCallback(
-    async (pick: () => Promise<{ uri: string } | null>) => {
+    async (
+      pick: () => Promise<{ uri: string } | null>,
+      opts?: { alreadyPrepared?: boolean }
+    ) => {
       if (photos.length >= MAX_PHOTOS) return;
       try {
         await saveDeliveryPhotoDraft(
@@ -307,8 +310,11 @@ export default function FormAusenteModal({
         );
         const picked = await pick();
         if (!picked) return;
-        const prepared = await preparePhoto(picked.uri, photos.length);
-        const next = [...photos, { uri: prepared.uri }];
+        // takeDeliveryPhoto já passou por preparePhoto; galeria ainda precisa.
+        const uri = opts?.alreadyPrepared
+          ? picked.uri
+          : (await preparePhoto(picked.uri, photos.length)).uri;
+        const next = [...photos, { uri }];
         setPhotos(next);
         await saveDeliveryPhotoDraft(
           "ausente",
@@ -324,7 +330,10 @@ export default function FormAusenteModal({
   );
 
   const addPhotoFromCamera = useCallback(
-    () => addPhotoFromSource(() => takeDeliveryPhoto({ kind: "ausente", idSaida: primaryIdSaida })),
+    () =>
+      addPhotoFromSource(() => takeDeliveryPhoto({ kind: "ausente", idSaida: primaryIdSaida }), {
+        alreadyPrepared: true,
+      }),
     [addPhotoFromSource, primaryIdSaida]
   );
 

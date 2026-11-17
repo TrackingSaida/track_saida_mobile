@@ -1931,6 +1931,9 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         <ActivityIndicator size="large" style={styles.loader} />
       ) : tab === "pendente" && mapMode === "map" ? (
         <View style={styles.mapWrap}>
+          {photoCaptureActive ? (
+            <View style={[styles.map, { backgroundColor: "#111" }]} />
+          ) : (
           <MapView
             ref={mapRef}
             style={styles.map}
@@ -1979,6 +1982,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
               );
             })}
           </MapView>
+          )}
 
           <MapLocateButton
             bottomInset={MAP_LOCATE_BOTTOM_INSET + insets.bottom}
