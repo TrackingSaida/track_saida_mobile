@@ -4,10 +4,54 @@
  */
 
 export const PREPARE_MAX_WIDTH = 1280;
+/** Piso para pictureSize: evita captura ilegível se a lista do sensor for escassa. */
+export const PICTURE_SIZE_MIN_WIDTH = 960;
 /** Abaixo disso o JPEG já está pequeno o bastante — evita ImageManipulator (OOM). */
 export const SKIP_RESIZE_MAX_BYTES = 500_000;
 export const CAMERA_HARDWARE_RELEASE_MS = 500;
 export const PHOTO_DRAFT_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * Escolhe o pictureSize mais próximo de `PREPARE_MAX_WIDTH`, sem ficar abaixo do piso.
+ * Formatos aceitos: "1280x720", "1280*720". Retorna null se a lista for inválida.
+ */
+export function pickComprovantePictureSize(
+  sizes: string[],
+  targetWidth = PREPARE_MAX_WIDTH,
+  minWidth = PICTURE_SIZE_MIN_WIDTH
+): string | null {
+  if (!Array.isArray(sizes) || sizes.length === 0) return null;
+
+  type Parsed = { raw: string; width: number; height: number };
+  const parsed: Parsed[] = [];
+  for (const raw of sizes) {
+    const match = String(raw || "")
+      .trim()
+      .match(/^(\d+)\s*[xX*]\s*(\d+)$/);
+    if (!match) continue;
+    const a = Number(match[1]);
+    const b = Number(match[2]);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) continue;
+    // Largura = maior eixo (retrato/paisagem do sensor).
+    const width = Math.max(a, b);
+    const height = Math.min(a, b);
+    parsed.push({ raw: String(raw).trim(), width, height });
+  }
+  if (parsed.length === 0) return null;
+
+  const eligible = parsed.filter((p) => p.width >= minWidth);
+  const pool = eligible.length > 0 ? eligible : parsed;
+
+  pool.sort((a, b) => {
+    const da = Math.abs(a.width - targetWidth);
+    const db = Math.abs(b.width - targetWidth);
+    if (da !== db) return da - db;
+    // Empate: preferir o menor arquivo (menor área).
+    return a.width * a.height - b.width * b.height;
+  });
+
+  return pool[0]?.raw ?? null;
+}
 
 export type PhotoPickResult = {
   uri: string;

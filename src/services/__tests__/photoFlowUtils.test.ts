@@ -11,8 +11,11 @@ import {
   parseAvulsoSource,
   parseTipoDocumento,
   pendingCaptureMatchesScope,
+  pickComprovantePictureSize,
   pickLatestResumeItem,
   PHOTO_DRAFT_MAX_AGE_MS,
+  PICTURE_SIZE_MIN_WIDTH,
+  PREPARE_MAX_WIDTH,
   resumeCopyForKind,
   shouldSkipImageResize,
   SKIP_RESIZE_MAX_BYTES,
@@ -139,6 +142,25 @@ check("parse helpers", () => {
   assert.equal(parseAvulsoSource("saidas"), "saidas");
   assert.equal(parseAvulsoSource("scan"), "scan");
   assert.equal(isDraftFresh(Date.now()), true);
+});
+
+check("pickComprovantePictureSize escolhe perto de 1280", () => {
+  assert.equal(pickComprovantePictureSize([]), null);
+  assert.equal(pickComprovantePictureSize(["invalid"]), null);
+  assert.equal(
+    pickComprovantePictureSize(["320x240", "640x480", "1280x720", "1920x1080"]),
+    "1280x720"
+  );
+  assert.equal(
+    pickComprovantePictureSize(["1920x1080", "2560x1440", "3840x2160"]),
+    "1920x1080"
+  );
+  // Abaixo do piso: usa o maior disponível da lista.
+  assert.equal(
+    pickComprovantePictureSize(["640x480", "800x600"], PREPARE_MAX_WIDTH, PICTURE_SIZE_MIN_WIDTH),
+    "800x600"
+  );
+  assert.equal(pickComprovantePictureSize(["720*1280", "1080*1920"]), "720*1280");
 });
 
 console.log("photoFlowUtils tests OK");

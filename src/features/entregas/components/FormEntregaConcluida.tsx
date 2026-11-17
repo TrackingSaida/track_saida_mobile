@@ -391,7 +391,10 @@ export default function FormEntregaConcluida({
     setNumeroDocumento(formatted);
   };
 
-  const addPhotoFromSource = async (pick: () => Promise<{ uri: string } | null>) => {
+  const addPhotoFromSource = async (
+    pick: () => Promise<{ uri: string } | null>,
+    opts?: { alreadyPrepared?: boolean }
+  ) => {
     if (photos.length >= MAX_PHOTOS) return;
     try {
       // Persiste rascunho antes de abrir a câmera (Android pode matar o processo).
@@ -409,8 +412,11 @@ export default function FormEntregaConcluida({
       );
       const picked = await pick();
       if (!picked) return;
-      const prepared = await preparePhoto(picked.uri, photos.length);
-      const next = [...photos, { uri: prepared.uri }];
+      // takeDeliveryPhoto já passou por preparePhoto; galeria ainda precisa.
+      const uri = opts?.alreadyPrepared
+        ? picked.uri
+        : (await preparePhoto(picked.uri, photos.length)).uri;
+      const next = [...photos, { uri }];
       setPhotos(next);
       await saveDeliveryPhotoDraft(
         "entregue",
@@ -430,7 +436,9 @@ export default function FormEntregaConcluida({
   };
 
   const addPhotoFromCamera = () =>
-    addPhotoFromSource(() => takeDeliveryPhoto({ kind: "entregue", idSaida }));
+    addPhotoFromSource(() => takeDeliveryPhoto({ kind: "entregue", idSaida }), {
+      alreadyPrepared: true,
+    });
   const addPhotoFromGallery = () => addPhotoFromSource(pickDeliveryPhotoFromGallery);
 
   const removePhoto = (index: number) => {

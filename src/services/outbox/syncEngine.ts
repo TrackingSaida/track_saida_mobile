@@ -11,6 +11,7 @@ import {
 import { createPhotoId, type OutboxDeliveryAction } from "./types";
 import { isOnline, subscribeNetworkStatus } from "./networkStatus";
 import { useOutboxStore } from "../../store/outboxStore";
+import { isPhotoCaptureActive } from "../../store/photoCaptureStore";
 import { useDeliveryStore, buildApplyRouteSyncDeps } from "../../store/deliveryStore";
 import {
   buildRouteReconcileDeps,
@@ -337,6 +338,8 @@ async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
  */
 export async function processOutboxQueue(): Promise<void> {
   if (processing) return;
+  // Não disputa rádio/CPU com a câmera do comprovante (PRD-014).
+  if (isPhotoCaptureActive()) return;
   if (!(await isOnline())) return;
 
   processing = true;

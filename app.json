@@ -56,7 +56,8 @@
             "enableShrinkResourcesInReleaseBuilds": true
           }
         }
-      ]
+      ],
+      "./plugins/withR8Optimize.js"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",

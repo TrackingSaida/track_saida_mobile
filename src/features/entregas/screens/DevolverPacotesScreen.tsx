@@ -27,7 +27,7 @@ import { getEntregas } from "../api";
 import type { EntregaListItem } from "../types";
 import { parseCodigoQrRaw } from "../../operacao/parseCodigoQr";
 import { matchesContains, matchesResolve } from "../utils/matchAvulsoSearch";
-import { takeDeliveryPhoto, preparePhoto } from "../../../services/deliveryPhotoService";
+import { takeDeliveryPhoto } from "../../../services/deliveryPhotoService";
 import {
   clearDevolucaoPhotoDraft,
   loadDevolucaoPhotoDraft,
@@ -356,12 +356,12 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
         idSaida: selected?.id_saida ?? null,
       });
       if (!picked) return;
-      const prepared = await preparePhoto(picked.uri);
-      setPhotoUri(prepared.uri);
+      // takeDeliveryPhoto já passou por preparePhoto.
+      setPhotoUri(picked.uri);
       await saveDevolucaoPhotoDraft({
         idSaida: selected?.id_saida ?? null,
         codigo: selected?.codigo ?? undefined,
-        photoUri: prepared.uri,
+        photoUri: picked.uri,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Não foi possível tirar a foto.";
