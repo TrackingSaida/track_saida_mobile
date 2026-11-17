@@ -670,7 +670,7 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.searchResultItem} onPress={() => abrirDetalhe(item)}>
                 <EntregaCodigoHeader
-                  codigo={item.codigo}
+                  codigo={(item.codigo_exibicao || item.codigo || "").trim() || item.codigo}
                   servico={item.servico}
                   exibicao={formatRealStatus(item.status, item.exibicao)}
                   data={extratoDataById.get(item.id_saida)}
@@ -756,7 +756,7 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
                         onPress={() => abrirDetalhe(it)}
                       >
                         <EntregaCodigoHeader
-                          codigo={it.codigo}
+                          codigo={(it.codigo_exibicao || it.codigo || "").trim() || it.codigo}
                           servico={it.servico}
                           exibicao={statusReal}
                           data={item.data}
@@ -776,7 +776,7 @@ export default function MinhasEntregasScreen({ navigation, route }: Props) {
                       onPress={() => abrirDetalhe(it)}
                     >
                       <EntregaCodigoHeader
-                        codigo={it.codigo}
+                        codigo={(it.codigo_exibicao || it.codigo || "").trim() || it.codigo}
                         servico={it.servico}
                         exibicao={formatRealStatus(it.status, it.exibicao)}
                         data={item.data}

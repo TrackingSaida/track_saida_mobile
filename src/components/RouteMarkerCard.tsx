@@ -187,7 +187,7 @@ export default function RouteMarkerCard({
     const rowContent = (
       <>
         <EntregaCodigoHeader
-          codigo={d.codigo}
+          codigo={(d.codigo_exibicao || d.codigo || "").trim() || d.codigo}
           servico={d.servico}
           exibicao={exibicao}
           data={d.data}

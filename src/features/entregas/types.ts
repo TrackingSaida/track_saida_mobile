@@ -3,6 +3,8 @@ export type CoordPrecision = "rooftop" | "street" | "approx";
 export interface EntregaListItem {
   id_saida: number;
   codigo: string | null;
+  /** Rótulo amigável do avulso (campos de identificação); fallback = codigo. */
+  codigo_exibicao?: string | null;
   status: string;
   exibicao: string;
   servico?: string | null;

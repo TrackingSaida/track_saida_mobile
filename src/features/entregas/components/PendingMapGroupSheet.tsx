@@ -140,7 +140,7 @@ export default function PendingMapGroupSheet({
                   }}
                 >
                   <EntregaCodigoHeader
-                    codigo={item.codigo}
+                    codigo={(item.codigo_exibicao || item.codigo || "").trim() || item.codigo}
                     servico={item.servico}
                     exibicao={item.exibicao}
                     data={item.data}

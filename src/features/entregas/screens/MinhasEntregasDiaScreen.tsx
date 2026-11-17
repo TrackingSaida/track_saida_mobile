@@ -102,7 +102,7 @@ export default function MinhasEntregasDiaScreen({ route, navigation }: Props) {
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.card} onPress={() => handleItemPress(item.id_saida)} activeOpacity={0.7}>
             <EntregaCodigoHeader
-              codigo={item.codigo}
+              codigo={(item.codigo_exibicao || item.codigo || "").trim() || item.codigo}
               servico={item.servico}
               exibicao={item.exibicao}
               data={item.data}

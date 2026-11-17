@@ -83,6 +83,7 @@ import {
   isStatusFinalEntrega,
   resolvePendingDeliveryByScan,
 } from "../utils/resolvePendingDeliveryByScan";
+import { codigoExibicaoEntrega } from "../utils/codigoExibicaoEntrega";
 import { ScanFrameOverlay } from "../../operacao/components/ScanFrameOverlay";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
@@ -2157,7 +2158,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
                           )}
                           <View style={{ flex: 1 }}>
                             <EntregaCodigoHeader
-                              codigo={item.codigo}
+                              codigo={codigoExibicaoEntrega(item)}
                               servico={item.servico}
                               exibicao={item.exibicao}
                               data={item.data}

@@ -188,6 +188,17 @@ export async function confirmarSaidaSessoes(input?: {
       chave_idempotente: chave,
     });
     if (!chaveInformada) encerrarTentativa(tentativa);
+    // Invalida UI local (Scan/Home) para não reoferecer confirmação stale.
+    try {
+      const { useScanSessionStore } = await import("../../store/scanSessionStore");
+      const scan = useScanSessionStore.getState();
+      scan.clearLeituras();
+      scan.setRotaIniciada(true);
+      const { useSaidaConfirmacaoUiStore } = await import("../../store/saidaConfirmacaoUiStore");
+      useSaidaConfirmacaoUiStore.getState().markConfirmed();
+    } catch {
+      /* best-effort */
+    }
     return data;
   } catch (error) {
     throw error;

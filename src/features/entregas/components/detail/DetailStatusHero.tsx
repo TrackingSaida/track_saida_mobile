@@ -71,7 +71,11 @@ export default function DetailStatusHero({ entrega, subtitle, awaitingSync }: Pr
   return (
     <View style={styles.wrap}>
       <EntregaCodigoHeader
-        codigo={entrega.codigo ?? `Pedido ${entrega.id_saida}`}
+        codigo={
+          (entrega.codigo_exibicao || "").trim() ||
+          entrega.codigo ||
+          `Pedido ${entrega.id_saida}`
+        }
         servico={entrega.servico}
         exibicao={awaitingSync ? "Enviando…" : entrega.exibicao ?? statusLabelUpper(kind)}
         data={entrega.data}

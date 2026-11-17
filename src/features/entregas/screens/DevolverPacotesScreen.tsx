@@ -468,7 +468,7 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
                 onPress={() => selecionarPacote(item)}
               >
                 <EntregaCodigoHeader
-                  codigo={item.codigo}
+                  codigo={(item.codigo_exibicao || item.codigo || "").trim() || item.codigo}
                   servico={item.servico}
                   exibicao={item.exibicao}
                   compact
@@ -496,7 +496,7 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Pacote selecionado</Text>
               <EntregaCodigoHeader
-                codigo={selected.codigo}
+                codigo={(selected.codigo_exibicao || selected.codigo || "").trim() || selected.codigo}
                 servico={selected.servico}
                 exibicao={selected.exibicao}
               />

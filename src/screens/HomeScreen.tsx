@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -44,6 +44,7 @@ import {
   getSaidaSessoesPendentes,
   type SaidaSessoesPendentesResponse,
 } from "../features/entregas/api";
+import { useSaidaConfirmacaoUiStore } from "../store/saidaConfirmacaoUiStore";
 import {
   useDiaRotaConcluidaStore,
   VALOR_ROTA_LABEL,
@@ -143,17 +144,24 @@ export default function HomeScreen() {
     return horas.sort().at(-1) ?? null;
   }, [itensVisiveis]);
 
+  const confirmacaoFetchSeq = useRef(0);
+  const confirmacaoEpoch = useSaidaConfirmacaoUiStore((s) => s.epoch);
+
   const carregarConfirmacaoSaida = useCallback(async () => {
+    const seq = ++confirmacaoFetchSeq.current;
     setCarregandoSaida(true);
     try {
       const result = await getSaidaSessoesPendentes();
-      setSaidaPendente(result.fluxo_confirmacao_ativo ? result : null);
+      if (seq !== confirmacaoFetchSeq.current) return;
+      const ativo = Boolean(result.fluxo_confirmacao_ativo) && (result.total ?? 0) > 0;
+      setSaidaPendente(ativo ? result : null);
       setIdsRemovidos([]);
       setErroSaida(null);
     } catch {
+      if (seq !== confirmacaoFetchSeq.current) return;
       setErroSaida("Sem conexão para atualizar os pacotes. A confirmação continua protegida pelo servidor.");
     } finally {
-      setCarregandoSaida(false);
+      if (seq === confirmacaoFetchSeq.current) setCarregandoSaida(false);
     }
   }, []);
 
@@ -164,9 +172,22 @@ export default function HomeScreen() {
     }, [refreshUnread, carregarConfirmacaoSaida])
   );
 
+  useEffect(() => {
+    if (confirmacaoEpoch <= 0) return;
+    setSaidaPendente(null);
+    setIdsRemovidos([]);
+    setRevisandoSaida(false);
+    void carregarConfirmacaoSaida();
+  }, [confirmacaoEpoch, carregarConfirmacaoSaida]);
+
   const confirmarSaidaPendente = useCallback(async () => {
     setConfirmandoSaida(true);
     try {
+      if ((saidaPendente?.total ?? 0) <= 0) {
+        setSaidaPendente(null);
+        navigation.navigate("Entregas", { initialTab: "pendente" });
+        return;
+      }
       const resposta = await confirmarSaidaSessoes({
         sessao_ids: saidaPendente?.sessao_ids ?? [],
         ids_removidos: idsRemovidos,
@@ -184,9 +205,8 @@ export default function HomeScreen() {
             : `${ignorados} pacotes foram removidos da sua lista antes da confirmação.`
         );
       }
-      if ((resposta.total_confirmado ?? 0) > 0) {
-        navigation.navigate("Entregas", { initialTab: "pendente" });
-      }
+      // Sem pendências reais / nada confirmado: só abre Pendentes (sem reconfirmação).
+      navigation.navigate("Entregas", { initialTab: "pendente" });
     } catch (error) {
       const code = codigoErroConfirmacao(error);
       if (code === "SESSAO_VERSAO_CONFLITO") {
@@ -202,7 +222,7 @@ export default function HomeScreen() {
     } finally {
       setConfirmandoSaida(false);
     }
-  }, [carregarConfirmacaoSaida, idsRemovidos, navigation, saidaPendente?.sessao_ids]);
+  }, [carregarConfirmacaoSaida, idsRemovidos, navigation, saidaPendente?.sessao_ids, saidaPendente?.total]);
 
   const alternarRemocao = useCallback((idSaida: number) => {
     setIdsRemovidos((atuais) =>

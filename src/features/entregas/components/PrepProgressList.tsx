@@ -76,7 +76,7 @@ export default function PrepProgressList({
             <Text style={styles.icon}>{icon}</Text>
             <View style={styles.body}>
               <EntregaCodigoHeader
-                codigo={item.codigo || `Pedido ${item.id_saida}`}
+                codigo={(item.codigo_exibicao || item.codigo || "").trim() || `Pedido ${item.id_saida}`}
                 servico={item.servico}
                 exibicao={item.exibicao}
                 data={item.data}

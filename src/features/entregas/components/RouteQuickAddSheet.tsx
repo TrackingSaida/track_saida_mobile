@@ -179,7 +179,7 @@ export default function RouteQuickAddSheet({
                   >
                     <Text style={styles.itemText}>{getStopPedidoLabel(item)}</Text>
                     <EntregaCodigoHeader
-                      codigo={item.codigo}
+                      codigo={(item.codigo_exibicao || item.codigo || "").trim() || item.codigo}
                       servico={item.servico}
                       exibicao={item.exibicao}
                       data={item.data}
