@@ -89,10 +89,17 @@ export function navigateFromPushData(
         }
         break;
       case "transferencia_pendente":
-        // Não navega para Home: o modal deve aparecer na tela atual (ex.: rota iniciada).
+        // Gate global no App; usa payload e faz fallback no GET. Se a fila ficar vazia, vai ao Início.
         void import("../../features/entregas/utils/transferPendingFlow").then(
-          ({ promptTransferenciasPendentes }) => {
-            void promptTransferenciasPendentes();
+          async ({ promptTransferenciasFromPush }) => {
+            const ok = await promptTransferenciasFromPush(data);
+            if (ok) return;
+            if (motoboy) {
+              navigation.navigate("Tabs", { screen: "Inicio" });
+            } else {
+              navigation.navigate("Home", { screen: "HomeInicio" });
+            }
+            await promptTransferenciasFromPush(data);
           }
         );
         break;

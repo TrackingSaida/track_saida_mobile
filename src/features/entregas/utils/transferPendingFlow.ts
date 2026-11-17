@@ -1,15 +1,12 @@
 import { Alert } from "react-native";
 import {
-  aceitarTransferencia,
   getRotasAtiva,
   getTodayISO,
   listarTransferenciasPendentes,
-  recusarTransferencia,
   type TransferenciaPendenteResumo,
 } from "../api";
 import { useDeliveryStore } from "../../../store/deliveryStore";
-
-let promptOpen = false;
+import { useTransferPendingStore } from "../../../store/transferPendingStore";
 
 export async function syncRouteOrderFromServer(): Promise<{
   removedIds: number[];
@@ -91,10 +88,14 @@ export function promptRemovedFromRoute(opts: {
   Alert.alert(title, body, buttons);
 }
 
+/**
+ * Enfileira pendências para o TransferPendingGate (Modal global).
+ * Não usa Alert.alert — evita falha sob Modals do RouteBuilder no Android.
+ * Retorna true se algo novo entrou na fila.
+ */
 export async function promptTransferenciasPendentes(
   items?: TransferenciaPendenteResumo[]
 ): Promise<boolean> {
-  if (promptOpen) return false;
   let list = items;
   if (!list) {
     try {
@@ -104,67 +105,19 @@ export async function promptTransferenciasPendentes(
     }
   }
   if (!list.length) return false;
+  const added = useTransferPendingStore.getState().enqueue(list);
+  return added > 0;
+}
 
-  const first = list[0];
-  const codigo = first.codigo || String(first.id_saida);
-  promptOpen = true;
-  return new Promise((resolve) => {
-    Alert.alert(
-      "Transferência de pedido",
-      `O pedido ${codigo} pode sair da sua rota. Se você aceitar, as paradas restantes podem mudar. Aceitar transferência?`,
-      [
-        {
-          text: "Recusar",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              try {
-                await recusarTransferencia(first.transferencia_id);
-              } catch {
-                Alert.alert("Erro", "Não foi possível recusar a transferência.");
-              } finally {
-                promptOpen = false;
-                resolve(false);
-              }
-            })();
-          },
-        },
-        {
-          text: "Aceitar",
-          onPress: () => {
-            void (async () => {
-              try {
-                await aceitarTransferencia(first.transferencia_id);
-                const sync = await syncRouteOrderFromServer();
-                promptRemovedFromRoute({
-                  removedCount: Math.max(sync.removedIds.length, 1),
-                  geometryStale: sync.geometryStale,
-                  isActive: sync.status === "em_entrega",
-                  onReoptimize: () => {
-                    void useDeliveryStore.getState().reoptimizeFullRoute();
-                  },
-                  onRefreshGeometry: () => {
-                    const routeId =
-                      useDeliveryStore.getState().activeRouteId ??
-                      useDeliveryStore.getState().persistedRouteId;
-                    if (!routeId) return;
-                    void import("../api").then(({ postRotasGeometryRefresh }) =>
-                      postRotasGeometryRefresh(routeId)
-                    );
-                  },
-                });
-                resolve(true);
-              } catch {
-                Alert.alert("Erro", "Não foi possível aceitar a transferência.");
-                resolve(false);
-              } finally {
-                promptOpen = false;
-              }
-            })();
-          },
-        },
-      ],
-      { cancelable: false }
-    );
-  });
+/** Enfileira a partir do payload de push; enriquece/fallback via GET pendentes. */
+export async function promptTransferenciasFromPush(
+  data?: Record<string, unknown> | null
+): Promise<boolean> {
+  let fromPayload = false;
+  if (data) {
+    fromPayload = useTransferPendingStore.getState().enqueueFromPushData(data);
+  }
+  // Sempre tenta o GET para código/rota e outras pendências; se payload já enfileirou, não falha se GET cair.
+  const fromApi = await promptTransferenciasPendentes();
+  return fromPayload || fromApi;
 }

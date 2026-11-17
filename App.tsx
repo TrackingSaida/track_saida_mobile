@@ -26,6 +26,7 @@ import BackgroundLocationDisclosureModal from "./src/components/BackgroundLocati
 import DiaRotaConcluidaModal from "./src/features/entregas/components/DiaRotaConcluidaModal";
 import { isMotoboyRole } from "./src/utils/role";
 import UrgentAvisoGate from "./src/features/avisos/components/UrgentAvisoGate";
+import TransferPendingGate from "./src/features/entregas/components/TransferPendingGate";
 import ForceUpdateGate from "./src/components/ForceUpdateGate";
 import BirthdayGreetingGate from "./src/features/aniversario/BirthdayGreetingGate";
 import InAppPhotoCaptureModal from "./src/components/InAppPhotoCaptureModal";
@@ -225,6 +226,7 @@ export default function App() {
               </View>
               <BirthdayGreetingGate />
               <UrgentAvisoGate />
+              <TransferPendingGate />
               <PhotoDraftResumeGate />
               <InAppPhotoCaptureModal />
               <OperationalToast />
