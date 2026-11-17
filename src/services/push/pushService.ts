@@ -223,11 +223,11 @@ export function attachPushListeners(onNavigate: PushNavHandler): () => void {
           void useAvisosUnreadStore.getState().refresh({ playOnIncrease: false });
         });
       }
-      // PRD-013: mostrar aceite mesmo com o app na rota iniciada (sem precisar ir à Home)
+      // PRD-013: enfileira aceite no gate global (funciona sobre rota iniciada)
       if (tipo === "transferencia_pendente") {
         void import("../../features/entregas/utils/transferPendingFlow").then(
-          ({ promptTransferenciasPendentes }) => {
-            void promptTransferenciasPendentes();
+          ({ promptTransferenciasFromPush }) => {
+            void promptTransferenciasFromPush(data);
           }
         );
       }

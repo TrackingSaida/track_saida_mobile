@@ -23,7 +23,16 @@ import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { MotoboyRootStackParamList, MotoboyTabParamList } from "../../../navigation/motoboyStackTypes";
 import { useThemeColors } from "../../../theme/colors";
-import { fetchFinalizadasFiltradas, getEntregas, getTodayISO } from "../api";
+import {
+  confirmarSaidaSessoes,
+  fetchFinalizadasFiltradas,
+  getEntregas,
+  getSaidaSessoesPendentes,
+  getTodayISO,
+} from "../api";
+import { pedirConfirmacaoContextual } from "../confirmacaoSaidaGate";
+import { useAuthStore } from "../../../store/authStore";
+import { effectiveConfirmacaoSaidaSessoes } from "../../../utils/role";
 import {
   FINALIZADAS_FILTROS_PADRAO,
   FINALIZAR_LOTE_MAX_IDS,
@@ -70,7 +79,10 @@ import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useThemeStore } from "../../../store/themeStore";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { BarcodeScanningResult } from "expo-camera";
-import { resolvePendingDeliveryByScan } from "../utils/resolvePendingDeliveryByScan";
+import {
+  isStatusFinalEntrega,
+  resolvePendingDeliveryByScan,
+} from "../utils/resolvePendingDeliveryByScan";
 import { ScanFrameOverlay } from "../../operacao/components/ScanFrameOverlay";
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
@@ -1161,9 +1173,11 @@ export default function EntregasListScreen({ navigation, route }: Props) {
 
   const abrirAcoesOuBloquear = useCallback(
     (item: EntregaListItem) => {
-      const statusNorm = String(item.status || item.exibicao || "").trim().toLowerCase();
-      if (statusNorm.includes("entreg") || statusNorm.includes("cancel")) {
-        Alert.alert("Bloqueado", `Pedido ${item.codigo ?? ""} está com status final (${item.exibicao || item.status}).`);
+      if (isStatusFinalEntrega(item)) {
+        Alert.alert(
+          "Bloqueado",
+          `Pedido ${item.codigo ?? ""} já está finalizado (${item.exibicao || item.status}).`
+        );
         return;
       }
       navigation.navigate("EntregaDetail", { idSaida: item.id_saida });
@@ -1172,8 +1186,32 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   );
 
   const processarBuscaOuScan = useCallback(
-    (raw: string) => {
-      const result = resolvePendingDeliveryByScan(raw, pendingDeliveries ?? []);
+    async (raw: string) => {
+      const confirmacaoLigada = effectiveConfirmacaoSaidaSessoes(useAuthStore.getState().currentUser);
+
+      if (!confirmacaoLigada) {
+        Alert.alert(
+          "Busca não abre o pedido",
+          "A câmera e a busca em Pendentes não abrem o pedido para dar baixa — isso evita abrir ou finalizar o pacote errado. Toque no pedido na lista para abrir e concluir. Se ainda não começou a entrega, use Começar entrega no Início ou no scanner."
+        );
+        return;
+      }
+
+      try {
+        const pendentes = await getSaidaSessoesPendentes();
+        if (pendentes.fluxo_confirmacao_ativo && pendentes.total > 0) {
+          const confirmou = await pedirConfirmacaoContextual(pendentes.total);
+          if (!confirmou) return;
+          await confirmarSaidaSessoes({ sessao_ids: pendentes.sessao_ids });
+          await useDeliveryStore.getState().loadDeliveries();
+        }
+      } catch (error) {
+        Alert.alert("Erro", formatApiError(error, "Não foi possível começar a entrega."));
+        return;
+      }
+
+      const listaAtual = useDeliveryStore.getState().pendingDeliveries ?? [];
+      const result = resolvePendingDeliveryByScan(raw, listaAtual);
       if (!result.ok) {
         Alert.alert(result.title, result.message);
         return;
@@ -1181,7 +1219,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       navigation.navigate("EntregaDetail", { idSaida: result.item.id_saida });
       setSearchQuery("");
     },
-    [pendingDeliveries, navigation]
+    [navigation]
   );
 
   const handleSelectBuscaDigitada = useCallback(
@@ -1198,7 +1236,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
       if (!data) return;
       scanLockedRef.current = true;
       setScannerVisible(false);
-      processarBuscaOuScan(data);
+      void processarBuscaOuScan(data);
       setTimeout(() => {
         scanLockedRef.current = false;
       }, 500);
@@ -1802,7 +1840,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             autoCapitalize="characters"
             autoCorrect={false}
             returnKeyType="search"
-            onSubmitEditing={() => processarBuscaOuScan(searchQuery)}
+            onSubmitEditing={() => void processarBuscaOuScan(searchQuery)}
           />
           <TouchableOpacity style={styles.searchIconBtn} onPress={() => void openScanner()}>
             <Ionicons name="scan-outline" size={22} color={colors.primaryContrast} />

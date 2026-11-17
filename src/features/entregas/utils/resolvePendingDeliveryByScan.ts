@@ -5,6 +5,28 @@ export type ResolvePendingScanResult =
   | { ok: true; item: EntregaListItem }
   | { ok: false; title: string; message: string };
 
+const STATUS_FINAIS = new Set(["ENTREGUE", "CANCELADO", "CANCELADA"]);
+
+function normalizeStatusKey(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_");
+}
+
+/** Status realmente finais — não usa includes("entreg"), que casa SAIU_PARA_ENTREGA. */
+export function isStatusFinalEntrega(item: {
+  status?: string | null;
+  exibicao?: string | null;
+}): boolean {
+  const status = normalizeStatusKey(item.status || "");
+  if (STATUS_FINAIS.has(status)) return true;
+  const exibicao = String(item.exibicao || "")
+    .trim()
+    .toLowerCase();
+  return exibicao === "entregue" || exibicao === "cancelado";
+}
+
 export function resolvePendingDeliveryByScan(
   raw: string,
   pendingDeliveries: EntregaListItem[]
@@ -26,12 +48,11 @@ export function resolvePendingDeliveryByScan(
     };
   }
 
-  const statusNorm = String(item.status || item.exibicao || "").trim().toLowerCase();
-  if (statusNorm.includes("entreg") || statusNorm.includes("cancel")) {
+  if (isStatusFinalEntrega(item)) {
     return {
       ok: false,
       title: "Bloqueado",
-      message: `Pedido ${item.codigo ?? ""} está com status final (${item.exibicao || item.status}).`,
+      message: `Pedido ${item.codigo ?? ""} já está finalizado (${item.exibicao || item.status}).`,
     };
   }
 
