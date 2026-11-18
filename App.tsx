@@ -3,6 +3,10 @@ import React, { useEffect, useState, useCallback } from "react";
 import { ActivityIndicator, AppState, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initAudioSession } from "./src/utils/sound";
+import {
+  debugCrashProbe,
+  installGlobalCrashProbes,
+} from "./src/utils/debugCrashProbe";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
@@ -61,6 +65,15 @@ export type AuthStackParamList = {
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 
+// #region agent log
+installGlobalCrashProbes();
+debugCrashProbe({
+  hypothesisId: "H0",
+  location: "App.tsx:module",
+  message: "app_module_evaluated",
+});
+// #endregion
+
 export default function App() {
   const { token, currentUser, isLoading, loadToken, requiresBiometricUnlock, logout: logoutFromStore } =
     useAuthStore();
@@ -90,13 +103,45 @@ export default function App() {
   );
 
   useEffect(() => {
+    // #region agent log
+    debugCrashProbe({
+      hypothesisId: "H2",
+      location: "App.tsx:loadToken_effect",
+      message: "before_loadToken_loadTheme",
+      data: { requiresBiometricUnlock, hasToken: !!token, isLoading },
+    });
+    // #endregion
     loadToken();
     loadTheme();
   }, [loadToken, loadTheme]);
 
   useEffect(() => {
+    // #region agent log
+    debugCrashProbe({
+      hypothesisId: "H5",
+      location: "App.tsx:initAudioSession",
+      message: "before_initAudioSession",
+    });
+    // #endregion
     initAudioSession();
   }, []);
+
+  useEffect(() => {
+    // #region agent log
+    debugCrashProbe({
+      hypothesisId: "H0",
+      location: "App.tsx:render_gate",
+      message: "auth_gate_state",
+      data: {
+        isLoading,
+        hasToken: !!token,
+        requiresBiometricUnlock,
+        hasUser: !!currentUser,
+        showMainApp: token != null && !requiresBiometricUnlock,
+      },
+    });
+    // #endregion
+  }, [token, isLoading, requiresBiometricUnlock, currentUser]);
 
   useEffect(() => {
     if (!token || requiresBiometricUnlock || !currentUser) return;

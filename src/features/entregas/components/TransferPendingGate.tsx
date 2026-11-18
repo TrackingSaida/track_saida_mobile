@@ -26,6 +26,7 @@ import {
 } from "../utils/transferPendingFlow";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { playSound } from "../../../utils/sound";
+import { debugCrashProbe } from "../../../utils/debugCrashProbe";
 
 /** Não interromper bipagem ativa. */
 const SCAN_ROUTE_NAMES = new Set([
@@ -56,6 +57,21 @@ export default function TransferPendingGate() {
   }, []);
 
   useEffect(() => {
+    // #region agent log
+    debugCrashProbe({
+      hypothesisId: "H6",
+      location: "TransferPendingGate.tsx:visibility_effect",
+      message: "gate_effect",
+      data: {
+        hasToken: !!token,
+        role: role ?? null,
+        queueLen: queue.length,
+        routeName,
+        visible,
+      },
+      runId: "post-fix",
+    });
+    // #endregion
     if (!token || !isMotoboyRole(role)) {
       useTransferPendingStore.getState().clear();
       setVisible(false);
@@ -71,13 +87,14 @@ export default function TransferPendingGate() {
       setVisible(false);
       return;
     }
-    const wasHidden = !visible;
-    setVisible(true);
-    if (wasHidden) {
-      shownAtRef.current = Date.now();
-      void playSound("warn");
-    }
-  }, [queue, routeName, token, role, visible]);
+    setVisible((prev) => {
+      if (!prev) {
+        shownAtRef.current = Date.now();
+        void playSound("warn");
+      }
+      return true;
+    });
+  }, [queue, routeName, token, role]);
 
   // Failsafe: se o modal ficar preso sem resposta, libera o item atual.
   useEffect(() => {
