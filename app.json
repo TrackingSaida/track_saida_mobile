@@ -58,7 +58,8 @@
           }
         }
       ],
-      "./plugins/withR8Optimize.js"
+      "./plugins/withR8Optimize.js",
+      "./plugins/withOptionalWifiFeature.js"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
