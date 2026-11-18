@@ -62,6 +62,10 @@ import { listarBasesAtivas, type BaseItem } from "../basesApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
 import { basesParaSeletorColeta, hojeOperacaoLocal, ontemOperacaoLocal, labelGrupoSeletorColeta, situacaoColetaBadgeColors } from "../utils/coletaSituacaoUi";
 import type { ColetaStatusFiltro } from "../utils/coletaSituacaoUi";
+import {
+  clientePermiteLancamentoColeta,
+  MSG_FORA_AGENDA_COLETA,
+} from "../utils/pendentesPeriodoColeta";
 import type { ColetasFluxoParamList } from "../../../navigation/staffStackTypes";
 import * as Haptics from "expo-haptics";
 import { ScanFrameOverlay } from "../components/ScanFrameOverlay";
@@ -1071,6 +1075,12 @@ export default function LeituraColetasScreen() {
     async (item: BaseItem, opts?: { ajudar?: boolean }) => {
       const baseAnteriorId = baseSelecionada?.id_base;
       const situacaoAnterior = situacaoSelecionadaRef.current;
+      const situacaoAtual = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
+
+      if (!clientePermiteLancamentoColeta(item, dataOperacao, situacaoAtual)) {
+        Alert.alert("Fora da agenda", MSG_FORA_AGENDA_COLETA);
+        return;
+      }
 
       setUltimaLeitura(null);
       setCodigosSessao(new Set());
@@ -1079,7 +1089,6 @@ export default function LeituraColetasScreen() {
       setModalBaseVisible(false);
       void carregarResumoBase(item.id_base);
 
-      const situacaoAtual = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
       if (
         (situacaoAtual?.status === "coletado" || situacaoAtual?.status === "sem_volume") &&
         dataOperacao >= hojeOperacaoLocal()
@@ -1163,7 +1172,7 @@ export default function LeituraColetasScreen() {
           return;
         }
         limparSelecaoLocal();
-        Alert.alert("Atenção", msg);
+        Alert.alert(status === 422 ? "Fora da agenda" : "Atenção", msg);
         void carregarSituacao();
       }
     },
@@ -1256,6 +1265,12 @@ export default function LeituraColetasScreen() {
   const garantirColetaIniciada = useCallback(async () => {
     if (!baseSelecionada) return false;
     if (
+      !clientePermiteLancamentoColeta(baseSelecionada, dataOperacao, situacaoSelecionada)
+    ) {
+      Alert.alert("Fora da agenda", MSG_FORA_AGENDA_COLETA);
+      return false;
+    }
+    if (
       situacaoSelecionada?.participando ||
       situacaoSelecionada?.status === "coletado" ||
       situacaoSelecionada?.status === "sem_volume" ||
@@ -1273,7 +1288,13 @@ export default function LeituraColetasScreen() {
         ...(isRetroativo ? { data_operacao: dataOperacao } : {}),
       });
       await carregarSituacao();
-    } catch {
+    } catch (error) {
+      const axiosError = error as { response?: { status?: number } };
+      if (axiosError?.response?.status === 422) {
+        Alert.alert("Fora da agenda", formatApiError(error, MSG_FORA_AGENDA_COLETA));
+        void carregarSituacao();
+        return false;
+      }
       void carregarSituacao();
     }
     return true;
@@ -1284,8 +1305,7 @@ export default function LeituraColetasScreen() {
     currentUser,
     dataOperacao,
     isRetroativo,
-    situacaoSelecionada?.participando,
-    situacaoSelecionada?.status,
+    situacaoSelecionada,
   ]);
 
   const ensurePermissionAndOpenCamera = useCallback(async () => {
@@ -1296,7 +1316,8 @@ export default function LeituraColetasScreen() {
       );
       return;
     }
-    await garantirColetaIniciada();
+    const ok = await garantirColetaIniciada();
+    if (!ok) return;
     if (!permission) {
       const { granted } = await requestPermission();
       if (!granted) return;
@@ -1332,7 +1353,8 @@ export default function LeituraColetasScreen() {
       return;
     }
     if (!podeLerColeta || ignorarColeta) return;
-    await garantirColetaIniciada();
+    const ok = await garantirColetaIniciada();
+    if (!ok) return;
     setModoLeitorFisico(true);
     setModoManual(false);
     setCameraAtiva(true);
@@ -1355,7 +1377,8 @@ export default function LeituraColetasScreen() {
       );
       return;
     }
-    await garantirColetaIniciada();
+    const ok = await garantirColetaIniciada();
+    if (!ok) return;
     if (!manualAcrescentar) {
       setManualAcrescentar(isRetroativo && totaisColeta.total > 0);
     }
@@ -1454,7 +1477,11 @@ export default function LeituraColetasScreen() {
         void carregarResumoBase(baseSelecionada.id_base);
       }
     } catch (error) {
-      Alert.alert("Não foi possível salvar", formatApiError(error, "Tente novamente."));
+      const axiosError = error as { response?: { status?: number } };
+      Alert.alert(
+        axiosError?.response?.status === 422 ? "Fora da agenda" : "Não foi possível salvar",
+        formatApiError(error, axiosError?.response?.status === 422 ? MSG_FORA_AGENDA_COLETA : "Tente novamente.")
+      );
     } finally {
       setLoading(false);
     }
@@ -1511,7 +1538,14 @@ export default function LeituraColetasScreen() {
                 void carregarSituacao();
                 void carregarResumoBase(baseSelecionada.id_base);
               } catch (error) {
-                Alert.alert("Não foi possível marcar", formatApiError(error, "Tente novamente."));
+                const axiosError = error as { response?: { status?: number } };
+                Alert.alert(
+                  axiosError?.response?.status === 422 ? "Fora da agenda" : "Não foi possível marcar",
+                  formatApiError(
+                    error,
+                    axiosError?.response?.status === 422 ? MSG_FORA_AGENDA_COLETA : "Tente novamente."
+                  )
+                );
               } finally {
                 setLoading(false);
               }
@@ -1843,11 +1877,12 @@ export default function LeituraColetasScreen() {
           setUltimaLeitura({ codigo: codigoNorm, servico, status: "erro" });
           playSound("error");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          pushFeedback("erro", typeof detail === "string" && detail ? detail : "Falha ao registrar coleta.", codigoNorm);
-          Alert.alert(
-            "Erro ao enviar",
-            typeof detail === "string" && detail ? detail : "Falha ao registrar a coleta."
+          const mensagemErro = formatApiError(
+            err,
+            status === 422 ? MSG_FORA_AGENDA_COLETA : "Falha ao registrar a coleta."
           );
+          pushFeedback("erro", mensagemErro, codigoNorm);
+          Alert.alert(status === 422 ? "Fora da agenda" : "Erro ao enviar", mensagemErro);
         }
       } finally {
         setLoading(false);
@@ -2017,6 +2052,10 @@ export default function LeituraColetasScreen() {
       const permiteManual = configColeta?.permite_manual ?? permiteManualColeta(currentUser);
 
       const ativarLeitura = async () => {
+        if (!clientePermiteLancamentoColeta(item, dataOp)) {
+          Alert.alert("Fora da agenda", MSG_FORA_AGENDA_COLETA);
+          return;
+        }
         setDataOperacao(dataOp);
         setManualAcrescentar(acrescentar);
         setModalRetroativoVisible(false);
@@ -2030,7 +2069,12 @@ export default function LeituraColetasScreen() {
             ajudar: true,
             data_operacao: dataOp,
           });
-        } catch {
+        } catch (error) {
+          const axiosError = error as { response?: { status?: number } };
+          if (axiosError?.response?.status === 422) {
+            Alert.alert("Fora da agenda", formatApiError(error, MSG_FORA_AGENDA_COLETA));
+            return;
+          }
           // segue; scans e resumo usam dataOperacao no estado
         }
         void carregarSituacao();
@@ -2039,6 +2083,10 @@ export default function LeituraColetasScreen() {
       };
 
       const ativarManual = async () => {
+        if (!clientePermiteLancamentoColeta(item, dataOp)) {
+          Alert.alert("Fora da agenda", MSG_FORA_AGENDA_COLETA);
+          return;
+        }
         setDataOperacao(dataOp);
         setManualAcrescentar(acrescentar);
         setModalRetroativoVisible(false);
@@ -2053,7 +2101,12 @@ export default function LeituraColetasScreen() {
             ajudar: true,
             data_operacao: dataOp,
           });
-        } catch {
+        } catch (error) {
+          const axiosError = error as { response?: { status?: number } };
+          if (axiosError?.response?.status === 422) {
+            Alert.alert("Fora da agenda", formatApiError(error, MSG_FORA_AGENDA_COLETA));
+            return;
+          }
           // segue para o formulário; o POST manual valida fechamento
         }
         void carregarSituacao();

@@ -45,6 +45,22 @@ export function baseProgramadaNoDia(base: BaseAgendaColeta, dia: string): boolea
   return dias.includes(isoWeekdayYmd(dia));
 }
 
+export const MSG_FORA_AGENDA_COLETA =
+  "Este dia está fora da agenda de coleta da base. Se precisar coletar, cadastre Coleta extra no calendário.";
+
+/**
+ * Pré-check alinhado ao seletor: se já há situação no dia (ex. Coleta extra), permite;
+ * senão exige dia em `dias_coleta` quando a agenda está confirmada.
+ */
+export function clientePermiteLancamentoColeta(
+  base: BaseAgendaColeta,
+  dia: string,
+  situacao?: { status?: string | null; id_execucao?: number | null } | null
+): boolean {
+  if (situacao?.status || situacao?.id_execucao) return true;
+  return baseProgramadaNoDia(base, dia);
+}
+
 export function contarResumoColetas(itens: SituacaoBaseColeta[]): {
   pendentes: number;
   em_coleta: number;
