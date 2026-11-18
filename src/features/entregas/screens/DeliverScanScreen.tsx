@@ -23,17 +23,28 @@ import { resolvePendingDeliveryByScan } from "../utils/resolvePendingDeliveryByS
 import { useScannerTorch } from "../hooks/useScannerTorch";
 import ScannerTorchButton from "../components/ScannerTorchButton";
 import { usePhotoCaptureStore } from "../../../store/photoCaptureStore";
+import { withTimeout } from "../../../utils/withTimeout";
 
 type Props = NativeStackScreenProps<RootStackParamList, "DeliverScan">;
 
 const SCAN_UNLOCK_MS = 800;
+/** Permissão da câmera não pode segurar a tela inteira. */
+const CAMERA_PERMISSION_TIMEOUT_MS = 2_500;
+/** Refresh em segundo plano; se travar, segue com a sessão. */
+const SESSION_REFRESH_TIMEOUT_MS = 8_000;
+
+function sessionScanCount(): number {
+  const state = useDeliveryStore.getState();
+  return (state.pendingDeliveries?.length ?? 0) + (state.routeDeliveries?.length ?? 0);
+}
 
 export default function DeliverScanScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const [booting, setBooting] = useState(true);
+  const [booting, setBooting] = useState(() => sessionScanCount() === 0);
   const [scanEnabled, setScanEnabled] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const scanLockedRef = useRef(false);
+  const emptyAlertShownRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const photoCaptureActive = usePhotoCaptureStore((s) => s.hardwareBusy);
   const cameraGranted = !!cameraPermission?.granted;
@@ -48,6 +59,8 @@ export default function DeliverScanScreen({ navigation }: Props) {
     if ((pendingDeliveries?.length ?? 0) > 0) return pendingDeliveries ?? [];
     return routeDeliveries ?? [];
   }, [pendingDeliveries, routeDeliveries]);
+
+  const hasSessionList = scanList.length > 0;
 
   const styles = useMemo(
     () =>
@@ -136,32 +149,57 @@ export default function DeliverScanScreen({ navigation }: Props) {
     [insets.bottom]
   );
 
+  const maybeAlertEmptySession = useCallback(() => {
+    if (emptyAlertShownRef.current) return;
+    if (sessionScanCount() > 0) return;
+    emptyAlertShownRef.current = true;
+    Alert.alert(
+      "Sem conexão",
+      "A lista de pendentes não está neste aparelho agora. Quando a internet voltar, ela será carregada de novo."
+    );
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       setScanEnabled(true);
       scanLockedRef.current = false;
-      setBooting(true);
+      emptyAlertShownRef.current = false;
+
+      const alreadyCached = sessionScanCount() > 0;
+      setBooting(!alreadyCached);
 
       (async () => {
         if (!cameraPermission?.granted) {
-          await requestCameraPermission();
+          try {
+            await withTimeout(requestCameraPermission(), CAMERA_PERMISSION_TIMEOUT_MS, "camera_permission");
+          } catch {
+            /* campo de código segue mesmo sem permissão */
+          }
+        }
+
+        if (cancelled) return;
+        if (alreadyCached) {
+          setBooting(false);
         }
 
         try {
-          await loadDeliveries({ onlyToday: somenteHojePendentes });
+          await withTimeout(
+            loadDeliveries({ onlyToday: somenteHojePendentes }),
+            SESSION_REFRESH_TIMEOUT_MS,
+            "session_refresh"
+          );
         } catch {
-          const cached =
-            useDeliveryStore.getState().pendingDeliveries.length +
-            useDeliveryStore.getState().routeDeliveries.length;
-          if (!cancelled && cached === 0) {
-            Alert.alert(
-              "Sem conexão",
-              "Não foi possível atualizar a lista. Você ainda pode buscar pacotes já carregados no aparelho."
-            );
+          if (!cancelled && sessionScanCount() === 0) {
+            maybeAlertEmptySession();
           }
         } finally {
-          if (!cancelled) setBooting(false);
+          if (!cancelled) {
+            setBooting(false);
+            if (sessionScanCount() === 0) {
+              maybeAlertEmptySession();
+            }
+          }
         }
       })();
 
@@ -171,6 +209,7 @@ export default function DeliverScanScreen({ navigation }: Props) {
     }, [
       cameraPermission?.granted,
       loadDeliveries,
+      maybeAlertEmptySession,
       requestCameraPermission,
       somenteHojePendentes,
     ])
@@ -192,7 +231,7 @@ export default function DeliverScanScreen({ navigation }: Props) {
 
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult) => {
-      if (scanLockedRef.current || booting || !cameraGranted) return;
+      if (scanLockedRef.current || !cameraGranted) return;
       const data = String(event.data ?? "").trim();
       if (!data) return;
 
@@ -207,7 +246,7 @@ export default function DeliverScanScreen({ navigation }: Props) {
         }, SCAN_UNLOCK_MS);
       }
     },
-    [booting, cameraGranted, openDelivery]
+    [cameraGranted, openDelivery]
   );
 
   const handleSearch = useCallback(() => {
@@ -219,7 +258,8 @@ export default function DeliverScanScreen({ navigation }: Props) {
     openDelivery(query);
   }, [openDelivery, searchQuery]);
 
-  if (booting) {
+  // Spinner só quando a sessão ainda não tem lista para buscar.
+  if (booting && !hasSessionList) {
     return (
       <View style={styles.loader}>
         <ActivityIndicator size="large" color="#fff" />

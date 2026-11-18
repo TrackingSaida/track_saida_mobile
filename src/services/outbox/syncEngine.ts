@@ -10,6 +10,7 @@ import {
 } from "./outboxStorage";
 import { createPhotoId, type OutboxDeliveryAction } from "./types";
 import { isOnline, subscribeNetworkStatus } from "./networkStatus";
+import { reloadPendingDeliveriesForSession } from "../sessionPendingReload";
 import { useOutboxStore } from "../../store/outboxStore";
 import { isPhotoCaptureActive } from "../../store/photoCaptureStore";
 import { useDeliveryStore, buildApplyRouteSyncDeps } from "../../store/deliveryStore";
@@ -414,7 +415,10 @@ export function startSyncEngine(): () => void {
   void processOutboxQueue();
 
   const unsubNet = subscribeNetworkStatus((online) => {
-    if (online) void processOutboxQueue();
+    if (!online) return;
+    void processOutboxQueue();
+    // Recompõe a lista da sessão mesmo fora da home e com roteirização desligada.
+    void reloadPendingDeliveriesForSession();
   });
 
   const interval = setInterval(() => {
