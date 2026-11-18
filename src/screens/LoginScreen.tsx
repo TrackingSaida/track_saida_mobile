@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -75,6 +75,26 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
       cancelled = true;
     };
   }, []);
+
+  const autoUnlockAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (!requiresBiometricUnlock || !restored || autoUnlockAttemptedRef.current) return;
+    autoUnlockAttemptedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      setBiometricLoading(true);
+      try {
+        const success = await unlockWithBiometric();
+        if (cancelled || success) return;
+        // Mantém o botão "Desbloquear app" para nova tentativa manual.
+      } finally {
+        if (!cancelled) setBiometricLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [requiresBiometricUnlock, restored, unlockWithBiometric]);
 
   const handleLogin = async () => {
     const id = identifier.trim();
