@@ -163,6 +163,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       refreshToken: nextRefresh,
       currentUser: claims,
       sessionExpiredVisible: false,
+      // Login por senha libera a sessão; não exige toque em "Desbloquear".
+      requiresBiometricUnlock: false,
     });
     const meFlags = await fetchMeFlagsFromAuth(accessToken);
     if (getSessionEpoch() !== epoch || get().token !== accessToken) return;
