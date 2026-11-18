@@ -182,9 +182,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   loadToken: async () => {
     try {
+      // #region agent log
+      const { debugCrashProbe } = await import("../utils/debugCrashProbe");
+      debugCrashProbe({
+        hypothesisId: "H2",
+        location: "authStore.ts:loadToken:start",
+        message: "loadToken_start",
+      });
+      // #endregion
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
       const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
       const biometricEnabled = await getBiometricEnabled();
+      // #region agent log
+      debugCrashProbe({
+        hypothesisId: "H2",
+        location: "authStore.ts:loadToken:after_securestore",
+        message: "loadToken_securestore_ok",
+        data: {
+          hasToken: !!token,
+          hasRefresh: !!refreshToken,
+          biometricEnabled,
+        },
+      });
+      // #endregion
 
       if (!token) {
         set({
@@ -219,7 +239,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isLoading: false,
         requiresBiometricUnlock: true,
       });
-    } catch {
+      // #region agent log
+      debugCrashProbe({
+        hypothesisId: "H3",
+        location: "authStore.ts:loadToken:biometric_gate",
+        message: "requires_biometric_unlock_set",
+      });
+      // #endregion
+    } catch (e) {
+      // #region agent log
+      try {
+        const { debugCrashProbe } = await import("../utils/debugCrashProbe");
+        debugCrashProbe({
+          hypothesisId: "H2",
+          location: "authStore.ts:loadToken:catch",
+          message: "loadToken_securestore_fail",
+          data: {
+            msg: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300),
+          },
+        });
+      } catch {
+        /* ignore */
+      }
+      // #endregion
       set({
         token: null,
         refreshToken: null,
@@ -297,10 +339,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   unlockWithBiometric: async () => {
     try {
+      // #region agent log
+      const { debugCrashProbe } = await import("../utils/debugCrashProbe");
+      debugCrashProbe({
+        hypothesisId: "H3",
+        location: "authStore.ts:unlockWithBiometric:start",
+        message: "biometric_prompt_start",
+      });
+      // #endregion
       const { success } = await LocalAuthentication.authenticateAsync({
         promptMessage: "Desbloquear app",
         cancelLabel: "Cancelar",
       });
+      // #region agent log
+      debugCrashProbe({
+        hypothesisId: "H3",
+        location: "authStore.ts:unlockWithBiometric:after_prompt",
+        message: "biometric_prompt_result",
+        data: { success },
+      });
+      // #endregion
       if (!success) return false;
 
       let token = await SecureStore.getItemAsync(TOKEN_KEY);

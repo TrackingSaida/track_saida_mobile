@@ -92,5 +92,10 @@ export const useTransferPendingStore = create<TransferPendingState>((set, get) =
     set((s) => ({ queue: s.queue.slice(1), resolving: false }));
   },
   setResolving: (value) => set({ resolving: value }),
-  clear: () => set({ queue: [], resolving: false }),
+  clear: () => {
+    const s = get();
+    // Evita set() no-op: novo `[]` dispara selectors e pode loopar em effects.
+    if (s.queue.length === 0 && !s.resolving) return;
+    set({ queue: [], resolving: false });
+  },
 }));

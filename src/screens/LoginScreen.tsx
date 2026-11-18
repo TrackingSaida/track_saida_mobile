@@ -82,9 +82,35 @@ export default function LoginScreen({ onLoginSuccess, onMustChangePassword, onSe
     autoUnlockAttemptedRef.current = true;
     let cancelled = false;
     (async () => {
+      // #region agent log
+      try {
+        const { debugCrashProbe } = await import("../utils/debugCrashProbe");
+        debugCrashProbe({
+          hypothesisId: "H3",
+          location: "LoginScreen.tsx:autoUnlock",
+          message: "auto_unlock_effect_fired",
+          data: { requiresBiometricUnlock, restored },
+        });
+      } catch {
+        /* ignore */
+      }
+      // #endregion
       setBiometricLoading(true);
       try {
         const success = await unlockWithBiometric();
+        // #region agent log
+        try {
+          const { debugCrashProbe } = await import("../utils/debugCrashProbe");
+          debugCrashProbe({
+            hypothesisId: "H3",
+            location: "LoginScreen.tsx:autoUnlock:done",
+            message: "auto_unlock_finished",
+            data: { success, cancelled },
+          });
+        } catch {
+          /* ignore */
+        }
+        // #endregion
         if (cancelled || success) return;
         // Mantém o botão "Desbloquear app" para nova tentativa manual.
       } finally {
