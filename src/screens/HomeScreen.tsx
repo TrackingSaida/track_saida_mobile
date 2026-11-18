@@ -301,6 +301,16 @@ export default function HomeScreen() {
         modalActions: { gap: space.sm, paddingTop: space.md },
         closeButton: { alignItems: "center", paddingVertical: 12 },
         closeButtonText: { color: colors.textSecondary, fontWeight: "700" },
+        sessionBanner: {
+          backgroundColor: colors.backgroundCard,
+          borderColor: colors.warning,
+          borderWidth: 1,
+          borderRadius: 14,
+          padding: space.md,
+          marginBottom: space.md,
+        },
+        sessionBannerTitle: { color: colors.text, fontWeight: "700", fontSize: 16 },
+        sessionBannerText: { color: colors.textSecondary, marginTop: 6, lineHeight: 20 },
       }),
     [colors]
   );
@@ -413,6 +423,15 @@ export default function HomeScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        {data.sessionListUnavailable ? (
+          <View style={styles.sessionBanner} accessibilityRole="alert">
+            <Text style={styles.sessionBannerTitle}>Lista indisponível sem internet</Text>
+            <Text style={styles.sessionBannerText}>
+              Os pendentes não estão neste aparelho agora. Quando a internet voltar, a lista será
+              carregada de novo para você continuar as entregas.
+            </Text>
+          </View>
+        ) : null}
         {carregandoSaida && !saidaPendente ? (
           <ActivityIndicator color={colors.primary} style={{ marginBottom: space.md }} />
         ) : null}
