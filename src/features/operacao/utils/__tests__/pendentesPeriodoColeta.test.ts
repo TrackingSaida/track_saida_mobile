@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { SituacaoBaseColeta } from "../../coletasApi";
-import { completarPendentesPeriodo, contarResumoColetas, diasAteHoje } from "../pendentesPeriodoColeta";
+import {
+  baseProgramadaNoDia,
+  clientePermiteLancamentoColeta,
+  completarPendentesPeriodo,
+  contarResumoColetas,
+  diasAteHoje,
+} from "../pendentesPeriodoColeta";
 
 function coleta(parcial: Partial<SituacaoBaseColeta> & Pick<SituacaoBaseColeta, "base_id" | "base" | "data_operacao" | "status">): SituacaoBaseColeta {
   return {
@@ -82,4 +88,17 @@ test("agenda confirmada Seg-Sab nao sintetiza pendente no domingo", () => {
   );
   assert.equal(contarResumoColetas(cheio).pendentes, 1);
   assert.equal(contarResumoColetas([{ ...cheio[0], status: "nao_programado" as never }]).pendentes, 0);
+});
+
+test("clientePermiteLancamentoColeta bloqueia domingo sem situação e libera com pendente (extra)", () => {
+  const base = {
+    id_base: 1,
+    base: "SEG SAB",
+    dias_coleta: [1, 2, 3, 4, 5, 6],
+    agenda_coleta_confirmada: true,
+  };
+  assert.equal(baseProgramadaNoDia(base, "2026-11-15"), false);
+  assert.equal(clientePermiteLancamentoColeta(base, "2026-11-15"), false);
+  assert.equal(clientePermiteLancamentoColeta(base, "2026-11-15", { status: "pendente" }), true);
+  assert.equal(clientePermiteLancamentoColeta(base, "2026-11-14"), true);
 });
