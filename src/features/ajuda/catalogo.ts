@@ -18,7 +18,8 @@ const CATALOGO: Tutorial[] = [
     ordem: 1,
     ativo: true,
     publicadoEm: "2026-10-29",
-    perfis: [4],
+    /** 0–3 staff + 4 motoboy — episódio útil para operação geral. */
+    perfis: [0, 1, 2, 3, 4],
   },
 ];
 

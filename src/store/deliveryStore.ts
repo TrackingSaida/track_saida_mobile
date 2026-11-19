@@ -67,6 +67,12 @@ import { formatApiError } from "../utils/formatApiError";
 import { getNetworkState } from "../services/outbox/networkStatus";
 import { useOutboxStore } from "./outboxStore";
 import type { OutboxDeliveryAction } from "../services/outbox/types";
+import { useAuthStore } from "./authStore";
+import {
+  cargoSignature,
+  loadCargoSnapshot,
+  saveCargoSnapshot,
+} from "./cargoSnapshotStore";
 
 const ACTIVE_OUTBOX_STATES = new Set<OutboxDeliveryAction["state"]>([
   "pending",
@@ -383,6 +389,20 @@ function withAddress(d: EntregaListItem): boolean {
   return d.possui_endereco === true;
 }
 
+function cargoAuthScope(): { motoboyId: number; subBase: string } | null {
+  const user = useAuthStore.getState().currentUser;
+  const motoboyId = Number(user?.motoboy_id ?? 0);
+  if (!motoboyId || motoboyId <= 0) return null;
+  return { motoboyId, subBase: String(user?.sub_base || "default") };
+}
+
+/** Persiste carga atual em disco (idempotente por assinatura). */
+function schedulePersistCargoSnapshot(pending: EntregaListItem[]): void {
+  const scope = cargoAuthScope();
+  if (!scope) return;
+  void saveCargoSnapshot(scope.motoboyId, scope.subBase, pending).catch(() => {});
+}
+
 function distSq(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const dlat = lat1 - lat2;
   const dlon = lon1 - lon2;
@@ -500,12 +520,46 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
 
   loadDeliveries: async (opts) => {
     set({ loading: true, error: null, pendingRefreshError: null });
+
+    const hydrateFromSnapshot = async (message: string): Promise<{ ok: false; count: number }> => {
+      const scope = cargoAuthScope();
+      const ramCount = get().pendingDeliveries.length;
+      if (ramCount > 0) {
+        set({ loading: false, pendingRefreshError: message });
+        return { ok: false, count: ramCount };
+      }
+      if (!scope) {
+        set({ loading: false, pendingRefreshError: message });
+        return { ok: false, count: 0 };
+      }
+      const snap = await loadCargoSnapshot(scope.motoboyId, scope.subBase);
+      const pending = snap?.pendingDeliveries ?? [];
+      if (pending.length === 0) {
+        set({ loading: false, pendingRefreshError: message });
+        return { ok: false, count: 0 };
+      }
+      const currentSig = cargoSignature(get().pendingDeliveries);
+      const nextSig = snap?.signature || cargoSignature(pending);
+      if (currentSig === nextSig) {
+        set({ loading: false, pendingRefreshError: message });
+        return { ok: false, count: pending.length };
+      }
+      const withAddr = pending.filter(withAddress);
+      const withoutAddr = pending.filter((d) => !withAddress(d));
+      set({
+        pendingDeliveries: pending,
+        deliveriesWithAddress: withAddr,
+        deliveriesWithoutAddress: withoutAddr,
+        loading: false,
+        pendingRefreshError: message,
+      });
+      return { ok: false, count: pending.length };
+    };
+
     try {
       const { online } = await getNetworkState();
       if (!online) {
-        const count = get().pendingDeliveries.length;
-        set({ loading: false, pendingRefreshError: "Sem conexão. Mostrando últimos pendentes salvos." });
-        return { ok: false, count };
+        return hydrateFromSnapshot("Sem conexão. Mostrando últimos pendentes salvos.");
       }
 
       const prefOnlyToday = useMotoboyPrefsStore.getState().somenteHojePendentes;
@@ -520,18 +574,32 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         : list;
       const withAddr = filtered.filter(withAddress);
       const withoutAddr = filtered.filter((d) => !withAddress(d));
-      set({
-        pendingDeliveries: filtered,
-        deliveriesWithAddress: withAddr,
-        deliveriesWithoutAddress: withoutAddr,
-        suggestedOrder: null,
-        loading: false,
-        pendingRefreshError: null,
-        locallyFinalizedSaidaIds: pruneExpiredLocallyFinalized(get().locallyFinalizedSaidaIds),
-      });
+      const prevSig = cargoSignature(get().pendingDeliveries);
+      const nextSig = cargoSignature(filtered);
+      if (prevSig !== nextSig) {
+        set({
+          pendingDeliveries: filtered,
+          deliveriesWithAddress: withAddr,
+          deliveriesWithoutAddress: withoutAddr,
+          suggestedOrder: null,
+          loading: false,
+          pendingRefreshError: null,
+          locallyFinalizedSaidaIds: pruneExpiredLocallyFinalized(get().locallyFinalizedSaidaIds),
+        });
+      } else {
+        set({
+          loading: false,
+          pendingRefreshError: null,
+          locallyFinalizedSaidaIds: pruneExpiredLocallyFinalized(get().locallyFinalizedSaidaIds),
+        });
+      }
+      schedulePersistCargoSnapshot(filtered);
       return { ok: true, count: filtered.length };
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao carregar entregas";
+      if (get().pendingDeliveries.length === 0) {
+        return hydrateFromSnapshot("Não foi possível atualizar os pendentes.");
+      }
       set((state) => ({
         error: message,
         loading: false,
@@ -902,6 +970,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         ...Object.fromEntries([...ids].map((id) => [id, now])),
       },
     }));
+    schedulePersistCargoSnapshot(get().pendingDeliveries);
   },
 
   applyLocalMarkAbsent: (idSaidas) => {
@@ -928,6 +997,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         ...Object.fromEntries([...ids].map((id) => [id, now])),
       },
     }));
+    schedulePersistCargoSnapshot(get().pendingDeliveries);
   },
 
   applyLocalMarkReturned: (idSaidas) => {
@@ -954,6 +1024,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         ...Object.fromEntries([...ids].map((id) => [id, now])),
       },
     }));
+    schedulePersistCargoSnapshot(get().pendingDeliveries);
   },
 
   markDelivered: async (idSaida, body, headers, options) => {

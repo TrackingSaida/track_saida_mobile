@@ -11,8 +11,8 @@ import {
   Alert,
 } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
-import { getMotivosAusencia } from "../api";
 import type { MotivoAusencia } from "../types";
+import { getMotivosAusenciaCached } from "../utils/motivosAusenciaCache";
 
 export interface BatchAusenteConfirmModalProps {
   visible: boolean;
@@ -36,7 +36,7 @@ export default function BatchAusenteConfirmModal({
   useEffect(() => {
     if (!visible) return;
     setLoadingMotivos(true);
-    getMotivosAusencia()
+    getMotivosAusenciaCached()
       .then(setMotivos)
       .catch(() => setMotivos([]))
       .finally(() => setLoadingMotivos(false));

@@ -14,7 +14,7 @@ const catalogo = listarTutoriais();
 
 assert.equal(catalogo.length, 1);
 assert.equal(catalogo[0]?.youtubeVideoId, "1Omc16c6088");
-assert.deepEqual(catalogo[0]?.perfis, [4]);
+assert.deepEqual(catalogo[0]?.perfis, [0, 1, 2, 3, 4]);
 assert.equal(catalogo[0]?.duracaoSegundos, 97);
 
 assert.equal(formatarDuracao(97), "1:37");
@@ -24,10 +24,10 @@ const motoboy = tutoriaisDoPerfil(catalogo, 4);
 const staff = tutoriaisDoPerfil(catalogo, 2);
 assert.equal(motoboy.length, 1);
 assert.equal(tutoriaisDoPerfil(catalogo, normalizarPapel("4")).length, 1);
-assert.equal(staff.length, 0);
-assert.equal(tutoriaisDoPerfil(catalogo, normalizarPapel("2")).length, 0);
+assert.equal(staff.length, 1);
+assert.equal(tutoriaisDoPerfil(catalogo, normalizarPapel("2")).length, 1);
 assert.deepEqual(categoriasVisiveis(motoboy), ["rotas"]);
-assert.deepEqual(categoriasVisiveis(staff), []);
+assert.deepEqual(categoriasVisiveis(staff), ["rotas"]);
 
 assert.equal(filtrarTutoriais(motoboy, { categoria: "todos", busca: "rota" }).length, 1);
 assert.equal(filtrarTutoriais(motoboy, { categoria: "todos", busca: "ROTA" }).length, 1);

@@ -69,6 +69,8 @@ import PendingMapGroupSheet, { confirmCreateRouteFromGroup } from "../components
 import RouteEditAddressSheet from "../components/RouteEditAddressSheet";
 import type { AddressFormValues, AddressOrigem } from "../components/AddressForm";
 import { formatApiError } from "../../../utils/formatApiError";
+import { isNetworkOrTimeoutError } from "../../../services/apiClient";
+import { getNetworkState } from "../../../services/outbox/networkStatus";
 import {
   runOptimizeRouteWithFeedback,
   scheduleOptimizeAlertAfterMapSettle,
@@ -1199,23 +1201,34 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         return;
       }
 
-      try {
-        const pendentes = await getSaidaSessoesPendentes();
-        if (pendentes.fluxo_confirmacao_ativo && pendentes.total > 0) {
-          const confirmou = await pedirConfirmacaoContextual(pendentes.total);
-          if (!confirmou) return;
-          await confirmarSaidaSessoes({ sessao_ids: pendentes.sessao_ids });
-          await useDeliveryStore.getState().loadDeliveries();
+      const { online } = await getNetworkState();
+      if (online) {
+        try {
+          const pendentes = await getSaidaSessoesPendentes();
+          if (pendentes.fluxo_confirmacao_ativo && pendentes.total > 0) {
+            const confirmou = await pedirConfirmacaoContextual(pendentes.total);
+            if (!confirmou) return;
+            await confirmarSaidaSessoes({ sessao_ids: pendentes.sessao_ids });
+            await useDeliveryStore.getState().loadDeliveries();
+          }
+        } catch (error) {
+          // Offline/rede instável: segue só na lista local (PRD-016).
+          if (!isNetworkOrTimeoutError(error)) {
+            Alert.alert("Erro", formatApiError(error, "Não foi possível começar a entrega."));
+            return;
+          }
         }
-      } catch (error) {
-        Alert.alert("Erro", formatApiError(error, "Não foi possível começar a entrega."));
-        return;
       }
 
       const listaAtual = useDeliveryStore.getState().pendingDeliveries ?? [];
       const result = resolvePendingDeliveryByScan(raw, listaAtual);
       if (!result.ok) {
-        Alert.alert(result.title, result.message);
+        Alert.alert(
+          result.title,
+          listaAtual.length === 0
+            ? "Sem carga local neste aparelho. Com rede, use Começar a entregar e tente de novo."
+            : result.message
+        );
         return;
       }
       navigation.navigate("EntregaDetail", { idSaida: result.item.id_saida });

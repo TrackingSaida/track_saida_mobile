@@ -410,15 +410,26 @@ export async function processOutboxQueue(): Promise<void> {
   }
 }
 
+/** Evita tempestade de sync quando NetInfo oscila (PRD-016 histerese). */
+const NETWORK_ONLINE_HYSTERESIS_MS = 2500;
+
 export function startSyncEngine(): () => void {
   stopEngine?.();
   void processOutboxQueue();
 
+  let onlineStableTimer: ReturnType<typeof setTimeout> | null = null;
   const unsubNet = subscribeNetworkStatus((online) => {
+    if (onlineStableTimer) {
+      clearTimeout(onlineStableTimer);
+      onlineStableTimer = null;
+    }
     if (!online) return;
-    void processOutboxQueue();
-    // Recompõe a lista da sessão mesmo fora da home e com roteirização desligada.
-    void reloadPendingDeliveriesForSession();
+    onlineStableTimer = setTimeout(() => {
+      onlineStableTimer = null;
+      void processOutboxQueue();
+      // Recompõe a lista da sessão mesmo fora da home e com roteirização desligada.
+      void reloadPendingDeliveriesForSession();
+    }, NETWORK_ONLINE_HYSTERESIS_MS);
   });
 
   const interval = setInterval(() => {
@@ -427,6 +438,7 @@ export function startSyncEngine(): () => void {
 
   stopEngine = () => {
     clearInterval(interval);
+    if (onlineStableTimer) clearTimeout(onlineStableTimer);
     unsubNet();
     stopEngine = null;
   };

@@ -26,7 +26,6 @@ import {
 } from "../utils/transferPendingFlow";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { playSound } from "../../../utils/sound";
-import { debugCrashProbe } from "../../../utils/debugCrashProbe";
 
 /** Não interromper bipagem ativa. */
 const SCAN_ROUTE_NAMES = new Set([
@@ -57,21 +56,6 @@ export default function TransferPendingGate() {
   }, []);
 
   useEffect(() => {
-    // #region agent log
-    debugCrashProbe({
-      hypothesisId: "H6",
-      location: "TransferPendingGate.tsx:visibility_effect",
-      message: "gate_effect",
-      data: {
-        hasToken: !!token,
-        role: role ?? null,
-        queueLen: queue.length,
-        routeName,
-        visible,
-      },
-      runId: "post-fix",
-    });
-    // #endregion
     if (!token || !isMotoboyRole(role)) {
       useTransferPendingStore.getState().clear();
       setVisible(false);

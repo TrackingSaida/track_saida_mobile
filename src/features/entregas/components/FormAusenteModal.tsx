@@ -15,8 +15,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
-import { getEntrega, getMotivosAusencia } from "../api";
+import { getEntrega } from "../api";
 import type { MotivoAusencia } from "../types";
+import { getMotivosAusenciaCached } from "../utils/motivosAusenciaCache";
 import { enqueueAusenteCompletion } from "../../../services/outbox/deliveryOutboxService";
 import {
   takeDeliveryPhoto,
@@ -170,7 +171,7 @@ export default function FormAusenteModal({
       loadedIdSaidaRef.current = primaryIdSaida;
       setDraftReady(true);
     })();
-    getMotivosAusencia()
+    getMotivosAusenciaCached()
       .then((m) => {
         if (cancelled) return;
         setMotivos(m);
