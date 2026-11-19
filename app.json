@@ -2,7 +2,7 @@
   "expo": {
     "name": "ROTEVO",
     "slug": "track_saida_mobile",
-    "version": "1.16.10-RC",
+    "version": "1.16.11-RC",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "rotevo",
