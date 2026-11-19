@@ -504,6 +504,9 @@ export type TransferenciaPendenteResumo = {
   codigo?: string | null;
   rota_id?: string | null;
   motoboy_destino_id?: number | null;
+  motoboy_destino_nome?: string | null;
+  motoboy_origem_id?: number | null;
+  motoboy_origem_nome?: string | null;
   criada_em?: string | null;
 };
 
@@ -525,20 +528,33 @@ export async function recusarTransferencia(transferenciaId: number): Promise<voi
 export function isTransferenciaAguardandoAceite(err: unknown): {
   transferenciaId?: number;
   message: string;
+  motoboyOrigemNome?: string | null;
 } | null {
   const ax = err as { response?: { status?: number; data?: { detail?: unknown } } };
   if (ax?.response?.status !== 409) return null;
   const detail = ax.response.data?.detail;
   const obj =
     detail && typeof detail === "object"
-      ? (detail as { code?: string; transferencia_id?: number; message?: string })
+      ? (detail as {
+          code?: string;
+          transferencia_id?: number;
+          message?: string;
+          motoboy_origem_nome?: string | null;
+        })
       : null;
   if (obj?.code !== "TRANSFERENCIA_AGUARDANDO_ACEITE") return null;
+  const origemNome =
+    typeof obj.motoboy_origem_nome === "string" && obj.motoboy_origem_nome.trim()
+      ? obj.motoboy_origem_nome.trim()
+      : null;
   return {
     transferenciaId: obj.transferencia_id,
+    motoboyOrigemNome: origemNome,
     message:
       obj.message ||
-      "Aguardando aceite do entregador atual. As paradas da rota dele podem mudar.",
+      (origemNome
+        ? `Este pedido está com ${origemNome} em rota iniciada. A transferência aguarda o aceite dele.`
+        : "Aguardando aceite do entregador atual. As paradas da rota dele podem mudar."),
   };
 }
 

@@ -140,6 +140,10 @@ export default function TransferPendingGate() {
   if (!isMotoboyRole(role) || !current) return null;
 
   const codigo = current.codigo || String(current.id_saida || current.transferencia_id);
+  const destinoNome = String(current.motoboy_destino_nome || "").trim();
+  const quemAssume = destinoNome
+    ? `${destinoNome} quer assumir este pacote.`
+    : "Outro entregador quer assumir este pacote.";
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => undefined}>
@@ -147,7 +151,7 @@ export default function TransferPendingGate() {
         <View style={[styles.card, { backgroundColor: colors.backgroundCard }]}>
           <Text style={[styles.title, { color: colors.text }]}>Transferência de pedido</Text>
           <Text style={[styles.body, { color: colors.textSecondary }]}>
-            {`O pedido ${codigo} pode sair da sua rota. Se você aceitar, as paradas restantes podem mudar. Aceitar transferência?`}
+            {`O pedido ${codigo} pode sair da sua rota.\n${quemAssume}\nSe você aceitar, as paradas restantes podem mudar. Aceitar transferência?`}
           </Text>
           <View style={styles.actions}>
             <TouchableOpacity

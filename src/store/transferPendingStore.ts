@@ -12,6 +12,12 @@ type TransferPendingState = {
   clear: () => void;
 };
 
+function asOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 function normalizeItem(item: TransferenciaPendenteResumo): TransferenciaPendenteResumo | null {
   const id = Number(item.transferencia_id);
   if (!Number.isFinite(id) || id <= 0) return null;
@@ -21,6 +27,9 @@ function normalizeItem(item: TransferenciaPendenteResumo): TransferenciaPendente
     codigo: item.codigo ?? null,
     rota_id: item.rota_id ?? null,
     motoboy_destino_id: item.motoboy_destino_id ?? null,
+    motoboy_destino_nome: asOptionalString(item.motoboy_destino_nome),
+    motoboy_origem_id: item.motoboy_origem_id ?? null,
+    motoboy_origem_nome: asOptionalString(item.motoboy_origem_nome),
     criada_em: item.criada_em ?? null,
   };
 }
@@ -35,6 +44,10 @@ function mergeFields(
     codigo: existing.codigo || incoming.codigo || null,
     rota_id: existing.rota_id || incoming.rota_id || null,
     motoboy_destino_id: existing.motoboy_destino_id ?? incoming.motoboy_destino_id ?? null,
+    motoboy_destino_nome:
+      existing.motoboy_destino_nome || incoming.motoboy_destino_nome || null,
+    motoboy_origem_id: existing.motoboy_origem_id ?? incoming.motoboy_origem_id ?? null,
+    motoboy_origem_nome: existing.motoboy_origem_nome || incoming.motoboy_origem_nome || null,
     criada_em: existing.criada_em || incoming.criada_em || null,
   };
 }
@@ -74,16 +87,12 @@ export const useTransferPendingStore = create<TransferPendingState>((set, get) =
     const transferenciaId = Number(data.transferencia_id);
     const idSaida = Number(data.id_saida);
     if (!Number.isFinite(transferenciaId) || transferenciaId <= 0) return false;
-    const codigoRaw = data.codigo;
-    const codigo =
-      typeof codigoRaw === "string" && codigoRaw.trim()
-        ? codigoRaw.trim()
-        : null;
     const added = get().enqueue([
       {
         transferencia_id: transferenciaId,
         id_saida: Number.isFinite(idSaida) && idSaida > 0 ? idSaida : 0,
-        codigo,
+        codigo: asOptionalString(data.codigo),
+        motoboy_destino_nome: asOptionalString(data.motoboy_destino_nome),
       },
     ]);
     return added > 0;

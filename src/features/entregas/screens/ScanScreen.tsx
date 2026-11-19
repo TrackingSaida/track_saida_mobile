@@ -887,8 +887,11 @@ export default function ScanScreen({ navigation, route }: Props) {
         setConflito(null);
         scanLocked.current = false;
         playSound("error");
-        pushFeedback("erro", "Aguardando aceite");
-        Alert.alert("Aguardando aceite", aguardando.message);
+        const titulo = aguardando.motoboyOrigemNome
+          ? `Aguardando ${aguardando.motoboyOrigemNome}`
+          : "Aguardando aceite";
+        pushFeedback("erro", titulo);
+        Alert.alert(titulo, aguardando.message);
         return;
       }
       const msg = formatApiError(e, "Erro ao assumir.");
