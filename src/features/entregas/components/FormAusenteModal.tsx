@@ -74,6 +74,7 @@ export default function FormAusenteModal({
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const [motivos, setMotivos] = useState<MotivoAusencia[]>([]);
+  const [loadingMotivos, setLoadingMotivos] = useState(false);
   const [motivoId, setMotivoId] = useState<number | null>(null);
   const [observacao, setObservacao] = useState("");
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
@@ -92,6 +93,7 @@ export default function FormAusenteModal({
     setMotivoId(null);
     setDraftReady(false);
     setSaving(false);
+    setLoadingMotivos(false);
     draftMotivoRef.current = null;
   }
   const [resolvedRequiredFields, setResolvedRequiredFields] = useState<string[]>(
@@ -171,6 +173,7 @@ export default function FormAusenteModal({
       loadedIdSaidaRef.current = primaryIdSaida;
       setDraftReady(true);
     })();
+    setLoadingMotivos(true);
     getMotivosAusenciaCached()
       .then((m) => {
         if (cancelled) return;
@@ -181,7 +184,12 @@ export default function FormAusenteModal({
           setMotivoId(m[0].id);
         }
       })
-      .catch(() => setMotivos([]));
+      .catch(() => {
+        if (!cancelled) setMotivos([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMotivos(false);
+      });
     return () => {
       cancelled = true;
       loadedIdSaidaRef.current = null;
@@ -241,6 +249,12 @@ export default function FormAusenteModal({
         radioActive: { backgroundColor: colors.primary },
         radioText: { fontSize: 16, color: colors.text },
         radioTextActive: { color: colors.primaryContrast },
+        emptyMotivos: {
+          fontSize: 14,
+          color: colors.textSecondary,
+          marginBottom: 12,
+          lineHeight: 20,
+        },
         label: { fontSize: 14, fontWeight: "600", color: colors.text, marginTop: 8 },
         labelRequired: { color: colors.danger },
         input: {
@@ -352,6 +366,17 @@ export default function FormAusenteModal({
       Alert.alert("Atenção", "Carregando regras do pedido. Aguarde um instante.");
       return;
     }
+    if (loadingMotivos) {
+      Alert.alert("Atenção", "Carregando motivos. Aguarde um instante.");
+      return;
+    }
+    if (motivos.length === 0) {
+      Alert.alert(
+        "Atenção",
+        "Motivos indisponíveis. Conecte-se uma vez para sincronizar a lista."
+      );
+      return;
+    }
     if (motivoId == null) {
       Alert.alert("Atenção", "Selecione um motivo.");
       return;
@@ -414,6 +439,7 @@ export default function FormAusenteModal({
     }
   }, [
     requiredFieldsReady,
+    loadingMotivos,
     motivoId,
     motivos,
     observacao,
@@ -460,18 +486,26 @@ export default function FormAusenteModal({
                 </Text>
               </View>
             )}
-            {motivos.map((m) => (
-              <TouchableOpacity
-                key={m.id}
-                style={[styles.radio, motivoId === m.id && styles.radioActive]}
-                onPress={() => setMotivoId(m.id)}
-                disabled={saving}
-              >
-                <Text style={[styles.radioText, motivoId === m.id && styles.radioTextActive]}>
-                  {m.descricao}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            {loadingMotivos ? (
+              <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
+            ) : motivos.length === 0 ? (
+              <Text style={styles.emptyMotivos}>
+                Motivos indisponíveis. Conecte-se uma vez para sincronizar a lista.
+              </Text>
+            ) : (
+              motivos.map((m) => (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[styles.radio, motivoId === m.id && styles.radioActive]}
+                  onPress={() => setMotivoId(m.id)}
+                  disabled={saving}
+                >
+                  <Text style={[styles.radioText, motivoId === m.id && styles.radioTextActive]}>
+                    {m.descricao}
+                  </Text>
+                </TouchableOpacity>
+              ))
+            )}
             {motivoOutro && (
               <TextInput
                 style={styles.input}
@@ -540,9 +574,14 @@ export default function FormAusenteModal({
               <TouchableOpacity
                 style={styles.btnOk}
                 onPress={handleConfirmar}
-                disabled={saving || !requiredFieldsReady}
+                disabled={
+                  saving ||
+                  !requiredFieldsReady ||
+                  loadingMotivos ||
+                  motivos.length === 0
+                }
               >
-                {saving || !requiredFieldsReady ? (
+                {saving || !requiredFieldsReady || loadingMotivos ? (
                   <ActivityIndicator size="small" color={colors.primaryContrast} />
                 ) : (
                   <Text style={styles.btnOkText}>Confirmar</Text>

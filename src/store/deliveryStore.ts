@@ -73,6 +73,7 @@ import {
   loadCargoSnapshot,
   saveCargoSnapshot,
 } from "./cargoSnapshotStore";
+import { prefetchMotivosAusencia } from "../features/entregas/utils/motivosAusenciaCache";
 
 const ACTIVE_OUTBOX_STATES = new Set<OutboxDeliveryAction["state"]>([
   "pending",
@@ -594,6 +595,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
         });
       }
       schedulePersistCargoSnapshot(filtered);
+      void prefetchMotivosAusencia();
       return { ok: true, count: filtered.length };
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao carregar entregas";

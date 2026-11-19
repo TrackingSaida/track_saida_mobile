@@ -55,3 +55,12 @@ export async function getMotivosAusenciaCached(): Promise<MotivoAusencia[]> {
   }
   return [];
 }
+
+/** Prefetch online (no-op se offline). Grava disco para uso na rua. */
+export async function prefetchMotivosAusencia(): Promise<void> {
+  try {
+    await getMotivosAusenciaCached();
+  } catch {
+    /* ignore */
+  }
+}

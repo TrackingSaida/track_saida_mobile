@@ -36,8 +36,12 @@ export default function BatchAusenteConfirmModal({
   useEffect(() => {
     if (!visible) return;
     setLoadingMotivos(true);
+    setMotivoId(null);
     getMotivosAusenciaCached()
-      .then(setMotivos)
+      .then((list) => {
+        setMotivos(list);
+        if (list.length > 0) setMotivoId(list[0].id);
+      })
       .catch(() => setMotivos([]))
       .finally(() => setLoadingMotivos(false));
   }, [visible]);
@@ -72,6 +76,12 @@ export default function BatchAusenteConfirmModal({
         },
         motivoItemActive: { borderColor: colors.primary, backgroundColor: colors.inputBackground },
         motivoText: { fontSize: 15, color: colors.text },
+        emptyMotivos: {
+          fontSize: 14,
+          color: colors.textSecondary,
+          marginVertical: 16,
+          lineHeight: 20,
+        },
         input: {
           borderWidth: 1,
           borderColor: colors.inputBorder,
@@ -94,6 +104,17 @@ export default function BatchAusenteConfirmModal({
   );
 
   const handleConfirm = () => {
+    if (loadingMotivos) {
+      Alert.alert("Atenção", "Carregando motivos. Aguarde um instante.");
+      return;
+    }
+    if (motivos.length === 0) {
+      Alert.alert(
+        "Atenção",
+        "Motivos indisponíveis. Conecte-se uma vez para sincronizar a lista."
+      );
+      return;
+    }
     if (motivoId == null) {
       Alert.alert("Atenção", "Selecione um motivo de ausência.");
       return;
@@ -139,6 +160,10 @@ export default function BatchAusenteConfirmModal({
           </Text>
           {loadingMotivos ? (
             <ActivityIndicator color={colors.primary} style={{ marginVertical: 20 }} />
+          ) : motivos.length === 0 ? (
+            <Text style={styles.emptyMotivos}>
+              Motivos indisponíveis. Conecte-se uma vez para sincronizar a lista.
+            </Text>
           ) : (
             <ScrollView style={{ maxHeight: 220 }}>
               {motivos.map((m) => (
@@ -166,7 +191,11 @@ export default function BatchAusenteConfirmModal({
             <TouchableOpacity style={[styles.btn, styles.btnSecondary]} onPress={handleClose}>
               <Text style={styles.btnSecondaryText}>Cancelar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={handleConfirm}>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnPrimary]}
+              onPress={handleConfirm}
+              disabled={loadingMotivos || motivos.length === 0}
+            >
               <Text style={styles.btnPrimaryText}>Continuar</Text>
             </TouchableOpacity>
           </View>

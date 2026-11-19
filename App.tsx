@@ -128,6 +128,9 @@ export default function App() {
     if (!token || requiresBiometricUnlock || !currentUser) return;
     if (!isMotoboyRole(currentUser.role)) return;
     void ensureFreshAccessToken();
+    void import("./src/features/entregas/utils/motivosAusenciaCache").then(({ prefetchMotivosAusencia }) =>
+      prefetchMotivosAusencia()
+    );
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void ensureFreshAccessToken();
