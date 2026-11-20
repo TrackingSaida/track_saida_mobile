@@ -57,7 +57,7 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
 
   const [rotaHoje, setRotaHoje] = useState<RotasAtivaResponse | null>(null);
   const [loadingRotaHoje, setLoadingRotaHoje] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<"cancel" | "refazer" | null>(null);
 
   const styles = useMemo(
     () =>
@@ -77,6 +77,7 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
           marginBottom: space.md,
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
+          overflow: "hidden",
         },
         todayTitle: { fontSize: typo.body, fontWeight: "800", color: colors.text },
         todayMeta: { marginTop: 4, color: colors.textSecondary, fontSize: typo.bodySmall },
@@ -105,6 +106,22 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
           borderColor: colors.danger,
         },
         btnDangerText: { color: colors.danger, fontWeight: "700", fontSize: typo.bodySmall },
+        btnBusy: { opacity: 0.55 },
+        btnContent: { flexDirection: "row", alignItems: "center", gap: 8 },
+        cardBusyOverlay: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: colors.overlay,
+          borderRadius: radius.lg,
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 2,
+        },
+        cardBusyText: {
+          marginTop: 8,
+          color: colors.primaryContrast,
+          fontWeight: "700",
+          fontSize: typo.bodySmall,
+        },
         empty: {
           padding: space.xl,
           alignItems: "center",
@@ -183,7 +200,7 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
           style: "destructive",
           onPress: () => {
             void (async () => {
-              setActionLoading(true);
+              setActionLoading("cancel");
               try {
                 const result = await cancelActiveRoute();
                 if (!result.ok) {
@@ -192,7 +209,7 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
                 }
                 setRotaHoje(null);
               } finally {
-                setActionLoading(false);
+                setActionLoading(null);
               }
             })();
           },
@@ -211,7 +228,7 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
           text: "Refazer rota",
           onPress: () => {
             void (async () => {
-              setActionLoading(true);
+              setActionLoading("refazer");
               try {
                 const result = await rebuildRouteFromPendentes();
                 if (!result.ok) {
@@ -227,7 +244,7 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
                 navigation.navigate("RouteBuilder", { highlightLocatePackage: true });
                 await loadRotaHoje();
               } finally {
-                setActionLoading(false);
+                setActionLoading(null);
               }
             })();
           },
@@ -266,27 +283,55 @@ export default function RotasHistoricoScreen({ navigation }: Props) {
                 </Text>
                 <View style={styles.actionsRow}>
                   <TouchableOpacity
-                    style={styles.btnPrimary}
+                    style={[styles.btnPrimary, actionLoading ? styles.btnBusy : null]}
                     onPress={handleContinuar}
-                    disabled={actionLoading}
+                    disabled={actionLoading != null}
                   >
                     <Text style={styles.btnPrimaryText}>Continuar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.btnSecondary}
+                    style={[
+                      styles.btnSecondary,
+                      actionLoading && actionLoading !== "refazer" ? styles.btnBusy : null,
+                    ]}
                     onPress={handleRefazer}
-                    disabled={actionLoading}
+                    disabled={actionLoading != null}
                   >
-                    <Text style={styles.btnSecondaryText}>Refazer</Text>
+                    <View style={styles.btnContent}>
+                      {actionLoading === "refazer" ? (
+                        <ActivityIndicator size="small" color={colors.text} />
+                      ) : null}
+                      <Text style={styles.btnSecondaryText}>
+                        {actionLoading === "refazer" ? "Refazendo…" : "Refazer"}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.btnDanger}
+                    style={[
+                      styles.btnDanger,
+                      actionLoading && actionLoading !== "cancel" ? styles.btnBusy : null,
+                    ]}
                     onPress={handleCancelar}
-                    disabled={actionLoading}
+                    disabled={actionLoading != null}
                   >
-                    <Text style={styles.btnDangerText}>Cancelar</Text>
+                    <View style={styles.btnContent}>
+                      {actionLoading === "cancel" ? (
+                        <ActivityIndicator size="small" color={colors.danger} />
+                      ) : null}
+                      <Text style={styles.btnDangerText}>
+                        {actionLoading === "cancel" ? "Cancelando…" : "Cancelar"}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 </View>
+                {actionLoading ? (
+                  <View style={styles.cardBusyOverlay} pointerEvents="auto">
+                    <ActivityIndicator size="large" color={colors.primaryContrast} />
+                    <Text style={styles.cardBusyText}>
+                      {actionLoading === "cancel" ? "Cancelando rota…" : "Refazendo rota…"}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             ) : (
               <View style={[styles.todayCard, { marginBottom: space.md }]}>

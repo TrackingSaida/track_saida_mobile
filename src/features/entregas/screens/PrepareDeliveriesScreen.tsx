@@ -124,7 +124,7 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
 
   const somenteHojePendentes = useMotoboyPrefsStore((s) => s.somenteHojePendentes);
   const roteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.roteirizacaoHabilitada);
-  const rotaComOrigemDestino = useMotoboyPrefsStore((s) => s.rotaComOrigemDestino);
+  const rotaOrigemDestinoModo = useMotoboyPrefsStore((s) => s.rotaOrigemDestinoModo);
   const prepOrdemModo = useMotoboyPrefsStore((s) => s.prepOrdemModo);
   const prepServicoInicio = useMotoboyPrefsStore((s) => s.prepServicoInicio);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
@@ -1087,11 +1087,27 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
     navigation,
   ]);
 
+  const openDestinationFlow = useCallback(() => {
+    warmupOptimizeGps();
+    void (async () => {
+      try {
+        const home = await fetchMotoboyHomeAddress();
+        setHomeAddressDraft(home);
+      } catch {
+        setHomeAddressDraft(null);
+      }
+      setShowDestinationModal(true);
+    })();
+  }, []);
+
   const askDestinationAndGenerate = useCallback(() => {
-    // Preferência experimental desligada por padrão: evita o crash no Android ao escolher "Sim".
-    if (!rotaComOrigemDestino) {
+    if (rotaOrigemDestinoModo === "nunca") {
       disableDestinationMode();
       void runOptimizeAfterPrep();
+      return;
+    }
+    if (rotaOrigemDestinoModo === "sempre") {
+      openDestinationFlow();
       return;
     }
     Alert.alert(
@@ -1108,22 +1124,16 @@ export default function PrepareDeliveriesScreen({ navigation, route }: Props) {
         },
         {
           text: "Sim",
-          onPress: () => {
-            warmupOptimizeGps();
-            void (async () => {
-              try {
-                const home = await fetchMotoboyHomeAddress();
-                setHomeAddressDraft(home);
-              } catch {
-                setHomeAddressDraft(null);
-              }
-              setShowDestinationModal(true);
-            })();
-          },
+          onPress: () => openDestinationFlow(),
         },
       ]
     );
-  }, [disableDestinationMode, rotaComOrigemDestino, runOptimizeAfterPrep]);
+  }, [
+    disableDestinationMode,
+    openDestinationFlow,
+    rotaOrigemDestinoModo,
+    runOptimizeAfterPrep,
+  ]);
 
   const handleConfirmDestination = useCallback(
     async (address: MotoboyHomeAddress) => {

@@ -16,14 +16,29 @@ export function isPrepararRotaMomento(value: unknown): value is PrepararRotaMome
   return value === "durante_bipagem" || value === "ao_encerrar";
 }
 
+/** Como a preparação de rota trata origem (GPS) + destino (casa). */
+export type RotaOrigemDestinoModo = "nunca" | "perguntar" | "sempre";
+
+export function isRotaOrigemDestinoModo(value: unknown): value is RotaOrigemDestinoModo {
+  return value === "nunca" || value === "perguntar" || value === "sempre";
+}
+
+/** Aceita o modo novo ou o boolean legado (`true` → perguntar, `false` → nunca). */
+export function normalizeRotaOrigemDestinoModo(value: unknown): RotaOrigemDestinoModo {
+  if (isRotaOrigemDestinoModo(value)) return value;
+  if (value === true) return "perguntar";
+  if (value === false) return "nunca";
+  return "nunca";
+}
+
 export const SETTINGS_DEFAULTS = {
   theme: "light" as ThemeMode,
   biometricEnabled: false,
   somenteHojePendentes: true,
   roteirizacaoHabilitada: false,
   prepararRotaMomento: "ao_encerrar" as PrepararRotaMomento,
-  /** Experimental: pergunta origem/destino ao gerar rota. Desligada até o crash no Android estar resolvido. */
-  rotaComOrigemDestino: false,
+  /** Default: gera a rota sem origem/destino. */
+  rotaOrigemDestinoModo: "nunca" as RotaOrigemDestinoModo,
   prepOrdemModo: "servico" as PrepOrdemModo,
   prepServicoInicio: "Shopee" as ServicoTipo,
   cidadePadrao: "",
@@ -35,6 +50,8 @@ export type StoredMotoboyPrefs = {
   somenteHojePendentes?: boolean;
   roteirizacaoHabilitada?: boolean;
   prepararRotaMomento?: PrepararRotaMomento;
+  rotaOrigemDestinoModo?: RotaOrigemDestinoModo;
+  /** @deprecated Preferir `rotaOrigemDestinoModo`. Mantido só para migração local. */
   rotaComOrigemDestino?: boolean;
   prepOrdemModo?: PrepOrdemModo;
   prepServicoInicio?: ServicoTipo;
