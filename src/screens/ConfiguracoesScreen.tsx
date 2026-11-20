@@ -18,9 +18,15 @@ import { useAuthStore } from "../store/authStore";
 import { useMotoboyPrefsStore } from "../store/motoboyPrefsStore";
 import { useThemeColors } from "../theme/colors";
 import ScreenHeaderBar from "../components/ScreenHeaderBar";
-import { getBiometricEnabled } from "../services/settingsService";
+import {
+  getBiometricEnabled,
+  type PrepararRotaMomento,
+  type RotaOrigemDestinoModo,
+} from "../services/settingsService";
 import SettingsSection from "../components/settings/SettingsSection";
 import SettingsToggleRow from "../components/settings/SettingsToggleRow";
+import SettingsValueRow from "../components/settings/SettingsValueRow";
+import SettingsChoiceSheet from "../components/settings/SettingsChoiceSheet";
 import { isMotoboyRole, isStaffOperacaoRole } from "../utils/role";
 import type { MaisStackParamList } from "./MaisScreen";
 import {
@@ -31,6 +37,53 @@ import {
 import { getNotifPrefs, patchNotifPrefs, type NotifPrefs } from "../services/push/pushApi";
 
 type Props = NativeStackScreenProps<MaisStackParamList, "Configuracoes">;
+
+const ORIGEM_DESTINO_OPTIONS: {
+  value: RotaOrigemDestinoModo;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "nunca",
+    label: "Nunca",
+    description: "Gera a rota direto, sem origem nem destino.",
+  },
+  {
+    value: "perguntar",
+    label: "Perguntar",
+    description: "Pergunta a cada vez antes de gerar a rota.",
+  },
+  {
+    value: "sempre",
+    label: "Sempre",
+    description: "Abre o destino automaticamente ao gerar a rota.",
+  },
+];
+
+const PREPARAR_MOMENTO_OPTIONS: {
+  value: PrepararRotaMomento;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "durante_bipagem",
+    label: "Durante a leitura",
+    description: "Pede o endereço logo após cada bip.",
+  },
+  {
+    value: "ao_encerrar",
+    label: "Ao encerrar",
+    description: "Prepara a rota depois de começar a entrega.",
+  },
+];
+
+function labelOrigemDestino(mode: RotaOrigemDestinoModo): string {
+  return ORIGEM_DESTINO_OPTIONS.find((o) => o.value === mode)?.label ?? "Nunca";
+}
+
+function labelPrepararMomento(mode: PrepararRotaMomento): string {
+  return PREPARAR_MOMENTO_OPTIONS.find((o) => o.value === mode)?.label ?? "Ao encerrar";
+}
 
 /** Declaração em destaque (foreground) antes do prompt do sistema. Não usar o texto de BACKGROUND. */
 const FOREGROUND_CITY_DISCLOSURE_TITLE = "Localização da cidade";
@@ -64,8 +117,8 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
   const setRoteirizacaoHabilitada = useMotoboyPrefsStore((s) => s.setRoteirizacaoHabilitada);
   const prepararRotaMomento = useMotoboyPrefsStore((s) => s.prepararRotaMomento);
   const setPrepararRotaMomento = useMotoboyPrefsStore((s) => s.setPrepararRotaMomento);
-  const rotaComOrigemDestino = useMotoboyPrefsStore((s) => s.rotaComOrigemDestino);
-  const setRotaComOrigemDestino = useMotoboyPrefsStore((s) => s.setRotaComOrigemDestino);
+  const rotaOrigemDestinoModo = useMotoboyPrefsStore((s) => s.rotaOrigemDestinoModo);
+  const setRotaOrigemDestinoModo = useMotoboyPrefsStore((s) => s.setRotaOrigemDestinoModo);
   const cidadePadrao = useMotoboyPrefsStore((s) => s.cidadePadrao);
   const estadoPadrao = useMotoboyPrefsStore((s) => s.estadoPadrao);
   const setCidadePadrao = useMotoboyPrefsStore((s) => s.setCidadePadrao);
@@ -78,6 +131,8 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
   const [cidadeDraft, setCidadeDraft] = useState(cidadePadrao);
   const [estadoDraft, setEstadoDraft] = useState(estadoPadrao || "SP");
   const [gpsCityLabel, setGpsCityLabel] = useState<string>("Detectando…");
+  const [origemDestinoSheetOpen, setOrigemDestinoSheetOpen] = useState(false);
+  const [prepararMomentoSheetOpen, setPrepararMomentoSheetOpen] = useState(false);
 
   useEffect(() => {
     getBiometricEnabled().then((enabled) => setBiometricEnabledLocal(enabled));
@@ -153,7 +208,6 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
         },
         themeOptionText: { fontSize: 15, color: colors.text, fontWeight: "500", flex: 1 },
         themeOptionTextActive: { fontWeight: "700", color: colors.text },
-        momentHint: { fontSize: 12, color: colors.textSecondary, marginTop: 2, fontWeight: "400" },
         aboutRow: {
           paddingVertical: 12,
           paddingHorizontal: 16,
@@ -329,35 +383,6 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
     });
   };
 
-  const renderMomentOption = (
-    value: "durante_bipagem" | "ao_encerrar",
-    label: string,
-    hint: string,
-    isLast = false
-  ) => {
-    const active = prepararRotaMomento === value;
-    return (
-      <TouchableOpacity
-        key={value}
-        style={[styles.themeOption, isLast && styles.themeOptionLast]}
-        onPress={() => {
-          if (active) return;
-          void runWithSave(() => setPrepararRotaMomento(value));
-        }}
-        activeOpacity={0.7}
-        disabled={saving}
-      >
-        <View style={[styles.themeRadio, active && styles.themeRadioActive]}>
-          {active ? <View style={styles.themeRadioDot} /> : null}
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.themeOptionText, active && styles.themeOptionTextActive]}>{label}</Text>
-          <Text style={styles.momentHint}>{hint}</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
   const renderThemeOption = (mode: ThemeMode, label: string, isLast = false) => {
     const active = theme === mode;
     return (
@@ -436,29 +461,24 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
                 isLast={!roteirizacaoHabilitada}
               />
               {roteirizacaoHabilitada ? (
-                <SettingsToggleRow
-                  label="Montar com origem e destino"
-                  description="Pergunta se a rota sai do seu local atual e termina na sua casa. Desligada, a rota é gerada direto."
-                  value={rotaComOrigemDestino}
-                  onValueChange={(value) => void runWithSave(() => setRotaComOrigemDestino(value))}
+                <SettingsValueRow
+                  label="Origem e destino"
+                  description="Se a rota sai do seu local e termina na sua casa."
+                  value={labelOrigemDestino(rotaOrigemDestinoModo)}
+                  onPress={() => setOrigemDestinoSheetOpen(true)}
                   disabled={saving}
                 />
               ) : null}
-              {roteirizacaoHabilitada
-                ? renderMomentOption(
-                    "durante_bipagem",
-                    "Durante a leitura",
-                    "Pede o endereço logo após cada bip."
-                  )
-                : null}
-              {roteirizacaoHabilitada
-                ? renderMomentOption(
-                    "ao_encerrar",
-                    "Ao encerrar",
-                    "Prepara a rota depois de começar a entrega.",
-                    true
-                  )
-                : null}
+              {roteirizacaoHabilitada ? (
+                <SettingsValueRow
+                  label="Quando preparar"
+                  description="Momento em que o app pede endereço e monta a rota."
+                  value={labelPrepararMomento(prepararRotaMomento)}
+                  onPress={() => setPrepararMomentoSheetOpen(true)}
+                  disabled={saving}
+                  isLast
+                />
+              ) : null}
             </SettingsSection>
 
             <SettingsSection title="Cidade da busca">
@@ -524,6 +544,34 @@ export default function ConfiguracoesScreen({ navigation }: Props) {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : null}
+
+      <SettingsChoiceSheet
+        visible={origemDestinoSheetOpen}
+        title="Origem e destino"
+        subtitle="Define se a rota sai do seu local atual e termina na sua casa."
+        options={ORIGEM_DESTINO_OPTIONS}
+        selected={rotaOrigemDestinoModo}
+        onClose={() => setOrigemDestinoSheetOpen(false)}
+        onSelect={(value) => {
+          setOrigemDestinoSheetOpen(false);
+          if (value === rotaOrigemDestinoModo) return;
+          void runWithSave(() => setRotaOrigemDestinoModo(value));
+        }}
+      />
+
+      <SettingsChoiceSheet
+        visible={prepararMomentoSheetOpen}
+        title="Quando preparar"
+        subtitle="Escolha quando o app deve pedir endereço e montar a rota."
+        options={PREPARAR_MOMENTO_OPTIONS}
+        selected={prepararRotaMomento}
+        onClose={() => setPrepararMomentoSheetOpen(false)}
+        onSelect={(value) => {
+          setPrepararMomentoSheetOpen(false);
+          if (value === prepararRotaMomento) return;
+          void runWithSave(() => setPrepararRotaMomento(value));
+        }}
+      />
     </View>
   );
 }

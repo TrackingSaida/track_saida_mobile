@@ -172,14 +172,16 @@ export default function DeliveryMap({
     // Atrasa o mount dos Markers para o MapView criar a SurfaceView antes dos bitmaps.
     setMarkersMounted(false);
     const mountDelay = heavyMarkerLoad ? 120 : 0;
-    const mountT = setTimeout(() => setMarkersMounted(true), mountDelay);
+    const mountT = setTimeout(() => {
+      setMarkersMounted(true);
+    }, mountDelay);
     setMarkersReady(false);
     const readyT = setTimeout(() => setMarkersReady(true), mountDelay + markerPaintMs);
     return () => {
       clearTimeout(mountT);
       clearTimeout(readyT);
     };
-  }, [groupedPointsWithCoords.length, routeOrderSig, heavyMarkerLoad, markerPaintMs]);
+  }, [groupedPointsWithCoords.length, routeOrderSig, heavyMarkerLoad, markerPaintMs, routeOrder.length]);
 
   useEffect(() => {
     if (!routeOrderSig || !markersMounted) return;

@@ -26,6 +26,7 @@ import FormEntregaConcluida from "../features/entregas/components/FormEntregaCon
 import FormAusenteModal from "../features/entregas/components/FormAusenteModal";
 import type { MarcacaoEntregaResponse } from "../features/entregas/types";
 import { getEntrega } from "../features/entregas/api";
+import { useShallow } from "zustand/react/shallow";
 import { useDeliveryStore } from "../store/deliveryStore";
 import { useRouteDestinationStore } from "../store/routeDestinationStore";
 import {
@@ -374,11 +375,15 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
   const routePolylineCoords = useDeliveryStore((s) => s.routePolylineCoords);
   const routeGeometryProvider = useDeliveryStore((s) => s.routeGeometryProvider);
   const routeGeometryStatus = useDeliveryStore((s) => s.routeGeometryStatus);
-  const routeDestination = useRouteDestinationStore((s) =>
-    s.useDestination && s.end
-      ? { latitude: s.end.latitude, longitude: s.end.longitude, label: s.addressLabel }
-      : null
+  // useShallow: evita objeto novo a cada snapshot (Maximum update depth com destino ativo)
+  const routeDestination = useRouteDestinationStore(
+    useShallow((s) =>
+      s.useDestination && s.end
+        ? { latitude: s.end.latitude, longitude: s.end.longitude, label: s.addressLabel }
+        : null
+    )
   );
+
 
   const { polyline: routePolyline, polylineWarning, recalcPolyline } = useActiveRoutePolyline({
     isRouteActive,

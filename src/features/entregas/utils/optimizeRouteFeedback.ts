@@ -63,7 +63,9 @@ export function scheduleOptimizeAlertAfterMapSettle(
   delayMs = Platform.OS === "android" ? 1600 : 400
 ): void {
   if (!result.ok || result.message === "noop") return;
-  setTimeout(() => showOptimizeAlert(result), delayMs);
+  setTimeout(() => {
+    showOptimizeAlert(result);
+  }, delayMs);
 }
 
 export async function runOptimizeRouteWithFeedback(
