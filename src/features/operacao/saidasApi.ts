@@ -242,7 +242,9 @@ export async function listSaidas(params: ListSaidasParams): Promise<ListSaidasRe
 }
 
 export interface LerSaidaAdminBody {
-  motoboy_id: number;
+  /** Destino exclusivo: informe motoboy_id OU repasse_base_id. */
+  motoboy_id?: number;
+  repasse_base_id?: number;
   entregador: string;
   codigo: string;
   servico?: string | null;

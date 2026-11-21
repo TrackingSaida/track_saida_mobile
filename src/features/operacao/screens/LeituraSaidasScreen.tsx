@@ -48,6 +48,7 @@ import {
   type MotoboyItem,
   type AvulsoPendenteItem,
 } from "../saidasApi";
+import { listarBasesQueEntregam, type BaseQueEntregaItem } from "../basesApi";
 import {
   confirmarLeituraStaff,
   getConferenciaDetalhe,
@@ -128,7 +129,9 @@ interface LeituraSaidaItem {
   servico?: string | null;
   entregador: string;
   /** Motoboy para o qual a leitura foi contada (igual à web: duplicidade por entregador+código). */
-  motoboyId: number;
+  motoboyId: number | null;
+  /** Destino Base parceira (exclusivo com motoboyId). */
+  repasseBaseId?: number | null;
   status: StatusLeituraSaida;
 }
 
@@ -338,6 +341,8 @@ export default function LeituraSaidasScreen() {
   const [motoboys, setMotoboys] = useState<MotoboyItem[]>([]);
   const [motoboyId, setMotoboyId] = useState<number | null>(null);
   const [motoboyNome, setMotoboyNome] = useState("");
+  const [basesEntrega, setBasesEntrega] = useState<BaseQueEntregaItem[]>([]);
+  const [repasseBaseId, setRepasseBaseId] = useState<number | null>(null);
   const [sessaoServidor, setSessaoServidor] = useState<SessaoServidorLeitura>(SESSAO_SERVIDOR_VAZIA);
   const [codigoInput, setCodigoInput] = useState("");
   const [leituras, setLeituras] = useState<LeituraSaidaItem[]>([]);
@@ -913,9 +918,12 @@ export default function LeituraSaidasScreen() {
   const hideStaffBadges = isStaffOperacaoRole(currentUser?.role);
 
   const leiturasDoMotoboy = useMemo(() => {
+    if (repasseBaseId != null) {
+      return leituras.filter((l) => l.repasseBaseId === repasseBaseId);
+    }
     if (motoboyId == null) return [];
-    return leituras.filter((l) => l.motoboyId === motoboyId);
-  }, [leituras, motoboyId]);
+    return leituras.filter((l) => l.motoboyId === motoboyId && !l.repasseBaseId);
+  }, [leituras, motoboyId, repasseBaseId]);
 
   const totalSucesso = useMemo(
     () => leiturasDoMotoboy.filter((l) => l.status === "sucesso").length,
@@ -1054,10 +1062,20 @@ export default function LeituraSaidasScreen() {
       setMotoboys(data);
     } catch {
       Alert.alert("Erro", "Falha ao carregar lista de motoboys.");
+    }
+    try {
+      const bases = await listarBasesQueEntregam();
+      setBasesEntrega(bases);
+    } catch {
+      setBasesEntrega([]);
+      pushFeedback(
+        "info",
+        "Não foi possível carregar Bases que entregam. Seguindo só com motoboys."
+      );
     } finally {
       setCarregandoMotoboys(false);
     }
-  }, []);
+  }, [pushFeedback]);
 
   useEffect(() => {
     void fetchMotoboys();
@@ -1086,12 +1104,17 @@ export default function LeituraSaidasScreen() {
       skipNextSyncRef.current = false;
       return;
     }
+    // Sessão staff é só-motoboy; destino Base parceira não persiste no store.
+    if (repasseBaseId != null || motoboyId == null) return;
     useStaffScanSessionStore.getState().syncSession({
       motoboyId,
       motoboyNome,
-      leituras,
+      leituras: leituras.filter(
+        (l): l is LeituraSaidaItem & { motoboyId: number } =>
+          l.motoboyId != null && !l.repasseBaseId
+      ),
     });
-  }, [motoboyId, motoboyNome, leituras]);
+  }, [motoboyId, motoboyNome, leituras, repasseBaseId]);
 
   useEffect(() => {
     return () => {
@@ -1204,6 +1227,7 @@ export default function LeituraSaidasScreen() {
         );
         return;
       }
+      setRepasseBaseId(null);
       setMotoboyId(item.id_motoboy);
       setMotoboyNome(item.nome);
       if (store.motoboyId !== item.id_motoboy) {
@@ -1216,6 +1240,28 @@ export default function LeituraSaidasScreen() {
       suppressAutoCameraRef.current = false;
     },
     [conferenciaHabilitada, fluxoSessaoAtivo, motoboyId, recuperarSessaoDoServidor, sessaoServidor.status, sessaoServidor.total]
+  );
+
+  const aplicarBaseRepasseSelecionada = useCallback(
+    (item: BaseQueEntregaItem) => {
+      if (pendenciaConfirmacao) {
+        Alert.alert(
+          "Finalize a leitura",
+          "Há leituras nesta sessão. Finalize a leitura antes de trocar de destino."
+        );
+        return;
+      }
+      setMotoboyId(null);
+      setRepasseBaseId(item.id_base);
+      setMotoboyNome(item.base);
+      setLeituras([]);
+      setSessaoFinalizadaSnap(null);
+      setSessaoServidor(SESSAO_SERVIDOR_VAZIA);
+      useStaffScanSessionStore.getState().setSessaoId(null, null);
+      setModalSelecaoMotoboyVisible(false);
+      suppressAutoCameraRef.current = false;
+    },
+    [pendenciaConfirmacao]
   );
 
   useFocusEffect(
@@ -1377,6 +1423,14 @@ export default function LeituraSaidasScreen() {
 
   const codigosLidosSessaoMotoboy = useMemo(() => {
     const set = new Set<string>();
+    if (repasseBaseId != null) {
+      leituras.forEach((l) => {
+        if (l.repasseBaseId !== repasseBaseId || l.status === "erro") return;
+        const code = String(l.codigo || "").trim().toUpperCase();
+        if (code) set.add(code);
+      });
+      return set;
+    }
     if (!motoboyId) return set;
     leituras.forEach((l) => {
       if (l.motoboyId !== motoboyId || l.status === "erro") return;
@@ -1384,7 +1438,7 @@ export default function LeituraSaidasScreen() {
       if (code) set.add(code);
     });
     return set;
-  }, [leituras, motoboyId]);
+  }, [leituras, motoboyId, repasseBaseId]);
 
   const processarLeitura = useCallback(
     async (raw: string, origem: "camera" | "manual" | "leitor" | "selecao") => {
@@ -1392,10 +1446,21 @@ export default function LeituraSaidasScreen() {
         pushFeedback("info", "Sem permissão para leitura de saídas.");
         return;
       }
-      if (!motoboyId || !motoboyNome) {
-        pushFeedback("info", "Selecione um motoboy para iniciar as leituras.");
+      const destinoOk =
+        Boolean(motoboyNome) &&
+        ((motoboyId != null && repasseBaseId == null) || repasseBaseId != null);
+      if (!destinoOk) {
+        pushFeedback(
+          "info",
+          basesEntrega.length > 0
+            ? "Selecione um motoboy ou Base para iniciar as leituras."
+            : "Selecione um motoboy para iniciar as leituras."
+        );
         return;
       }
+
+      const destinoSessaoKey =
+        repasseBaseId != null ? `b:${repasseBaseId}` : `m:${motoboyId}`;
 
       const rawStr = String(raw || "").trim();
       if (!rawStr || scanLocked.current) return;
@@ -1412,16 +1477,22 @@ export default function LeituraSaidasScreen() {
       const codeKey = String(c).trim().toUpperCase();
 
       if (codigosLidosSessaoMotoboy.has(codeKey)) {
-        if (shouldNotifyDuplicate(`sess:${motoboyId}:${codeKey}`)) {
+        if (shouldNotifyDuplicate(`sess:${destinoSessaoKey}:${codeKey}`)) {
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          pushFeedback("duplicado", "Já registrado para este motoboy nesta sessão.", codeKey);
+          pushFeedback(
+            "duplicado",
+            repasseBaseId != null
+              ? "Já registrado para esta Base nesta sessão."
+              : "Já registrado para este motoboy nesta sessão.",
+            codeKey
+          );
         }
         return;
       }
 
       if (isRecentlyScanned(rawStr) || isRecentlyScanned(c)) {
-        if (shouldNotifyDuplicate(`frame:${motoboyId}:${codeKey}`)) {
+        if (shouldNotifyDuplicate(`frame:${destinoSessaoKey}:${codeKey}`)) {
           playSound("warn");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           pushFeedback("duplicado", "Código já está em processamento.", codeKey);
@@ -1433,14 +1504,22 @@ export default function LeituraSaidasScreen() {
       markScanned(c);
       scanLocked.current = true;
 
-      const jaLidoPorEsteMotoboy = leituras.some(
-        (l) => l.motoboyId === motoboyId && l.codigo === c && l.status !== "erro"
-      );
-      if (jaLidoPorEsteMotoboy) {
+      const jaLidoNesteDestino = leituras.some((l) => {
+        if (l.codigo !== c || l.status === "erro") return false;
+        if (repasseBaseId != null) return l.repasseBaseId === repasseBaseId;
+        return l.motoboyId === motoboyId;
+      });
+      if (jaLidoNesteDestino) {
         scanLocked.current = false;
         playSound("warn");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        pushFeedback("duplicado", "Já registrado para este motoboy nesta sessão.", c);
+        pushFeedback(
+          "duplicado",
+          repasseBaseId != null
+            ? "Já registrado para esta Base nesta sessão."
+            : "Já registrado para este motoboy nesta sessão.",
+          c
+        );
         return;
       }
 
@@ -1448,17 +1527,29 @@ export default function LeituraSaidasScreen() {
         setCodigoInput("");
       }
 
+      const lerBody =
+        repasseBaseId != null
+          ? {
+              repasse_base_id: repasseBaseId,
+              entregador: motoboyNome,
+              codigo: c,
+              servico: cls.servico,
+              qr_payload_raw: cls.qr_payload_raw,
+              origem: (origem === "leitor" ? "manual" : origem) as "camera" | "manual" | "selecao",
+            }
+          : {
+              motoboy_id: motoboyId!,
+              entregador: motoboyNome,
+              codigo: c,
+              servico: cls.servico,
+              qr_payload_raw: cls.qr_payload_raw,
+              origem: (origem === "leitor" ? "manual" : origem) as "camera" | "manual" | "selecao",
+            };
+
       setLoading(true);
       try {
-        const res = await lerSaidaAdmin({
-          motoboy_id: motoboyId,
-          entregador: motoboyNome,
-          codigo: c,
-          servico: cls.servico,
-          qr_payload_raw: cls.qr_payload_raw,
-          origem: origem === "leitor" ? "manual" : origem,
-        });
-        if (res.sessao_id != null) {
+        const res = await lerSaidaAdmin(lerBody);
+        if (res.sessao_id != null && repasseBaseId == null) {
           const idSessao = Number(res.sessao_id);
           const versaoSessao = res.sessao_versao ?? null;
           setSessaoServidor({
@@ -1479,7 +1570,12 @@ export default function LeituraSaidasScreen() {
           null;
 
         const apiMb = res.motoboy_id;
-        if (apiMb != null && Number(apiMb) !== Number(motoboyId)) {
+        if (
+          repasseBaseId == null &&
+          motoboyId != null &&
+          apiMb != null &&
+          Number(apiMb) !== Number(motoboyId)
+        ) {
           setConflito({
             codigo: c,
             idSaida: res.id_saida ?? 0,
@@ -1499,7 +1595,8 @@ export default function LeituraSaidasScreen() {
           codigo: c,
           servico: servicoEfetivo,
           entregador: motoboyNome,
-          motoboyId,
+          motoboyId: repasseBaseId != null ? null : motoboyId,
+          repasseBaseId: repasseBaseId,
           status: statusBackend === "Não Coletado" ? "nao_coletado" : "sucesso",
         };
 
@@ -1546,6 +1643,11 @@ export default function LeituraSaidasScreen() {
         const code = body?.code ?? detailObj?.code;
 
         if (status === 409 && code === "TROCA_ENTREGADOR") {
+          if (motoboyId == null) {
+            playSound("error");
+            pushFeedback("erro", "Conflito de entregador não se aplica a destino Base.", c);
+            return;
+          }
           const data = (body?.data as { id_saida?: number; entregador_atual?: string; username?: string }) ?? {};
           const idSaida = data.id_saida ?? body?.id_saida ?? 0;
           const entregadorAtual = data.entregador_atual ?? body?.entregador_atual ?? "Desconhecido";
@@ -1565,6 +1667,11 @@ export default function LeituraSaidasScreen() {
         }
 
         if (status === 409 && code === "LEITURA_DIA_ANTERIOR") {
+          if (motoboyId == null) {
+            playSound("error");
+            pushFeedback("erro", "Leitura de dia anterior não se aplica a destino Base.", c);
+            return;
+          }
           const idSaida = Number(body?.id_saida ?? 0);
           const dataAnterior = String(body?.data_operacional_anterior ?? "").trim();
           const motoboyNomeAnterior = String(body?.motoboy_nome ?? motoboyNome ?? "Motoboy");
@@ -1616,7 +1723,9 @@ export default function LeituraSaidasScreen() {
                     try {
                       setLoading(true);
                       const resNc = await lerSaidaAdmin({
-                        motoboy_id: motoboyId,
+                        ...(repasseBaseId != null
+                          ? { repasse_base_id: repasseBaseId }
+                          : { motoboy_id: motoboyId! }),
                         entregador: motoboyNome,
                         codigo: c,
                         servico: cls.servico,
@@ -1637,7 +1746,8 @@ export default function LeituraSaidasScreen() {
                           codigo: c,
                           servico: servicoNc,
                           entregador: motoboyNome,
-                          motoboyId,
+                          motoboyId: repasseBaseId != null ? null : motoboyId,
+                          repasseBaseId,
                           status: "nao_coletado",
                         },
                       ]);
@@ -1662,7 +1772,14 @@ export default function LeituraSaidasScreen() {
         } else {
           setLeituras((prev) => [
             ...prev,
-            { codigo: c, servico: null, entregador: motoboyNome, motoboyId, status: "erro" },
+            {
+              codigo: c,
+              servico: null,
+              entregador: motoboyNome,
+              motoboyId: repasseBaseId != null ? null : motoboyId,
+              repasseBaseId,
+              status: "erro",
+            },
           ]);
           playSound("error");
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -1675,7 +1792,17 @@ export default function LeituraSaidasScreen() {
         }, 400);
       }
     },
-    [codigosLidosSessaoMotoboy, leituras, motoboyId, motoboyNome, podeLerSaida, pushFeedback, bloquearSaidaSemColeta]
+    [
+      basesEntrega.length,
+      bloquearSaidaSemColeta,
+      codigosLidosSessaoMotoboy,
+      leituras,
+      motoboyId,
+      motoboyNome,
+      podeLerSaida,
+      pushFeedback,
+      repasseBaseId,
+    ]
   );
 
   const handleRegistrarManual = useCallback(async () => {
@@ -1769,7 +1896,7 @@ export default function LeituraSaidasScreen() {
   const handleBarcodeScanned = useCallback(
     (event: BarcodeScanningResult | { nativeEvent: BarcodeScanningResult }) => {
       if (loading) return;
-      if (!motoboyId) return;
+      if (motoboyId == null && repasseBaseId == null) return;
       const result = "nativeEvent" in event ? event.nativeEvent : event;
       const type = String(result?.type || "").toLowerCase();
       if (type && type !== "qr") return;
@@ -1778,7 +1905,7 @@ export default function LeituraSaidasScreen() {
         void processarLeitura(data, "camera");
       }
     },
-    [loading, motoboyId, processarLeitura]
+    [loading, motoboyId, processarLeitura, repasseBaseId]
   );
 
   const handleConfirmarTroca = useCallback(async () => {
@@ -1935,7 +2062,13 @@ export default function LeituraSaidasScreen() {
     }
   };
 
-  const motoboySelecionadoOk = Boolean(motoboyId && motoboyNome);
+  const temBasesQueEntregam = basesEntrega.length > 0;
+  const motoboySelecionadoOk = Boolean(
+    (motoboyId && motoboyNome && repasseBaseId == null) ||
+      (repasseBaseId != null && motoboyNome)
+  );
+  const destinoLabelCurto = temBasesQueEntregam ? "motoboy ou Base" : "motoboy";
+  const destinoSelecionadoEhBase = repasseBaseId != null;
 
   return (
     <>
@@ -1967,18 +2100,24 @@ export default function LeituraSaidasScreen() {
         <View style={styles.motoboyBlock}>
           {motoboySelecionadoOk ? (
             <View style={styles.motoboyBadge}>
-              <Text style={styles.motoboyBadgeText}>Motoboy selecionado</Text>
+              <Text style={styles.motoboyBadgeText}>
+                {destinoSelecionadoEhBase ? "Base selecionada" : "Motoboy selecionado"}
+              </Text>
             </View>
           ) : null}
           {!motoboySelecionadoOk ? (
-            <Text style={styles.motoboyLabel}>Motoboy</Text>
+            <Text style={styles.motoboyLabel}>
+              {temBasesQueEntregam ? "Motoboy ou Base" : "Motoboy"}
+            </Text>
           ) : null}
           {motoboySelecionadoOk ? (
             <Text style={styles.motoboyNome} numberOfLines={2}>
               {motoboyNome}
             </Text>
           ) : (
-            <Text style={styles.bloqueioText}>Selecione um motoboy para iniciar as leituras.</Text>
+            <Text style={styles.bloqueioText}>
+              Selecione um {destinoLabelCurto} para iniciar as leituras.
+            </Text>
           )}
           <TouchableOpacity
             style={[styles.motoboyCta, pendenciaConfirmacao && { opacity: 0.55 }]}
@@ -1986,17 +2125,23 @@ export default function LeituraSaidasScreen() {
               if (pendenciaConfirmacao) {
                 Alert.alert(
                   "Finalize a leitura",
-                  "Há leituras nesta sessão. Finalize a leitura antes de trocar de motoboy."
+                  `Há leituras nesta sessão. Finalize a leitura antes de trocar de ${destinoLabelCurto}.`
                 );
                 return;
               }
               setModalSelecaoMotoboyVisible(true);
             }}
-            accessibilityLabel={motoboySelecionadoOk ? "Trocar motoboy" : "Selecionar motoboy"}
+            accessibilityLabel={
+              motoboySelecionadoOk
+                ? `Trocar ${destinoLabelCurto}`
+                : `Selecionar ${destinoLabelCurto}`
+            }
             accessibilityRole="button"
           >
             <Text style={styles.motoboyCtaText}>
-              {motoboySelecionadoOk ? "Trocar motoboy" : "Selecionar motoboy"}
+              {motoboySelecionadoOk
+                ? `Trocar ${destinoLabelCurto}`
+                : `Selecionar ${destinoLabelCurto}`}
             </Text>
             <Ionicons name="chevron-forward" size={20} color={colors.primary} />
           </TouchableOpacity>
@@ -2368,7 +2513,11 @@ export default function LeituraSaidasScreen() {
                   barcodeScannerSettings={{
                     barcodeTypes: BARCODE_TYPES,
                   }}
-                  onBarcodeScanned={loading || !motoboyId ? undefined : handleBarcodeScanned}
+                  onBarcodeScanned={
+                    loading || !(motoboyId != null || repasseBaseId != null)
+                      ? undefined
+                      : handleBarcodeScanned
+                  }
                 />
                 <View
                   style={{
@@ -2449,25 +2598,53 @@ export default function LeituraSaidasScreen() {
       >
         <Pressable style={styles.pickerOverlay} onPress={() => setModalSelecaoMotoboyVisible(false)}>
           <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>Escolher motoboy</Text>
+            <Text style={styles.pickerTitle}>
+              {temBasesQueEntregam ? "Escolher motoboy ou Base" : "Escolher motoboy"}
+            </Text>
             <ScrollView keyboardShouldPersistTaps="handled">
-              {motoboys.length === 0 ? (
-                <Text style={[styles.vazioText, { paddingVertical: 16 }]}>Nenhum motoboy disponível.</Text>
+              {motoboys.length === 0 && basesEntrega.length === 0 ? (
+                <Text style={[styles.vazioText, { paddingVertical: 16 }]}>
+                  Nenhum destino disponível.
+                </Text>
               ) : (
-                motoboys.map((m) => {
-                  const ativo = motoboyId === m.id_motoboy;
-                  return (
-                    <TouchableOpacity
-                      key={m.id_motoboy}
-                      style={[styles.pickerItem, ativo && styles.pickerItemActive]}
-                      onPress={() => aplicarMotoboySelecionado(m)}
-                      accessibilityState={{ selected: ativo }}
-                    >
-                      <Text style={styles.pickerItemText}>{m.nome}</Text>
-                      {ativo ? <Text style={styles.pickerItemSub}>Selecionado</Text> : null}
-                    </TouchableOpacity>
-                  );
-                })
+                <>
+                  {motoboys.length > 0 ? (
+                    <Text style={[styles.motoboyLabel, { marginBottom: 8 }]}>Motoboys</Text>
+                  ) : null}
+                  {motoboys.map((m) => {
+                    const ativo = motoboyId === m.id_motoboy && repasseBaseId == null;
+                    return (
+                      <TouchableOpacity
+                        key={`m-${m.id_motoboy}`}
+                        style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                        onPress={() => aplicarMotoboySelecionado(m)}
+                        accessibilityState={{ selected: ativo }}
+                      >
+                        <Text style={styles.pickerItemText}>{m.nome}</Text>
+                        {ativo ? <Text style={styles.pickerItemSub}>Selecionado</Text> : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {basesEntrega.length > 0 ? (
+                    <Text style={[styles.motoboyLabel, { marginTop: 16, marginBottom: 8 }]}>
+                      Bases que entregam
+                    </Text>
+                  ) : null}
+                  {basesEntrega.map((b) => {
+                    const ativo = repasseBaseId === b.id_base;
+                    return (
+                      <TouchableOpacity
+                        key={`b-${b.id_base}`}
+                        style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                        onPress={() => aplicarBaseRepasseSelecionada(b)}
+                        accessibilityState={{ selected: ativo }}
+                      >
+                        <Text style={styles.pickerItemText}>{b.base}</Text>
+                        {ativo ? <Text style={styles.pickerItemSub}>Selecionada</Text> : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
               )}
             </ScrollView>
             <TouchableOpacity style={styles.pickerClose} onPress={() => setModalSelecaoMotoboyVisible(false)}>

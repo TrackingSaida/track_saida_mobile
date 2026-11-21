@@ -58,7 +58,7 @@ import {
   type SituacaoBaseColeta,
   type TotaisColetaBase,
 } from "../coletasApi";
-import { listarBasesAtivas, type BaseItem } from "../basesApi";
+import { listarBasesAtivas, papelClienteLabel, type BaseItem } from "../basesApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
 import { basesParaSeletorColeta, hojeOperacaoLocal, ontemOperacaoLocal, labelGrupoSeletorColeta, situacaoColetaBadgeColors } from "../utils/coletaSituacaoUi";
 import type { ColetaStatusFiltro } from "../utils/coletaSituacaoUi";
@@ -193,6 +193,8 @@ export default function LeituraColetasScreen() {
   const [situacaoPorNome, setSituacaoPorNome] = useState<Record<string, SituacaoBaseColeta>>({});
   const [carregandoBases, setCarregandoBases] = useState(false);
   const [modalBaseVisible, setModalBaseVisible] = useState(false);
+  /** Filtro de papel no seletor (só owner tipo base com ambos os papéis). */
+  const [papelFiltroColeta, setPapelFiltroColeta] = useState<"todos" | "seller" | "base_parceira">("todos");
   const [modalNavegarVisible, setModalNavegarVisible] = useState(false);
   const [gruposExpandidos, setGruposExpandidos] = useState<Record<ColetaStatusFiltro, boolean>>({
     pendente: true,
@@ -803,16 +805,29 @@ export default function LeituraColetasScreen() {
 
   const baseSelecionadaOk = base.trim().length > 0;
   const ownerTipoBase = isOwnerTipoBase(currentUser);
-  const entidadeLabel = ownerEntityLabel(currentUser);
-  const entidadeLabelLower = ownerEntityLabelLower(currentUser);
-  const entidadeArticle = ownerEntityArticle(currentUser);
+  const entidadeLabel = ownerTipoBase ? "cliente" : ownerEntityLabel(currentUser);
+  const entidadeLabelLower = ownerTipoBase ? "cliente" : ownerEntityLabelLower(currentUser);
+  const entidadeArticle = ownerTipoBase ? "o" : ownerEntityArticle(currentUser);
   const baseSelecionada = useMemo(
     () => bases.find((b) => b.base === base) ?? null,
     [bases, base]
   );
+  const temSellersNaLista = useMemo(
+    () => bases.some((b) => (b.papel || "seller") === "seller"),
+    [bases]
+  );
+  const temBasesParceirasNaLista = useMemo(
+    () => bases.some((b) => (b.papel || "") === "base_parceira"),
+    [bases]
+  );
+  const mostrarPillsPapel = ownerTipoBase && temSellersNaLista && temBasesParceirasNaLista;
+  const basesFiltradasPapel = useMemo(() => {
+    if (!mostrarPillsPapel || papelFiltroColeta === "todos") return bases;
+    return bases.filter((b) => (b.papel || "seller") === papelFiltroColeta);
+  }, [bases, mostrarPillsPapel, papelFiltroColeta]);
   const basesParaPicker = useMemo(
-    () => basesParaSeletorColeta(bases, situacaoPorBaseId, situacaoPorNome, base, dataOperacao),
-    [bases, situacaoPorBaseId, situacaoPorNome, base, dataOperacao]
+    () => basesParaSeletorColeta(basesFiltradasPapel, situacaoPorBaseId, situacaoPorNome, base, dataOperacao),
+    [basesFiltradasPapel, situacaoPorBaseId, situacaoPorNome, base, dataOperacao]
   );
   const basesPendentesPicker = useMemo(
     () => basesParaPicker.filter((item) => item.statusSeletor === "pendente"),
@@ -2747,7 +2762,48 @@ export default function LeituraColetasScreen() {
       >
         <Pressable style={styles.pickerOverlay} onPress={() => setModalBaseVisible(false)}>
           <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>Escolher {entidadeLabel}</Text>
+            <Text style={styles.pickerTitle}>
+              {ownerTipoBase ? "Escolher cliente" : `Escolher ${entidadeLabel}`}
+            </Text>
+            {mostrarPillsPapel ? (
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                {(
+                  [
+                    { id: "todos" as const, label: "Todos" },
+                    { id: "seller" as const, label: "Sellers" },
+                    { id: "base_parceira" as const, label: "Bases" },
+                  ] as const
+                ).map((pill) => {
+                  const ativo = papelFiltroColeta === pill.id;
+                  return (
+                    <TouchableOpacity
+                      key={pill.id}
+                      onPress={() => setPapelFiltroColeta(pill.id)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: ativo ? colors.primary : colors.border,
+                        backgroundColor: ativo ? colors.primary : "transparent",
+                      }}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: ativo }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: "600",
+                          color: ativo ? "#fff" : colors.text,
+                        }}
+                      >
+                        {pill.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
             <ScrollView keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }}>
               {carregandoBases ? (
                 <ActivityIndicator color={colors.primary} style={{ marginVertical: 24 }} />
@@ -2805,9 +2861,37 @@ export default function LeituraColetasScreen() {
                                 >
                                   <View style={styles.pickerItemTop}>
                                     <Text style={styles.pickerItemText}>{item.base}</Text>
-                                    {situacao ? (
-                                      <ColetaSituacaoBadge status={situacao.status} />
-                                    ) : null}
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                      {ownerTipoBase ? (
+                                        <View
+                                          style={{
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 2,
+                                            borderRadius: 8,
+                                            backgroundColor:
+                                              (item.papel || "seller") === "base_parceira"
+                                                ? "rgba(13,110,253,0.12)"
+                                                : "rgba(25,135,84,0.12)",
+                                          }}
+                                        >
+                                          <Text
+                                            style={{
+                                              fontSize: 11,
+                                              fontWeight: "700",
+                                              color:
+                                                (item.papel || "seller") === "base_parceira"
+                                                  ? "#0d6efd"
+                                                  : "#198754",
+                                            }}
+                                          >
+                                            {papelClienteLabel(item.papel)}
+                                          </Text>
+                                        </View>
+                                      ) : null}
+                                      {situacao ? (
+                                        <ColetaSituacaoBadge status={situacao.status} />
+                                      ) : null}
+                                    </View>
                                   </View>
                                   {emColetaPor ? (
                                     <Text style={styles.pickerItemSub} numberOfLines={2}>
