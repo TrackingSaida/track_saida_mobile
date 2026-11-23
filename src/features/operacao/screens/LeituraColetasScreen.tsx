@@ -58,7 +58,13 @@ import {
   type SituacaoBaseColeta,
   type TotaisColetaBase,
 } from "../coletasApi";
-import { listarBasesAtivas, papelClienteLabel, type BaseItem } from "../basesApi";
+import {
+  isPapelBaseParceira,
+  isPapelSeller,
+  listarBasesAtivas,
+  papelClienteBadge,
+  type BaseItem,
+} from "../basesApi";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
 import { basesParaSeletorColeta, hojeOperacaoLocal, ontemOperacaoLocal, labelGrupoSeletorColeta, situacaoColetaBadgeColors } from "../utils/coletaSituacaoUi";
 import type { ColetaStatusFiltro } from "../utils/coletaSituacaoUi";
@@ -193,8 +199,9 @@ export default function LeituraColetasScreen() {
   const [situacaoPorNome, setSituacaoPorNome] = useState<Record<string, SituacaoBaseColeta>>({});
   const [carregandoBases, setCarregandoBases] = useState(false);
   const [modalBaseVisible, setModalBaseVisible] = useState(false);
-  /** Filtro de papel no seletor (só owner tipo base com ambos os papéis). */
+  /** Filtro de papel no seletor (owner tipo base). */
   const [papelFiltroColeta, setPapelFiltroColeta] = useState<"todos" | "seller" | "base_parceira">("todos");
+  const [buscaClientePicker, setBuscaClientePicker] = useState("");
   const [modalNavegarVisible, setModalNavegarVisible] = useState(false);
   const [gruposExpandidos, setGruposExpandidos] = useState<Record<ColetaStatusFiltro, boolean>>({
     pendente: true,
@@ -812,19 +819,35 @@ export default function LeituraColetasScreen() {
     () => bases.find((b) => b.base === base) ?? null,
     [bases, base]
   );
-  const temSellersNaLista = useMemo(
-    () => bases.some((b) => (b.papel || "seller") === "seller"),
-    [bases]
-  );
-  const temBasesParceirasNaLista = useMemo(
-    () => bases.some((b) => (b.papel || "") === "base_parceira"),
-    [bases]
-  );
-  const mostrarPillsPapel = ownerTipoBase && temSellersNaLista && temBasesParceirasNaLista;
+  const mostrarPillsPapel = ownerTipoBase;
+  const contagemPapelColeta = useMemo(() => {
+    let sellers = 0;
+    let basesParceiras = 0;
+    for (const b of bases) {
+      if (isPapelSeller(b.papel)) sellers += 1;
+      else if (isPapelBaseParceira(b.papel)) basesParceiras += 1;
+    }
+    return { todos: bases.length, sellers, basesParceiras };
+  }, [bases]);
+  const temAmbosPapeisConhecidos =
+    contagemPapelColeta.sellers > 0 && contagemPapelColeta.basesParceiras > 0;
   const basesFiltradasPapel = useMemo(() => {
-    if (!mostrarPillsPapel || papelFiltroColeta === "todos") return bases;
-    return bases.filter((b) => (b.papel || "seller") === papelFiltroColeta);
-  }, [bases, mostrarPillsPapel, papelFiltroColeta]);
+    const q = buscaClientePicker.trim().toLowerCase();
+    let list = bases;
+    if (mostrarPillsPapel && papelFiltroColeta === "seller") {
+      list = list.filter((b) => isPapelSeller(b.papel));
+    } else if (mostrarPillsPapel && papelFiltroColeta === "base_parceira") {
+      list = list.filter((b) => isPapelBaseParceira(b.papel));
+    }
+    if (q) {
+      list = list.filter(
+        (b) =>
+          b.base.toLowerCase().includes(q) ||
+          (b.endereco_completo || "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [bases, buscaClientePicker, mostrarPillsPapel, papelFiltroColeta]);
   const basesParaPicker = useMemo(
     () => basesParaSeletorColeta(basesFiltradasPapel, situacaoPorBaseId, situacaoPorNome, base, dataOperacao),
     [basesFiltradasPapel, situacaoPorBaseId, situacaoPorNome, base, dataOperacao]
@@ -2765,13 +2788,40 @@ export default function LeituraColetasScreen() {
             <Text style={styles.pickerTitle}>
               {ownerTipoBase ? "Escolher cliente" : `Escolher ${entidadeLabel}`}
             </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  marginBottom: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  fontSize: 15,
+                  color: colors.text,
+                  backgroundColor: colors.background,
+                },
+              ]}
+              placeholder={ownerTipoBase ? "Buscar seller ou Base…" : `Buscar ${entidadeLabelLower}…`}
+              placeholderTextColor={colors.textSecondary}
+              value={buscaClientePicker}
+              onChangeText={setBuscaClientePicker}
+              autoCorrect={false}
+              autoCapitalize="none"
+              clearButtonMode="while-editing"
+            />
             {mostrarPillsPapel ? (
               <View style={{ flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                 {(
                   [
-                    { id: "todos" as const, label: "Todos" },
-                    { id: "seller" as const, label: "Sellers" },
-                    { id: "base_parceira" as const, label: "Bases" },
+                    { id: "todos" as const, label: "Todos", count: contagemPapelColeta.todos },
+                    { id: "seller" as const, label: "Sellers", count: contagemPapelColeta.sellers },
+                    {
+                      id: "base_parceira" as const,
+                      label: "Bases",
+                      count: contagemPapelColeta.basesParceiras,
+                    },
                   ] as const
                 ).map((pill) => {
                   const ativo = papelFiltroColeta === pill.id;
@@ -2797,7 +2847,7 @@ export default function LeituraColetasScreen() {
                           color: ativo ? "#fff" : colors.text,
                         }}
                       >
-                        {pill.label}
+                        {pill.label} ({pill.count})
                       </Text>
                     </TouchableOpacity>
                   );
@@ -2811,12 +2861,121 @@ export default function LeituraColetasScreen() {
                 <Text style={[styles.infoText, { paddingVertical: 16 }]}>
                   Nenhum{ownerTipoBase ? "" : "a"} {entidadeLabelLower} ativ{ownerTipoBase ? "o" : "a"} disponível.
                 </Text>
+              ) : basesFiltradasPapel.length === 0 ? (
+                <Text style={[styles.infoText, { paddingVertical: 16 }]}>
+                  {papelFiltroColeta === "base_parceira"
+                    ? "Nenhuma Base neste filtro. Cadastre Bases parceiras no web ou limpe a busca."
+                    : papelFiltroColeta === "seller"
+                      ? "Nenhum Seller neste filtro. Ajuste o cadastro ou limpe a busca."
+                      : "Nenhum resultado para a busca."}
+                </Text>
               ) : (
                 <>
                   {gruposPicker.map((group) => {
                     const expanded = Boolean(gruposExpandidos[group.status]);
                     const label = labelGrupoSeletorColeta(group.status);
                     const badgeColors = situacaoColetaBadgeColors(group.status);
+                    const subagruparPapel =
+                      mostrarPillsPapel &&
+                      papelFiltroColeta === "todos" &&
+                      temAmbosPapeisConhecidos;
+                    const sellersDoGrupo = subagruparPapel
+                      ? group.items.filter((i) => isPapelSeller(i.papel))
+                      : [];
+                    const basesDoGrupo = subagruparPapel
+                      ? group.items.filter((i) => isPapelBaseParceira(i.papel))
+                      : [];
+                    const outrosDoGrupo = subagruparPapel
+                      ? group.items.filter(
+                          (i) => !isPapelSeller(i.papel) && !isPapelBaseParceira(i.papel)
+                        )
+                      : group.items;
+
+                    const renderItem = (item: (typeof group.items)[number]) => {
+                      const ativo = base === item.base;
+                      const situacao =
+                        situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
+                      const emColetaPor =
+                        group.status === "em_coleta" ? nomesEmColeta(situacao) : "";
+                      const papelBadge = ownerTipoBase ? papelClienteBadge(item.papel) : null;
+                      return (
+                        <TouchableOpacity
+                          key={item.id_base}
+                          style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                          onPress={() => void selecionarBase(item)}
+                          accessibilityState={{ selected: ativo }}
+                        >
+                          <View style={styles.pickerItemTop}>
+                            <Text style={styles.pickerItemText}>{item.base}</Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              {papelBadge ? (
+                                <View
+                                  style={{
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 2,
+                                    borderRadius: 8,
+                                    backgroundColor:
+                                      papelBadge === "Base"
+                                        ? "rgba(13,110,253,0.12)"
+                                        : "rgba(25,135,84,0.12)",
+                                  }}
+                                >
+                                  <Text
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: "700",
+                                      color: papelBadge === "Base" ? "#0d6efd" : "#198754",
+                                    }}
+                                  >
+                                    {papelBadge}
+                                  </Text>
+                                </View>
+                              ) : null}
+                              {situacao ? (
+                                <ColetaSituacaoBadge status={situacao.status} />
+                              ) : null}
+                            </View>
+                          </View>
+                          {emColetaPor ? (
+                            <Text style={styles.pickerItemSub} numberOfLines={2}>
+                              Em coleta por {emColetaPor}
+                            </Text>
+                          ) : null}
+                          {item.endereco_completo ? (
+                            <Text style={styles.pickerItemSub} numberOfLines={2}>
+                              {item.endereco_completo}
+                            </Text>
+                          ) : null}
+                          {ativo ? (
+                            <Text style={styles.pickerItemSub}>
+                              Selecionad{ownerTipoBase ? "o" : "a"}
+                            </Text>
+                          ) : null}
+                        </TouchableOpacity>
+                      );
+                    };
+
+                    const renderSub = (titulo: string, items: typeof group.items) =>
+                      items.length === 0 ? null : (
+                        <View key={`${group.status}-${titulo}`}>
+                          <Text
+                            style={[
+                              styles.pickerItemSub,
+                              {
+                                marginTop: 8,
+                                marginBottom: 6,
+                                marginLeft: 4,
+                                fontWeight: "700",
+                                color: colors.textSecondary,
+                              },
+                            ]}
+                          >
+                            {titulo}
+                          </Text>
+                          {items.map(renderItem)}
+                        </View>
+                      );
+
                     return (
                       <View key={group.status}>
                         <TouchableOpacity
@@ -2845,73 +3004,17 @@ export default function LeituraColetasScreen() {
                             color={colors.textSecondary}
                           />
                         </TouchableOpacity>
-                        {expanded
-                          ? group.items.map((item) => {
-                              const ativo = base === item.base;
-                              const situacao =
-                                situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
-                              const emColetaPor =
-                                group.status === "em_coleta" ? nomesEmColeta(situacao) : "";
-                              return (
-                                <TouchableOpacity
-                                  key={item.id_base}
-                                  style={[styles.pickerItem, ativo && styles.pickerItemActive]}
-                                  onPress={() => void selecionarBase(item)}
-                                  accessibilityState={{ selected: ativo }}
-                                >
-                                  <View style={styles.pickerItemTop}>
-                                    <Text style={styles.pickerItemText}>{item.base}</Text>
-                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                      {ownerTipoBase ? (
-                                        <View
-                                          style={{
-                                            paddingHorizontal: 8,
-                                            paddingVertical: 2,
-                                            borderRadius: 8,
-                                            backgroundColor:
-                                              (item.papel || "seller") === "base_parceira"
-                                                ? "rgba(13,110,253,0.12)"
-                                                : "rgba(25,135,84,0.12)",
-                                          }}
-                                        >
-                                          <Text
-                                            style={{
-                                              fontSize: 11,
-                                              fontWeight: "700",
-                                              color:
-                                                (item.papel || "seller") === "base_parceira"
-                                                  ? "#0d6efd"
-                                                  : "#198754",
-                                            }}
-                                          >
-                                            {papelClienteLabel(item.papel)}
-                                          </Text>
-                                        </View>
-                                      ) : null}
-                                      {situacao ? (
-                                        <ColetaSituacaoBadge status={situacao.status} />
-                                      ) : null}
-                                    </View>
-                                  </View>
-                                  {emColetaPor ? (
-                                    <Text style={styles.pickerItemSub} numberOfLines={2}>
-                                      Em coleta por {emColetaPor}
-                                    </Text>
-                                  ) : null}
-                                  {item.endereco_completo ? (
-                                    <Text style={styles.pickerItemSub} numberOfLines={2}>
-                                      {item.endereco_completo}
-                                    </Text>
-                                  ) : null}
-                                  {ativo ? (
-                                    <Text style={styles.pickerItemSub}>
-                                      Selecionad{ownerTipoBase ? "o" : "a"}
-                                    </Text>
-                                  ) : null}
-                                </TouchableOpacity>
-                              );
-                            })
-                          : null}
+                        {expanded ? (
+                          subagruparPapel ? (
+                            <>
+                              {renderSub("Sellers", sellersDoGrupo)}
+                              {renderSub("Bases", basesDoGrupo)}
+                              {outrosDoGrupo.map(renderItem)}
+                            </>
+                          ) : (
+                            group.items.map(renderItem)
+                          )
+                        ) : null}
                       </View>
                     );
                   })}

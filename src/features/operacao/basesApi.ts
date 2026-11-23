@@ -59,3 +59,18 @@ export async function listarBasesQueEntregam(): Promise<BaseQueEntregaItem[]> {
 export function papelClienteLabel(papel?: string | null): "Seller" | "Base" {
   return (papel || "seller") === "base_parceira" ? "Base" : "Seller";
 }
+
+/** Badge só quando a API informou papel (evita “Seller” em todos quando o campo falta). */
+export function papelClienteBadge(papel?: string | null): "Seller" | "Base" | null {
+  const p = typeof papel === "string" ? papel.trim() : "";
+  if (!p) return null;
+  return p === "base_parceira" ? "Base" : p === "seller" ? "Seller" : null;
+}
+
+export function isPapelBaseParceira(papel?: string | null): boolean {
+  return (papel || "").trim() === "base_parceira";
+}
+
+export function isPapelSeller(papel?: string | null): boolean {
+  return (papel || "").trim() === "seller";
+}

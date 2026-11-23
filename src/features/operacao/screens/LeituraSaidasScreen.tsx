@@ -63,6 +63,7 @@ import {
   staffSessionTemPendenciaConfirmacao,
   useStaffScanSessionStore,
 } from "../../../store/staffScanSessionStore";
+import { isOwnerTipoBase } from "../../../utils/ownerLabels";
 
 const FRAME_SIZE = Math.min(Dimensions.get("window").width, Dimensions.get("window").height) * 0.65;
 const CORNER_LENGTH = 40;
@@ -343,6 +344,7 @@ export default function LeituraSaidasScreen() {
   const [motoboyNome, setMotoboyNome] = useState("");
   const [basesEntrega, setBasesEntrega] = useState<BaseQueEntregaItem[]>([]);
   const [repasseBaseId, setRepasseBaseId] = useState<number | null>(null);
+  const [buscaDestinoPicker, setBuscaDestinoPicker] = useState("");
   const [sessaoServidor, setSessaoServidor] = useState<SessaoServidorLeitura>(SESSAO_SERVIDOR_VAZIA);
   const [codigoInput, setCodigoInput] = useState("");
   const [leituras, setLeituras] = useState<LeituraSaidaItem[]>([]);
@@ -1452,7 +1454,7 @@ export default function LeituraSaidasScreen() {
       if (!destinoOk) {
         pushFeedback(
           "info",
-          basesEntrega.length > 0
+          isOwnerTipoBase(useAuthStore.getState().currentUser)
             ? "Selecione um motoboy ou Base para iniciar as leituras."
             : "Selecione um motoboy para iniciar as leituras."
         );
@@ -1793,7 +1795,6 @@ export default function LeituraSaidasScreen() {
       }
     },
     [
-      basesEntrega.length,
       bloquearSaidaSemColeta,
       codigosLidosSessaoMotoboy,
       leituras,
@@ -2062,13 +2063,24 @@ export default function LeituraSaidasScreen() {
     }
   };
 
-  const temBasesQueEntregam = basesEntrega.length > 0;
+  const ownerTipoBase = isOwnerTipoBase(currentUser);
+  /** Owner base: sempre oferece Motoboy/Base (mesmo com lista vazia). */
+  const mostrarDestinoBase = ownerTipoBase;
   const motoboySelecionadoOk = Boolean(
     (motoboyId && motoboyNome && repasseBaseId == null) ||
       (repasseBaseId != null && motoboyNome)
   );
-  const destinoLabelCurto = temBasesQueEntregam ? "motoboy ou Base" : "motoboy";
+  const destinoLabelCurto = mostrarDestinoBase ? "motoboy ou Base" : "motoboy";
   const destinoSelecionadoEhBase = repasseBaseId != null;
+  const buscaDestinoNorm = buscaDestinoPicker.trim().toLowerCase();
+  const motoboysFiltradosPicker = useMemo(() => {
+    if (!buscaDestinoNorm) return motoboys;
+    return motoboys.filter((m) => m.nome.toLowerCase().includes(buscaDestinoNorm));
+  }, [buscaDestinoNorm, motoboys]);
+  const basesFiltradasPicker = useMemo(() => {
+    if (!buscaDestinoNorm) return basesEntrega;
+    return basesEntrega.filter((b) => b.base.toLowerCase().includes(buscaDestinoNorm));
+  }, [basesEntrega, buscaDestinoNorm]);
 
   return (
     <>
@@ -2107,7 +2119,7 @@ export default function LeituraSaidasScreen() {
           ) : null}
           {!motoboySelecionadoOk ? (
             <Text style={styles.motoboyLabel}>
-              {temBasesQueEntregam ? "Motoboy ou Base" : "Motoboy"}
+              {mostrarDestinoBase ? "Motoboy ou Base" : "Motoboy"}
             </Text>
           ) : null}
           {motoboySelecionadoOk ? (
@@ -2599,51 +2611,119 @@ export default function LeituraSaidasScreen() {
         <Pressable style={styles.pickerOverlay} onPress={() => setModalSelecaoMotoboyVisible(false)}>
           <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.pickerTitle}>
-              {temBasesQueEntregam ? "Escolher motoboy ou Base" : "Escolher motoboy"}
+              {mostrarDestinoBase ? "Escolher motoboy ou Base" : "Escolher motoboy"}
             </Text>
+            <TextInput
+              style={{
+                marginBottom: 10,
+                borderWidth: 1,
+                borderColor: colors.inputBorder,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                fontSize: 15,
+                color: colors.text,
+                backgroundColor: colors.background,
+              }}
+              placeholder={
+                mostrarDestinoBase ? "Buscar motoboy ou Base…" : "Buscar motoboy…"
+              }
+              placeholderTextColor={colors.textSecondary}
+              value={buscaDestinoPicker}
+              onChangeText={setBuscaDestinoPicker}
+              autoCorrect={false}
+              autoCapitalize="none"
+              clearButtonMode="while-editing"
+            />
             <ScrollView keyboardShouldPersistTaps="handled">
-              {motoboys.length === 0 && basesEntrega.length === 0 ? (
+              {motoboys.length === 0 && (!mostrarDestinoBase || basesEntrega.length === 0) ? (
                 <Text style={[styles.vazioText, { paddingVertical: 16 }]}>
                   Nenhum destino disponível.
                 </Text>
               ) : (
                 <>
-                  {motoboys.length > 0 ? (
-                    <Text style={[styles.motoboyLabel, { marginBottom: 8 }]}>Motoboys</Text>
-                  ) : null}
-                  {motoboys.map((m) => {
-                    const ativo = motoboyId === m.id_motoboy && repasseBaseId == null;
-                    return (
-                      <TouchableOpacity
-                        key={`m-${m.id_motoboy}`}
-                        style={[styles.pickerItem, ativo && styles.pickerItemActive]}
-                        onPress={() => aplicarMotoboySelecionado(m)}
-                        accessibilityState={{ selected: ativo }}
-                      >
-                        <Text style={styles.pickerItemText}>{m.nome}</Text>
-                        {ativo ? <Text style={styles.pickerItemSub}>Selecionado</Text> : null}
-                      </TouchableOpacity>
-                    );
-                  })}
-                  {basesEntrega.length > 0 ? (
-                    <Text style={[styles.motoboyLabel, { marginTop: 16, marginBottom: 8 }]}>
-                      Bases que entregam
+                  <Text style={[styles.motoboyLabel, { marginBottom: 8 }]}>
+                    Motoboys ({motoboysFiltradosPicker.length})
+                  </Text>
+                  {motoboysFiltradosPicker.length === 0 ? (
+                    <Text style={[styles.vazioText, { paddingBottom: 8 }]}>
+                      {buscaDestinoNorm
+                        ? "Nenhum motoboy para esta busca."
+                        : "Nenhum motoboy disponível."}
                     </Text>
+                  ) : (
+                    motoboysFiltradosPicker.map((m) => {
+                      const ativo = motoboyId === m.id_motoboy && repasseBaseId == null;
+                      return (
+                        <TouchableOpacity
+                          key={`m-${m.id_motoboy}`}
+                          style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                          onPress={() => aplicarMotoboySelecionado(m)}
+                          accessibilityState={{ selected: ativo }}
+                        >
+                          <Text style={styles.pickerItemText}>{m.nome}</Text>
+                          {ativo ? <Text style={styles.pickerItemSub}>Selecionado</Text> : null}
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                  {mostrarDestinoBase ? (
+                    <>
+                      <Text style={[styles.motoboyLabel, { marginTop: 16, marginBottom: 8 }]}>
+                        Bases que entregam ({basesFiltradasPicker.length})
+                      </Text>
+                      {basesEntrega.length === 0 ? (
+                        <Text style={[styles.vazioText, { paddingBottom: 8 }]}>
+                          Nenhuma Base com entrega ligada. Ative “entrega pedidos” no cadastro
+                          web da Base parceira.
+                        </Text>
+                      ) : basesFiltradasPicker.length === 0 ? (
+                        <Text style={[styles.vazioText, { paddingBottom: 8 }]}>
+                          Nenhuma Base para esta busca.
+                        </Text>
+                      ) : (
+                        basesFiltradasPicker.map((b) => {
+                          const ativo = repasseBaseId === b.id_base;
+                          return (
+                            <TouchableOpacity
+                              key={`b-${b.id_base}`}
+                              style={[styles.pickerItem, ativo && styles.pickerItemActive]}
+                              onPress={() => aplicarBaseRepasseSelecionada(b)}
+                              accessibilityState={{ selected: ativo }}
+                            >
+                              <View
+                                style={{
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: 8,
+                                }}
+                              >
+                                <Text style={[styles.pickerItemText, { flex: 1 }]}>{b.base}</Text>
+                                <View
+                                  style={{
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 2,
+                                    borderRadius: 8,
+                                    backgroundColor: "rgba(13,110,253,0.12)",
+                                  }}
+                                >
+                                  <Text
+                                    style={{ fontSize: 11, fontWeight: "700", color: "#0d6efd" }}
+                                  >
+                                    Base
+                                  </Text>
+                                </View>
+                              </View>
+                              {ativo ? (
+                                <Text style={styles.pickerItemSub}>Selecionada</Text>
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })
+                      )}
+                    </>
                   ) : null}
-                  {basesEntrega.map((b) => {
-                    const ativo = repasseBaseId === b.id_base;
-                    return (
-                      <TouchableOpacity
-                        key={`b-${b.id_base}`}
-                        style={[styles.pickerItem, ativo && styles.pickerItemActive]}
-                        onPress={() => aplicarBaseRepasseSelecionada(b)}
-                        accessibilityState={{ selected: ativo }}
-                      >
-                        <Text style={styles.pickerItemText}>{b.base}</Text>
-                        {ativo ? <Text style={styles.pickerItemSub}>Selecionada</Text> : null}
-                      </TouchableOpacity>
-                    );
-                  })}
                 </>
               )}
             </ScrollView>
