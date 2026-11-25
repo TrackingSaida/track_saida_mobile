@@ -747,6 +747,9 @@ export default function ScanScreen({ navigation, route }: Props) {
       } catch (e: unknown) {
         const ax = e as {
           response?: { status?: number; data?: { detail?: string | ApiErroDetalhe; code?: string } };
+          code?: string;
+          name?: string;
+          message?: string;
         };
         const apiErro = extrairErroApi(e);
         if (apiErro.code === "BLOQUEADO_AUSENCIAS") {
@@ -768,6 +771,36 @@ export default function ScanScreen({ navigation, route }: Props) {
           playSound("error");
           pushFeedback("erro", msgEntrada, c);
           Alert.alert("Entrada necessária", msgEntrada);
+          setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_ERR_MS);
+          return;
+        }
+        // 401 pós-refresh: sem replay do POST — não marcar sucesso; orientar novo bip.
+        const scanAuthBlocked =
+          ax?.name === "ScanAuthRetryBlockedError" ||
+          (ax as { code?: string })?.code === "SCAN_AUTH_RETRY_BLOCKED" ||
+          String(ax?.message || "").includes("Escaneie de novo");
+        if (scanAuthBlocked || ax?.response?.status === 401) {
+          const msg =
+            "Não foi possível confirmar a leitura. Escaneie de novo.";
+          playSound("error");
+          pushFeedback("erro", msg, c);
+          Alert.alert("Leitura não confirmada", msg);
+          setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_ERR_MS);
+          return;
+        }
+        // Timeout/rede: resultado incerto — verificar antes de insistir às cegas.
+        const semRespostaClara =
+          !ax?.response &&
+          (ax?.code === "ECONNABORTED" ||
+            ax?.code === "ERR_NETWORK" ||
+            ax?.name === "AbortError" ||
+            ax?.code === "ERR_CANCELED");
+        if (semRespostaClara) {
+          const msg =
+            "Não deu para confirmar se a leitura entrou. Verifique a lista da sessão ou escaneie de novo.";
+          playSound("error");
+          pushFeedback("erro", msg, c);
+          Alert.alert("Confirmação pendente", msg);
           setTimeout(() => (scanLocked.current = false), SCAN_UNLOCK_ERR_MS);
           return;
         }

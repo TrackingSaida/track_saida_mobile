@@ -284,7 +284,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   onSessionExpired: async () => {
-    set({ sessionExpiredVisible: true });
+    // Rejeição definitiva: limpa tokens atomicamente com o bump de epoch
+    // para impedir novas waves de motoboy-refresh / GETs 401.
+    const epoch = bumpSessionEpoch();
+    await SecureStore.deleteItemAsync(TOKEN_KEY);
+    await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+    if (getSessionEpoch() !== epoch) return;
+    set({
+      token: null,
+      refreshToken: null,
+      currentUser: null,
+      requiresBiometricUnlock: false,
+      sessionExpiredVisible: true,
+    });
     if (sessionExpiredCallback) sessionExpiredCallback();
   },
 
@@ -316,23 +328,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       let token = await SecureStore.getItemAsync(TOKEN_KEY);
       let refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
 
-      // Access expirado: tenta refresh (motoboy) ou re-login silencioso com credenciais salvas (staff).
-      // Não usa refreshOnce/apiClient aqui — evita disparar “Sessão expirada” no meio do unlock.
+      // Access expirado: tenta refresh via mutex (motoboy) ou re-login silencioso (staff).
+      // refreshOnce evita POST paralelo fora do mutex; rejeição definitiva limpa tokens.
       if (!token || isJwtExpired(token)) {
         let renewed = false;
         if (refreshToken) {
-          try {
-            const { motoboyRefresh } = await import("../api/auth");
-            const data = await motoboyRefresh(refreshToken);
-            if (data.access_token) {
-              await get().setTokens(data.access_token, data.refresh_token ?? refreshToken);
-              renewed = true;
-              token = get().token;
-              refreshToken = get().refreshToken;
-            }
-          } catch {
-            // Refresh residual inválido (ex.: staff após login motoboy no mesmo aparelho).
-            await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+          const { refreshOnce } = await import("../services/apiClient");
+          const ok = await refreshOnce();
+          if (ok && get().token) {
+            renewed = true;
+            token = get().token;
+            refreshToken = get().refreshToken;
+          } else if (!get().refreshToken) {
+            // onSessionExpired já limpou; não insiste com refresh residual.
             refreshToken = null;
           }
         }
