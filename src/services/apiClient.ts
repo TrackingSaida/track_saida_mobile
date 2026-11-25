@@ -3,12 +3,47 @@ import { API_BASE_URL } from "../config/api";
 import { getSessionEpoch, useAuthStore } from "../store/authStore";
 import { isJwtExpired, secondsUntilJwtExpiry } from "../utils/jwt";
 
-type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+type RetryConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+  /** Marca requests públicas isentas do bloqueio pós-invalidação. */
+  _publicAuth?: boolean;
+};
 
 let refreshPromise: Promise<boolean> | null = null;
 
 /** Renova access quando faltam menos que este tempo (segundos). */
 const PREVENTIVE_REFRESH_WITHIN_SEC = 15 * 60;
+
+/** POST mutáveis de leitura: após 401+refresh, não reexecutar (evita bip fantasma). */
+function isMutableScanPost(config: InternalAxiosRequestConfig): boolean {
+  const method = String(config.method || "get").toLowerCase();
+  if (method !== "post") return false;
+  const url = String(config.url || "");
+  return (
+    url.includes("/mobile/scan") ||
+    /\/mobile\/entrega\/\d+\/assumir/.test(url) ||
+    (url.includes("/mobile/saida-sessoes/") && url.includes("/confirmar"))
+  );
+}
+
+function isPublicAuthUrl(url: string): boolean {
+  return (
+    url.includes("/auth/motoboy-refresh") ||
+    url.includes("/auth/motoboy-login") ||
+    url.includes("/auth/motoboy-logout") ||
+    url.includes("/auth/token") ||
+    url.includes("/auth/root-select") ||
+    url.includes("/app-version")
+  );
+}
+
+export class ScanAuthRetryBlockedError extends Error {
+  readonly code = "SCAN_AUTH_RETRY_BLOCKED";
+  constructor(message = "Não foi possível confirmar a leitura. Escaneie de novo.") {
+    super(message);
+    this.name = "ScanAuthRetryBlockedError";
+  }
+}
 
 function isNetworkOrTimeoutError(e: unknown): boolean {
   if (!axios.isAxiosError(e)) {
@@ -134,11 +169,26 @@ export const apiClient = axios.create({
 
 apiClient.interceptors.request.use(async (config) => {
   const url = String(config.url || "");
-  if (
-    !url.includes("/auth/motoboy-refresh") &&
-    !url.includes("/auth/motoboy-login") &&
-    !url.includes("/auth/token")
-  ) {
+  const publicAuth = isPublicAuthUrl(url);
+  if (publicAuth) {
+    (config as RetryConfig)._publicAuth = true;
+  }
+  if (!publicAuth) {
+    const { token, refreshToken, sessionExpiredVisible } = useAuthStore.getState();
+    // Após invalidação definitiva: bloqueia autenticadas; libera login/refresh/públicos.
+    if (sessionExpiredVisible || (!token && !refreshToken)) {
+      if (!token) {
+        return Promise.reject(
+          new AxiosError(
+            "Sessão inválida",
+            "ERR_SESSION_INVALID",
+            config,
+            undefined,
+            undefined
+          )
+        );
+      }
+    }
     try {
       await ensureFreshAccessToken();
     } catch {
@@ -166,20 +216,17 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
     const url = String(config.url || "");
-    if (
-      url.includes("/auth/motoboy-refresh") ||
-      url.includes("/auth/motoboy-login") ||
-      url.includes("/auth/token")
-    ) {
+    if (isPublicAuthUrl(url) || config._publicAuth) {
       return Promise.reject(error);
     }
     config._retry = true;
     const ok = await refreshOnce();
     if (!ok) {
-      if (isNetworkOrTimeoutError(error)) {
-        return Promise.reject(error);
-      }
       return Promise.reject(error);
+    }
+    // Integridade das bipagens: não reexecuta POST /mobile/scan após 401.
+    if (isMutableScanPost(config)) {
+      return Promise.reject(new ScanAuthRetryBlockedError());
     }
     const token = useAuthStore.getState().token;
     if (token) {
