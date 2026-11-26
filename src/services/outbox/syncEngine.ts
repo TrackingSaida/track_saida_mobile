@@ -473,3 +473,43 @@ export async function retryAllFailedOutboxActions(): Promise<void> {
   await useOutboxStore.getState().refresh();
   await processOutboxQueue();
 }
+
+async function discardFailedActionLocally(action: OutboxDeliveryAction): Promise<void> {
+  await deleteOrphanPhotos(action);
+  await removeAction(action.actionId);
+  auditSync("sync_discard_manual", action);
+}
+
+/**
+ * Descarta envios com erro permanente (banner).
+ * Não altera o servidor: use quando a baixa já valeu ou o status no servidor impede o reenvio.
+ */
+export async function discardFailedOutboxAction(actionId: string): Promise<void> {
+  const manifest = await loadManifest();
+  const action = manifest.actions.find((a) => a.actionId === actionId);
+  if (!action || action.state !== "failed") return;
+  await discardFailedActionLocally(action);
+  const stillFailed = (await loadManifest()).actions.some((item) => item.state === "failed");
+  if (!stillFailed) {
+    useOutboxStore.getState().setLastSyncError(null);
+  }
+  await useOutboxStore.getState().refresh();
+  await reconcileActiveRouteState(buildRouteReconcileDeps(useDeliveryStore.getState)).catch(
+    () => undefined
+  );
+}
+
+/** Descarta todos os failed do banner, sem reenviar. */
+export async function discardAllFailedOutboxActions(): Promise<void> {
+  const manifest = await loadManifest();
+  const failed = manifest.actions.filter((a) => a.state === "failed");
+  for (const action of failed) {
+    await discardFailedActionLocally(action);
+  }
+  useOutboxStore.getState().setLastSyncError(null);
+  console.info(`[audit_entrega] sync_discard_manual_all count=${failed.length}`);
+  await useOutboxStore.getState().refresh();
+  await reconcileActiveRouteState(buildRouteReconcileDeps(useDeliveryStore.getState)).catch(
+    () => undefined
+  );
+}

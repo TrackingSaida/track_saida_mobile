@@ -1,9 +1,20 @@
 import React, { useEffect } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../theme/colors";
 import { useOutboxStore } from "../store/outboxStore";
-import { processOutboxQueue, retryAllFailedOutboxActions } from "../services/outbox/syncEngine";
+import {
+  discardAllFailedOutboxActions,
+  processOutboxQueue,
+  retryAllFailedOutboxActions,
+} from "../services/outbox/syncEngine";
 
 export default function PendingSyncBanner() {
   const insets = useSafeAreaInsets();
@@ -60,6 +71,26 @@ export default function PendingSyncBanner() {
   const border = hasFailed ? colors.danger + "66" : colors.warning + "66";
   const btnBg = hasFailed ? colors.danger : colors.primary;
 
+  const confirmDiscardFailed = () => {
+    const count = failed.length;
+    Alert.alert(
+      "Descartar envio com erro?",
+      count === 1
+        ? "Remove este aviso do aparelho. Se a baixa já estiver no servidor, o pedido continua correto. Se ainda não gravou, você precisará baixar de novo."
+        : `Remove ${count} envios com erro deste aparelho. Se a baixa já estiver no servidor, os pedidos continuam corretos. Se ainda não gravou, será preciso baixar de novo.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Descartar",
+          style: "destructive",
+          onPress: () => {
+            void discardAllFailedOutboxActions();
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View
       style={[
@@ -89,18 +120,30 @@ export default function PendingSyncBanner() {
           </Text>
         ) : null}
       </View>
-      <TouchableOpacity
-        onPress={() => {
-          if (hasFailed) void retryAllFailedOutboxActions();
-          else void processOutboxQueue();
-        }}
-        disabled={isSyncing}
-        style={[styles.btn, { backgroundColor: btnBg, opacity: isSyncing ? 0.7 : 1 }]}
-      >
-        <Text style={[styles.btnText, { color: colors.primaryContrast }]}>
-          {isSyncing ? "Enviando…" : hasFailed ? "Tentar de novo" : "Sincronizar"}
-        </Text>
-      </TouchableOpacity>
+      <View style={styles.actionsCol}>
+        <TouchableOpacity
+          onPress={() => {
+            if (hasFailed) void retryAllFailedOutboxActions();
+            else void processOutboxQueue();
+          }}
+          disabled={isSyncing}
+          style={[styles.btn, { backgroundColor: btnBg, opacity: isSyncing ? 0.7 : 1 }]}
+        >
+          <Text style={[styles.btnText, { color: colors.primaryContrast }]}>
+            {isSyncing ? "Enviando…" : hasFailed ? "Tentar de novo" : "Sincronizar"}
+          </Text>
+        </TouchableOpacity>
+        {hasFailed && !isSyncing ? (
+          <TouchableOpacity
+            onPress={confirmDiscardFailed}
+            style={[styles.btnSecondary, { borderColor: colors.danger }]}
+            accessibilityRole="button"
+            accessibilityLabel="Descartar envio com erro"
+          >
+            <Text style={[styles.btnSecondaryText, { color: colors.danger }]}>Descartar</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -118,6 +161,14 @@ const styles = StyleSheet.create({
   textCol: { flex: 1, gap: 2 },
   text: { fontSize: 13, fontWeight: "700" },
   errorHint: { fontSize: 11 },
+  actionsCol: { gap: 6, alignItems: "stretch" },
   btn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  btnText: { fontSize: 12, fontWeight: "700" },
+  btnText: { fontSize: 12, fontWeight: "700", textAlign: "center" },
+  btnSecondary: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  btnSecondaryText: { fontSize: 12, fontWeight: "700", textAlign: "center" },
 });

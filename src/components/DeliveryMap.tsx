@@ -158,6 +158,12 @@ export default function DeliveryMap({
   const hadSelectionRef = useRef(false);
 
   const routeOrderSig = useMemo(() => routeOrder.join(","), [routeOrder]);
+  // Baixa ausente/entregue muda só o status; sem esta assinatura o pin fica com bitmap antigo.
+  const routeStatusSig = useMemo(() => {
+    return routeOrder
+      .map((id) => `${id}:${routeDeliveryStatus[id] ?? "pendente"}`)
+      .join(",");
+  }, [routeOrder, routeDeliveryStatus]);
   const heavyMarkerLoad =
     Platform.OS === "android" && groupedPointsWithCoords.length >= 25;
   // Janelas curtas com muitos pins: tracksViewChanges=true em massa derruba o processo no Android.
@@ -184,11 +190,11 @@ export default function DeliveryMap({
   }, [groupedPointsWithCoords.length, routeOrderSig, heavyMarkerLoad, markerPaintMs, routeOrder.length]);
 
   useEffect(() => {
-    if (!routeOrderSig || !markersMounted) return;
+    if ((!routeOrderSig && !routeStatusSig) || !markersMounted) return;
     setMarkerResnapshotActive(true);
     const t = setTimeout(() => setMarkerResnapshotActive(false), markerResnapshotMs);
     return () => clearTimeout(t);
-  }, [routeOrderSig, markersMounted, markerResnapshotMs]);
+  }, [routeOrderSig, routeStatusSig, markersMounted, markerResnapshotMs]);
 
   useEffect(() => {
     const hasSelection = selectedStopNumber != null || selectedId != null;
