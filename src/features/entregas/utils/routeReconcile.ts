@@ -11,7 +11,6 @@ import {
   routeHasPendingDeliveries,
   type RouteDeliveryStatus,
 } from "./routeUtils";
-import { stopBackgroundTracking } from "../../../services/location/locationService";
 import { recordHomeRouteCompleted } from "../../../store/homeRouteStore";
 
 export type RouteReconcileResult = {
@@ -26,16 +25,23 @@ export type RouteReconcileDeps = {
   getRouteDeliveries: () => import("../types").EntregaListItem[];
   getRouteDeliveryStatus: () => Record<number, RouteDeliveryStatus>;
   clearActiveRouteState: () => void;
+  markRouteCompletedPendingDismiss: (rotaId: string) => void;
+  isRouteCompletedAwaitingDismiss: () => boolean;
+  getCompletedRotaIdForResumo: () => string | null;
   restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
+  stopBackgroundTracking?: () => Promise<void>;
 };
 
-async function finalizeAndClearRoute(
+async function finalizeRouteKeepingVisual(
   rotaId: string,
   routeOrder: number[],
   routeDeliveries: import("../types").EntregaListItem[],
-  clearActiveRouteState: () => void
+  markRouteCompletedPendingDismiss: (rotaId: string) => void,
+  stopBackgroundTracking?: () => Promise<void>
 ): Promise<RouteReconcileResult> {
-  await stopBackgroundTracking().catch(() => undefined);
+  if (stopBackgroundTracking) {
+    await stopBackgroundTracking().catch(() => undefined);
+  }
   try {
     await postRotasFinalizar(rotaId);
   } catch {
@@ -54,18 +60,19 @@ async function finalizeAndClearRoute(
   }
 
   await recordHomeRouteCompleted(rotaId, paradas, pedidos).catch(() => undefined);
-  clearActiveRouteState();
+  markRouteCompletedPendingDismiss(rotaId);
 
   return {
     wasCompleted: true,
     rotaIdForResumo: rotaId,
+    // Visualmente ainda há rota; operacionalmente não (Home usa awaitingDismiss).
     stillActive: false,
   };
 }
 
 /**
- * Reconcilia rota ativa local com backend. Finaliza e limpa se todos os pedidos
- * da ordem já estão entregues/ausentes (ex.: finalizados pela lista de pendentes).
+ * Reconcilia rota ativa local com backend. Finaliza e mantém pins até dismiss do resumo
+ * se todos os pedidos da ordem já estão entregues/ausentes.
  */
 export async function reconcileActiveRouteState(
   deps: RouteReconcileDeps
@@ -74,6 +81,14 @@ export async function reconcileActiveRouteState(
   const routeOrder = deps.getRouteOrder();
   const routeDeliveryStatus = deps.getRouteDeliveryStatus();
   const routeDeliveries = deps.getRouteDeliveries();
+
+  if (deps.isRouteCompletedAwaitingDismiss()) {
+    return {
+      wasCompleted: false,
+      rotaIdForResumo: deps.getCompletedRotaIdForResumo(),
+      stillActive: false,
+    };
+  }
 
   const noop: RouteReconcileResult = {
     wasCompleted: false,
@@ -93,11 +108,12 @@ export async function reconcileActiveRouteState(
     rotaAtiva = await getRotasAtiva(getTodayISO());
   } catch {
     if (locallyComplete && activeRouteId) {
-      return finalizeAndClearRoute(
+      return finalizeRouteKeepingVisual(
         activeRouteId,
         routeOrder,
         routeDeliveries,
-        deps.clearActiveRouteState
+        deps.markRouteCompletedPendingDismiss,
+        deps.stopBackgroundTracking
       );
     }
     return noop;
@@ -106,12 +122,17 @@ export async function reconcileActiveRouteState(
   if (!rotaAtiva || rotaAtiva.status === "sem_rota" || !rotaAtiva.rota_id) {
     if (activeRouteId) {
       if (locallyComplete || routeOrder.length === 0) {
-        return finalizeAndClearRoute(
-          activeRouteId,
-          routeOrder,
-          routeDeliveries,
-          deps.clearActiveRouteState
-        );
+        if (locallyComplete) {
+          return finalizeRouteKeepingVisual(
+            activeRouteId,
+            routeOrder,
+            routeDeliveries,
+            deps.markRouteCompletedPendingDismiss,
+            deps.stopBackgroundTracking
+          );
+        }
+        deps.clearActiveRouteState();
+        return { wasCompleted: false, rotaIdForResumo: null, stillActive: false };
       }
       deps.clearActiveRouteState();
     }
@@ -120,6 +141,15 @@ export async function reconcileActiveRouteState(
 
   const ordem = rotaAtiva.ordem ?? [];
   if (ordem.length === 0 || rotaAtiva.parada_atual >= ordem.length) {
+    if (locallyComplete && activeRouteId) {
+      return finalizeRouteKeepingVisual(
+        activeRouteId,
+        routeOrder,
+        routeDeliveries,
+        deps.markRouteCompletedPendingDismiss,
+        deps.stopBackgroundTracking
+      );
+    }
     deps.clearActiveRouteState();
     return { wasCompleted: false, rotaIdForResumo: null, stillActive: false };
   }
@@ -145,7 +175,13 @@ export async function reconcileActiveRouteState(
     afterOrder.length > 0 &&
     !routeHasPendingDeliveries(afterOrder, afterStatus)
   ) {
-    return finalizeAndClearRoute(afterId, afterOrder, afterDeliveries, deps.clearActiveRouteState);
+    return finalizeRouteKeepingVisual(
+      afterId,
+      afterOrder,
+      afterDeliveries,
+      deps.markRouteCompletedPendingDismiss,
+      deps.stopBackgroundTracking
+    );
   }
 
   return {
@@ -161,12 +197,11 @@ export function buildRouteReconcileDeps(
     routeOrder: number[];
     routeDeliveries: import("../types").EntregaListItem[];
     routeDeliveryStatus: Record<number, RouteDeliveryStatus>;
+    routeCompletedAwaitingDismiss: boolean;
+    completedRotaIdForResumo: string | null;
     clearActiveRouteState: () => void;
-    restoreActiveRoute: (payload: {
-      rota_id: string;
-      ordem: number[];
-      parada_atual: number;
-    }) => Promise<void>;
+    markRouteCompletedPendingDismiss: (rotaId: string) => void;
+    restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
   }
 ): RouteReconcileDeps {
   return {
@@ -175,6 +210,14 @@ export function buildRouteReconcileDeps(
     getRouteDeliveries: () => get().routeDeliveries,
     getRouteDeliveryStatus: () => get().routeDeliveryStatus,
     clearActiveRouteState: () => get().clearActiveRouteState(),
+    markRouteCompletedPendingDismiss: (rotaId) =>
+      get().markRouteCompletedPendingDismiss(rotaId),
+    isRouteCompletedAwaitingDismiss: () => get().routeCompletedAwaitingDismiss,
+    getCompletedRotaIdForResumo: () => get().completedRotaIdForResumo,
     restoreActiveRoute: (payload) => get().restoreActiveRoute(payload),
+    stopBackgroundTracking: () =>
+      import("../../../services/location/locationService").then((m) =>
+        m.stopBackgroundTracking()
+      ),
   };
 }

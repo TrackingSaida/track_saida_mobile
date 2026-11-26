@@ -274,6 +274,13 @@ interface DeliveryState {
 
   /** ID da rota ativa persistida no backend (null quando não há rota ativa). */
   activeRouteId: string | null;
+  /**
+   * Rota já finalizada no backend, mas pins/ordem ainda na tela
+   * até o usuário fechar o resumo ou sair da RouteBuilder.
+   */
+  routeCompletedAwaitingDismiss: boolean;
+  /** rota_id para resumo enquanto awaiting dismiss. */
+  completedRotaIdForResumo: string | null;
   /** Índice 0-based da próxima parada na rota ativa. */
   activeStopIndex: number;
   /**
@@ -341,6 +348,12 @@ interface DeliveryState {
   clearRoute: () => void;
   /** Limpa rota ativa e dados locais (logout ou quando backend não retorna rota ativa). */
   clearActiveRouteState: () => void;
+  /**
+   * Marca rota concluída sem zerar pins/ordem (GPS para; limpeza visual no dismiss).
+   */
+  markRouteCompletedPendingDismiss: (rotaId: string) => void;
+  /** Limpa visual após fechar resumo / sair da tela de rota. */
+  dismissCompletedRouteVisual: () => void;
   optimizeRoute: (opts?: OptimizeRouteOptions) => Promise<OptimizeRouteResult>;
   reorderRoute: (order: number[]) => void;
   setRouteDeliveryStatus: (idSaida: number, status: RouteDeliveryStatus) => void;
@@ -473,7 +486,14 @@ export function buildApplyRouteSyncDeps(get: () => DeliveryState, set: (p: Parti
     getRouteDeliveryStatus: () => get().routeDeliveryStatus,
     restoreActiveRoute: (payload: RotasAtivaResponse) => get().restoreActiveRoute(payload),
     clearActiveRouteState: () => get().clearActiveRouteState(),
+    markRouteCompletedPendingDismiss: (rotaId: string) =>
+      get().markRouteCompletedPendingDismiss(rotaId),
+    isRouteCompletedAwaitingDismiss: () => get().routeCompletedAwaitingDismiss,
     setActiveStopIndex: (index: number) => set({ activeStopIndex: index }),
+    stopBackgroundTracking: () =>
+      import("../services/location/locationService").then((m) =>
+        m.stopBackgroundTracking()
+      ),
   };
 }
 
@@ -501,6 +521,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   routeOrder: [],
   routeDeliveryStatus: {},
   activeRouteId: null,
+  routeCompletedAwaitingDismiss: false,
+  completedRotaIdForResumo: null,
   activeStopIndex: 0,
   backgroundTrackingNeedsResume: false,
   currentLocation: null,
@@ -1164,6 +1186,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeDeliveries: [],
       routeOrder: [],
       routeDeliveryStatus: {},
+      routeCompletedAwaitingDismiss: false,
+      completedRotaIdForResumo: null,
       routeOptimizationMode: null,
       routeDistanceM: null,
       routeDurationS: null,
@@ -1182,6 +1206,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     stopBackgroundTracking().catch(() => {});
     set({
       activeRouteId: null,
+      routeCompletedAwaitingDismiss: false,
+      completedRotaIdForResumo: null,
       activeStopIndex: 0,
       routeStarted: false,
       backgroundTrackingNeedsResume: false,
@@ -1203,6 +1229,18 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       routeAdjustMode: null,
       routeLastRecalcAnchor: null,
     });
+  },
+  markRouteCompletedPendingDismiss: (rotaId) => {
+    stopBackgroundTracking().catch(() => {});
+    set({
+      routeCompletedAwaitingDismiss: true,
+      completedRotaIdForResumo: rotaId,
+      backgroundTrackingNeedsResume: false,
+    });
+  },
+  dismissCompletedRouteVisual: () => {
+    if (!get().routeCompletedAwaitingDismiss) return;
+    get().clearActiveRouteState();
   },
   cancelActiveRoute: async () => {
     const { activeRouteId } = get();

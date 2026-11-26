@@ -430,17 +430,22 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
   const handleAbrirEntregueModal = () => setShowEntregueModal(true);
   const handleAbrirAusente = () => setModalAusente(true);
 
-  const handleAusenteSuccess = async (result?: { queued?: boolean }) => {
+  const handleAusenteSuccess = async (result?: {
+    queued?: boolean;
+    marcacao?: { routeJustCompleted?: boolean; rotaIdForResumo?: string | number | null };
+  }) => {
     setModalAusente(false);
+    const routeJustCompleted = result?.marcacao?.routeJustCompleted ?? false;
+    const rotaIdForResumo = result?.marcacao?.rotaIdForResumo ?? null;
     // Fecha e vai para a lista geral na hora (mesmo syncando).
     navigateToEntregasPendentes(navigation);
     runPostFinalizeFeedback({
       tipo: "ausente",
       codigo: entrega?.codigo,
       entregaAtrasada: false,
-      routeJustCompleted: false,
-      rotaIdForResumo: null,
-      isRouteFlow: false,
+      routeJustCompleted,
+      rotaIdForResumo,
+      isRouteFlow: routeJustCompleted,
       queued: result?.queued,
     });
   };

@@ -9,9 +9,14 @@ import {
   resolveCompletionContextAfterFinalize,
 } from "./determineCompletionContext";
 import {
+  groupOrderedByAddress,
+  getOrderedRouteDeliveries,
+} from "./routeUtils";
+import {
   useDiaRotaConcluidaStore,
   VALOR_DIA_LABEL,
   VALOR_ROTA_LABEL,
+  type RouteCompletionStats,
 } from "../../../store/diaRotaConcluidaStore";
 import { useDeliveryStore } from "../../../store/deliveryStore";
 import { recordHomeRouteCompleted } from "../../../store/homeRouteStore";
@@ -52,19 +57,73 @@ async function openDayCompletedModal(): Promise<boolean> {
   return true;
 }
 
-async function openRouteCompletedModal(rotaId: string | number): Promise<boolean> {
-  const resumo = await getRotaResumo(rotaId);
-  await recordHomeRouteCompleted(rotaId, resumo.paradas, resumo.pedidos).catch(() => undefined);
-  useDiaRotaConcluidaStore.getState().open({
+function buildLocalRouteCompletionStats(): RouteCompletionStats {
+  const { routeOrder, routeDeliveryStatus, routeDeliveries } =
+    useDeliveryStore.getState();
+  let entregues = 0;
+  let ausentes = 0;
+  let pendentes = 0;
+  for (const id of routeOrder) {
+    const st = routeDeliveryStatus[id];
+    if (st === "entregue") entregues += 1;
+    else if (st === "ausente") ausentes += 1;
+    else pendentes += 1;
+  }
+  const ordered = getOrderedRouteDeliveries(routeDeliveries, routeOrder);
+  const paradas =
+    ordered.length > 0 ? groupOrderedByAddress(ordered).length : routeOrder.length;
+  return {
     variant: "route",
-    paradas: resumo.paradas,
-    pedidos: resumo.pedidos,
-    entregues: resumo.entregues,
-    ausentes: resumo.ausentes,
-    pendentes: resumo.pendentes,
-    valorRota: String(resumo.valor_total ?? "0"),
+    paradas,
+    pedidos: routeOrder.length,
+    entregues,
+    ausentes,
+    pendentes,
+    valorRota: "0",
     valorLabel: VALOR_ROTA_LABEL,
-  });
+  };
+}
+
+async function openRouteCompletedModal(
+  rotaId: string | number | null | undefined
+): Promise<boolean> {
+  const existing = useDiaRotaConcluidaStore.getState();
+  if (existing.visible && existing.stats?.variant === "route") {
+    return true;
+  }
+
+  let stats: RouteCompletionStats | null = null;
+  if (rotaId != null && String(rotaId).trim() !== "") {
+    try {
+      const resumo = await getRotaResumo(rotaId);
+      await recordHomeRouteCompleted(rotaId, resumo.paradas, resumo.pedidos).catch(
+        () => undefined
+      );
+      stats = {
+        variant: "route",
+        paradas: resumo.paradas,
+        pedidos: resumo.pedidos,
+        entregues: resumo.entregues,
+        ausentes: resumo.ausentes,
+        pendentes: resumo.pendentes,
+        valorRota: String(resumo.valor_total ?? "0"),
+        valorLabel: VALOR_ROTA_LABEL,
+      };
+    } catch {
+      /* fallback local abaixo */
+    }
+  }
+
+  if (!stats) {
+    stats = buildLocalRouteCompletionStats();
+    if (rotaId != null && String(rotaId).trim() !== "") {
+      await recordHomeRouteCompleted(rotaId, stats.paradas, stats.pedidos).catch(
+        () => undefined
+      );
+    }
+  }
+
+  useDiaRotaConcluidaStore.getState().open(stats);
   return true;
 }
 
@@ -101,7 +160,8 @@ export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void
     onAfterIndividualAlert,
   } = opts;
 
-  const activeRouteId = useDeliveryStore.getState().activeRouteId;
+  const deliveryState = useDeliveryStore.getState();
+  const activeRouteId = deliveryState.activeRouteId;
 
   const syncContext = determineSyncCompletionContext({
     activeRouteId,
@@ -120,8 +180,12 @@ export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void
 
   void (async () => {
     try {
-      if (routeJustCompleted && rotaIdForResumo != null) {
-        await openRouteCompletedModal(rotaIdForResumo);
+      if (routeJustCompleted) {
+        const rotaId =
+          rotaIdForResumo ??
+          deliveryState.completedRotaIdForResumo ??
+          activeRouteId;
+        await openRouteCompletedModal(rotaId);
         return;
       }
 
@@ -144,6 +208,17 @@ export function runPostFinalizeFeedback(opts: PostFinalizeFeedbackOptions): void
       }
     } catch {
       /* feedback secundário não deve bloquear o fluxo operacional */
+      if (routeJustCompleted) {
+        try {
+          await openRouteCompletedModal(
+            rotaIdForResumo ??
+              useDeliveryStore.getState().completedRotaIdForResumo ??
+              useDeliveryStore.getState().activeRouteId
+          );
+        } catch {
+          /* ignore */
+        }
+      }
     }
   })();
 }

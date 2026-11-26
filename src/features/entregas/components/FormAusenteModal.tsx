@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../theme/colors";
 import { getEntrega } from "../api";
-import type { MotivoAusencia } from "../types";
+import type { MarcacaoEntregaResponse, MotivoAusencia } from "../types";
 import { getMotivosAusenciaCached } from "../utils/motivosAusenciaCache";
 import { enqueueAusenteCompletion } from "../../../services/outbox/deliveryOutboxService";
 import {
@@ -53,7 +53,10 @@ export interface FormAusenteModalProps {
     photoUris: string[];
   }) => Promise<void>;
   /** Chamado após enfileirar/concluir (sem nova chamada API). */
-  onSuccess?: (result?: { queued?: boolean }) => void | Promise<void>;
+  onSuccess?: (result?: {
+    queued?: boolean;
+    marcacao?: MarcacaoEntregaResponse;
+  }) => void | Promise<void>;
   /** Quando batchCount > 1, resolve ids finais antes do enqueue. */
   resolveBatchTargets?: () => Promise<number[]>;
   onClose: () => void;
@@ -420,7 +423,7 @@ export default function FormAusenteModal({
       await clearDeliveryPhotoDraft("ausente", primaryIdSaida);
       try {
         if (onSuccess) {
-          await onSuccess({ queued: result.queued });
+          await onSuccess({ queued: result.queued, marcacao: result.marcacao });
         } else if (onConfirm && !result.queued) {
           await onConfirm({
             motivoId,

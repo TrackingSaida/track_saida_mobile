@@ -166,7 +166,10 @@ export function useHomeData() {
       const result = await reconcileActiveRoute();
       const store = useDeliveryStore.getState();
       setRotaAtivaValid(
-        result.stillActive && store.activeRouteId != null && store.routeOrder.length > 0
+        result.stillActive &&
+          store.activeRouteId != null &&
+          store.routeOrder.length > 0 &&
+          !store.routeCompletedAwaitingDismiss
       );
       try {
         const { promptTransferenciasPendentes } = await import(
