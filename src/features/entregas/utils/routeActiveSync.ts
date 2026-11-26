@@ -1,7 +1,6 @@
 import { getRotasAtiva, getTodayISO, type RotasAtivaResponse } from "../api";
 import type { RotaSyncInfo } from "../types";
 import { getFirstPendingRouteIndex, type RouteDeliveryStatus as RouteStatusValue } from "./routeUtils";
-import { stopBackgroundTracking } from "../../../services/location/locationService";
 
 export type RouteFinalizeSyncResult = {
   routeJustCompleted: boolean;
@@ -16,16 +15,24 @@ type ApplyRouteSyncDeps = {
   getRouteDeliveryStatus: () => RouteDeliveryStatusMap;
   restoreActiveRoute: (payload: RotasAtivaResponse) => Promise<void>;
   clearActiveRouteState: () => void;
+  markRouteCompletedPendingDismiss: (rotaId: string) => void;
+  isRouteCompletedAwaitingDismiss: () => boolean;
   setActiveStopIndex: (index: number) => void;
+  stopBackgroundTracking?: () => Promise<void>;
 };
+
+async function stopTracking(deps: ApplyRouteSyncDeps): Promise<void> {
+  if (!deps.stopBackgroundTracking) return;
+  await deps.stopBackgroundTracking().catch(() => {});
+}
 
 export async function applyRouteSyncFromResponse(
   sync: RotaSyncInfo | null | undefined,
   deps: ApplyRouteSyncDeps
 ): Promise<RouteFinalizeSyncResult> {
   if (sync?.rota_finalizada && sync.rota_id) {
-    await stopBackgroundTracking().catch(() => {});
-    deps.clearActiveRouteState();
+    await stopTracking(deps);
+    deps.markRouteCompletedPendingDismiss(sync.rota_id);
     return { routeJustCompleted: true, rotaIdForResumo: sync.rota_id };
   }
 
@@ -51,12 +58,18 @@ export async function applyRouteSyncFromResponse(
 
   const activeRouteId = deps.getActiveRouteId();
   if (activeRouteId) {
+    if (deps.isRouteCompletedAwaitingDismiss()) {
+      return {
+        routeJustCompleted: true,
+        rotaIdForResumo: activeRouteId,
+      };
+    }
     try {
       const rotaAtiva = await getRotasAtiva(getTodayISO());
       if (!rotaAtiva || rotaAtiva.status === "sem_rota" || !rotaAtiva.rota_id) {
         const rotaId = activeRouteId;
-        await stopBackgroundTracking().catch(() => {});
-        deps.clearActiveRouteState();
+        await stopTracking(deps);
+        deps.markRouteCompletedPendingDismiss(rotaId);
         return { routeJustCompleted: true, rotaIdForResumo: rotaId };
       }
       if (rotaAtiva.rota_id !== activeRouteId || deps.getRouteOrder().length === 0) {

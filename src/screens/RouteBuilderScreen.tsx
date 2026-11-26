@@ -692,16 +692,25 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     });
   }, [deliveryForAusente, findGroupForDelivery, routeDeliveryStatus]);
 
-  const handleAusenteSuccess = useCallback(async (result?: { queued?: boolean }) => {
+  const handleAusenteSuccess = useCallback(async (result?: {
+    queued?: boolean;
+    marcacao?: MarcacaoEntregaResponse;
+  }) => {
     if (!deliveryForAusente) return;
     const codigoFeedback = deliveryForAusente.codigo;
-    const activeRotaId = useDeliveryStore.getState().activeRouteId;
+    const storeBefore = useDeliveryStore.getState();
+    const activeRotaId =
+      storeBefore.activeRouteId ?? storeBefore.completedRotaIdForResumo;
+    const routeJustCompleted = result?.marcacao?.routeJustCompleted ?? false;
+    const rotaIdForResumo =
+      result?.marcacao?.rotaIdForResumo ??
+      (routeJustCompleted ? activeRotaId : null);
 
     closeAusenteModal();
     setSelectedDelivery(null);
 
     try {
-      if (activeRotaId) {
+      if (activeRotaId && !routeJustCompleted) {
         try {
           recalcPolyline();
         } catch {
@@ -720,9 +729,9 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
         tipo: "ausente",
         codigo: codigoFeedback,
         entregaAtrasada: false,
-        routeJustCompleted: false,
-        rotaIdForResumo: null,
-        isRouteFlow: activeRotaId != null,
+        routeJustCompleted,
+        rotaIdForResumo,
+        isRouteFlow: activeRotaId != null || routeJustCompleted,
         queued: result?.queued,
       });
     } catch (e) {
@@ -1591,6 +1600,12 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }, [headerCompact]);
 
+  useEffect(() => {
+    return () => {
+      useDeliveryStore.getState().dismissCompletedRouteVisual();
+    };
+  }, []);
+
   return (
     <View style={styles.container}>
       <View style={styles.mapFull}>
@@ -1623,7 +1638,12 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
 
       <View style={[styles.header, (headerCompact || listModeOpen) && styles.headerCompact]}>
         <View style={[styles.headerRow, listModeOpen && { marginBottom: 0 }]}>
-          <HeaderBackButton onPress={() => navigation.goBack()} />
+          <HeaderBackButton
+            onPress={() => {
+              useDeliveryStore.getState().dismissCompletedRouteVisual();
+              navigation.goBack();
+            }}
+          />
           <View style={{ flex: 1 }} />
           {listModeOpen && (
             <TouchableOpacity

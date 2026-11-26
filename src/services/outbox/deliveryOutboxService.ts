@@ -55,9 +55,11 @@ function allLocallyEntregue(idSaidas: number[]): boolean {
 }
 
 function buildLocalRouteMarcacao(): MarcacaoEntregaResponse | undefined {
-  const { activeRouteId, routeOrder, routeDeliveryStatus } = useDeliveryStore.getState();
+  const store = useDeliveryStore.getState();
+  const { activeRouteId, routeOrder, routeDeliveryStatus } = store;
   if (!activeRouteId || routeOrder.length === 0) return undefined;
   if (routeHasPendingDeliveries(routeOrder, routeDeliveryStatus)) return undefined;
+  store.markRouteCompletedPendingDismiss(activeRouteId);
   return {
     ok: true,
     id_saida: 0,

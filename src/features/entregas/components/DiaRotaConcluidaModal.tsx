@@ -13,6 +13,7 @@ import * as Haptics from "expo-haptics";
 import { useNavigation, type NavigationProp, type ParamListBase } from "@react-navigation/native";
 import { useThemeColors } from "../../../theme/colors";
 import { useDiaRotaConcluidaStore } from "../../../store/diaRotaConcluidaStore";
+import { useDeliveryStore } from "../../../store/deliveryStore";
 import { formatCurrencyBRL } from "../utils/currency";
 import { playSound } from "../../../utils/sound";
 import { navigateToHomeInicio, navigateToMinhasEntregasHoje } from "../utils/navigationHelpers";
@@ -27,6 +28,14 @@ export default function DiaRotaConcluidaModal() {
   const playCelebration = useDiaRotaConcluidaStore((s) => s.playCelebration);
   const close = useDiaRotaConcluidaStore((s) => s.close);
   const consumeCelebration = useDiaRotaConcluidaStore((s) => s.consumeCelebration);
+
+  const closeAndDismissRouteVisual = () => {
+    const wasRoute = useDiaRotaConcluidaStore.getState().stats?.variant === "route";
+    close();
+    if (wasRoute) {
+      useDeliveryStore.getState().dismissCompletedRouteVisual();
+    }
+  };
 
   const styles = useMemo(
     () =>
@@ -113,12 +122,12 @@ export default function DiaRotaConcluidaModal() {
   const rootNav = navigation as NavigationProp<ParamListBase>;
 
   const handleVerEntregas = () => {
-    close();
+    closeAndDismissRouteVisual();
     navigateToMinhasEntregasHoje(rootNav);
   };
 
   const handleVoltarInicio = () => {
-    close();
+    closeAndDismissRouteVisual();
     navigateToHomeInicio(rootNav);
   };
 
@@ -132,7 +141,12 @@ export default function DiaRotaConcluidaModal() {
   const resumoTitle = isRoute ? "Resumo da rota" : "Resumo do dia";
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={closeAndDismissRouteVisual}
+    >
       <View style={styles.overlay}>
         <ScrollView
           style={styles.scroll}
