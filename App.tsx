@@ -19,6 +19,7 @@ import { SessionExpiredModal } from "./src/components/SessionExpiredModal";
 import PendingSyncBanner from "./src/components/PendingSyncBanner";
 import OperationalToast from "./src/components/OperationalToast";
 import { startSyncEngine } from "./src/services/outbox/syncEngine";
+import { startTelemetryClient } from "./src/services/telemetry/telemetryClient";
 import { hydrateOutboxStore } from "./src/store/outboxStore";
 import { ensureFreshAccessToken } from "./src/services/apiClient";
 import { recoverRouteState } from "./src/features/entregas/services/routeRecovery";
@@ -121,7 +122,11 @@ export default function App() {
     if (!token || requiresBiometricUnlock || !currentUser) return;
     void hydrateOutboxStore();
     const stopSync = startSyncEngine();
-    return () => stopSync();
+    const stopTelemetry = startTelemetryClient();
+    return () => {
+      stopSync();
+      stopTelemetry();
+    };
   }, [token, currentUser, requiresBiometricUnlock]);
 
   useEffect(() => {

@@ -199,6 +199,21 @@ export async function confirmarSaidaSessoes(input?: {
     } catch {
       /* best-effort */
     }
+    try {
+      const { trackTelemetry } = await import("../../services/telemetry/telemetryClient");
+      void trackTelemetry({
+        event_name: "saida_confirmada_client",
+        props: {
+          sessao_ids_count: Array.isArray(data?.sessao_ids)
+            ? data.sessao_ids.length
+            : Array.isArray(input?.sessao_ids)
+              ? input.sessao_ids.length
+              : 0,
+        },
+      });
+    } catch {
+      /* best-effort */
+    }
     return data;
   } catch (error) {
     throw error;
