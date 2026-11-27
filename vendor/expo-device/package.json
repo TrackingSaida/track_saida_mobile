@@ -1,9 +1,0 @@
-{
-  "name": "expo-device",
-  "version": "8.0.10",
-  "main": "build/index.js",
-  "types": "build/index.d.ts",
-  "peerDependencies": {
-    "react-native": "*"
-  }
-}
