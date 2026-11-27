@@ -1,6 +1,6 @@
 {
   "name": "track_saida_mobile",
-  "version": "1.16.13-RC",
+  "version": "1.16.13",
   "main": "index.ts",
   "scripts": {
     "postinstall": "patch-package",
