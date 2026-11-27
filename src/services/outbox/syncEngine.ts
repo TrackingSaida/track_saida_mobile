@@ -55,6 +55,24 @@ function auditSync(event: string, action: OutboxDeliveryAction, extra?: string):
   else console.info(base);
 }
 
+function trackSyncStage(
+  stage: "photos_ok" | "api_ok" | "fail",
+  action: OutboxDeliveryAction,
+  startedAt: number,
+  props?: Record<string, unknown>
+): void {
+  void import("../telemetry/telemetryClient").then(({ trackTelemetry }) =>
+    trackTelemetry({
+      event_name: "outbox_sync_stage",
+      client_action_id: action.clientActionId,
+      id_saida: action.idSaidas[0] ?? null,
+      duration_ms: Math.max(0, Date.now() - startedAt),
+      stage,
+      props: { kind: action.kind, ...(props || {}) },
+    })
+  );
+}
+
 function isAlreadyFinalizedError(e: unknown): boolean {
   const ax = e as AxiosError<{ detail?: string | { code?: string } }>;
   const detail = ax.response?.data?.detail;
@@ -307,6 +325,7 @@ async function markActionOnServer(
 }
 
 async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
+  const startedAt = Date.now();
   let current: OutboxDeliveryAction = { ...action, state: "syncing" };
   await persistAction(current);
   auditSync("sync_start", current);
@@ -314,6 +333,9 @@ async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
   if (current.photos.length > 0) {
     try {
       current = await uploadActionPhotos(current);
+      trackSyncStage("photos_ok", current, startedAt, {
+        photo_count: current.photos.length,
+      });
     } catch (error) {
       if (obsoleteActionReason(error)) {
         await discardObsoleteAction(current);
@@ -331,6 +353,7 @@ async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
   if (resultado.obsolete > 0) registrarPedidoRemovido(resultado.obsolete);
   await removeAction(action.actionId);
   auditSync("sync_ok", current);
+  trackSyncStage("api_ok", current, startedAt);
 }
 
 /**
@@ -395,6 +418,9 @@ export async function processOutboxQueue(): Promise<void> {
           failed,
           `permanent=${permanent} error=${msg.replace(/\s+/g, "_").slice(0, 160)}`
         );
+        trackSyncStage("fail", failed, action.createdAt || Date.now(), {
+          error_code: msg.replace(/\s+/g, "_").slice(0, 80),
+        });
 
         if (isNetworkOrTimeoutError(e)) break;
         if (failed.state === "pending") {

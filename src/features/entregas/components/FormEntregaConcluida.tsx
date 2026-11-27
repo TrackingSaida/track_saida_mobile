@@ -20,6 +20,10 @@ import type { MarcacaoEntregaResponse } from "../types";
 import { formatCPF, formatRG, unmaskCPF, unmaskRG } from "../utils/formatDocument";
 import { enqueueEntregueCompletion } from "../../../services/outbox/deliveryOutboxService";
 import {
+  createClientActionId,
+  trackTelemetry,
+} from "../../../services/telemetry/telemetryClient";
+import {
   takeDeliveryPhoto,
   pickDeliveryPhotoFromGallery,
   preparePhoto,
@@ -287,11 +291,15 @@ export default function FormEntregaConcluida({
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [draftReady, setDraftReady] = useState(false);
   const loadedIdSaidaRef = useRef<number | null>(null);
+  const clientActionIdRef = useRef<string | null>(null);
+  const formOpenedAtRef = useRef<number>(0);
   const formSessionKey = visible ? `open:${idSaida}` : "closed";
   const [activeFormSession, setActiveFormSession] = useState(formSessionKey);
   if (activeFormSession !== formSessionKey) {
     setActiveFormSession(formSessionKey);
     loadedIdSaidaRef.current = null;
+    clientActionIdRef.current = null;
+    formOpenedAtRef.current = 0;
     setPhotos([]);
     setTipoRecebedor("Comprador");
     setNomeRecebedor(visible ? destinatarioPreenchido?.trim() || "" : "");
@@ -308,8 +316,19 @@ export default function FormEntregaConcluida({
     if (!visible) {
       setDraftReady(false);
       loadedIdSaidaRef.current = null;
+      clientActionIdRef.current = null;
+      formOpenedAtRef.current = 0;
       return;
     }
+    const clientActionId = createClientActionId();
+    clientActionIdRef.current = clientActionId;
+    formOpenedAtRef.current = Date.now();
+    void trackTelemetry({
+      event_name: "baixa_form_aberto",
+      client_action_id: clientActionId,
+      id_saida: idSaida,
+      props: { kind: "entregue" },
+    });
     setError(null);
     setMissingKeys(new Set());
     setPhotos([]);
@@ -418,6 +437,12 @@ export default function FormEntregaConcluida({
         : (await preparePhoto(picked.uri, photos.length)).uri;
       const next = [...photos, { uri }];
       setPhotos(next);
+      void trackTelemetry({
+        event_name: "baixa_foto_capturada",
+        client_action_id: clientActionIdRef.current,
+        id_saida: idSaida,
+        props: { kind: "entregue", photo_count: next.length },
+      });
       await saveDeliveryPhotoDraft(
         "entregue",
         idSaida,
@@ -469,6 +494,17 @@ export default function FormEntregaConcluida({
       return;
     }
     setMissingKeys(new Set());
+    const clientActionId = clientActionIdRef.current || createClientActionId();
+    clientActionIdRef.current = clientActionId;
+    void trackTelemetry({
+      event_name: "baixa_confirm_tap",
+      client_action_id: clientActionId,
+      id_saida: idSaida,
+      duration_ms: formOpenedAtRef.current
+        ? Math.max(0, Date.now() - formOpenedAtRef.current)
+        : null,
+      props: { kind: "entregue", photo_count: photos.length },
+    });
     setSaving(true);
     try {
       const body: EntregueBody = {
@@ -485,6 +521,7 @@ export default function FormEntregaConcluida({
         body,
         photoUris,
         fotoObrigatoria,
+        clientActionId,
       });
       let marcacao = result.marcacao;
       if (!marcacao && onConfirm && !result.queued) {

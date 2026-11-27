@@ -1,7 +1,6 @@
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
-import Constants from "expo-constants";
 import { getPresignUpload, patchFotoSaida } from "../features/entregas/api";
 import type { AxiosError } from "axios";
 import { usePhotoCaptureStore } from "../store/photoCaptureStore";
@@ -20,15 +19,12 @@ import {
   formatAvulsoUploadLog,
   isTransientUploadFailure,
 } from "./avulsoUploadDiagnostics";
+import { getAppVersionForTelemetry } from "./telemetry/deviceSnapshot";
 
 export type { PhotoPickResult };
 
 function getAppVersionForLog(): string {
-  return (
-    Constants.expoConfig?.version ??
-    (typeof Constants.nativeAppVersion === "string" ? Constants.nativeAppVersion : null) ??
-    "?"
-  );
+  return getAppVersionForTelemetry() ?? "?";
 }
 
 function logAvulsoUpload(

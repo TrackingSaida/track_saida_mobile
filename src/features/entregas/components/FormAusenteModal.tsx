@@ -20,6 +20,10 @@ import type { MarcacaoEntregaResponse, MotivoAusencia } from "../types";
 import { getMotivosAusenciaCached } from "../utils/motivosAusenciaCache";
 import { enqueueAusenteCompletion } from "../../../services/outbox/deliveryOutboxService";
 import {
+  createClientActionId,
+  trackTelemetry,
+} from "../../../services/telemetry/telemetryClient";
+import {
   takeDeliveryPhoto,
   pickDeliveryPhotoFromGallery,
   preparePhoto,
@@ -85,12 +89,16 @@ export default function FormAusenteModal({
   const [draftReady, setDraftReady] = useState(false);
   const draftMotivoRef = useRef<number | null>(null);
   const loadedIdSaidaRef = useRef<number | null>(null);
+  const clientActionIdRef = useRef<string | null>(null);
+  const formOpenedAtRef = useRef<number>(0);
   const primaryIdSaida = idSaidas.find((id) => id > 0) ?? 0;
   const formSessionKey = visible ? `open:${primaryIdSaida}` : "closed";
   const [activeFormSession, setActiveFormSession] = useState(formSessionKey);
   if (activeFormSession !== formSessionKey) {
     setActiveFormSession(formSessionKey);
     loadedIdSaidaRef.current = null;
+    clientActionIdRef.current = null;
+    formOpenedAtRef.current = 0;
     setPhotos([]);
     setObservacao("");
     setMotivoId(null);
@@ -156,8 +164,19 @@ export default function FormAusenteModal({
     if (!visible) {
       setDraftReady(false);
       loadedIdSaidaRef.current = null;
+      clientActionIdRef.current = null;
+      formOpenedAtRef.current = 0;
       return;
     }
+    const clientActionId = createClientActionId();
+    clientActionIdRef.current = clientActionId;
+    formOpenedAtRef.current = Date.now();
+    void trackTelemetry({
+      event_name: "baixa_form_aberto",
+      client_action_id: clientActionId,
+      id_saida: primaryIdSaida || null,
+      props: { kind: "ausente" },
+    });
     setObservacao("");
     setMotivoId(null);
     setPhotos([]);
@@ -334,6 +353,12 @@ export default function FormAusenteModal({
           : (await preparePhoto(picked.uri, photos.length)).uri;
         const next = [...photos, { uri }];
         setPhotos(next);
+        void trackTelemetry({
+          event_name: "baixa_foto_capturada",
+          client_action_id: clientActionIdRef.current,
+          id_saida: primaryIdSaida || null,
+          props: { kind: "ausente", photo_count: next.length },
+        });
         await saveDeliveryPhotoDraft(
           "ausente",
           primaryIdSaida,
@@ -404,7 +429,17 @@ export default function FormAusenteModal({
       return;
     }
 
-    const uploadTargets = idSaidas.filter((id) => id > 0);
+    const clientActionId = clientActionIdRef.current || createClientActionId();
+    clientActionIdRef.current = clientActionId;
+    void trackTelemetry({
+      event_name: "baixa_confirm_tap",
+      client_action_id: clientActionId,
+      id_saida: primaryIdSaida || null,
+      duration_ms: formOpenedAtRef.current
+        ? Math.max(0, Date.now() - formOpenedAtRef.current)
+        : null,
+      props: { kind: "ausente", photo_count: photos.length },
+    });
 
     setSaving(true);
     try {
@@ -419,6 +454,7 @@ export default function FormAusenteModal({
         observacao: observacao.trim() || undefined,
         photoUris,
         fotoObrigatoria,
+        clientActionId,
       });
       await clearDeliveryPhotoDraft("ausente", primaryIdSaida);
       try {

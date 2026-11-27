@@ -1100,8 +1100,16 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   },
 
   finalizePendingBatch: async (body) => {
+    const startedAt = Date.now();
     const response = await finalizarLote(body);
+    const durationMs = Date.now() - startedAt;
     const finalizedIds = new Set(response.finalizados.map((f) => f.id_saida));
+    const nBloqueadosRota = response.bloqueados.filter((b) =>
+      /rota ativa/i.test(b.motivo || "")
+    ).length;
+    console.info(
+      `[audit_entrega] finalizar_lote_client duration_ms=${durationMs} n_ids=${body.ids.length} n_finalizados=${response.finalizados.length} n_bloqueados=${response.bloqueados.length} n_bloqueados_rota_ativa=${nBloqueadosRota}`
+    );
     if (finalizedIds.size > 0) {
       set((state) => {
         const routeDeliveryStatus = { ...state.routeDeliveryStatus };
@@ -1136,6 +1144,16 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       buildApplyRouteSyncDeps(get, set)
     );
     if (syncResult.routeJustCompleted) {
+      return { ...response, ...syncResult };
+    }
+    // Lote da lista não finaliza ids da rota ativa; reconcile só se algum id
+    // selecionado estava na ordem local (defesa) ou backend devolveu rota_sync.
+    const { activeRouteId, routeOrder } = get();
+    const selectedTouchesRoute =
+      activeRouteId != null &&
+      routeOrder.length > 0 &&
+      body.ids.some((id) => routeOrder.includes(id));
+    if (!selectedTouchesRoute && !response.rota_sync) {
       return { ...response, ...syncResult };
     }
     const reconcile = await reconcileActiveRouteState(buildRouteReconcileDeps(get));

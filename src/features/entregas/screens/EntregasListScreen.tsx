@@ -881,6 +881,12 @@ export default function EntregasListScreen({ navigation, route }: Props) {
     useCallback(() => {
       void loadTabCounts();
       if (tab === "pendente") {
+        void import("../../../services/telemetry/telemetryClient").then(({ trackTelemetry }) =>
+          trackTelemetry({
+            event_name: "pendentes_abertos",
+            props: { tab: "pendente" },
+          })
+        );
         void loadDeliveries({ onlyToday: somenteHojePendentes }).then((result) => {
           if (result.ok) {
             setTabCounts((prev) => ({ ...prev, pendente: result.count }));
@@ -2206,7 +2212,11 @@ export default function EntregasListScreen({ navigation, route }: Props) {
           {tab === "pendente" && batchLoading && (
             <View style={styles.batchLoadingOverlay} pointerEvents="auto">
               <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={styles.batchLoadingText}>Finalizando pedidos...</Text>
+              <Text style={styles.batchLoadingText}>
+                {selectedIds.size > 0
+                  ? `Finalizando ${selectedIds.size} pedido${selectedIds.size !== 1 ? "s" : ""}…`
+                  : "Finalizando pedidos…"}
+              </Text>
             </View>
           )}
           {tab === "pendente" && (

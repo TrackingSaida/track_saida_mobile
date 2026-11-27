@@ -88,8 +88,9 @@ export async function enqueueEntregueCompletion(params: {
   body: EntregueBody;
   photoUris: string[];
   fotoObrigatoria: boolean;
+  clientActionId?: string;
 }): Promise<EnqueueCompletionResult> {
-  const clientActionId = createClientActionId();
+  const clientActionId = params.clientActionId || createClientActionId();
   const idSaidas = [...new Set(params.idSaidas.filter((id) => id > 0))];
   const photoIds = params.photoUris.map(() => createPhotoId());
 
@@ -142,6 +143,14 @@ export async function enqueueEntregueCompletion(params: {
   console.info(
     `[audit_entrega] outbox_enqueued kind=entregue actionId=${actionId} clientActionId=${clientActionId} ids=${idSaidas.join(",")} photos=${photoEntries.length}`
   );
+  void import("../telemetry/telemetryClient").then(({ trackTelemetry }) =>
+    trackTelemetry({
+      event_name: "outbox_enqueued",
+      client_action_id: clientActionId,
+      id_saida: idSaidas[0] ?? null,
+      props: { kind: "entregue", photo_count: photoEntries.length },
+    })
+  );
   void processOutboxQueue();
   return { queued: true, actionId, marcacao: buildLocalRouteMarcacao() };
 }
@@ -152,8 +161,9 @@ export async function enqueueAusenteCompletion(params: {
   observacao?: string;
   photoUris: string[];
   fotoObrigatoria: boolean;
+  clientActionId?: string;
 }): Promise<EnqueueCompletionResult> {
-  const clientActionId = createClientActionId();
+  const clientActionId = params.clientActionId || createClientActionId();
   const idSaidas = [...new Set(params.idSaidas.filter((id) => id > 0))];
   const photoIds = params.photoUris.map(() => createPhotoId());
 
@@ -199,6 +209,14 @@ export async function enqueueAusenteCompletion(params: {
   console.info(
     `[audit_entrega] outbox_enqueued kind=ausente actionId=${actionId} clientActionId=${clientActionId} ids=${idSaidas.join(",")} photos=${photoEntries.length}`
   );
+  void import("../telemetry/telemetryClient").then(({ trackTelemetry }) =>
+    trackTelemetry({
+      event_name: "outbox_enqueued",
+      client_action_id: clientActionId,
+      id_saida: idSaidas[0] ?? null,
+      props: { kind: "ausente", photo_count: photoEntries.length },
+    })
+  );
   void processOutboxQueue();
   return { queued: true, actionId, marcacao: buildLocalRouteMarcacao() };
 }
@@ -207,8 +225,9 @@ export async function enqueueDevolucaoCompletion(params: {
   idSaidas: number[];
   observacao?: string;
   photoUris: string[];
+  clientActionId?: string;
 }): Promise<EnqueueCompletionResult> {
-  const clientActionId = createClientActionId();
+  const clientActionId = params.clientActionId || createClientActionId();
   const idSaidas = [...new Set(params.idSaidas.filter((id) => id > 0))];
   const photoIds = params.photoUris.map(() => createPhotoId());
 
@@ -250,6 +269,14 @@ export async function enqueueDevolucaoCompletion(params: {
   await persistAction(action);
   applyLocalDevolucao(idSaidas);
   await useOutboxStore.getState().refresh();
+  void import("../telemetry/telemetryClient").then(({ trackTelemetry }) =>
+    trackTelemetry({
+      event_name: "outbox_enqueued",
+      client_action_id: clientActionId,
+      id_saida: idSaidas[0] ?? null,
+      props: { kind: "devolucao", photo_count: photoEntries.length },
+    })
+  );
   void processOutboxQueue();
   return { queued: true, actionId, marcacao: buildLocalRouteMarcacao() };
 }

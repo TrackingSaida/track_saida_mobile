@@ -93,6 +93,17 @@ export default function BatchFinalizeResultModal({
         ? "Todos os pedidos selecionados precisam ser finalizados individualmente."
         : undefined;
 
+  const motivoExibido = (motivo: string) => {
+    const m = (motivo || "").trim();
+    if (/foto|comprovante/i.test(m)) {
+      return `${m} — finalize individualmente com comprovante.`;
+    }
+    if (/rota ativa/i.test(m)) {
+      return "Está na rota ativa — finalize pela rota ou um a um (lote não se aplica).";
+    }
+    return m;
+  };
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
@@ -106,7 +117,7 @@ export default function BatchFinalizeResultModal({
                 {bloqueados.map((b) => (
                   <View key={b.id_saida} style={styles.bloqueadoItem}>
                     <Text style={styles.bloqueadoCodigo}>{b.codigo ?? `Pedido ${b.id_saida}`}</Text>
-                    <Text style={styles.bloqueadoMotivo}>{b.motivo}</Text>
+                    <Text style={styles.bloqueadoMotivo}>{motivoExibido(b.motivo)}</Text>
                   </View>
                 ))}
               </ScrollView>

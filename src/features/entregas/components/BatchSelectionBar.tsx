@@ -118,7 +118,7 @@ export default function BatchSelectionBar({
     <View style={styles.wrap} onLayout={handleLayout}>
       <AppText style={styles.countText}>
         {loading
-          ? "Finalizando em lote..."
+          ? `Finalizando ${count}…`
           : `${count} selecionado${count !== 1 ? "s" : ""}`}
       </AppText>
       {overLimit && !loading ? (
