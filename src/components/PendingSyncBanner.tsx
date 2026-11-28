@@ -61,11 +61,37 @@ export default function PendingSyncBanner() {
   const failed = actions.filter((a) => a.state === "failed");
   const hasFailed = failed.length > 0;
   const errorText = lastSyncError || failed[0]?.lastError || null;
+  const coletaPending = actions.filter(
+    (a) =>
+      (a.state === "pending" || a.state === "failed" || a.state === "syncing") &&
+      (a.kind === "coleta_leitura" || a.kind === "coleta_finalizar")
+  ).length;
+  const entregaPending = pendingCount - coletaPending;
+  const pendingLabel = (() => {
+    if (coletaPending > 0 && entregaPending > 0) {
+      return `${pendingCount} pendência(s) (entregas e coletas)`;
+    }
+    if (coletaPending > 0) {
+      return coletaPending === 1
+        ? "1 coleta aguardando sincronização"
+        : `${coletaPending} coletas aguardando sincronização`;
+    }
+    return `${pendingCount} entrega(s) aguardando confirmação no servidor`;
+  })();
+  const syncingLabel = (() => {
+    if (coletaPending > 0 && entregaPending <= 0) {
+      return `Enviando ${pendingCount} coleta(s) ao servidor…`;
+    }
+    if (coletaPending > 0) {
+      return `Enviando ${pendingCount} pendência(s) ao servidor…`;
+    }
+    return `Enviando ${pendingCount} entrega(s) ao servidor…`;
+  })();
   const label = hasFailed
     ? `${failed.length} envio(s) com erro — toque em Tentar de novo`
     : isSyncing
-      ? `Enviando ${pendingCount} entrega(s) ao servidor…`
-      : `${pendingCount} entrega(s) aguardando confirmação no servidor`;
+      ? syncingLabel
+      : pendingLabel;
 
   const bg = hasFailed ? colors.danger + "22" : colors.warning + "22";
   const border = hasFailed ? colors.danger + "66" : colors.warning + "66";
@@ -73,11 +99,18 @@ export default function PendingSyncBanner() {
 
   const confirmDiscardFailed = () => {
     const count = failed.length;
+    const hasColetaFailed = failed.some(
+      (a) => a.kind === "coleta_leitura" || a.kind === "coleta_finalizar"
+    );
     Alert.alert(
       "Descartar envio com erro?",
       count === 1
-        ? "Remove este aviso do aparelho. Se a baixa já estiver no servidor, o pedido continua correto. Se ainda não gravou, você precisará baixar de novo."
-        : `Remove ${count} envios com erro deste aparelho. Se a baixa já estiver no servidor, os pedidos continuam corretos. Se ainda não gravou, será preciso baixar de novo.`,
+        ? hasColetaFailed
+          ? "Remove este aviso do aparelho. Se a ação já estiver no servidor, os dados continuam corretos. Se ainda não gravou, será preciso repetir."
+          : "Remove este aviso do aparelho. Se a baixa já estiver no servidor, o pedido continua correto. Se ainda não gravou, você precisará baixar de novo."
+        : hasColetaFailed
+          ? `Remove ${count} envios com erro deste aparelho. Se já estiverem no servidor, os dados continuam corretos. Se ainda não gravaram, será preciso repetir.`
+          : `Remove ${count} envios com erro deste aparelho. Se a baixa já estiver no servidor, os pedidos continuam corretos. Se ainda não gravou, será preciso baixar de novo.`,
       [
         { text: "Cancelar", style: "cancel" },
         {

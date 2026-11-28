@@ -46,10 +46,8 @@ import { playSound } from "../../../utils/sound";
 import {
   consultarResumoBaseColeta,
   consultarSituacaoColetas,
-  enviarColetaUnica,
   iniciarColetaOperacional,
   liberarParticipacaoColeta,
-  finalizarColetaOperacional,
   lancarAvulsoColeta,
   lancarColetaManualOperacional,
   obterConfigColetaOperacional,
@@ -59,6 +57,17 @@ import {
   type TotaisColetaBase,
 } from "../coletasApi";
 import { listarBasesAtivas, type BaseItem } from "../basesApi";
+import { isOnline } from "../../../services/outbox/networkStatus";
+import {
+  enqueueColetaFinalizar,
+  enqueueColetaLeitura,
+} from "../../../services/outbox/coletaOutboxService";
+import {
+  emptyBaseLocalState,
+  snapshotDoDiaAtual,
+  useColetaDaySnapshotStore,
+  type ColetaDaySnapshot,
+} from "../../../store/coletaDaySnapshotStore";
 import ColetaSituacaoBadge from "../components/ColetaSituacaoBadge";
 import { basesParaSeletorColeta, hojeOperacaoLocal, ontemOperacaoLocal, labelGrupoSeletorColeta, situacaoColetaBadgeColors } from "../utils/coletaSituacaoUi";
 import type { ColetaStatusFiltro } from "../utils/coletaSituacaoUi";
@@ -866,6 +875,71 @@ export default function LeituraColetasScreen() {
     setModoLeitorFisico(false);
   }, []);
 
+  const aplicarSituacaoItens = useCallback(
+    (itens: SituacaoBaseColeta[], estadoPorBaseId?: ColetaDaySnapshot["estadoPorBaseId"]) => {
+      const porId: Record<number, SituacaoBaseColeta> = {};
+      const porNome: Record<string, SituacaoBaseColeta> = {};
+      (itens || []).forEach((item) => {
+        const local = estadoPorBaseId?.[item.base_id];
+        let merged = item;
+        if (local?.finalizadaLocal) {
+          merged = {
+            ...item,
+            status: local.modoFinalizar === "sem_volume" ? "sem_volume" : "coletado",
+            participando: false,
+            id_execucao: local.idExecucao ?? item.id_execucao,
+          };
+        } else if (local?.idExecucao && !item.id_execucao) {
+          merged = { ...item, id_execucao: local.idExecucao };
+        }
+        if (merged.base_id) porId[merged.base_id] = merged;
+        if (merged.base) porNome[merged.base] = merged;
+      });
+      setSituacaoPorBaseId(porId);
+      setSituacaoPorNome(porNome);
+    },
+    []
+  );
+
+  const aplicarSnapshotOffline = useCallback(
+    (snap: ColetaDaySnapshot) => {
+      setBases(snap.bases || []);
+      if (snap.config) setConfigColeta(snap.config);
+      aplicarSituacaoItens(snap.situacaoItens || [], snap.estadoPorBaseId);
+    },
+    [aplicarSituacaoItens]
+  );
+
+  const persistirSnapshotDia = useCallback(
+    async (opts?: {
+      basesLista?: BaseItem[];
+      situacaoItens?: SituacaoBaseColeta[];
+      config?: ColetaOperacionalConfig | null;
+    }) => {
+      const prev = useColetaDaySnapshotStore.getState().snapshot;
+      const basesLista = opts?.basesLista ?? bases;
+      const situacaoItens =
+        opts?.situacaoItens ??
+        Object.values({
+          ...Object.fromEntries(
+            (prev?.situacaoItens || []).map((i) => [i.base_id, i])
+          ),
+          ...situacaoPorBaseId,
+        });
+      const config = opts?.config !== undefined ? opts.config : configColeta;
+      if (!basesLista.length && !situacaoItens.length) return;
+      await useColetaDaySnapshotStore.getState().saveSnapshot({
+        dataOperacao,
+        subBase: currentUser?.sub_base || prev?.subBase || "",
+        config,
+        bases: basesLista,
+        situacaoItens,
+        estadoPorBaseId: prev?.estadoPorBaseId || {},
+      });
+    },
+    [bases, configColeta, currentUser?.sub_base, dataOperacao, situacaoPorBaseId]
+  );
+
   /** Participação vazia do usuário atual elegível a DELETE (mesmos gates de podeVoltarPendente). */
   const getParticipacaoVaziaLiberavel = useCallback(
     (situacao?: SituacaoBaseColeta | null): SituacaoBaseColeta | null => {
@@ -920,27 +994,55 @@ export default function LeituraColetasScreen() {
     try {
       const payload = await obterConfigColetaOperacional();
       setConfigColeta(payload);
+      const snap = snapshotDoDiaAtual(
+        useColetaDaySnapshotStore.getState().snapshot,
+        dataOperacao,
+        currentUser?.sub_base
+      );
+      if (snap) {
+        await useColetaDaySnapshotStore.getState().saveSnapshot({
+          ...snap,
+          config: payload,
+          estadoPorBaseId: snap.estadoPorBaseId,
+        });
+      }
     } catch {
-      setConfigColeta(null);
+      const snap = snapshotDoDiaAtual(
+        useColetaDaySnapshotStore.getState().snapshot,
+        dataOperacao,
+        currentUser?.sub_base
+      );
+      if (snap?.config) setConfigColeta(snap.config);
+      else setConfigColeta(null);
     }
-  }, []);
+  }, [currentUser?.sub_base, dataOperacao]);
 
   const carregarSituacao = useCallback(async () => {
     try {
       const payload = await consultarSituacaoColetas(dataOperacao);
-      const porId: Record<number, SituacaoBaseColeta> = {};
-      const porNome: Record<string, SituacaoBaseColeta> = {};
-      (payload.itens || []).forEach((item) => {
-        if (item.base_id) porId[item.base_id] = item;
-        if (item.base) porNome[item.base] = item;
-      });
-      setSituacaoPorBaseId(porId);
-      setSituacaoPorNome(porNome);
+      const estado = useColetaDaySnapshotStore.getState().snapshot?.estadoPorBaseId;
+      aplicarSituacaoItens(payload.itens || [], estado);
+      await persistirSnapshotDia({ situacaoItens: payload.itens || [] });
     } catch {
+      const snap = snapshotDoDiaAtual(
+        useColetaDaySnapshotStore.getState().snapshot,
+        dataOperacao,
+        currentUser?.sub_base
+      );
+      if (snap) {
+        aplicarSnapshotOffline(snap);
+        return;
+      }
       setSituacaoPorBaseId({});
       setSituacaoPorNome({});
     }
-  }, [dataOperacao]);
+  }, [
+    aplicarSituacaoItens,
+    aplicarSnapshotOffline,
+    currentUser?.sub_base,
+    dataOperacao,
+    persistirSnapshotDia,
+  ]);
 
   const aplicarTotais = useCallback((totais?: TotaisColetaBase | null) => {
     if (!totais) return;
@@ -982,6 +1084,7 @@ export default function LeituraColetasScreen() {
     try {
       const lista = await listarBasesAtivas();
       setBases(lista);
+      await persistirSnapshotDia({ basesLista: lista });
       const selecionadaNome = aplicarSelecaoPendente(lista);
       if (selecionadaNome) {
         const item = lista.find((b) => b.base === selecionadaNome);
@@ -990,14 +1093,16 @@ export default function LeituraColetasScreen() {
           void carregarResumoBase(item.id_base);
           const metodo: "codigo" | "coleta_manual" =
             (configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser)) ? "codigo" : "coleta_manual";
-          try {
-            await iniciarColetaOperacional(item.id_base, {
-              metodo,
-              ajudar: isRetroativo,
-              ...(isRetroativo ? { data_operacao: dataOperacao } : {}),
-            });
-          } catch {
-            // Já coletada / outro usuário: só atualiza situação.
+          if (await isOnline()) {
+            try {
+              await iniciarColetaOperacional(item.id_base, {
+                metodo,
+                ajudar: isRetroativo,
+                ...(isRetroativo ? { data_operacao: dataOperacao } : {}),
+              });
+            } catch {
+              // Já coletada / outro usuário: só atualiza situação.
+            }
           }
           void carregarSituacao();
           return;
@@ -1008,15 +1113,28 @@ export default function LeituraColetasScreen() {
         return "";
       });
     } catch (e) {
+      const snap = snapshotDoDiaAtual(
+        useColetaDaySnapshotStore.getState().snapshot,
+        dataOperacao,
+        currentUser?.sub_base
+      );
+      if (snap && snap.bases.length > 0) {
+        aplicarSnapshotOffline(snap);
+        return;
+      }
       Alert.alert(
-        "Erro",
-        formatApiError(e, `Não foi possível carregar ${ownerTipoBase ? "os sellers" : "as bases"}.`)
+        "Sem conexão",
+        formatApiError(
+          e,
+          `Carregue ${ownerTipoBase ? "os sellers" : "as bases"} com internet neste aparelho para usar offline.`
+        )
       );
     } finally {
       setCarregandoBases(false);
     }
   }, [
     aplicarSelecaoPendente,
+    aplicarSnapshotOffline,
     carregarResumoBase,
     carregarSituacao,
     configColeta?.permite_leitura,
@@ -1024,6 +1142,7 @@ export default function LeituraColetasScreen() {
     dataOperacao,
     isRetroativo,
     ownerTipoBase,
+    persistirSnapshotDia,
   ]);
 
   React.useEffect(() => {
@@ -1051,9 +1170,30 @@ export default function LeituraColetasScreen() {
   useFocusEffect(
     useCallback(() => {
       capturarParametroRota();
-      void carregarBases();
-      void carregarSituacao();
-      void carregarConfig();
+      void (async () => {
+        await useColetaDaySnapshotStore.getState().hydrate();
+        const online = await isOnline();
+        if (!online) {
+          const snap = snapshotDoDiaAtual(
+            useColetaDaySnapshotStore.getState().snapshot,
+            dataOperacao,
+            currentUser?.sub_base
+          );
+          if (snap) {
+            aplicarSnapshotOffline(snap);
+            setCarregandoBases(false);
+            return;
+          }
+          Alert.alert(
+            "Sem conexão",
+            `Carregue a lista de ${ownerTipoBase ? "sellers" : "bases"} com internet neste aparelho para bipar offline.`
+          );
+          return;
+        }
+        void carregarBases();
+        void carregarSituacao();
+        void carregarConfig();
+      })();
       if (cameraPausadaPorLeituras.current) {
         cameraPausadaPorLeituras.current = false;
         setCameraAtiva(true);
@@ -1063,11 +1203,15 @@ export default function LeituraColetasScreen() {
         void liberarParticipacaoVaziaAtual();
       };
     }, [
+      aplicarSnapshotOffline,
       capturarParametroRota,
       carregarBases,
       carregarConfig,
       carregarSituacao,
+      currentUser?.sub_base,
+      dataOperacao,
       liberarParticipacaoVaziaAtual,
+      ownerTipoBase,
     ])
   );
 
@@ -1076,18 +1220,33 @@ export default function LeituraColetasScreen() {
       const baseAnteriorId = baseSelecionada?.id_base;
       const situacaoAnterior = situacaoSelecionadaRef.current;
       const situacaoAtual = situacaoPorBaseId[item.id_base] || situacaoPorNome[item.base];
+      const localEstado =
+        useColetaDaySnapshotStore.getState().snapshot?.estadoPorBaseId[item.id_base];
 
       if (!clientePermiteLancamentoColeta(item, dataOperacao, situacaoAtual)) {
         Alert.alert("Fora da agenda", MSG_FORA_AGENDA_COLETA);
         return;
       }
 
+      if (localEstado?.finalizadaLocal) {
+        Alert.alert(
+          "Base finalizada neste aparelho",
+          "Esta base já foi finalizada offline. Aguarde a sincronização ou escolha outra base."
+        );
+        return;
+      }
+
       setUltimaLeitura(null);
       setCodigosSessao(new Set());
-      setTotaisColeta(TOTAIS_VAZIOS);
+      const totaisLocais = localEstado?.totaisLocais;
+      setTotaisColeta(
+        totaisLocais && totaisLocais.total > 0 ? { ...totaisLocais } : TOTAIS_VAZIOS
+      );
       setBase(item.base);
       setModalBaseVisible(false);
-      void carregarResumoBase(item.id_base);
+      if (await isOnline()) {
+        void carregarResumoBase(item.id_base);
+      }
 
       if (
         (situacaoAtual?.status === "coletado" || situacaoAtual?.status === "sem_volume") &&
@@ -1108,16 +1267,31 @@ export default function LeituraColetasScreen() {
         (configColeta?.permite_leitura ?? permiteLeituraColeta(currentUser)) ? "codigo" : "coleta_manual";
 
       // Troca de base sem lançamento: libera a anterior (backend também cobre no iniciar).
-      if (baseAnteriorId && baseAnteriorId !== item.id_base) {
+      if (baseAnteriorId && baseAnteriorId !== item.id_base && (await isOnline())) {
         await liberarParticipacaoVaziaAtual(situacaoAnterior);
       }
 
+      // PRD-020: offline — só seleção local; iniciar lazy no sync.
+      if (!(await isOnline())) {
+        await useColetaDaySnapshotStore.getState().patchEstadoBase(item.id_base, {
+          ...(localEstado || emptyBaseLocalState()),
+          finalizadaLocal: false,
+        });
+        return;
+      }
+
       try {
-        await iniciarColetaOperacional(item.id_base, {
+        const exec = await iniciarColetaOperacional(item.id_base, {
           metodo,
           ajudar: Boolean(opts?.ajudar) || isRetroativo,
           ...(isRetroativo ? { data_operacao: dataOperacao } : {}),
         });
+        const idExec = Number(exec?.id_execucao) || 0;
+        if (idExec > 0) {
+          await useColetaDaySnapshotStore.getState().patchEstadoBase(item.id_base, {
+            idExecucao: idExec,
+          });
+        }
         await carregarSituacao();
       } catch (error: unknown) {
         const axiosError = error as {
@@ -1523,28 +1697,33 @@ export default function LeituraColetasScreen() {
             void (async () => {
               setLoading(true);
               try {
-                await lancarColetaManualOperacional({
-                  base_id: baseSelecionada.id_base,
-                  data_operacao: dataOperacao,
-                  shopee: 0,
-                  mercado_livre: 0,
-                  avulso: 0,
-                  sem_volume: true,
-                  origem_cliente: "mobile",
+                await enqueueColetaFinalizar({
+                  baseId: baseSelecionada.id_base,
+                  baseNome: baseSelecionada.base,
+                  dataOperacao,
+                  idExecucao: situacaoSelecionada?.id_execucao ?? null,
+                  modo: "sem_volume",
                 });
                 playSound("success");
                 void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                pushFeedback("sucesso", "Base marcada como sem volume.");
-                void carregarSituacao();
-                void carregarResumoBase(baseSelecionada.id_base);
+                pushFeedback("sucesso", "Sem volume registrado. Será enviado ao sincronizar.");
+                limparSelecaoLocal();
+                setSituacaoPorBaseId((prev) => {
+                  const atual = prev[baseSelecionada.id_base];
+                  if (!atual) return prev;
+                  return {
+                    ...prev,
+                    [baseSelecionada.id_base]: {
+                      ...atual,
+                      status: "sem_volume",
+                      participando: false,
+                    },
+                  };
+                });
               } catch (error) {
-                const axiosError = error as { response?: { status?: number } };
                 Alert.alert(
-                  axiosError?.response?.status === 422 ? "Fora da agenda" : "Não foi possível marcar",
-                  formatApiError(
-                    error,
-                    axiosError?.response?.status === 422 ? MSG_FORA_AGENDA_COLETA : "Tente novamente."
-                  )
+                  "Não foi possível marcar",
+                  formatApiError(error, "Tente novamente.")
                 );
               } finally {
                 setLoading(false);
@@ -1556,49 +1735,79 @@ export default function LeituraColetasScreen() {
     );
   }, [
     baseSelecionada,
-    carregarResumoBase,
-    carregarSituacao,
     dataOperacao,
     entidadeArticle,
     entidadeLabelLower,
+    limparSelecaoLocal,
     podeMarcarSemVolume,
     pushFeedback,
+    situacaoSelecionada?.id_execucao,
   ]);
 
   const handleFinalizarColeta = useCallback(async () => {
-    const idExecucao = situacaoSelecionada?.id_execucao;
-    if (!idExecucao) {
-      Alert.alert("Finalize depois", "Registre ao menos um pacote antes de finalizar.");
+    const baseId = baseSelecionada?.id_base;
+    const baseNome = baseSelecionada?.base || base.trim();
+    if (!baseId || !baseNome) {
+      Alert.alert("Finalize depois", `Selecione ${entidadeArticle} ${entidadeLabelLower} antes de finalizar.`);
       return;
     }
-    if ((totaisColeta.total ?? 0) <= 0 && situacaoSelecionada?.status !== "sem_volume") {
+    const localEstado =
+      useColetaDaySnapshotStore.getState().snapshot?.estadoPorBaseId[baseId];
+    const idExecucao =
+      situacaoSelecionada?.id_execucao || localEstado?.idExecucao || undefined;
+    const totalLocal = totaisColeta.total ?? 0;
+    if (totalLocal <= 0 && situacaoSelecionada?.status !== "sem_volume") {
       const meu = situacaoSelecionada?.participantes?.find((p) => p.user_id === currentUserId);
       if (!meu || ((meu.total ?? 0) <= 0 && !meu.sem_volume)) {
-        Alert.alert("Finalize depois", "Registre ao menos um pacote ou marque sem volume antes de finalizar.");
-        return;
+        if ((localEstado?.totaisLocais?.total ?? 0) <= 0) {
+          Alert.alert(
+            "Finalize depois",
+            "Registre ao menos um pacote ou marque sem volume antes de finalizar."
+          );
+          return;
+        }
       }
     }
     setLoading(true);
     try {
-      await finalizarColetaOperacional(idExecucao);
+      await enqueueColetaFinalizar({
+        baseId,
+        baseNome,
+        dataOperacao,
+        idExecucao: idExecucao ?? null,
+        modo: "coletado",
+      });
       playSound("success");
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      pushFeedback("sucesso", "Coleta finalizada.");
-      setCameraAtiva(false);
-      setModoManual(false);
-      setModoLeitorFisico(false);
-      void carregarSituacao();
-      if (baseSelecionada?.id_base) void carregarResumoBase(baseSelecionada.id_base);
+      pushFeedback("sucesso", "Coleta finalizada. Será enviada ao sincronizar.");
+      limparSelecaoLocal();
+      setSituacaoPorBaseId((prev) => {
+        const atual = prev[baseId];
+        if (!atual) return prev;
+        return {
+          ...prev,
+          [baseId]: {
+            ...atual,
+            status: "coletado",
+            participando: false,
+            id_execucao: idExecucao ?? atual.id_execucao,
+          },
+        };
+      });
     } catch (error) {
       Alert.alert("Não foi possível finalizar", formatApiError(error, "Tente novamente."));
     } finally {
       setLoading(false);
     }
   }, [
+    base,
+    baseSelecionada?.base,
     baseSelecionada?.id_base,
-    carregarResumoBase,
-    carregarSituacao,
     currentUserId,
+    dataOperacao,
+    entidadeArticle,
+    entidadeLabelLower,
+    limparSelecaoLocal,
     pushFeedback,
     situacaoSelecionada,
     totaisColeta.total,
@@ -1798,6 +2007,43 @@ export default function LeituraColetasScreen() {
         return;
       }
 
+      const baseId = baseSelecionada?.id_base;
+      if (!baseId) {
+        scanLocked.current = false;
+        Alert.alert(
+          `${entidadeLabel} obrigatóri${ownerTipoBase ? "o" : "a"}`,
+          `Selecione ${entidadeArticle} ${entidadeLabelLower} para registrar as coletas.`
+        );
+        return;
+      }
+
+      const localEstado =
+        useColetaDaySnapshotStore.getState().snapshot?.estadoPorBaseId[baseId];
+      if (localEstado?.finalizadaLocal) {
+        scanLocked.current = false;
+        playSound("warn");
+        pushFeedback(
+          "info",
+          "Base já finalizada neste aparelho. Escolha outra base.",
+          codigoNorm
+        );
+        return;
+      }
+
+      const snapDia = snapshotDoDiaAtual(
+        useColetaDaySnapshotStore.getState().snapshot,
+        dataOperacao,
+        currentUser?.sub_base
+      );
+      if (!snapDia && !(await isOnline())) {
+        scanLocked.current = false;
+        Alert.alert(
+          "Sem conexão",
+          `Carregue a lista de ${ownerTipoBase ? "sellers" : "bases"} com internet neste aparelho para bipar offline.`
+        );
+        return;
+      }
+
       setCodigosSessao((prev) => {
         const next = new Set(prev);
         next.add(codigoNorm.toUpperCase());
@@ -1810,80 +2056,42 @@ export default function LeituraColetasScreen() {
 
       setLoading(true);
       try {
-        const result = await enviarColetaUnica({
-          base: baseTrimmed,
+        await enqueueColetaLeitura({
+          baseId,
+          baseNome: baseTrimmed,
+          dataOperacao,
           item: {
             codigo: codigoNorm,
             servico,
-            qr_payload_raw: classified.qr_payload_raw,
+            ...(classified.qr_payload_raw
+              ? { qr_payload_raw: classified.qr_payload_raw }
+              : {}),
           },
-          ...(isRetroativo ? { dataOperacao } : {}),
         });
-        const inseridos = Number(result.resumo?.inseridos ?? 0);
-        const soQrAtualizado = Boolean(result.qr_atualizado) && inseridos === 0;
-        setUltimaLeitura({
-          codigo: codigoNorm,
-          servico,
-          status: soQrAtualizado ? "enviado" : "enviado",
+        setUltimaLeitura({ codigo: codigoNorm, servico, status: "enviado" });
+        setTotaisColeta((prev) => {
+          const next = { ...prev };
+          if (servico === "Shopee") next.shopee += 1;
+          else if (servico === "Mercado Livre") next.mercado_livre += 1;
+          else next.avulso += 1;
+          next.total = next.shopee + next.mercado_livre + next.avulso;
+          return next;
         });
-        if (result.totais) {
-          aplicarTotais(result.totais);
-        } else if (!soQrAtualizado) {
-          setTotaisColeta((prev) => {
-            const next = { ...prev };
-            if (servico === "Shopee") next.shopee += 1;
-            else if (servico === "Mercado Livre") next.mercado_livre += 1;
-            else next.avulso += 1;
-            next.total = next.shopee + next.mercado_livre + next.avulso;
-            return next;
-          });
-        }
-        if (result.qr_atualizado) {
-          playSound("success");
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          pushFeedback("sucesso", "QR da etiqueta salvo.", codigoNorm);
-        } else if (result.qr_alerta) {
-          playSound("warn");
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          pushFeedback(
-            "duplicado",
-            result.qr_alerta_mensagem ||
-              "Bipe de novo o QR do Mercado Livre para a etiqueta.",
-            codigoNorm
-          );
-        } else {
-          playSound("success");
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          pushFeedback("sucesso", "Coleta registrada com sucesso.", codigoNorm);
-        }
+        playSound("success");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        pushFeedback("sucesso", "Coleta registrada. Será enviada ao sincronizar.", codigoNorm);
       } catch (err) {
-        const ax = err as {
-          response?: { status?: number; data?: { detail?: string } };
-        };
-        const status = ax.response?.status;
-        const detail = ax.response?.data?.detail;
-
-        if (status === 409) {
-          setUltimaLeitura({ codigo: codigoNorm, servico, status: "duplicado" });
-          playSound("warn");
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          pushFeedback("duplicado", String(detail || "Código já coletado."), codigoNorm);
-        } else {
-          setCodigosSessao((prev) => {
-            const next = new Set(prev);
-            next.delete(codigoNorm.toUpperCase());
-            return next;
-          });
-          setUltimaLeitura({ codigo: codigoNorm, servico, status: "erro" });
-          playSound("error");
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          const mensagemErro = formatApiError(
-            err,
-            status === 422 ? MSG_FORA_AGENDA_COLETA : "Falha ao registrar a coleta."
-          );
-          pushFeedback("erro", mensagemErro, codigoNorm);
-          Alert.alert(status === 422 ? "Fora da agenda" : "Erro ao enviar", mensagemErro);
-        }
+        setCodigosSessao((prev) => {
+          const next = new Set(prev);
+          next.delete(codigoNorm.toUpperCase());
+          return next;
+        });
+        setUltimaLeitura({ codigo: codigoNorm, servico, status: "erro" });
+        playSound("error");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        const mensagemErro = formatApiError(err, "Falha ao registrar a coleta.");
+        pushFeedback("erro", mensagemErro, codigoNorm);
+        Alert.alert("Erro ao enfileirar", mensagemErro);
       } finally {
         setLoading(false);
         setTimeout(() => {
@@ -1891,7 +2099,19 @@ export default function LeituraColetasScreen() {
         }, 400);
       }
     },
-    [aplicarTotais, base, codigosLidosSessao, dataOperacao, entidadeLabel, entidadeLabelLower, entidadeArticle, ignorarColeta, isRetroativo, ownerTipoBase, podeLerColeta, pushFeedback]
+    [
+      base,
+      baseSelecionada?.id_base,
+      codigosLidosSessao,
+      dataOperacao,
+      entidadeLabel,
+      entidadeLabelLower,
+      entidadeArticle,
+      ignorarColeta,
+      ownerTipoBase,
+      podeLerColeta,
+      pushFeedback,
+    ]
   );
 
   const handleRegistrarManual = useCallback(async () => {
