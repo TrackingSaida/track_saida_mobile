@@ -351,17 +351,22 @@ export default function DevolverPacotesScreen({ navigation }: Props) {
         codigo: selected?.codigo ?? undefined,
         photoUri,
       });
-      const picked = await takeDeliveryPhoto({
+      const result = await takeDeliveryPhoto({
         kind: "devolucao",
         idSaida: selected?.id_saida ?? null,
       });
-      if (!picked) return;
-      // takeDeliveryPhoto já passou por preparePhoto.
-      setPhotoUri(picked.uri);
+      if (!result.ok) {
+        if (result.reason !== "cancel") {
+          Alert.alert("Foto", result.message || "Não foi possível tirar a foto.");
+        }
+        return;
+      }
+      // takeDeliveryPhoto já faz preparePhoto antes de fechar a câmera.
+      setPhotoUri(result.photo.uri);
       await saveDevolucaoPhotoDraft({
         idSaida: selected?.id_saida ?? null,
         codigo: selected?.codigo ?? undefined,
-        photoUri: picked.uri,
+        photoUri: result.photo.uri,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Não foi possível tirar a foto.";

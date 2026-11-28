@@ -5,10 +5,13 @@ import { getPresignUpload, patchFotoSaida } from "../features/entregas/api";
 import type { AxiosError } from "axios";
 import { usePhotoCaptureStore } from "../store/photoCaptureStore";
 import {
+  PHOTO_PIPELINE_TIMEOUT_MS,
   PREPARE_MAX_WIDTH,
+  createPhotoAttemptId,
   shouldSkipImageResize,
   type PendingCaptureScope,
   type PhotoPickResult,
+  type TakePhotoResult,
 } from "./photoFlowUtils";
 import {
   AVULSO_UPLOAD_MAX_ATTEMPTS,
@@ -20,8 +23,26 @@ import {
   isTransientUploadFailure,
 } from "./avulsoUploadDiagnostics";
 import { getAppVersionForTelemetry } from "./telemetry/deviceSnapshot";
+import { trackBaixaFotoStage } from "./telemetry/photoPipelineTelemetry";
 
-export type { PhotoPickResult };
+export type { PhotoPickResult, TakePhotoResult };
+
+export type PreparePhotoMeta = {
+  attemptId?: string | null;
+  clientActionId?: string | null;
+  kind?: string | null;
+  idSaida?: number | null;
+  source?: "camera" | "gallery";
+  /** Emite estágios prepare_* na telemetria. */
+  trackStages?: boolean;
+};
+
+export type PreparePhotoResult = PhotoPickResult & {
+  bytesIn?: number;
+  bytesOut?: number;
+  skippedResize: boolean;
+  resizeFailed: boolean;
+};
 
 function getAppVersionForLog(): string {
   return getAppVersionForTelemetry() ?? "?";
@@ -53,7 +74,8 @@ export async function selectOrTakePhoto(): Promise<PhotoPickResult | null> {
     Alert.alert("Adicionar foto", "Escolha uma opção", [
       {
         text: "Tirar foto",
-        onPress: () => takeDeliveryPhoto().then(resolve),
+        onPress: () =>
+          takeDeliveryPhoto().then((r) => resolve(r.ok ? r.photo : null)),
       },
       {
         text: "Galeria",
@@ -64,22 +86,141 @@ export async function selectOrTakePhoto(): Promise<PhotoPickResult | null> {
   });
 }
 
-/** Captura in-app (não abre a câmera do sistema) e persiste o JPEG em disco. */
+/**
+ * Captura in-app: a câmera já faz persist + preparePhoto antes de fechar.
+ * Retorna TakePhotoResult (cancel / error / timeout / ok com foto pronta).
+ */
 export async function takeDeliveryPhoto(
   scope?: PendingCaptureScope
-): Promise<PhotoPickResult | null> {
+): Promise<TakePhotoResult> {
+  const attemptId = scope?.attemptId || createPhotoAttemptId();
+  const scoped: PendingCaptureScope = {
+    ...(scope || { kind: "entregue" }),
+    attemptId,
+  };
   try {
-    const captured = await usePhotoCaptureStore.getState().requestCapture(scope);
-    if (!captured) return null;
-    return await preparePhoto(captured.uri);
+    return await usePhotoCaptureStore.getState().requestCapture(scoped);
   } finally {
     usePhotoCaptureStore.getState().releaseHardware();
   }
 }
 
-/** Abre a galeria para escolher foto de comprovante. */
+/** Abre a galeria para escolher foto de comprovante (sem prepare). */
 export async function pickDeliveryPhotoFromGallery(): Promise<PhotoPickResult | null> {
   return openGallery();
+}
+
+/**
+ * Galeria + prepare com timeout e telemetria (mesmo pipeline da câmera).
+ */
+export async function pickAndPrepareDeliveryPhoto(opts?: {
+  indexHint?: number;
+  kind?: string | null;
+  idSaida?: number | null;
+  clientActionId?: string | null;
+  attemptId?: string | null;
+}): Promise<TakePhotoResult> {
+  const attemptId = opts?.attemptId || createPhotoAttemptId();
+  const kind = opts?.kind ?? null;
+  const idSaida = opts?.idSaida ?? null;
+  const clientActionId = opts?.clientActionId ?? null;
+  const pipelineStarted = Date.now();
+
+  void trackBaixaFotoStage({
+    stage: "shutter_start",
+    attempt_id: attemptId,
+    source: "gallery",
+    kind,
+    id_saida: idSaida,
+    client_action_id: clientActionId,
+  });
+
+  try {
+    const picked = await Promise.race([
+      openGallery(),
+      sleep(PHOTO_PIPELINE_TIMEOUT_MS).then(() => {
+        throw Object.assign(new Error("timeout"), { name: "PhotoPipelineTimeout" });
+      }),
+    ]);
+
+    if (!picked) {
+      void trackBaixaFotoStage({
+        stage: "pipeline_abort",
+        attempt_id: attemptId,
+        source: "gallery",
+        kind,
+        id_saida: idSaida,
+        client_action_id: clientActionId,
+        duration_ms: Date.now() - pipelineStarted,
+        flushNow: true,
+      });
+      return { ok: false, reason: "cancel" };
+    }
+
+    void trackBaixaFotoStage({
+      stage: "capture_done",
+      attempt_id: attemptId,
+      source: "gallery",
+      kind,
+      id_saida: idSaida,
+      client_action_id: clientActionId,
+      duration_ms: Date.now() - pipelineStarted,
+    });
+
+    const remaining = Math.max(1_000, PHOTO_PIPELINE_TIMEOUT_MS - (Date.now() - pipelineStarted));
+    const prepared = await Promise.race([
+      preparePhoto(picked.uri, opts?.indexHint, {
+        attemptId,
+        clientActionId,
+        kind,
+        idSaida,
+        source: "gallery",
+        trackStages: true,
+      }),
+      sleep(remaining).then(() => {
+        throw Object.assign(new Error("timeout"), { name: "PhotoPipelineTimeout" });
+      }),
+    ]);
+
+    return { ok: true, photo: prepared };
+  } catch (e) {
+    if (e instanceof Error && e.name === "PhotoPipelineTimeout") {
+      void trackBaixaFotoStage({
+        stage: "pipeline_timeout",
+        attempt_id: attemptId,
+        source: "gallery",
+        kind,
+        id_saida: idSaida,
+        client_action_id: clientActionId,
+        duration_ms: Date.now() - pipelineStarted,
+        error_code: "TIMEOUT",
+        flushNow: true,
+      });
+      return {
+        ok: false,
+        reason: "timeout",
+        message:
+          "O processamento da foto demorou mais que o esperado.\nTente novamente.",
+        errorCode: "TIMEOUT",
+      };
+    }
+    const message =
+      e instanceof Error && e.message
+        ? e.message
+        : "Não foi possível adicionar a foto.";
+    void trackBaixaFotoStage({
+      stage: "capture_fail",
+      attempt_id: attemptId,
+      source: "gallery",
+      kind,
+      id_saida: idSaida,
+      client_action_id: clientActionId,
+      duration_ms: Date.now() - pipelineStarted,
+      error_code: "GALLERY_FAIL",
+      flushNow: true,
+    });
+    return { ok: false, reason: "error", message, errorCode: "GALLERY_FAIL" };
+  }
 }
 
 async function openGallery(): Promise<PhotoPickResult | null> {
@@ -143,7 +284,26 @@ async function fileSizeBytes(uri: string): Promise<number | undefined> {
 }
 
 /** Redimensiona se necessário e copia para URI única. Se o resize falhar, usa o arquivo original. */
-export async function preparePhoto(uri: string, indexHint?: number): Promise<PhotoPickResult> {
+export async function preparePhoto(
+  uri: string,
+  indexHint?: number,
+  meta?: PreparePhotoMeta
+): Promise<PreparePhotoResult> {
+  const track = !!meta?.trackStages && !!meta.attemptId;
+  const source = meta?.source || "camera";
+  const prepareStarted = Date.now();
+
+  if (track) {
+    void trackBaixaFotoStage({
+      stage: "prepare_start",
+      attempt_id: meta!.attemptId!,
+      source,
+      kind: meta?.kind,
+      id_saida: meta?.idSaida,
+      client_action_id: meta?.clientActionId,
+    });
+  }
+
   await ensurePhotosDir();
   const filename = uniquePhotoFilename(indexHint);
   const dest = `${PHOTOS_DIR}${filename}`;
@@ -156,9 +316,33 @@ export async function preparePhoto(uri: string, indexHint?: number): Promise<Pho
 
   if (shouldSkipImageResize(size)) {
     await copyOriginal();
-    return { uri: dest, mimeType: "image/jpeg", filename };
+    const outSize = (await fileSizeBytes(dest)) ?? size;
+    if (track) {
+      void trackBaixaFotoStage({
+        stage: "prepare_done",
+        attempt_id: meta!.attemptId!,
+        source,
+        kind: meta?.kind,
+        id_saida: meta?.idSaida,
+        client_action_id: meta?.clientActionId,
+        duration_ms: Date.now() - prepareStarted,
+        bytes_in: size ?? null,
+        bytes_out: outSize ?? null,
+        skipped_resize: true,
+      });
+    }
+    return {
+      uri: dest,
+      mimeType: "image/jpeg",
+      filename,
+      bytesIn: size,
+      bytesOut: outSize,
+      skippedResize: true,
+      resizeFailed: false,
+    };
   }
 
+  let resizeFailed = false;
   try {
     const manipulated = await ImageManipulator.manipulateAsync(
       uri,
@@ -167,13 +351,64 @@ export async function preparePhoto(uri: string, indexHint?: number): Promise<Pho
     );
     await FileSystem.copyAsync({ from: manipulated.uri, to: dest });
   } catch (e) {
+    resizeFailed = true;
     console.warn("[preparePhoto] resize falhou, usando arquivo em disco", e);
+    if (track) {
+      void trackBaixaFotoStage({
+        stage: "prepare_fail",
+        attempt_id: meta!.attemptId!,
+        source,
+        kind: meta?.kind,
+        id_saida: meta?.idSaida,
+        client_action_id: meta?.clientActionId,
+        duration_ms: Date.now() - prepareStarted,
+        bytes_in: size ?? null,
+        error_code: "RESIZE_FAIL",
+        flushNow: true,
+      });
+    }
     await copyOriginal();
   }
+
+  const outSize = await fileSizeBytes(dest);
+  if (track && !resizeFailed) {
+    void trackBaixaFotoStage({
+      stage: "prepare_done",
+      attempt_id: meta!.attemptId!,
+      source,
+      kind: meta?.kind,
+      id_saida: meta?.idSaida,
+      client_action_id: meta?.clientActionId,
+      duration_ms: Date.now() - prepareStarted,
+      bytes_in: size ?? null,
+      bytes_out: outSize ?? null,
+      skipped_resize: false,
+    });
+  } else if (track && resizeFailed) {
+    // prepare_fail já emitido; ainda assim registra done com fallback
+    void trackBaixaFotoStage({
+      stage: "prepare_done",
+      attempt_id: meta!.attemptId!,
+      source,
+      kind: meta?.kind,
+      id_saida: meta?.idSaida,
+      client_action_id: meta?.clientActionId,
+      duration_ms: Date.now() - prepareStarted,
+      bytes_in: size ?? null,
+      bytes_out: outSize ?? null,
+      skipped_resize: false,
+      error_code: "RESIZE_FALLBACK",
+    });
+  }
+
   return {
     uri: dest,
     mimeType: "image/jpeg",
     filename,
+    bytesIn: size,
+    bytesOut: outSize,
+    skippedResize: false,
+    resizeFailed,
   };
 }
 

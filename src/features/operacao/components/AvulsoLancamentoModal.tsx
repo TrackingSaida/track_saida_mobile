@@ -20,7 +20,6 @@ import {
   validarLancamentoAvulso,
 } from "../utils/avulsoLancamento";
 import {
-  preparePhoto,
   takeDeliveryPhoto,
   uploadAvulsoFotoPending,
 } from "../../../services/deliveryPhotoService";
@@ -340,12 +339,17 @@ export default function AvulsoLancamentoModal({
           photoId: uploadedByLocalIdRef.current[f.id]?.photoId,
         })),
       });
-      const picked = await takeDeliveryPhoto({ kind: "avulso" });
-      if (!picked) return;
-      const prepared = await preparePhoto(picked.uri, fotos.length + 1);
+      const result = await takeDeliveryPhoto({ kind: "avulso" });
+      if (!result.ok) {
+        if (result.reason !== "cancel") {
+          Alert.alert("Foto", result.message || "Não foi possível abrir a câmera.");
+        }
+        return;
+      }
+      // takeDeliveryPhoto já faz preparePhoto antes de fechar a câmera.
       const next = [
         ...fotos,
-        { id: `local-${Date.now()}-${fotos.length}`, uri: prepared.uri },
+        { id: `local-${Date.now()}-${fotos.length}`, uri: result.photo.uri },
       ];
       setFotos(next);
       await saveAvulsoPhotoDraft({
