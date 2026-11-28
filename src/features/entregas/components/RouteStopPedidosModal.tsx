@@ -22,7 +22,7 @@ interface RouteStopPedidosModalProps {
 
 function statusLabel(status: RouteDeliveryStatus): string {
   if (status === "entregue") return "Entregue";
-  if (status === "ausente") return "Ausente";
+  if (status === "ausente") return "Ocorrência";
   if (status === "cancelado") return "Cancelado";
   return "Pendente";
 }

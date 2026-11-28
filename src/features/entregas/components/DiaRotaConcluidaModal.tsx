@@ -178,7 +178,7 @@ export default function DiaRotaConcluidaModal() {
                     <Text style={styles.resumoValue}>{stats.entregues}</Text>
                   </View>
                   <View style={styles.resumoRow}>
-                    <Text style={styles.resumoLabel}>Ausentes</Text>
+                    <Text style={styles.resumoLabel}>Ocorrências</Text>
                     <Text style={styles.resumoValue}>{stats.ausentes}</Text>
                   </View>
                   <View style={styles.resumoRow}>
@@ -195,7 +195,7 @@ export default function DiaRotaConcluidaModal() {
                     <Text style={styles.resumoValue}>{stats.entregues}</Text>
                   </View>
                   <View style={styles.resumoRow}>
-                    <Text style={styles.resumoLabel}>Ausentes</Text>
+                    <Text style={styles.resumoLabel}>Ocorrências</Text>
                     <Text style={styles.resumoValue}>{stats.ausentes}</Text>
                   </View>
                   <View style={styles.resumoRow}>

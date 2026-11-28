@@ -151,7 +151,7 @@ export function isResumeWorthyDraft(draft: PhotoFlowDraft, now = Date.now()): bo
 export function resumeCopyForKind(kind: PhotoFlowKind): { title: string; subtitle: string } {
   if (kind === "ausente") {
     return {
-      title: "Foto de ausência não concluída",
+      title: "Foto de ocorrência não concluída",
       subtitle: "O app fechou depois da foto. Continuar de onde parou?",
     };
   }

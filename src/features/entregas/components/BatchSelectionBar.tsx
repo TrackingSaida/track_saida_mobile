@@ -146,7 +146,7 @@ export default function BatchSelectionBar({
           disabled={actionsDisabled}
         >
           <AppText style={styles.btnText} numberOfLines={2}>
-            Marcar ausente
+            Registrar ocorrência
           </AppText>
         </TouchableOpacity>
       </View>

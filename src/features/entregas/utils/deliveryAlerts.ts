@@ -36,9 +36,9 @@ export function alertAusenciaRegistrada(
 ): void {
   const cod = (codigo || "Pedido").trim() || "Pedido";
   if (pendingSync) {
-    showToast("Enviando ausência", `${cod}.${SYNC_PENDING_SUFFIX}`, "warn");
+    showToast("Enviando ocorrência", `${cod}.${SYNC_PENDING_SUFFIX}`, "warn");
   } else {
-    showToast("Ausência registrada", `${cod} marcado como ausente.`, "warn");
+    showToast("Ocorrência registrada", `${cod} marcado com ocorrência.`, "warn");
   }
   onOk?.();
 }
@@ -51,14 +51,14 @@ export function alertEntregaAtrasadaConcluida(
 ): void {
   const cod = (codigo || "Pedido").trim() || "Pedido";
   if (pendingSync) {
-    const titulo = tipo === "entregue" ? "Enviando entrega" : "Enviando ausência";
+    const titulo = tipo === "entregue" ? "Enviando entrega" : "Enviando ocorrência";
     showToast(titulo, `${cod}.${SYNC_PENDING_SUFFIX}`, "warn");
   } else {
-    const titulo = tipo === "entregue" ? "Entrega atrasada concluída" : "Ausência atrasada registrada";
+    const titulo = tipo === "entregue" ? "Entrega atrasada concluída" : "Ocorrência atrasada registrada";
     const baseMsg =
       tipo === "entregue"
         ? `${cod} foi finalizado com sucesso.`
-        : `${cod} foi marcado como ausente.`;
+        : `${cod} foi marcado com ocorrência.`;
     showToast(titulo, baseMsg, tipo === "entregue" ? "success" : "warn");
   }
   onOk?.();

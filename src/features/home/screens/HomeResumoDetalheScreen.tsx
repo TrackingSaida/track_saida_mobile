@@ -144,7 +144,7 @@ export default function HomeResumoDetalheScreen({ navigation }: Props) {
         <TouchableOpacity style={styles.kpiRow} onPress={() => goEntregas("ausentes")} activeOpacity={0.9}>
           <View style={styles.kpiLeft}>
             <Ionicons name="alert-circle-outline" size={20} color={colors.warning} />
-            <Text style={styles.kpiLabel}>Ausências</Text>
+            <Text style={styles.kpiLabel}>Ocorrências</Text>
           </View>
           <Text style={styles.kpiValue}>{data.resumo.ausentes}</Text>
         </TouchableOpacity>

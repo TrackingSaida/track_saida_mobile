@@ -678,7 +678,7 @@ export default function RouteBuilderScreen({ navigation, route }: Props) {
       const others = pendingInGroup.filter((x) => x.id_saida !== deliveryForAusente.id_saida);
       const othersList = others.map((x) => x.codigo?.trim() || "—").join("\n");
       Alert.alert(
-        "Marcar como ausente?",
+        "Registrar ocorrência?",
         `Pacote: ${selectedCodigo}\n\nEsta parada tem mais ${others.length} pacote${others.length !== 1 ? "s" : ""} pendente${others.length !== 1 ? "s" : ""}:\n${othersList}\n\nDeseja marcar todos os pacotes desta parada?`,
         [
           {

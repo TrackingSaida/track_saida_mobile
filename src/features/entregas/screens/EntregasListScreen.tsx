@@ -79,6 +79,7 @@ import { SERVICO_COLORS, SERVICO_ORDER, servicoTipo, serviceCountForTab, service
 import EntregaCodigoHeader from "../components/EntregaCodigoHeader";
 import CodigoServicoRow from "../components/CodigoServicoRow";
 import { groupAusentesByMotivo, type AusenteMotivoSection } from "../utils/groupAusentesByMotivo";
+import { isOcorrenciaExibicao, LABEL_OCORRENCIAS } from "../utils/ocorrenciaLabels";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useThemeStore } from "../../../store/themeStore";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -112,7 +113,7 @@ type Tab = "pendente" | "finalizadas" | "ausentes";
 const TAB_LABELS: Record<Tab, string> = {
   pendente: "Pendentes",
   finalizadas: "Finalizadas",
-  ausentes: "Ausentes",
+  ausentes: LABEL_OCORRENCIAS,
 };
 
 const TAB_ORDER: Tab[] = ["pendente", "ausentes", "finalizadas"];
@@ -923,7 +924,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   const badgeColor = (exibicao: string) => {
     if (exibicao === "Pendente") return colors.warning;
     if (exibicao === "Entregue") return colors.success;
-    if (exibicao === "Ausente") return colors.danger;
+    if (isOcorrenciaExibicao(exibicao)) return colors.danger;
     return colors.textSecondary;
   };
 
@@ -2077,7 +2078,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
               contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
               ListEmptyComponent={
                 <Text style={[styles.serviceStatsText, { textAlign: "center", marginTop: 24 }]}>
-                  Nenhum ausente neste filtro.
+                  Nenhuma ocorrência neste filtro.
                 </Text>
               }
               renderItem={({ item: section }) => {
@@ -2210,7 +2211,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
                     <View style={styles.serviceStatsRow}>
                       <Text style={styles.serviceStatsText}>
                         {serviceStatusSummary[section.section]?.pending ?? 0} Pendentes |{" "}
-                        {serviceStatusSummary[section.section]?.absent ?? 0} Ausentes |{" "}
+                        {serviceStatusSummary[section.section]?.absent ?? 0} Ocorrências |{" "}
                         {serviceStatusSummary[section.section]?.finished ?? 0} Finalizadas
                       </Text>
                     </View>

@@ -180,7 +180,7 @@ export default function RouteMarkerCard({
     const isSelected = !multiPackage && d.id_saida === delivery.id_saida;
     const exibicao =
       d.exibicao ??
-      (dStatus === "entregue" ? "Entregue" : dStatus === "ausente" ? "Ausente" : "Pendente");
+      (dStatus === "entregue" ? "Entregue" : dStatus === "ausente" ? "Ocorrência" : "Pendente");
     const showInlineActions =
       multiPackage && canMarkDelivery && dStatus === "pendente";
 
@@ -207,7 +207,7 @@ export default function RouteMarkerCard({
               onPress={() => onMarcarAusenteFor?.(d)}
               activeOpacity={0.85}
             >
-              <Text style={styles.inlineBtnText}>Ausente</Text>
+              <Text style={styles.inlineBtnText}>Ocorrência</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -262,7 +262,7 @@ export default function RouteMarkerCard({
               { backgroundColor: status === "entregue" ? colors.success : colors.danger },
             ]}
           >
-            <Text style={styles.statusBadgeText}>{status === "entregue" ? "Entregue" : "Ausente"}</Text>
+            <Text style={styles.statusBadgeText}>{status === "entregue" ? "Entregue" : "Ocorrência"}</Text>
           </View>
         )}
         <TouchableOpacity style={styles.close} onPress={onClose}>
@@ -314,7 +314,7 @@ export default function RouteMarkerCard({
               <Text style={styles.btnText}>Marcar Entregue</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.btn, styles.btnAusente]} onPress={onMarcarAusente}>
-              <Text style={styles.btnText}>Marcar Ausente</Text>
+              <Text style={styles.btnText}>Registrar ocorrência</Text>
             </TouchableOpacity>
           </View>
         )}

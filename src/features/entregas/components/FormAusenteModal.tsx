@@ -566,7 +566,7 @@ export default function FormAusenteModal({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.title}>Motivo da ausência</Text>
+            <Text style={styles.title}>Motivo da ocorrência</Text>
             {(codigo || stopLabel) && (
               <Text style={styles.subtitle}>
                 {[stopLabel, codigo ? `Pacote ${codigo}` : null].filter(Boolean).join(" · ")}
