@@ -240,7 +240,7 @@ export default function AcompanharMotoboyDiaScreen({ navigation, route }: Props)
                   </View>
                   {por ? (
                     <Text style={styles.serviceBreakdown}>
-                      Pendentes {bd.pendentes} · Entregues {bd.entregues} · Ausentes {bd.ausentes}
+                      Pendentes {bd.pendentes} · Entregues {bd.entregues} · Ocorrências {bd.ausentes}
                     </Text>
                   ) : null}
                 </View>

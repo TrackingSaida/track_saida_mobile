@@ -9,12 +9,13 @@ export function coresBadgeServico(servico?: string | null): { bg: string; fg: st
 export function formatStatusSaidaLabel(status?: string | null): string {
   if (status == null || status === "") return "—";
   const s = String(status).replace(/_/g, " ").trim();
-  const lower = s.toLowerCase();
+  const lower = s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   if (lower === "encerrado sistema" || lower === "encerrado pelo sistema" || lower === "encerrado") {
     return "Encerrado";
   }
   if (lower === "etiquetado") return "Etiqueta gerada";
   if (lower === "saiu" || lower === "saiu para entrega") return "SAIU PARA ENTREGA";
+  if (lower === "ausente" || lower === "ocorrencia") return "OCORRÊNCIA";
   return s.toUpperCase();
 }
 
@@ -27,7 +28,9 @@ export function labelStatusOperacional(status?: string | null): string {
   if (!lower) return "status anterior";
   if (lower.includes("cancelad")) return "Cancelado";
   if (lower.includes("entregue")) return "Entregue";
-  if (lower.includes("ausente")) return "Ausente";
+  if (lower.includes("ausente") || lower.includes("ocorrência") || lower.includes("ocorrencia")) {
+    return "Ocorrência";
+  }
   if (lower.includes("nao coletado") || lower.includes("não coletado")) return "Não coletado";
   if (lower.includes("coletado")) return "Coletado";
   if (lower.includes("em rota") || lower.includes("saiu")) return "Saiu para entrega";
@@ -58,10 +61,10 @@ export function statusVisualSaida(s?: string | null): { label: string; bg: strin
   if (u.includes("nao_coletado") || u.includes("não_coletado")) {
     return { label: formatStatusSaidaLabel(s || "Não coletado"), bg: "rgba(108,117,125,0.2)", fg: "#6c757d" };
   }
-  if (u.includes("ausente") || u.includes("erro")) {
-    // Ausente alinhado à web (warning/laranja); erro permanece vermelho
-    if (u.includes("ausente")) {
-      return { label: formatStatusSaidaLabel(s || "Ausente"), bg: "rgba(255,152,0,0.18)", fg: "#ff9800" };
+  if (u.includes("ausente") || u.includes("ocorrencia") || u.includes("erro")) {
+    // Ocorrência (ex-Ausente) alinhada à web (warning/laranja); erro permanece vermelho
+    if (u.includes("ausente") || u.includes("ocorrencia")) {
+      return { label: formatStatusSaidaLabel(s || "Ocorrência"), bg: "rgba(255,152,0,0.18)", fg: "#ff9800" };
     }
     return { label: formatStatusSaidaLabel(s || "—"), bg: "rgba(220,53,69,0.12)", fg: "#dc3545" };
   }

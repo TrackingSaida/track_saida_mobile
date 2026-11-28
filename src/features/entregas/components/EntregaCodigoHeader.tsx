@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 import { useThemeColors } from "../../../theme/colors";
 import { SERVICO_COLORS, servicoTipo } from "../utils/servico";
+import { isOcorrenciaExibicao } from "../utils/ocorrenciaLabels";
 import { formatEntradaDataBadge } from "./detail/detailFormatters";
 
 type Props = {
@@ -22,7 +23,7 @@ type Props = {
 function badgeColorForExibicao(exibicao: string, colors: ReturnType<typeof useThemeColors>): string {
   if (exibicao === "Pendente") return colors.warning;
   if (exibicao === "Entregue") return colors.success;
-  if (exibicao === "Ausente") return colors.danger;
+  if (isOcorrenciaExibicao(exibicao)) return colors.danger;
   if (exibicao === "Cancelado") return colors.textSecondary;
   return colors.placeholder;
 }

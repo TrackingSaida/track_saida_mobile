@@ -1,5 +1,6 @@
 import type { EntregaListItem } from "../../types";
 import { extractAddressFields } from "../../utils/addressBuild";
+import { isOcorrenciaExibicao, LABEL_OCORRENCIA_UPPER } from "../../utils/ocorrenciaLabels";
 
 export function displayOrMuted(value?: string | null, fallback = "Não informado"): string {
   const trimmed = (value ?? "").trim();
@@ -100,7 +101,7 @@ export type DetailStatusKind = "pendente" | "ausente" | "entregue" | "cancelado"
 export function resolveDetailStatusKind(entrega: EntregaListItem): DetailStatusKind {
   const exibicao = (entrega.exibicao || "").trim();
   const statusNorm = (entrega.status || "").toUpperCase();
-  if (exibicao === "Ausente") return "ausente";
+  if (isOcorrenciaExibicao(exibicao) || statusNorm === "AUSENTE") return "ausente";
   if (exibicao === "Entregue") return "entregue";
   if (exibicao === "Cancelado" || statusNorm === "CANCELADO") return "cancelado";
   return "pendente";
@@ -111,7 +112,7 @@ export function statusLabelUpper(kind: DetailStatusKind): string {
     case "pendente":
       return "PENDENTE";
     case "ausente":
-      return "AUSENTE";
+      return LABEL_OCORRENCIA_UPPER;
     case "entregue":
       return "ENTREGUE";
     case "cancelado":

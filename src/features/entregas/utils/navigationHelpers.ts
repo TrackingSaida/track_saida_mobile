@@ -49,7 +49,7 @@ function dispatchToEntregasList(navigation: NavigationProp<ParamListBase>): void
 
 /**
  * Após confirmar entrega/ausência: fecha o detalhe e vai para a lista geral
- * (Pendentes | Ausentes | Finalizadas), mesmo com sync ainda em andamento.
+ * (Pendentes | Ocorrências | Finalizadas), mesmo com sync ainda em andamento.
  */
 export function navigateToEntregasPendentes(navigation: NavigationProp<ParamListBase>): void {
   requestAnimationFrame(() => {

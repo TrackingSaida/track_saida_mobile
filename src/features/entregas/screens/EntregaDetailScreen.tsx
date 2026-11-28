@@ -766,7 +766,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
                 <Text style={styles.btnEntregueText}>Marcar como entregue</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.btnAusente} onPress={handleAbrirAusente}>
-                <Text style={styles.btnAusenteText}>Marcar como ausente</Text>
+                <Text style={styles.btnAusenteText}>Registrar ocorrência</Text>
               </TouchableOpacity>
             </>
           ) : null}
@@ -854,7 +854,7 @@ export default function EntregaDetailScreen({ route, navigation }: Props) {
         onClose={() => setShowEntregueModal(false)}
         onSuccess={async ({ marcacao, queued } = {}) => {
           setShowEntregueModal(false);
-          // Confirmed → fecha e vai para Pendentes|Ausentes|Finalizadas (não espera sync).
+          // Confirmed → fecha e vai para Pendentes|Ocorrências|Finalizadas (não espera sync).
           navigateToEntregasPendentes(navigation);
           const extra = marcacao as { routeJustCompleted?: boolean; rotaIdForResumo?: string | number | null };
           runPostFinalizeFeedback({

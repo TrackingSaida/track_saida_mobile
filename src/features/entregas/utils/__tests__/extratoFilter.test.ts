@@ -62,7 +62,7 @@ assert.equal(valorExtratoPorFiltro(40, 8, "cancelados"), 8);
 assert.ok(isExtratoGrupoEntregue(item({ id_saida: 1, status: "ENTREGUE", exibicao: "Entregue" })));
 assert.ok(isExtratoGrupoEntregue(item({ id_saida: 2, status: "EM_ROTA", exibicao: "Pendente" })));
 assert.ok(isExtratoCancelado(item({ id_saida: 3, status: "CANCELADO", exibicao: "Cancelado" })));
-assert.equal(isExtratoGrupoEntregue(item({ id_saida: 4, status: "AUSENTE", exibicao: "Ausente" })), false);
+assert.equal(isExtratoGrupoEntregue(item({ id_saida: 4, status: "AUSENTE", exibicao: "Ocorrência" })), false);
 
 const shopee: Set<ServicoExtrato> = new Set(["Shopee"]);
 

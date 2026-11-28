@@ -60,6 +60,6 @@ export function serviceCountForTab(
 export function serviceCountLabelForTab(tab: EntregasListTab, count: number): string {
   const n = String(count);
   if (tab === "pendente") return `${n} Pendentes`;
-  if (tab === "ausentes") return `${n} Ausentes`;
+  if (tab === "ausentes") return `${n} Ocorrências`;
   return `${n} Finalizadas`;
 }

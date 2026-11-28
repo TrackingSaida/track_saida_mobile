@@ -10,7 +10,7 @@ function item(
     id_saida: id,
     codigo: `BR${id}`,
     status: "AUSENTE",
-    exibicao: "Ausente",
+    exibicao: "Ocorrência",
     servico,
     cliente: null,
     bairro: null,

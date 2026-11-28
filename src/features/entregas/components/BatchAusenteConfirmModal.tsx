@@ -116,7 +116,7 @@ export default function BatchAusenteConfirmModal({
       return;
     }
     if (motivoId == null) {
-      Alert.alert("Atenção", "Selecione um motivo de ausência.");
+      Alert.alert("Atenção", "Selecione um motivo de ocorrência.");
       return;
     }
     if (isOutro && !observacao.trim()) {
@@ -125,8 +125,8 @@ export default function BatchAusenteConfirmModal({
     }
     const desc = motivoSelecionado?.descricao ?? "—";
     Alert.alert(
-      "Confirmar ausência em lote?",
-      `Você está marcando ${count} pedido${count !== 1 ? "s" : ""} como ausente${count !== 1 ? "s" : ""} pelo motivo: ${desc}.`,
+      "Confirmar ocorrência em lote?",
+      `Você está registrando ocorrência em ${count} pedido${count !== 1 ? "s" : ""} pelo motivo: ${desc}.`,
       [
         { text: "Cancelar", style: "cancel" },
         {
@@ -154,7 +154,7 @@ export default function BatchAusenteConfirmModal({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={handleClose}>
         <View style={styles.box} onStartShouldSetResponder={() => true}>
-          <Text style={styles.title}>Ausência em lote</Text>
+          <Text style={styles.title}>Ocorrência em lote</Text>
           <Text style={styles.subtitle}>
             Selecione o motivo para {count} pedido{count !== 1 ? "s" : ""}.
           </Text>

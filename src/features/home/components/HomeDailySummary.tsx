@@ -16,7 +16,7 @@ export default function HomeDailySummary({ resumo, onPressDetails }: Props) {
   const items = [
     { key: "pendentes", label: "Pendentes", value: resumo.pendentes },
     { key: "entregues", label: "Entregues", value: resumo.finalizadas_hoje },
-    { key: "ausencias", label: "Ausências", value: resumo.ausentes },
+    { key: "ausencias", label: "Ocorrências", value: resumo.ausentes },
   ] as const;
   const hasDetails =
     resumo.pendentes + resumo.finalizadas_hoje + resumo.ausentes + resumo.atraso_d1 > 0;

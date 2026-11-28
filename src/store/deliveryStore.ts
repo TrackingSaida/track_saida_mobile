@@ -38,6 +38,7 @@ import {
 } from "../features/entregas/utils/optimizeIdempotency";
 import { isTransientRefreshError } from "../services/apiClient";
 import { inferCoordPrecision, isValidGeocodeCoords } from "../features/entregas/utils/geocode";
+import { isOcorrenciaExibicao, LABEL_OCORRENCIA } from "../features/entregas/utils/ocorrenciaLabels";
 import { geocodeAddressStrict } from "../features/entregas/utils/geocodeStrict";
 import { mergeEntregaPreservingCampos } from "../features/entregas/utils/camposObrigatoriosUtils";
 import {
@@ -425,7 +426,7 @@ function distSq(lat1: number, lon1: number, lat2: number, lon2: number): number 
 
 function routeStatusFromExibicao(exibicao: string): RouteDeliveryStatus {
   if (exibicao === "Entregue") return "entregue";
-  if (exibicao === "Ausente") return "ausente";
+  if (isOcorrenciaExibicao(exibicao)) return "ausente";
   if (exibicao === "Cancelado") return "cancelado";
   return "pendente";
 }
@@ -1010,7 +1011,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
           ? null
           : state.selectedDelivery,
       routeDeliveries: state.routeDeliveries.map((d) =>
-        ids.has(d.id_saida) ? { ...d, exibicao: "Ausente", status: "Ausente" } : d
+        ids.has(d.id_saida) ? { ...d, exibicao: LABEL_OCORRENCIA, status: LABEL_OCORRENCIA } : d
       ),
       routeDeliveryStatus: {
         ...state.routeDeliveryStatus,
@@ -1131,8 +1132,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
             const st = routeDeliveryStatus[d.id_saida];
             return {
               ...d,
-              exibicao: st === "ausente" ? "Ausente" : "Entregue",
-              status: st === "ausente" ? "Ausente" : "Entregue",
+              exibicao: st === "ausente" ? LABEL_OCORRENCIA : "Entregue",
+              status: st === "ausente" ? LABEL_OCORRENCIA : "Entregue",
             };
           }),
           routeDeliveryStatus,
