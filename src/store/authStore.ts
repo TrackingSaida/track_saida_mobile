@@ -280,6 +280,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       /* ignore */
     }
+    try {
+      const { usePedidosRecusadosStore } = await import("./pedidosRecusadosStore");
+      usePedidosRecusadosStore.getState().clear();
+    } catch {
+      /* ignore */
+    }
     set({
       token: null,
       refreshToken: null,

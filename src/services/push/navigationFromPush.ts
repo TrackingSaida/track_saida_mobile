@@ -148,6 +148,13 @@ export function navigateFromPushData(
         }
         break;
       }
+      case "pedido_recusado":
+        if (isAdminRole(role)) {
+          navigation.navigate("Inicio", { screen: "PedidosRecusados" });
+        } else {
+          navigation.navigate("Inicio", { screen: "StaffInicio" });
+        }
+        break;
       default:
         break;
     }

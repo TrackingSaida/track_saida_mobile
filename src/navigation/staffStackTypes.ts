@@ -19,6 +19,7 @@ export type AcompanharMotoboyDiaParams = {
 
 export type InicioStackParamList = {
   StaffInicio: undefined;
+  PedidosRecusados: undefined;
   ConsultaCodigos:
     | {
         status?: string;
@@ -28,6 +29,8 @@ export type InicioStackParamList = {
         codigos?: string[];
         /** Rótulo operacional, ex.: "Não coletados desta leitura". */
         origemSessao?: string;
+        /** Abre o detalhe do pedido ao montar (fila de recusados). */
+        abrirIdSaida?: number;
       }
     | undefined;
 };

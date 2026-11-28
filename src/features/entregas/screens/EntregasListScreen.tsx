@@ -77,6 +77,8 @@ import {
 } from "../utils/optimizeRouteFeedback";
 import { SERVICO_COLORS, SERVICO_ORDER, servicoTipo, serviceCountForTab, serviceCountLabelForTab, type ServicoTipo } from "../utils/servico";
 import EntregaCodigoHeader from "../components/EntregaCodigoHeader";
+import CodigoServicoRow from "../components/CodigoServicoRow";
+import { groupAusentesByMotivo, type AusenteMotivoSection } from "../utils/groupAusentesByMotivo";
 import { useMotoboyPrefsStore } from "../../../store/motoboyPrefsStore";
 import { useThemeStore } from "../../../store/themeStore";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -701,6 +703,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   const [finalizadasCache, setFinalizadasCache] = useState<EntregaListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedServico, setExpandedServico] = useState<Record<string, boolean>>(defaultExpanded);
+  const [expandedMotivo, setExpandedMotivo] = useState<Record<string, boolean>>({});
 
   const {
     pendingDeliveries,
@@ -938,12 +941,18 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   }, [orderedPendentes, searchQuery]);
 
   const listWithSections = useMemo<ServiceSection[]>(() => {
+    if (tab === "ausentes") return [];
     const source = tab === "pendente" ? pendentesFiltrados : listForTab;
     return SERVICO_ORDER.map((section) => ({
       section,
       data: source.filter((item) => servicoTipo(item.servico) === section),
     })).filter((group) => group.data.length > 0);
   }, [tab, pendentesFiltrados, listForTab]);
+
+  const ausentesByMotivo = useMemo<AusenteMotivoSection[]>(() => {
+    if (tab !== "ausentes") return [];
+    return groupAusentesByMotivo(listForTab);
+  }, [tab, listForTab]);
 
   const serviceStatusSummary = useMemo(
     () =>
@@ -1564,6 +1573,10 @@ export default function EntregasListScreen({ navigation, route }: Props) {
   );
 
 
+  const toggleMotivo = (motivo: string) => {
+    setExpandedMotivo((prev) => ({ ...prev, [motivo]: prev[motivo] === true ? false : true }));
+  };
+
   const toggleServico = (s: string) => {
     setExpandedServico((prev) => ({ ...prev, [s]: !prev[s] }));
   };
@@ -2057,6 +2070,74 @@ export default function EntregasListScreen({ navigation, route }: Props) {
         </View>
       ) : (
         <View style={styles.listWrap}>
+          {tab === "ausentes" ? (
+            <FlatList
+              data={ausentesByMotivo}
+              keyExtractor={(sec) => `motivo-${sec.motivo}`}
+              contentContainerStyle={[styles.listContent, { paddingBottom: 24 }]}
+              ListEmptyComponent={
+                <Text style={[styles.serviceStatsText, { textAlign: "center", marginTop: 24 }]}>
+                  Nenhum ausente neste filtro.
+                </Text>
+              }
+              renderItem={({ item: section }) => {
+                const isExpanded = expandedMotivo[section.motivo] === true;
+                return (
+                  <View>
+                    <TouchableOpacity
+                      style={[
+                        styles.sectionHeaderWrap,
+                        {
+                          backgroundColor: hexToRgba(colors.warning, 0.12),
+                          borderColor: hexToRgba(colors.warning, 0.35),
+                        },
+                      ]}
+                      onPress={() => toggleMotivo(section.motivo)}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: isExpanded }}
+                    >
+                      <View style={styles.sectionHeaderTop}>
+                        <View style={styles.sectionHeaderLeft}>
+                          <Text style={[styles.sectionServiceBadgeText, { color: colors.text, flexShrink: 1 }]}>
+                            {section.motivo}
+                          </Text>
+                          <Text style={styles.sectionChevron}>{isExpanded ? "▼" : "▶"}</Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.sectionSimpleCountBadge,
+                            {
+                              backgroundColor: hexToRgba(colors.warning, 0.2),
+                              borderColor: hexToRgba(colors.warning, 0.45),
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.sectionSimpleCountText, { color: colors.text }]}>
+                            {section.data.length}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                    {isExpanded
+                      ? section.data.map((item) => (
+                          <CodigoServicoRow
+                            key={item.id_saida}
+                            codigo={item.codigo}
+                            codigo_exibicao={item.codigo_exibicao}
+                            id_saida={item.id_saida}
+                            servico={item.servico}
+                            onPress={() =>
+                              navigation.navigate("EntregaDetail", { idSaida: item.id_saida })
+                            }
+                          />
+                        ))
+                      : null}
+                  </View>
+                );
+              }}
+            />
+          ) : (
           <FlatList
             data={listWithSections}
             keyExtractor={(sec, idx) => sec.section ? sec.section : `list-${idx}`}
@@ -2209,6 +2290,7 @@ export default function EntregasListScreen({ navigation, route }: Props) {
             );
           }}
           />
+          )}
           {tab === "pendente" && batchLoading && (
             <View style={styles.batchLoadingOverlay} pointerEvents="auto">
               <ActivityIndicator size="large" color={colors.primary} />

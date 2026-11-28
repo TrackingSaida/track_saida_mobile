@@ -13,6 +13,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "../store/authStore";
 import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
+import { usePedidosRecusadosStore } from "../store/pedidosRecusadosStore";
 import NotificationBellButton from "../components/NotificationBellButton";
 import { navigateToAvisos } from "../navigation/navigateToAvisos";
 import MenuSection from "../components/ui/MenuSection";
@@ -141,6 +142,8 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
   const mostrarEnviarAviso = !showMotoboyMenu && isAdminRole(role);
   const unreadAvisos = useAvisosUnreadStore((s) => s.unreadCount);
   const refreshUnreadAvisos = useAvisosUnreadStore((s) => s.refresh);
+  const recusadosTotal = usePedidosRecusadosStore((s) => s.total);
+  const bellCount = unreadAvisos + (isAdminRole(role) ? recusadosTotal : 0);
 
   const metaParts = [subBase || null, showMotoboyMenu ? null : labelPerfil || null].filter(
     Boolean
@@ -204,7 +207,7 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
               </Pressable>
             </View>
             <View style={styles.headerBell}>
-              <NotificationBellButton unreadCount={unreadAvisos} onPress={navigateToAvisos} />
+              <NotificationBellButton unreadCount={bellCount} onPress={navigateToAvisos} />
             </View>
           </View>
         </LinearGradient>
@@ -330,7 +333,7 @@ export default function MaisScreen({ navigation, onLogout }: Props) {
               onPress={() => navigation.navigate("Avisos")}
               iconColor={profile.accent}
               iconSoftBg={profile.accentSoft}
-              badgeCount={unreadAvisos}
+              badgeCount={bellCount}
               isLast
             />
           </MenuSection>
