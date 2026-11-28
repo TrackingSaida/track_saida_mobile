@@ -788,6 +788,7 @@ export default function ConsultaCodigosScreen() {
   useEffect(() => {
     const params = route.params;
     if (!params) return;
+    if (params.abrirIdSaida != null) return;
     const rawCodigos = Array.isArray(params.codigos) ? params.codigos : [];
     const origem = typeof params.origemSessao === "string" ? params.origemSessao : undefined;
     const unique = uniqueCodigosUpper(rawCodigos.map((c) => String(c)));
@@ -923,6 +924,17 @@ export default function ConsultaCodigosScreen() {
     }
   }, []);
 
+  useEffect(() => {
+    const abrirId = Number(route.params?.abrirIdSaida);
+    if (!Number.isFinite(abrirId) || abrirId <= 0) return;
+    const key = `abrirId:${abrirId}`;
+    if (lastRouteFilterKeyRef.current === key) return;
+    lastRouteFilterKeyRef.current = key;
+    setDetailVisible(true);
+    void carregarDetalhe(abrirId);
+    navigation.setParams({ abrirIdSaida: undefined } as never);
+  }, [route.params?.abrirIdSaida, carregarDetalhe, navigation]);
+
   const handleAbrirDetalhe = useCallback(
     async (item: SaidaListItem) => {
       const idNum = getIdSaidaFromItem(item);
@@ -1033,6 +1045,12 @@ export default function ConsultaCodigosScreen() {
       await carregarDetalhe(selectedDetailId);
       const codigoAtual = String(selectedDetail?.codigo ?? "").trim();
       await executarBusca(0, codigoAtual ? { codigoOverride: codigoAtual } : undefined);
+      try {
+        const { usePedidosRecusadosStore } = await import("../../../store/pedidosRecusadosStore");
+        void usePedidosRecusadosStore.getState().refresh();
+      } catch {
+        /* contagem complementar */
+      }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert("Sucesso", "Registro atualizado para cancelado.");
     } catch (err) {

@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuthStore } from "../store/authStore";
 import { useAvisosUnreadStore } from "../store/avisosUnreadStore";
+import { usePedidosRecusadosStore } from "../store/pedidosRecusadosStore";
 import CompactStaffHeader from "../components/ui/CompactStaffHeader";
 import AppBrandTitleLogo from "../components/AppBrandTitleLogo";
 import NotificationBellButton from "../components/NotificationBellButton";
@@ -21,6 +22,7 @@ import {
   effectiveConferenciaSaida,
   effectiveEntradaObrigatoria,
   effectivePodeLerColeta,
+  isAdminRole,
 } from "../utils/role";
 import type { InicioStackParamList, OperacaoStackParamList } from "../navigation/staffStackTypes";
 
@@ -43,11 +45,16 @@ export default function StaffInicioScreen({ navigation }: Props) {
   const mostrarConferencia = effectiveConferenciaSaida(currentUser);
   const unreadAvisos = useAvisosUnreadStore((s) => s.unreadCount);
   const refreshUnreadAvisos = useAvisosUnreadStore((s) => s.refresh);
+  const recusadosTotal = usePedidosRecusadosStore((s) => s.total);
+  const refreshRecusados = usePedidosRecusadosStore((s) => s.refresh);
+  const mostrarRecusados = isAdminRole(currentUser?.role as number | undefined) && recusadosTotal > 0;
+  const bellCount = unreadAvisos + (isAdminRole(currentUser?.role as number | undefined) ? recusadosTotal : 0);
 
   useFocusEffect(
     useCallback(() => {
       void refreshUnreadAvisos();
-    }, [refreshUnreadAvisos])
+      void refreshRecusados();
+    }, [refreshUnreadAvisos, refreshRecusados])
   );
 
   const styles = useMemo(
@@ -105,11 +112,29 @@ export default function StaffInicioScreen({ navigation }: Props) {
         subtitle={`${saudacaoAgora()}, ${nome}`}
         tertiary={subBase || undefined}
         rightElement={
-          <NotificationBellButton unreadCount={unreadAvisos} onPress={navigateToAvisos} />
+          <NotificationBellButton unreadCount={bellCount} onPress={navigateToAvisos} />
         }
       />
 
       <View style={styles.body}>
+        {mostrarRecusados ? (
+          <View style={{ marginBottom: space.sm }}>
+            <OperacaoActionCard
+              variant="secondary"
+              title={
+                recusadosTotal === 1
+                  ? "1 pedido recusado"
+                  : `${recusadosTotal} pedidos recusados`
+              }
+              subtitle="Destinatário recusou. Abra para ver o pedido e cancelar na consulta."
+              icon="alert-circle-outline"
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                navigation.navigate("PedidosRecusados");
+              }}
+            />
+          </View>
+        ) : null}
         <OperacaoActionCard
           variant="primary"
           title="Consultar pacote"

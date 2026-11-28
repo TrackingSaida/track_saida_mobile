@@ -2,6 +2,7 @@ import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import StaffInicioScreen from "../screens/StaffInicioScreen";
 import ConsultaCodigosScreen from "../features/operacao/screens/ConsultaCodigosScreen";
+import PedidosRecusadosScreen from "../features/operacao/screens/PedidosRecusadosScreen";
 import type { InicioStackParamList } from "./staffStackTypes";
 import { useThemeColors } from "../theme/colors";
 
@@ -20,6 +21,7 @@ export default function InicioStack() {
       }}
     >
       <Stack.Screen name="StaffInicio" component={StaffInicioScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="PedidosRecusados" component={PedidosRecusadosScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ConsultaCodigos" component={ConsultaCodigosScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { listAvisos } from "../features/avisos/api";
 import { playSound } from "../utils/sound";
+import { usePedidosRecusadosStore } from "./pedidosRecusadosStore";
 
 type AvisosUnreadState = {
   unreadCount: number;
@@ -20,11 +21,13 @@ export const useAvisosUnreadStore = create<AvisosUnreadState>((set, get) => ({
       const prev = get().unreadCount;
       const hydrated = get().hydrated;
       set({ unreadCount: next, hydrated: true });
+      void usePedidosRecusadosStore.getState().refresh();
       if (playOnIncrease && hydrated && next > prev) {
         void playSound("warn");
       }
     } catch {
       // mantém o valor anterior em falha de rede
+      void usePedidosRecusadosStore.getState().refresh();
     }
   },
 }));
