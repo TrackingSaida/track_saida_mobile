@@ -10,6 +10,7 @@ export type TelemetryEventName =
   | "pendentes_abertos"
   | "baixa_form_aberto"
   | "baixa_foto_capturada"
+  | "baixa_foto_stage"
   | "baixa_confirm_tap"
   | "outbox_enqueued"
   | "outbox_sync_stage"

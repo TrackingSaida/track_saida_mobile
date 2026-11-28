@@ -9,6 +9,8 @@ export const PICTURE_SIZE_MIN_WIDTH = 960;
 /** Abaixo disso o JPEG já está pequeno o bastante — evita ImageManipulator (OOM). */
 export const SKIP_RESIZE_MAX_BYTES = 500_000;
 export const CAMERA_HARDWARE_RELEASE_MS = 500;
+/** Timeout shutter → prepare (câmera) ou pick → prepare (galeria). */
+export const PHOTO_PIPELINE_TIMEOUT_MS = 25_000;
 export const PHOTO_DRAFT_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
 /**
@@ -209,7 +211,22 @@ export function pickLatestResumeItem(items: PhotoResumeItem[]): PhotoResumeItem 
 export type PendingCaptureScope = {
   kind: PhotoFlowKind;
   idSaida?: number | null;
+  /** Correlação telemetria do formulário de baixa. */
+  clientActionId?: string | null;
+  /** ID único desta tentativa de captura/processamento. */
+  attemptId?: string | null;
 };
+
+export type PhotoPipelineSource = "camera" | "gallery";
+
+export type TakePhotoResult =
+  | { ok: true; photo: PhotoPickResult }
+  | { ok: false; reason: "cancel" }
+  | { ok: false; reason: "error" | "timeout"; message: string; errorCode?: string };
+
+export function createPhotoAttemptId(): string {
+  return `foto_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export type PendingCaptureRecord = {
   uri: string;

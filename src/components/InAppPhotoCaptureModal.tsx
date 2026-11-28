@@ -11,17 +11,29 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   CAMERA_HARDWARE_RELEASE_MS,
+  PHOTO_PIPELINE_TIMEOUT_MS,
+  createPhotoAttemptId,
   pickComprovantePictureSize,
 } from "../services/photoFlowUtils";
-import { persistCapturedPhoto } from "../services/deliveryPhotoService";
+import {
+  persistCapturedPhoto,
+  preparePhoto,
+} from "../services/deliveryPhotoService";
 import { savePendingCaptureUri } from "../services/deliveryPhotoDraft";
 import { setRouteTrackingProfile } from "../services/location/locationService";
+import { trackBaixaFotoStage } from "../services/telemetry/photoPipelineTelemetry";
 import { usePhotoCaptureStore } from "../store/photoCaptureStore";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export default function InAppPhotoCaptureModal() {
   const insets = useSafeAreaInsets();
   const active = usePhotoCaptureStore((s) => s.modalVisible);
+  const processing = usePhotoCaptureStore((s) => s.processing);
   const complete = usePhotoCaptureStore((s) => s.complete);
+  const setProcessing = usePhotoCaptureStore((s) => s.setProcessing);
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -66,41 +78,165 @@ export default function InAppPhotoCaptureModal() {
   };
 
   const handleCancel = () => {
-    if (busyRef.current) return;
-    complete(null);
+    if (busyRef.current || processing) return;
+    const scope = usePhotoCaptureStore.getState().getCaptureScope();
+    const attemptId = scope?.attemptId || createPhotoAttemptId();
+    void trackBaixaFotoStage({
+      stage: "pipeline_abort",
+      attempt_id: attemptId,
+      source: "camera",
+      kind: scope?.kind,
+      id_saida: scope?.idSaida ?? null,
+      client_action_id: scope?.clientActionId ?? null,
+      flushNow: true,
+    });
+    complete({ ok: false, reason: "cancel" });
   };
 
   const handleShutter = async () => {
-    if (busyRef.current || capturing) return;
+    if (busyRef.current || capturing || processing) return;
     const camera = cameraRef.current;
     if (!camera) return;
+
+    const scope = usePhotoCaptureStore.getState().getCaptureScope();
+    const attemptId = scope?.attemptId || createPhotoAttemptId();
+    const kind = scope?.kind ?? null;
+    const idSaida = scope?.idSaida ?? null;
+    const clientActionId = scope?.clientActionId ?? null;
+    const pipelineStarted = Date.now();
+
     busyRef.current = true;
     setCapturing(true);
-    try {
-      const picture = await camera.takePictureAsync({
-        quality: 0.55,
-        exif: false,
-        base64: false,
-        shutterSound: false,
+    setProcessing(true);
+
+    void trackBaixaFotoStage({
+      stage: "shutter_start",
+      attempt_id: attemptId,
+      source: "camera",
+      kind,
+      id_saida: idSaida,
+      client_action_id: clientActionId,
+    });
+
+    const failTimeout = () => {
+      void trackBaixaFotoStage({
+        stage: "pipeline_timeout",
+        attempt_id: attemptId,
+        source: "camera",
+        kind,
+        id_saida: idSaida,
+        client_action_id: clientActionId,
+        duration_ms: Date.now() - pipelineStarted,
+        error_code: "TIMEOUT",
+        flushNow: true,
       });
+      complete({
+        ok: false,
+        reason: "timeout",
+        message:
+          "O processamento da foto demorou mais que o esperado.\nTente novamente.",
+        errorCode: "TIMEOUT",
+      });
+    };
+
+    try {
+      const picture = await Promise.race([
+        camera.takePictureAsync({
+          quality: 0.55,
+          exif: false,
+          base64: false,
+          shutterSound: false,
+        }),
+        sleep(PHOTO_PIPELINE_TIMEOUT_MS).then(() => {
+          throw Object.assign(new Error("timeout"), { name: "PhotoPipelineTimeout" });
+        }),
+      ]);
+
       if (!picture?.uri) {
-        complete(null);
+        void trackBaixaFotoStage({
+          stage: "capture_fail",
+          attempt_id: attemptId,
+          source: "camera",
+          kind,
+          id_saida: idSaida,
+          client_action_id: clientActionId,
+          duration_ms: Date.now() - pipelineStarted,
+          error_code: "EMPTY_URI",
+          flushNow: true,
+        });
+        complete({
+          ok: false,
+          reason: "error",
+          message: "Não foi possível capturar a foto. Tente novamente.",
+          errorCode: "EMPTY_URI",
+        });
         return;
       }
+
       const persisted = await persistCapturedPhoto(picture.uri);
-      const scope = usePhotoCaptureStore.getState().getCaptureScope();
       await savePendingCaptureUri(persisted.uri, scope);
-      complete(persisted);
+
+      void trackBaixaFotoStage({
+        stage: "capture_done",
+        attempt_id: attemptId,
+        source: "camera",
+        kind,
+        id_saida: idSaida,
+        client_action_id: clientActionId,
+        duration_ms: Date.now() - pipelineStarted,
+      });
+
+      const remaining = Math.max(
+        1_000,
+        PHOTO_PIPELINE_TIMEOUT_MS - (Date.now() - pipelineStarted)
+      );
+      const prepared = await Promise.race([
+        preparePhoto(persisted.uri, undefined, {
+          attemptId,
+          clientActionId,
+          kind,
+          idSaida,
+          source: "camera",
+          trackStages: true,
+        }),
+        sleep(remaining).then(() => {
+          throw Object.assign(new Error("timeout"), { name: "PhotoPipelineTimeout" });
+        }),
+      ]);
+
+      complete({ ok: true, photo: prepared });
     } catch (e) {
-      console.warn("[InAppPhotoCapture] falha ao capturar", e);
-      complete(null);
+      if (e instanceof Error && e.name === "PhotoPipelineTimeout") {
+        failTimeout();
+        return;
+      }
+      console.warn("[InAppPhotoCapture] falha ao capturar/processar", e);
+      void trackBaixaFotoStage({
+        stage: "capture_fail",
+        attempt_id: attemptId,
+        source: "camera",
+        kind,
+        id_saida: idSaida,
+        client_action_id: clientActionId,
+        duration_ms: Date.now() - pipelineStarted,
+        error_code: "CAPTURE_FAIL",
+        flushNow: true,
+      });
+      complete({
+        ok: false,
+        reason: "error",
+        message: "Não foi possível processar a foto. Tente novamente.",
+        errorCode: "CAPTURE_FAIL",
+      });
     } finally {
       busyRef.current = false;
       setCapturing(false);
+      setProcessing(false);
     }
   };
 
   const permissionDenied = permission && !permission.granted;
+  const busy = capturing || processing;
 
   return (
     <Modal
@@ -125,7 +261,7 @@ export default function InAppPhotoCaptureModal() {
         )}
 
         <View style={[styles.topBar, { paddingTop: Math.max(12, insets.top) }]}>
-          <TouchableOpacity onPress={handleCancel} disabled={capturing} style={styles.topBtn}>
+          <TouchableOpacity onPress={handleCancel} disabled={busy} style={styles.topBtn}>
             <Text style={styles.topBtnText}>Cancelar</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Foto do comprovante</Text>
@@ -144,18 +280,25 @@ export default function InAppPhotoCaptureModal() {
         <View style={[styles.bottomBar, { paddingBottom: Math.max(24, insets.bottom + 12) }]}>
           <Text style={styles.hint}>Aponte para o comprovante e toque no botão</Text>
           <TouchableOpacity
-            style={[styles.shutter, capturing && styles.shutterDisabled]}
+            style={[styles.shutter, busy && styles.shutterDisabled]}
             onPress={() => void handleShutter()}
-            disabled={capturing || !cameraReady || !!permissionDenied}
+            disabled={busy || !cameraReady || !!permissionDenied}
             accessibilityLabel="Tirar foto"
           >
-            {capturing ? (
+            {busy ? (
               <ActivityIndicator color="#111" />
             ) : (
               <View style={styles.shutterInner} />
             )}
           </TouchableOpacity>
         </View>
+
+        {processing ? (
+          <View style={styles.processingOverlay} pointerEvents="auto">
+            <ActivityIndicator size="large" color="#fff" />
+            <Text style={styles.processingText}>Processando foto…</Text>
+          </View>
+        ) : null}
       </View>
     </Modal>
   );
@@ -193,7 +336,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 10,
-  },
+    },
   permissionBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   bottomBar: {
     position: "absolute",
@@ -222,5 +365,18 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     backgroundColor: "#fff",
+  },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+  },
+  processingText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
   },
 });

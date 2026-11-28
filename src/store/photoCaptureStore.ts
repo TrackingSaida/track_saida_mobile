@@ -1,9 +1,12 @@
 import { create } from "zustand";
-import type { PendingCaptureScope, PhotoPickResult } from "../services/photoFlowUtils";
+import type {
+  PendingCaptureScope,
+  TakePhotoResult,
+} from "../services/photoFlowUtils";
 import { CAMERA_HARDWARE_RELEASE_MS } from "../services/photoFlowUtils";
 
 type PendingCapture = {
-  resolve: (result: PhotoPickResult | null) => void;
+  resolve: (result: TakePhotoResult) => void;
 };
 
 let pending: PendingCapture | null = null;
@@ -15,8 +18,11 @@ type PhotoCaptureState = {
   hardwareBusy: boolean;
   /** Overlay de captura in-app visível. */
   modalVisible: boolean;
-  requestCapture: (scope?: PendingCaptureScope) => Promise<PhotoPickResult | null>;
-  complete: (result: PhotoPickResult | null) => void;
+  /** Persist + prepare em andamento (overlay "Processando foto…"). */
+  processing: boolean;
+  requestCapture: (scope?: PendingCaptureScope) => Promise<TakePhotoResult>;
+  complete: (result: TakePhotoResult) => void;
+  setProcessing: (value: boolean) => void;
   releaseHardware: () => void;
   getCaptureScope: () => PendingCaptureScope | null;
 };
@@ -24,6 +30,7 @@ type PhotoCaptureState = {
 export const usePhotoCaptureStore = create<PhotoCaptureState>((set) => ({
   hardwareBusy: false,
   modalVisible: false,
+  processing: false,
 
   requestCapture: (scope) => {
     if (releaseTimer) {
@@ -33,12 +40,12 @@ export const usePhotoCaptureStore = create<PhotoCaptureState>((set) => ({
     if (pending) {
       const previous = pending;
       pending = null;
-      previous.resolve(null);
+      previous.resolve({ ok: false, reason: "cancel" });
     }
     captureScope = scope ?? null;
-    return new Promise<PhotoPickResult | null>((resolve) => {
+    return new Promise<TakePhotoResult>((resolve) => {
       pending = { resolve };
-      set({ hardwareBusy: true, modalVisible: true });
+      set({ hardwareBusy: true, modalVisible: true, processing: false });
     });
   },
 
@@ -46,9 +53,11 @@ export const usePhotoCaptureStore = create<PhotoCaptureState>((set) => ({
     const current = pending;
     pending = null;
     captureScope = null;
-    set({ modalVisible: false });
+    set({ modalVisible: false, processing: false });
     current?.resolve(result);
   },
+
+  setProcessing: (value) => set({ processing: value }),
 
   getCaptureScope: () => captureScope,
 

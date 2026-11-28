@@ -25,10 +25,11 @@ import {
 } from "../../../services/telemetry/telemetryClient";
 import {
   takeDeliveryPhoto,
-  pickDeliveryPhotoFromGallery,
-  preparePhoto,
+  pickAndPrepareDeliveryPhoto,
   MAX_PHOTOS,
 } from "../../../services/deliveryPhotoService";
+import { createPhotoAttemptId } from "../../../services/photoFlowUtils";
+import { trackBaixaFotoStage } from "../../../services/telemetry/photoPipelineTelemetry";
 import {
   clearDeliveryPhotoDraft,
   loadDeliveryPhotoDraftRecord,
@@ -289,6 +290,7 @@ export default function FormEntregaConcluida({
 
   type PhotoItem = { uri: string };
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [addingPhoto, setAddingPhoto] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const loadedIdSaidaRef = useRef<number | null>(null);
   const clientActionIdRef = useRef<string | null>(null);
@@ -410,13 +412,46 @@ export default function FormEntregaConcluida({
     setNumeroDocumento(formatted);
   };
 
-  const addPhotoFromSource = async (
-    pick: () => Promise<{ uri: string } | null>,
-    opts?: { alreadyPrepared?: boolean }
+  const attachPreparedPhoto = async (
+    uri: string,
+    attemptId: string,
+    source: "camera" | "gallery"
   ) => {
-    if (photos.length >= MAX_PHOTOS) return;
+    const next = [...photos, { uri }];
+    setPhotos(next);
+    void trackBaixaFotoStage({
+      stage: "form_attached",
+      attempt_id: attemptId,
+      source,
+      kind: "entregue",
+      id_saida: idSaida,
+      client_action_id: clientActionIdRef.current,
+    });
+    void trackTelemetry({
+      event_name: "baixa_foto_capturada",
+      client_action_id: clientActionIdRef.current,
+      id_saida: idSaida,
+      props: { kind: "entregue", photo_count: next.length },
+    });
+    await saveDeliveryPhotoDraft(
+      "entregue",
+      idSaida,
+      next.map((p) => p.uri),
+      {
+        tipoRecebedor,
+        nomeRecebedor,
+        tipoDocumento,
+        numeroDocumento,
+        observacao,
+      }
+    );
+  };
+
+  const addPhotoFromCamera = async () => {
+    if (photos.length >= MAX_PHOTOS || addingPhoto || saving) return;
+    const attemptId = createPhotoAttemptId();
+    setAddingPhoto(true);
     try {
-      // Persiste rascunho antes de abrir a câmera (Android pode matar o processo).
       await saveDeliveryPhotoDraft(
         "entregue",
         idSaida,
@@ -429,24 +464,35 @@ export default function FormEntregaConcluida({
           observacao,
         }
       );
-      const picked = await pick();
-      if (!picked) return;
-      // takeDeliveryPhoto já passou por preparePhoto; galeria ainda precisa.
-      const uri = opts?.alreadyPrepared
-        ? picked.uri
-        : (await preparePhoto(picked.uri, photos.length)).uri;
-      const next = [...photos, { uri }];
-      setPhotos(next);
-      void trackTelemetry({
-        event_name: "baixa_foto_capturada",
-        client_action_id: clientActionIdRef.current,
-        id_saida: idSaida,
-        props: { kind: "entregue", photo_count: next.length },
+      const result = await takeDeliveryPhoto({
+        kind: "entregue",
+        idSaida,
+        clientActionId: clientActionIdRef.current,
+        attemptId,
       });
+      if (!result.ok) {
+        if (result.reason !== "cancel") {
+          Alert.alert("Foto", result.message || "Não foi possível adicionar a foto.");
+        }
+        return;
+      }
+      await attachPreparedPhoto(result.photo.uri, attemptId, "camera");
+    } catch (e) {
+      Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+    } finally {
+      setAddingPhoto(false);
+    }
+  };
+
+  const addPhotoFromGallery = async () => {
+    if (photos.length >= MAX_PHOTOS || addingPhoto || saving) return;
+    const attemptId = createPhotoAttemptId();
+    setAddingPhoto(true);
+    try {
       await saveDeliveryPhotoDraft(
         "entregue",
         idSaida,
-        next.map((p) => p.uri),
+        photos.map((p) => p.uri),
         {
           tipoRecebedor,
           nomeRecebedor,
@@ -455,16 +501,26 @@ export default function FormEntregaConcluida({
           observacao,
         }
       );
+      const result = await pickAndPrepareDeliveryPhoto({
+        indexHint: photos.length,
+        kind: "entregue",
+        idSaida,
+        clientActionId: clientActionIdRef.current,
+        attemptId,
+      });
+      if (!result.ok) {
+        if (result.reason !== "cancel") {
+          Alert.alert("Foto", result.message || "Não foi possível adicionar a foto.");
+        }
+        return;
+      }
+      await attachPreparedPhoto(result.photo.uri, attemptId, "gallery");
     } catch (e) {
       Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+    } finally {
+      setAddingPhoto(false);
     }
   };
-
-  const addPhotoFromCamera = () =>
-    addPhotoFromSource(() => takeDeliveryPhoto({ kind: "entregue", idSaida }), {
-      alreadyPrepared: true,
-    });
-  const addPhotoFromGallery = () => addPhotoFromSource(pickDeliveryPhotoFromGallery);
 
   const removePhoto = (index: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -703,21 +759,27 @@ export default function FormEntregaConcluida({
                 <>
                   <TouchableOpacity
                     style={styles.btnAddPhoto}
-                    onPress={addPhotoFromCamera}
-                    disabled={saving}
+                    onPress={() => void addPhotoFromCamera()}
+                    disabled={saving || addingPhoto}
                   >
                     <Text style={styles.btnAddPhotoText}>+ Tirar foto</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.btnAddPhoto}
-                    onPress={addPhotoFromGallery}
-                    disabled={saving}
+                    onPress={() => void addPhotoFromGallery()}
+                    disabled={saving || addingPhoto}
                   >
                     <Text style={styles.btnAddPhotoText}>Galeria</Text>
                   </TouchableOpacity>
                 </>
               )}
             </View>
+            {addingPhoto ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.fieldHint}>Processando foto…</Text>
+              </View>
+            ) : null}
             {missingKeys.has("foto") ? (
               <Text style={styles.fieldHint}>Adicione pelo menos uma foto de comprovante.</Text>
             ) : null}

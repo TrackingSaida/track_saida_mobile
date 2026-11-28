@@ -25,10 +25,11 @@ import {
 } from "../../../services/telemetry/telemetryClient";
 import {
   takeDeliveryPhoto,
-  pickDeliveryPhotoFromGallery,
-  preparePhoto,
+  pickAndPrepareDeliveryPhoto,
   MAX_PHOTOS,
 } from "../../../services/deliveryPhotoService";
+import { createPhotoAttemptId } from "../../../services/photoFlowUtils";
+import { trackBaixaFotoStage } from "../../../services/telemetry/photoPipelineTelemetry";
 import {
   clearDeliveryPhotoDraft,
   loadDeliveryPhotoDraftRecord,
@@ -85,6 +86,7 @@ export default function FormAusenteModal({
   const [motivoId, setMotivoId] = useState<number | null>(null);
   const [observacao, setObservacao] = useState("");
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [addingPhoto, setAddingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const draftMotivoRef = useRef<number | null>(null);
@@ -332,58 +334,110 @@ export default function FormAusenteModal({
     [colors]
   );
 
-  const addPhotoFromSource = useCallback(
-    async (
-      pick: () => Promise<{ uri: string } | null>,
-      opts?: { alreadyPrepared?: boolean }
-    ) => {
-      if (photos.length >= MAX_PHOTOS) return;
-      try {
-        await saveDeliveryPhotoDraft(
-          "ausente",
-          primaryIdSaida,
-          photos.map((p) => p.uri),
-          { motivoId, observacao }
-        );
-        const picked = await pick();
-        if (!picked) return;
-        // takeDeliveryPhoto já passou por preparePhoto; galeria ainda precisa.
-        const uri = opts?.alreadyPrepared
-          ? picked.uri
-          : (await preparePhoto(picked.uri, photos.length)).uri;
-        const next = [...photos, { uri }];
-        setPhotos(next);
-        void trackTelemetry({
-          event_name: "baixa_foto_capturada",
-          client_action_id: clientActionIdRef.current,
-          id_saida: primaryIdSaida || null,
-          props: { kind: "ausente", photo_count: next.length },
-        });
-        await saveDeliveryPhotoDraft(
-          "ausente",
-          primaryIdSaida,
-          next.map((p) => p.uri),
-          { motivoId, observacao }
-        );
-      } catch (e) {
-        Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+  const addPhotoFromCamera = useCallback(async () => {
+    if (photos.length >= MAX_PHOTOS || addingPhoto || saving) return;
+    const attemptId = createPhotoAttemptId();
+    setAddingPhoto(true);
+    try {
+      await saveDeliveryPhotoDraft(
+        "ausente",
+        primaryIdSaida,
+        photos.map((p) => p.uri),
+        { motivoId, observacao }
+      );
+      const result = await takeDeliveryPhoto({
+        kind: "ausente",
+        idSaida: primaryIdSaida,
+        clientActionId: clientActionIdRef.current,
+        attemptId,
+      });
+      if (!result.ok) {
+        if (result.reason !== "cancel") {
+          Alert.alert("Foto", result.message || "Não foi possível adicionar a foto.");
+        }
+        return;
       }
-    },
-    [photos, primaryIdSaida, motivoId, observacao]
-  );
+      const next = [...photos, { uri: result.photo.uri }];
+      setPhotos(next);
+      void trackBaixaFotoStage({
+        stage: "form_attached",
+        attempt_id: attemptId,
+        source: "camera",
+        kind: "ausente",
+        id_saida: primaryIdSaida || null,
+        client_action_id: clientActionIdRef.current,
+      });
+      void trackTelemetry({
+        event_name: "baixa_foto_capturada",
+        client_action_id: clientActionIdRef.current,
+        id_saida: primaryIdSaida || null,
+        props: { kind: "ausente", photo_count: next.length },
+      });
+      await saveDeliveryPhotoDraft(
+        "ausente",
+        primaryIdSaida,
+        next.map((p) => p.uri),
+        { motivoId, observacao }
+      );
+    } catch (e) {
+      Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+    } finally {
+      setAddingPhoto(false);
+    }
+  }, [photos, primaryIdSaida, motivoId, observacao, addingPhoto, saving]);
 
-  const addPhotoFromCamera = useCallback(
-    () =>
-      addPhotoFromSource(() => takeDeliveryPhoto({ kind: "ausente", idSaida: primaryIdSaida }), {
-        alreadyPrepared: true,
-      }),
-    [addPhotoFromSource, primaryIdSaida]
-  );
-
-  const addPhotoFromGallery = useCallback(
-    () => addPhotoFromSource(pickDeliveryPhotoFromGallery),
-    [addPhotoFromSource]
-  );
+  const addPhotoFromGallery = useCallback(async () => {
+    if (photos.length >= MAX_PHOTOS || addingPhoto || saving) return;
+    const attemptId = createPhotoAttemptId();
+    setAddingPhoto(true);
+    try {
+      await saveDeliveryPhotoDraft(
+        "ausente",
+        primaryIdSaida,
+        photos.map((p) => p.uri),
+        { motivoId, observacao }
+      );
+      const result = await pickAndPrepareDeliveryPhoto({
+        indexHint: photos.length,
+        kind: "ausente",
+        idSaida: primaryIdSaida,
+        clientActionId: clientActionIdRef.current,
+        attemptId,
+      });
+      if (!result.ok) {
+        if (result.reason !== "cancel") {
+          Alert.alert("Foto", result.message || "Não foi possível adicionar a foto.");
+        }
+        return;
+      }
+      const next = [...photos, { uri: result.photo.uri }];
+      setPhotos(next);
+      void trackBaixaFotoStage({
+        stage: "form_attached",
+        attempt_id: attemptId,
+        source: "gallery",
+        kind: "ausente",
+        id_saida: primaryIdSaida || null,
+        client_action_id: clientActionIdRef.current,
+      });
+      void trackTelemetry({
+        event_name: "baixa_foto_capturada",
+        client_action_id: clientActionIdRef.current,
+        id_saida: primaryIdSaida || null,
+        props: { kind: "ausente", photo_count: next.length },
+      });
+      await saveDeliveryPhotoDraft(
+        "ausente",
+        primaryIdSaida,
+        next.map((p) => p.uri),
+        { motivoId, observacao }
+      );
+    } catch (e) {
+      Alert.alert("Erro", (e as Error)?.message || "Não foi possível adicionar a foto.");
+    } finally {
+      setAddingPhoto(false);
+    }
+  }, [photos, primaryIdSaida, motivoId, observacao, addingPhoto, saving]);
 
   const removePhoto = useCallback((index: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -589,21 +643,27 @@ export default function FormAusenteModal({
                 <>
                   <TouchableOpacity
                     style={styles.btnAddPhoto}
-                    onPress={addPhotoFromCamera}
-                    disabled={saving}
+                    onPress={() => void addPhotoFromCamera()}
+                    disabled={saving || addingPhoto}
                   >
                     <Text style={styles.btnAddPhotoText}>+ Tirar foto</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.btnAddPhoto}
-                    onPress={addPhotoFromGallery}
-                    disabled={saving}
+                    onPress={() => void addPhotoFromGallery()}
+                    disabled={saving || addingPhoto}
                   >
                     <Text style={styles.btnAddPhotoText}>Galeria</Text>
                   </TouchableOpacity>
                 </>
               )}
             </View>
+            {addingPhoto ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={{ fontSize: 12, color: colors.textSecondary }}>Processando foto…</Text>
+              </View>
+            ) : null}
           </ScrollView>
           <View style={[styles.footer, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
             <View style={styles.actions}>
