@@ -77,6 +77,7 @@ export interface EnviarColetaParams {
   item: ColetaItemPayload;
   entregadorId?: number | null;
   dataOperacao?: string | null;
+  clientActionId?: string | null;
 }
 
 export async function enviarColetaUnica({
@@ -84,6 +85,7 @@ export async function enviarColetaUnica({
   item,
   entregadorId,
   dataOperacao,
+  clientActionId,
 }: EnviarColetaParams): Promise<LoteResponse> {
   const body: {
     base: string;
@@ -109,7 +111,11 @@ export async function enviarColetaUnica({
     body.data_operacao = dataOperacao;
   }
 
-  const { data } = await client.post<LoteResponse>("/coletas/lote", body);
+  const headers =
+    clientActionId && String(clientActionId).trim()
+      ? { "X-Client-Action-Id": String(clientActionId).trim() }
+      : undefined;
+  const { data } = await client.post<LoteResponse>("/coletas/lote", body, { headers });
   return data;
 }
 
@@ -451,12 +457,15 @@ export interface IniciarColetaOperacionalPayload {
 export async function iniciarColetaOperacional(
   baseId: number,
   payload: IniciarColetaOperacionalPayload
-): Promise<unknown> {
-  const { data } = await client.post(`/coletas/operacionais/bases/${baseId}/iniciar`, {
-    metodo: payload.metodo,
-    ajudar: Boolean(payload.ajudar),
-    ...(payload.data_operacao ? { data_operacao: payload.data_operacao } : {}),
-  });
+): Promise<ExecucaoOperacional> {
+  const { data } = await client.post<ExecucaoOperacional>(
+    `/coletas/operacionais/bases/${baseId}/iniciar`,
+    {
+      metodo: payload.metodo,
+      ajudar: Boolean(payload.ajudar),
+      ...(payload.data_operacao ? { data_operacao: payload.data_operacao } : {}),
+    }
+  );
   return data;
 }
 
@@ -466,8 +475,19 @@ export async function liberarParticipacaoColeta(idExecucao: number): Promise<voi
 }
 
 /** Finaliza a participação/execução da coleta (status → Coletado ou Sem volume). */
-export async function finalizarColetaOperacional(idExecucao: number): Promise<unknown> {
-  const { data } = await client.post(`/coletas/operacionais/execucoes/${idExecucao}/finalizar`);
+export async function finalizarColetaOperacional(
+  idExecucao: number,
+  opts?: { clientActionId?: string | null }
+): Promise<ExecucaoOperacional> {
+  const headers =
+    opts?.clientActionId && String(opts.clientActionId).trim()
+      ? { "X-Client-Action-Id": String(opts.clientActionId).trim() }
+      : undefined;
+  const { data } = await client.post<ExecucaoOperacional>(
+    `/coletas/operacionais/execucoes/${idExecucao}/finalizar`,
+    {},
+    { headers }
+  );
   return data;
 }
 

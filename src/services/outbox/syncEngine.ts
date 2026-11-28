@@ -2,18 +2,34 @@ import axios, { type AxiosError } from "axios";
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 import { getEntrega, marcarEntregue, marcarAusente, marcarDevolver } from "../../features/entregas/api";
+import {
+  consultarResumoBaseColeta,
+  enviarColetaUnica,
+  finalizarColetaOperacional,
+  iniciarColetaOperacional,
+  lancarColetaManualOperacional,
+  type ServicoColeta,
+} from "../../features/operacao/coletasApi";
 import { isNetworkOrTimeoutError, isTransientRefreshError } from "../apiClient";
 import {
   loadManifest,
   persistAction,
   removeAction,
 } from "./outboxStorage";
-import { createPhotoId, type OutboxDeliveryAction } from "./types";
+import {
+  createPhotoId,
+  isColetaOutboxKind,
+  type OutboxDeliveryAction,
+} from "./types";
 import { isOnline, subscribeNetworkStatus } from "./networkStatus";
 import { reloadPendingDeliveriesForSession } from "../sessionPendingReload";
 import { useOutboxStore } from "../../store/outboxStore";
 import { isPhotoCaptureActive } from "../../store/photoCaptureStore";
 import { useDeliveryStore, buildApplyRouteSyncDeps } from "../../store/deliveryStore";
+import {
+  emptyBaseLocalState,
+  useColetaDaySnapshotStore,
+} from "../../store/coletaDaySnapshotStore";
 import {
   buildRouteReconcileDeps,
   reconcileActiveRouteState,
@@ -80,6 +96,280 @@ function isAlreadyFinalizedError(e: unknown): boolean {
     return true;
   }
   return false;
+}
+
+function isColetaJaColetadoError(e: unknown): boolean {
+  if (!axios.isAxiosError(e) || e.response?.status !== 409) return false;
+  const detail = e.response?.data?.detail;
+  const text =
+    typeof detail === "string"
+      ? detail
+      : detail && typeof detail === "object"
+        ? String((detail as { message?: string; code?: string }).message || (detail as { code?: string }).code || "")
+        : "";
+  return /já coletad|ja coletad|duplicad/i.test(text);
+}
+
+/** 409 que realmente significa “já finalizado / sem volume já aplicado”. */
+function isColetaFinalizarIdempotentError(e: unknown): boolean {
+  if (!axios.isAxiosError(e) || e.response?.status !== 409) return false;
+  const detail = e.response?.data?.detail;
+  if (detail && typeof detail === "object") {
+    const code = String((detail as { code?: string }).code || "");
+    if (/JA_FINALIZ|JA_COLETAD|SEM_VOLUME|FINALIZAD/i.test(code)) return true;
+    const msg = String((detail as { message?: string; mensagem?: string }).message || (detail as { mensagem?: string }).mensagem || "");
+    if (/já (foi )?finaliz|já coletad|sem volume|participação.*finaliz/i.test(msg)) return true;
+  }
+  const text = typeof detail === "string" ? detail : "";
+  return /já (foi )?finaliz|já coletad|sem volume|participação.*finaliz/i.test(text);
+}
+
+function isColetaLoteEmAndamentoError(e: unknown): boolean {
+  if (!axios.isAxiosError(e) || e.response?.status !== 409) return false;
+  const detail = e.response?.data?.detail;
+  if (detail && typeof detail === "object") {
+    return (detail as { code?: string }).code === "COLETA_LOTE_EM_ANDAMENTO";
+  }
+  return false;
+}
+
+function isColetaKindOrder(kind: OutboxDeliveryAction["kind"]): number {
+  if (kind === "coleta_leitura") return 0;
+  if (kind === "coleta_finalizar") return 1;
+  return 2;
+}
+
+/**
+ * FIFO global com agrupamento de coleta por base:
+ * leituras da base X antes do finalizar da mesma base; não mistura finalizar B
+ * no meio das leituras de A.
+ */
+export function orderOutboxQueue(actions: OutboxDeliveryAction[]): OutboxDeliveryAction[] {
+  const delivery: OutboxDeliveryAction[] = [];
+  const coletaByBase = new Map<number, OutboxDeliveryAction[]>();
+
+  for (const action of actions) {
+    if (!isColetaOutboxKind(action.kind)) {
+      delivery.push(action);
+      continue;
+    }
+    const baseId = action.baseId ?? 0;
+    const list = coletaByBase.get(baseId) || [];
+    list.push(action);
+    coletaByBase.set(baseId, list);
+  }
+
+  for (const list of coletaByBase.values()) {
+    list.sort((a, b) => {
+      const ko = isColetaKindOrder(a.kind) - isColetaKindOrder(b.kind);
+      if (ko !== 0) return ko;
+      return a.createdAt - b.createdAt;
+    });
+  }
+
+  type Group = { at: number; items: OutboxDeliveryAction[] };
+  const groups: Group[] = [
+    ...delivery.map((a) => ({ at: a.createdAt, items: [a] })),
+    ...Array.from(coletaByBase.values()).map((items) => ({
+      at: Math.min(...items.map((i) => i.createdAt)),
+      items,
+    })),
+  ];
+  groups.sort((a, b) => a.at - b.at);
+  return groups.flatMap((g) => g.items);
+}
+
+async function stampIdExecucaoOnBaseActions(
+  baseId: number,
+  idExecucao: number
+): Promise<void> {
+  const manifest = await loadManifest();
+  for (const action of manifest.actions) {
+    if (
+      isColetaOutboxKind(action.kind) &&
+      action.baseId === baseId &&
+      action.state === "pending" &&
+      !action.idExecucao
+    ) {
+      await persistAction({ ...action, idExecucao });
+    }
+  }
+  await useColetaDaySnapshotStore.getState().patchEstadoBase(baseId, { idExecucao });
+}
+
+async function ensureColetaExecucao(action: OutboxDeliveryAction): Promise<number> {
+  if (action.idExecucao && action.idExecucao > 0) return action.idExecucao;
+  const snap = useColetaDaySnapshotStore.getState().snapshot;
+  const localId = snap?.estadoPorBaseId[action.baseId ?? 0]?.idExecucao;
+  if (localId && localId > 0) {
+    await stampIdExecucaoOnBaseActions(action.baseId ?? 0, localId);
+    return localId;
+  }
+
+  const baseId = action.baseId;
+  if (!baseId) {
+    throw new Error("Ação de coleta sem baseId.");
+  }
+  const dataOperacao = action.dataOperacao;
+  try {
+    const exec = await iniciarColetaOperacional(baseId, {
+      metodo: "codigo",
+      ...(dataOperacao ? { data_operacao: dataOperacao } : {}),
+    });
+    const id = Number(exec?.id_execucao) || 0;
+    if (id > 0) {
+      await stampIdExecucaoOnBaseActions(baseId, id);
+      return id;
+    }
+  } catch (e) {
+    if (axios.isAxiosError(e) && e.response?.status === 409) {
+      const detail = e.response.data?.detail as
+        | { pode_ajudar?: boolean; id_execucao?: number }
+        | string
+        | undefined;
+      if (detail && typeof detail === "object" && detail.pode_ajudar) {
+        const exec = await iniciarColetaOperacional(baseId, {
+          metodo: "codigo",
+          ajudar: true,
+          ...(dataOperacao ? { data_operacao: dataOperacao } : {}),
+        });
+        const id = Number(exec?.id_execucao) || 0;
+        if (id > 0) {
+          await stampIdExecucaoOnBaseActions(baseId, id);
+          return id;
+        }
+      }
+      if (detail && typeof detail === "object" && Number(detail.id_execucao) > 0) {
+        const id = Number(detail.id_execucao);
+        await stampIdExecucaoOnBaseActions(baseId, id);
+        return id;
+      }
+      // Já em coleta / já coletada: tenta obter id via resumo da base.
+      if (dataOperacao) {
+        try {
+          const resumo = await consultarResumoBaseColeta(baseId, dataOperacao);
+          const fromResumo = Number(resumo?.id_execucao) || 0;
+          if (fromResumo > 0) {
+            await stampIdExecucaoOnBaseActions(baseId, fromResumo);
+            return fromResumo;
+          }
+        } catch {
+          /* segue */
+        }
+      }
+      // Leituras ainda podem ir via lote (agregar cria execução); finalizar precisará de id.
+      return 0;
+    }
+    throw e;
+  }
+  return 0;
+}
+
+async function processColetaAction(action: OutboxDeliveryAction): Promise<void> {
+  const startedAt = Date.now();
+  let current: OutboxDeliveryAction = { ...action, state: "syncing" };
+  await persistAction(current);
+  auditSync("sync_start", current);
+
+  const baseId = current.baseId ?? 0;
+  const baseNome = (current.baseNome || "").trim();
+  if (!baseId || !baseNome) {
+    throw new Error("Ação de coleta incompleta (base).");
+  }
+
+  const idExecucao = await ensureColetaExecucao(current);
+  if (idExecucao > 0) {
+    current = { ...current, idExecucao };
+    await persistAction(current);
+  }
+
+  if (current.kind === "coleta_leitura") {
+    if (!current.item?.codigo) {
+      throw new Error("Leitura de coleta sem código.");
+    }
+    try {
+      await enviarColetaUnica({
+        base: baseNome,
+        item: {
+          codigo: current.item.codigo,
+          servico: current.item.servico as ServicoColeta,
+          ...(current.item.qr_payload_raw
+            ? { qr_payload_raw: current.item.qr_payload_raw }
+            : {}),
+          ...(current.item.is_grande ? { is_grande: true } : {}),
+        },
+        dataOperacao: current.dataOperacao,
+        clientActionId: current.clientActionId,
+      });
+    } catch (e) {
+      if (isColetaLoteEmAndamentoError(e)) {
+        // Outro request ainda processando o mesmo action id — retenta depois.
+        throw e;
+      }
+      if (!isColetaJaColetadoError(e)) throw e;
+      auditSync("sync_mark_already_finalized", current, "coleta_ja_coletado");
+    }
+    const prev =
+      useColetaDaySnapshotStore.getState().snapshot?.estadoPorBaseId[baseId] ||
+      emptyBaseLocalState();
+    await useColetaDaySnapshotStore.getState().patchEstadoBase(baseId, {
+      pendentesLeitura: Math.max(0, (prev.pendentesLeitura || 0) - 1),
+      idExecucao: idExecucao || prev.idExecucao,
+    });
+  } else if (current.kind === "coleta_finalizar") {
+    if (current.finalizarModo === "sem_volume") {
+      try {
+        await lancarColetaManualOperacional({
+          base_id: baseId,
+          data_operacao: current.dataOperacao || "",
+          shopee: 0,
+          mercado_livre: 0,
+          avulso: 0,
+          sem_volume: true,
+          origem_cliente: "mobile",
+        });
+      } catch (e) {
+        if (isColetaFinalizarIdempotentError(e)) {
+          auditSync("sync_mark_already_finalized", current, "coleta_sem_volume_409");
+        } else {
+          throw e;
+        }
+      }
+    } else {
+      let execId = current.idExecucao || idExecucao;
+      if (!execId || execId <= 0) {
+        execId = await ensureColetaExecucao(current);
+      }
+      if (!execId || execId <= 0) {
+        throw new Error("Não foi possível obter a execução para finalizar a coleta.");
+      }
+      try {
+        await finalizarColetaOperacional(execId, {
+          clientActionId: current.clientActionId,
+        });
+      } catch (e) {
+        if (isColetaFinalizarIdempotentError(e)) {
+          auditSync("sync_mark_already_finalized", current, "coleta_finalizar_409");
+        } else {
+          throw e;
+        }
+      }
+      await useColetaDaySnapshotStore.getState().patchEstadoBase(baseId, {
+        finalizadaLocal: true,
+        pendentesLeitura: 0,
+        idExecucao: execId,
+      });
+    }
+    await useColetaDaySnapshotStore.getState().patchEstadoBase(baseId, {
+      finalizadaLocal: true,
+      pendentesLeitura: 0,
+      modoFinalizar: current.finalizarModo || "coletado",
+    });
+  }
+
+  await removeAction(action.actionId);
+  auditSync("sync_ok", current);
+  trackSyncStage("api_ok", current, startedAt);
 }
 
 function obsoleteActionReason(e: unknown): string | null {
@@ -325,6 +615,11 @@ async function markActionOnServer(
 }
 
 async function processOneAction(action: OutboxDeliveryAction): Promise<void> {
+  if (isColetaOutboxKind(action.kind)) {
+    await processColetaAction(action);
+    return;
+  }
+
   const startedAt = Date.now();
   let current: OutboxDeliveryAction = { ...action, state: "syncing" };
   await persistAction(current);
@@ -379,7 +674,9 @@ export async function processOutboxQueue(): Promise<void> {
       useOutboxStore.getState().setLastSyncError(null);
     }
 
-    const queue = (await loadManifest()).actions.filter((a) => a.state === "pending");
+    const queue = orderOutboxQueue(
+      (await loadManifest()).actions.filter((a) => a.state === "pending")
+    );
 
     for (const action of queue) {
       if (!(await isOnline())) break;

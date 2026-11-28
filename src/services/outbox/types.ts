@@ -1,6 +1,11 @@
 import type { EntregueBody } from "../../features/entregas/api";
 
-export type OutboxActionKind = "entregue" | "ausente" | "devolucao";
+export type OutboxActionKind =
+  | "entregue"
+  | "ausente"
+  | "devolucao"
+  | "coleta_leitura"
+  | "coleta_finalizar";
 
 export type OutboxPhotoEntry = {
   localUri: string;
@@ -15,10 +20,18 @@ export function createPhotoId(): string {
 
 export type OutboxActionState = "pending" | "syncing" | "failed" | "done";
 
+export type ColetaLeituraItemPayload = {
+  codigo: string;
+  servico: string;
+  qr_payload_raw?: string;
+  is_grande?: boolean;
+};
+
 export type OutboxDeliveryAction = {
   actionId: string;
   clientActionId: string;
   kind: OutboxActionKind;
+  /** Entregas; vazio para ações de coleta. */
   idSaidas: number[];
   createdAt: number;
   attempts: number;
@@ -29,6 +42,13 @@ export type OutboxDeliveryAction = {
   observacao?: string;
   photos: OutboxPhotoEntry[];
   fotoObrigatoria: boolean;
+  /** PRD-020 coleta offline */
+  baseId?: number;
+  baseNome?: string;
+  dataOperacao?: string;
+  item?: ColetaLeituraItemPayload;
+  idExecucao?: number;
+  finalizarModo?: "coletado" | "sem_volume";
 };
 
 export type OutboxManifest = {
@@ -45,4 +65,8 @@ export function createActionId(): string {
 
 export function createClientActionId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+export function isColetaOutboxKind(kind: OutboxActionKind): boolean {
+  return kind === "coleta_leitura" || kind === "coleta_finalizar";
 }

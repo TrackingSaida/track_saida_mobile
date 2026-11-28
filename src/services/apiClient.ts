@@ -22,7 +22,9 @@ function isMutableScanPost(config: InternalAxiosRequestConfig): boolean {
   return (
     url.includes("/mobile/scan") ||
     /\/mobile\/entrega\/\d+\/assumir/.test(url) ||
-    (url.includes("/mobile/saida-sessoes/") && url.includes("/confirmar"))
+    (url.includes("/mobile/saida-sessoes/") && url.includes("/confirmar")) ||
+    // PRD-020: lote de coleta — não reexecutar após 401+refresh (evita bip/cobrança duplicada).
+    url.includes("/coletas/lote")
   );
 }
 

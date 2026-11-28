@@ -274,6 +274,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       /* ignore */
     }
+    try {
+      const { useColetaDaySnapshotStore } = await import("./coletaDaySnapshotStore");
+      await useColetaDaySnapshotStore.getState().clear();
+    } catch {
+      /* ignore */
+    }
     set({
       token: null,
       refreshToken: null,
